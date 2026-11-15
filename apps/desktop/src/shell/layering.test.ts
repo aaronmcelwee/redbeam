@@ -538,3 +538,19 @@ describe('agent writes', () => {
     expect(workspace).not.toContain('onDecide')
   })
 })
+
+describe('drawing context menus stay inside the viewport (issue #13)', () => {
+  /*
+   * A menu opened at the pointer near the bottom or right of the drawing lost
+   * its rows past the viewport's edge, which clips. Every such menu has to go
+   * through useClampedPopover; this fails if one is added without it.
+   */
+  it('gives every markup menu a clamp ref and its shift', () => {
+    const menus = [...workspace.matchAll(/<div\b[^>]*className="dockmenu markupmenu"[^>]*>/gs)].map((m) => m[0])
+    expect(menus.length).toBeGreaterThanOrEqual(2)
+    for (const tag of menus) {
+      expect(tag).toMatch(/ref=\{\w+Clamp\.ref\}/)
+      expect(tag).toMatch(/\.\.\.\w+Clamp\.style/)
+    }
+  })
+})
