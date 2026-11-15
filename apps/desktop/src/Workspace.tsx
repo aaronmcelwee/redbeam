@@ -60,6 +60,7 @@ import {
 import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
 import { newScope, SCOPE_PALETTE } from './shell/scopeFactory.js'
 import { SheetIndex } from './shell/SheetIndex.js'
+import { useClampedPopover } from './shell/popover.js'
 import type { SheetScope } from './shell/sheets.js'
 import { StatusToast } from './shell/StatusToast.js'
 import { PerfReadout } from './shell/PerfReadout.js'
@@ -922,6 +923,14 @@ export default function Workspace({
     /** Every convertible annotation on the sheet, for "convert all". */
     onSheet: number
   } | null>(null)
+  /*
+   * Both menus open at the pointer, and the viewport clips. Opened near the
+   * bottom or right edge of the drawing they lost their rows past it, so a
+   * right-click by the dock showed a header and nothing under it (issue #13).
+   * They slide back inside the viewport like every dock menu does.
+   */
+  const markupMenuClamp = useClampedPopover<HTMLDivElement>(markupMenu !== null, [markupMenu])
+  const annotMenuClamp = useClampedPopover<HTMLDivElement>(annotMenu !== null, [annotMenu, selectedAnnots])
   /*
    * A new sheet starts with nothing of the PDF's selected. The list itself
    * is fetched by the viewer's `onPage` below: an effect keyed on the
@@ -7325,7 +7334,12 @@ export default function Workspace({
               onPointerDown={(e) => { e.stopPropagation(); setAnnotMenu(null) }}
               onContextMenu={(e) => { e.preventDefault(); setAnnotMenu(null) }}
             />
-            <div className="dockmenu markupmenu" role="menu" style={{ left: annotMenu.x, top: annotMenu.y }}>
+            <div
+              ref={annotMenuClamp.ref}
+              className="dockmenu markupmenu"
+              role="menu"
+              style={{ left: annotMenu.x, top: annotMenu.y, ...annotMenuClamp.style }}
+            >
               {selectedAnnots.length > 0 && (() => {
                 const picked = annotsRef.current.filter((a) => selectedAnnots.includes(a.index))
                 return (
@@ -7450,9 +7464,10 @@ export default function Workspace({
                 onContextMenu={(e) => { e.preventDefault(); setMarkupMenu(null) }}
               />
               <div
+                ref={markupMenuClamp.ref}
                 className="dockmenu markupmenu"
                 role="menu"
-                style={{ left: markupMenu.x, top: markupMenu.y }}
+                style={{ left: markupMenu.x, top: markupMenu.y, ...markupMenuClamp.style }}
               >
                 <div className="menuhead">{count} markup{plural}</div>
 
