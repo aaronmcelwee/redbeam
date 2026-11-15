@@ -4,6 +4,15 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.10 — 2026-11-15
+
+### Right-click menus no longer get cut off
+
+- **The menu stays on screen.** Right-clicking a markup, or the drawing
+  itself, near the bottom or right edge of the sheet opened a menu whose
+  lower rows were hidden past the edge. The menu now slides back inside the
+  drawing area, the way the toolbar menus already did.
+
 ## 0.3.9 — 2026-11-14
 
 ### Count the panels and planks cut for devices
