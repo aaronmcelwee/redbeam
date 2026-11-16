@@ -93,7 +93,7 @@ import { projectCommands } from './palette/projects.js'
 import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
-import { embedDrawing, embedStatus, importSlice, openingStatus } from './export/drawingEmbed.js'
+import { embedDrawing, embedStatus, importSlice, migrateProjectTakeoffs, migrationStatus, openingStatus } from './export/drawingEmbed.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { ExportSheet } from './export/ExportSheet.js'
@@ -4275,6 +4275,48 @@ export default function Workspace({
     embedChainRef.current.set(docId, next)
     return next
   }, [documents, projectPath, setStatus])
+
+  /**
+   * Opening an older project carries its takeoffs into its drawings.
+   *
+   * Projects from before 0.3.7 keep their takeoff only in redbeam.db. Once the
+   * folder scan is done, every drawing with takeoff that has not been carried
+   * yet gets it embedded, through the same per-drawing queue as leaving a
+   * drawing so the two never write one file at once. redbeam.db is kept as
+   * the record; see migrateProjectTakeoffs. Desktop only, main window only
+   * (a popped-out context window shares the project), once per open.
+   */
+  const migratedForRef = useRef<string | null>(null)
+  useEffect(() => {
+    const db = dbRef.current
+    if (!db || scan !== 'done' || !projectBridge.desktop || quickView !== undefined) return
+    if (identity.role === 'context') return
+    if (migratedForRef.current === projectPath) return
+    migratedForRef.current = projectPath
+    void (async () => {
+      try {
+        const result = await migrateProjectTakeoffs({
+          db,
+          documents,
+          appVersion: APP_VERSION,
+          fileFor: (doc) => projectDrawingFile(projectBridge, projectPath, doc.relativePath),
+          exclusive: (docId, task) => {
+            let outcome: Awaited<ReturnType<typeof task>> = { kind: 'unchanged' }
+            const run = async () => { outcome = await task() }
+            const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(run, run)
+            embedChainRef.current.set(docId, next)
+            return next.then(() => outcome)
+          },
+          // Closing the project stops the pass; the rest go next open.
+          cancelled: () => dbRef.current !== db,
+        })
+        const text = migrationStatus(result)
+        if (text !== null && dbRef.current === db) setStatus(text)
+      } catch {
+        // redbeam.db still holds everything; leaving each drawing embeds it.
+      }
+    })()
+  }, [scan, documents, projectPath, quickView, identity.role, setStatus])
 
   /** Leaving a drawing (another tab, or closing it) saves its takeoff into it. */
   const leftDocRef = useRef<string | null>(null)
