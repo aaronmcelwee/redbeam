@@ -47,6 +47,8 @@ export interface AnnotBackend {
   line(annot: number): [AnnotPoint, AnnotPoint] | null
   /** FPDFAnnot_GetInkListPath for every path: an ink annotation's strokes. */
   inkPaths(annot: number): AnnotPoint[][]
+  /** FPDFAnnot_HasKey: whether the annotation's dictionary carries a key. */
+  hasKey(annot: number, key: string): boolean
   /** FPDFAnnot_GetStringValue for a dictionary key. '' when absent. */
   stringValue(annot: number, key: string): string
   /** FPDFAnnot_GetColor, the stroke colour, or null when unset. */
@@ -82,6 +84,19 @@ export interface PageAnnotation {
   name: string
   /** Stroke colour as #rrggbb, or null when the annotation states none. */
   color: string | null
+  /**
+   * The annotation carries Bluebeam's /Cutouts: an Area measurement with
+   * holes, stored as an array of vertex arrays beside /Vertices. PDFium has
+   * no call that reads an arbitrary array, so only the flag comes from here;
+   * whoever converts the annotation reads the holes from the file itself.
+   */
+  hasCutouts: boolean
+  /**
+   * The page box, in PDF page space, that every normalized value here was
+   * measured against. Raw page-space geometry read from the file by other
+   * means (the cutouts) is normalized against this same box.
+   */
+  pageBox: PageBox
 }
 
 /** FPDF_ANNOT_* as PDFium numbers them (fpdf_annot.h). */
@@ -169,6 +184,8 @@ export function extractPageAnnotations(backend: AnnotBackend, page: number, _ind
         author: backend.stringValue(a, 'T'),
         name: backend.stringValue(a, 'NM'),
         color: c === null ? null : `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`,
+        hasCutouts: subtype === POLYGON && backend.hasKey(a, 'Cutouts'),
+        pageBox: box,
       })
     } finally {
       backend.close(a)

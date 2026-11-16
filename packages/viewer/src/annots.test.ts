@@ -13,6 +13,7 @@ interface FakeAnnot {
   ink?: AnnotPoint[][]
   strings?: Record<string, string>
   color?: { r: number; g: number; b: number; a: number }
+  keys?: string[]
   refuse?: boolean
 }
 
@@ -29,6 +30,7 @@ function fake(annots: FakeAnnot[], box: PageBox = CENTRED): AnnotBackend & { ope
     vertices: (a) => annots[a - 1]!.vertices ?? [],
     line: (a) => annots[a - 1]!.line ?? null,
     inkPaths: (a) => annots[a - 1]!.ink ?? [],
+    hasKey: (a, key) => annots[a - 1]!.keys?.includes(key) ?? false,
     stringValue: (a, key) => annots[a - 1]!.strings?.[key] ?? '',
     color: (a) => annots[a - 1]!.color ?? null,
     pageBox: () => box,
@@ -56,6 +58,20 @@ describe('extractPageAnnotations', () => {
     expect(a!.contents).toBe('ACT-1')
     expect(a!.author).toBe('KM')
     expect(a!.color).toBe('#ff0080')
+  })
+
+  it('flags a Bluebeam area with cutouts and carries the page box', () => {
+    const b = fake([
+      { subtype: 7, rect: CENTRED, vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], keys: ['Cutouts'] },
+      { subtype: 7, rect: CENTRED, vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] },
+      { subtype: 8, rect: CENTRED, vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }], keys: ['Cutouts'] },
+    ])
+    const [holed, plain, line] = extractPageAnnotations(b, 1, 0)
+    expect(holed!.hasCutouts).toBe(true)
+    expect(plain!.hasCutouts).toBe(false)
+    // Only a polygon is an area; the key on anything else means nothing.
+    expect(line!.hasCutouts).toBe(false)
+    expect(holed!.pageBox).toEqual(CENTRED)
   })
 
   it('reads a line from its ends and an ink annotation from its strokes', () => {

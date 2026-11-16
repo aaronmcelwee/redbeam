@@ -369,6 +369,7 @@ function annotBackend(): AnnotBackend {
       }
       return out
     },
+    hasKey: (a, key) => typeof P.FPDFAnnot_HasKey === 'function' && Boolean(P.FPDFAnnot_HasKey(a, key)),
     stringValue: (a, key) => {
       // Bytes including the UTF-16 terminator; 2 means an empty string.
       const len = P.FPDFAnnot_GetStringValue(a, key, 0, 0) as number

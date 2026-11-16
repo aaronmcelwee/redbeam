@@ -96,6 +96,7 @@ import { exportMarkedPdf } from './export/markedPdf.js'
 import { embedDrawing, embedStatus, importSlice, migrateProjectTakeoffs, migrationStatus, openingStatus } from './export/drawingEmbed.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
+import { cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
 import {
   buildEstimateExport, estimateToCsv, estimateToTsv, exportFileName, type EstimateExport,
@@ -3745,30 +3746,64 @@ export default function Workspace({
    * length, and anything else (a circle, a highlight, a stamp, a text box) a
    * highlight over its box. The original stays in the PDF, untouched; the
    * markup remembers where it came from in its content.
+   *
+   * A Bluebeam area with cutouts keeps them: each of its /Cutouts becomes a
+   * cutout markup in the same scope, so the area nets out as it did in Revu.
+   * PDFium only flags them, so the file is read for the rings (pdfCutouts.ts),
+   * and only when a flagged area is among those converted.
    */
+  const documentsRef = useRef(documents)
+  documentsRef.current = documents
   const convertAnnotations = useCallback(async (list: PageAnnotation[], scopeId: string | null = activeScopeRef.current) => {
     const docId = docIdRef.current
+    const pageIndexNow = pageIndexRef.current
     const pageId = pageIdFor(docId, pageIndexRef.current)
+    let found: RawCutouts[] = []
+    let cutoutsUnread = false
+    if (list.some((a) => a.hasCutouts && kindForAnnotation(a) === 'area')) {
+      const doc = documentsRef.current.find((d) => d.id === docId)
+      try {
+        if (doc === undefined) throw new Error('no document')
+        found = await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), pageIndexNow)
+      } catch {
+        cutoutsUnread = true
+      }
+    }
     const cmds = []
+    let holes = 0
     for (const a of list) {
       const kind = kindForAnnotation(a)
+      const content = {
+        source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
+        contents: a.contents, author: a.author, color: a.color,
+      }
+      let made = false
       for (const ring of ringsForAnnotation(a)) {
         if (ring.length < (kind === 'polyline' ? 2 : 3)) continue
+        made = true
         cmds.push(cmdCreate({
           id: uid(), documentId: docId, pageId, scopeId, kind,
-          rings: [ring], origin: 'user', reviewState: 'accepted',
-          content: {
-            source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
-            contents: a.contents, author: a.author, color: a.color,
-          },
+          rings: [ring], origin: 'user', reviewState: 'accepted', content,
+        }))
+      }
+      if (!made || kind !== 'area') continue
+      for (const hole of cutoutsFor(a, found)) {
+        holes++
+        cmds.push(cmdCreate({
+          id: uid(), documentId: docId, pageId, scopeId, kind: 'cutout',
+          rings: [hole], origin: 'user', reviewState: 'accepted',
+          content: { ...content, cutoutOf: a.name },
         }))
       }
     }
     if (cmds.length === 0) { setStatus('nothing there to convert'); return }
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${cmds.length} PDF markups`, cmds))
     selectAnnots([])
-    setStatus(`${cmds.length} PDF markup${cmds.length === 1 ? '' : 's'} converted`)
-  }, [runCommand, selectAnnots])
+    const shapes = cmds.length - holes
+    setStatus(`${shapes} PDF markup${shapes === 1 ? '' : 's'} converted`
+      + (holes > 0 ? ` with ${holes} cutout${holes === 1 ? '' : 's'}` : '')
+      + (cutoutsUnread ? '. Their cutouts could not be read from the file' : ''))
+  }, [runCommand, selectAnnots, projectPath])
 
   /** Every convertible annotation on the open sheet, converted. */
   const convertSheetAnnotations = useCallback(async (scopeId: string | null = activeScopeRef.current) => {

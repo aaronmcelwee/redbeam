@@ -4,6 +4,19 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.12 — 2026-11-16
+
+### Bluebeam areas keep their cutouts when converted
+
+- **Converting a Bluebeam area brings its cutouts with it.** Revu stores an
+  area's holes inside the same markup, which REDBEAM didn't read, so a
+  converted area measured its whole outline. Now each cutout becomes a
+  REDBEAM cutout in the same scope, and the area nets out to the same square
+  footage Bluebeam shows. Checked on 8 areas with cutouts in a Revu-saved
+  drawing set: every net area matched Bluebeam's to the hundredth.
+- **The status bar says how many cutouts came across,** for example "3 PDF
+  markups converted with 1 cutout".
+
 ## 0.3.11 — 2026-11-16
 
 ### Older projects carry their takeoffs into their drawings
