@@ -4,7 +4,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PDFDocument } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
-import { embedDrawing, embedMarkupsFor, embedStatus, importSlice, openingStatus, sliceTables, type DrawingFile } from './drawingEmbed.js'
+import {
+  embedDrawing, embedMarkupsFor, embedStatus, importSlice, migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY,
+  openingStatus, sliceTables, type DrawingFile,
+} from './drawingEmbed.js'
 import { readSheetEmbed } from './sheetEmbed.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -127,5 +130,106 @@ describe('drawing embed', () => {
 
     // A database that already has markups for the drawing is never touched.
     expect(await importSlice(other.db, other.docId, reading.slice!)).toBeNull()
+  })
+})
+
+describe('opening an older project', () => {
+  let db: SqlJsDriver
+  let docId: string
+  beforeEach(async () => { ({ db, docId } = await freshDb()) })
+
+  const docs = (id: string, extra: Record<string, unknown> = {}) => [{ id, relativePath: 'A-101.pdf', displayName: 'A-101', ...extra }]
+
+  it('carries a takeoff that lives only in redbeam.db into the PDF, and keeps the database', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    expect((await readSheetEmbed(file.bytes)).slice).toBeNull()
+
+    const result = await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    expect(result.written).toEqual(['A-101'])
+    expect(migrationStatus(result)).toMatch(/older takeoff saved into A-101/)
+
+    const reading = await readSheetEmbed(file.bytes)
+    expect(reading.slice?.tables.markups).toHaveLength(1)
+    expect(reading.redbeamAnnots).toHaveLength(1)
+    // redbeam.db is untouched: the embed is a copy.
+    const left = await db.all<{ n: number }>('SELECT COUNT(*) AS n FROM markups WHERE deleted_at IS NULL')
+    expect(left[0]!.n).toBe(1)
+    const meta = await db.all<{ value: string }>('SELECT value FROM redbeam_meta WHERE key = ?', [MIGRATED_KEY])
+    expect(JSON.parse(meta[0]!.value)).toEqual([docId])
+  })
+
+  it('does it once: a second open neither reads nor writes the drawing', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    let reads = 0
+    const realRead = file.read
+    file.read = async () => { reads++; return realRead() }
+    await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    const again = await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    expect(again).toEqual({ written: [], retry: [] })
+    expect(migrationStatus(again)).toBeNull()
+    expect(file.writes).toBe(1)
+    expect(reads).toBe(1)
+  })
+
+  it('tries a drawing again next time when it could not be written, and loses nothing', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    const original = file.bytes
+    const realRead = file.read
+    file.read = async () => { const r = await realRead(); file.bump(); return r }
+    const first = await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    expect(first.retry.map((r) => r.outcome.kind)).toEqual(['busy'])
+    expect(migrationStatus(first)).toMatch(/try again next time/)
+    expect(file.bytes).toBe(original)
+    expect(await db.all('SELECT value FROM redbeam_meta WHERE key = ?', [MIGRATED_KEY])).toEqual([])
+
+    file.read = realRead
+    const second = await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    expect(second.written).toEqual(['A-101'])
+  })
+
+  it('reports a write that fails outright and leaves the file as it was', async () => {
+    await seedTakeoff(db, docId)
+    const file: DrawingFile = {
+      read: async () => ({ bytes: await blankPdf(), version: '0' }),
+      write: async () => { throw new Error('disk full') },
+    }
+    const out = await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    expect(out.retry).toEqual([{ name: 'A-101', outcome: { kind: 'failed', message: 'disk full' } }])
+  })
+
+  it('skips drawings with no takeoff, and missing files, without reading them', async () => {
+    const file = memoryFile(await blankPdf())
+    let reads = 0
+    file.read = async () => { reads++; return { bytes: file.bytes, version: '0' } }
+    await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    await seedTakeoff(db, docId)
+    await migrateProjectTakeoffs({ db, documents: docs(docId, { missing: true }), appVersion: 't', fileFor: () => file })
+    expect(reads).toBe(0)
+  })
+
+  it('leaves an already-embedded drawing byte-for-byte alone and marks it done', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    const out = await migrateProjectTakeoffs({ db, documents: docs(docId), appVersion: 't', fileFor: () => file })
+    expect(out).toEqual({ written: [], retry: [] })
+    expect(file.writes).toBe(1)
+    const meta = await db.all<{ value: string }>('SELECT value FROM redbeam_meta WHERE key = ?', [MIGRATED_KEY])
+    expect(JSON.parse(meta[0]!.value)).toEqual([docId])
+  })
+
+  it('queues each write through the caller\'s per-drawing lock', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    const locked: string[] = []
+    await migrateProjectTakeoffs({
+      db, documents: docs(docId), appVersion: 't', fileFor: () => file,
+      exclusive: async (id, task) => { locked.push(id); return task() },
+    })
+    expect(locked).toEqual([docId])
+    expect(file.writes).toBe(1)
   })
 })

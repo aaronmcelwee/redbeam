@@ -4,6 +4,23 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.11 — 2026-11-16
+
+### Older projects carry their takeoffs into their drawings
+
+- **Opening a project from before 0.3.7 updates its PDFs.** Those projects
+  kept every takeoff only in the project database (redbeam.db), so Bluebeam
+  showed bare sheets until each drawing had been opened and left in REDBEAM.
+  Now, once the folder has been read, every drawing with takeoff in the
+  database gets it saved into its PDF, the same way leaving a drawing does.
+  The status bar says how many drawings were updated.
+- **Nothing is taken out of redbeam.db.** The database stays the project's
+  record and keeps everything; the PDF gets a copy. A drawing that cannot be
+  written (open in Bluebeam, or changed while REDBEAM was reading it) is left
+  exactly as it was and tried again the next time the project opens.
+- **It happens once per drawing.** Drawings already done, drawings with no
+  takeoff and files missing from the folder are not read again.
+
 ## 0.3.10 — 2026-11-15
 
 ### Right-click menus no longer get cut off

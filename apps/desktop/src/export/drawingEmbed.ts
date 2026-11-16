@@ -216,6 +216,106 @@ export async function embedDrawing(opts: {
   }
 }
 
+/** The redbeam_meta key listing the drawings the on-open migration has finished. */
+export const MIGRATED_KEY = 'pdf_embed_migrated'
+
+export interface MigrationDrawing { id: string, relativePath: string, displayName: string, missing?: boolean }
+
+export interface MigrationResult {
+  /** Drawings whose PDF was written by this pass. */
+  written: string[]
+  /** Drawings that could not be written this time (open elsewhere, unreadable); retried next open. */
+  retry: Array<{ name: string, outcome: EmbedOutcome }>
+}
+
+async function readMigrated(db: SqlDriver): Promise<Set<string>> {
+  try {
+    const rows = await db.all<{ value: string }>('SELECT value FROM redbeam_meta WHERE key = ?', [MIGRATED_KEY])
+    const v = rows[0] === undefined ? [] : JSON.parse(rows[0].value) as unknown
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * Carry an older project's takeoffs into its drawings, once, when it opens.
+ *
+ * Projects from before 0.3.7 keep every takeoff only in redbeam.db; their PDFs
+ * carry nothing, so Bluebeam (or another job folder) sees a bare sheet until
+ * someone happens to open and leave each drawing in REDBEAM. This pass embeds
+ * every drawing that has takeoff in the database and has not been done yet.
+ *
+ * Nothing is moved OUT of redbeam.db: it stays the record and the embed is a
+ * copy, so a failed or refused write loses nothing. Each write is the same
+ * guarded one as leaving a drawing (incremental update, refused if the file
+ * changed since it was read, temp file + rename on disk). A drawing is marked
+ * done only once its PDF holds the takeoff or there was nothing to write, so a
+ * drawing open in Bluebeam is simply tried again next time. Running it twice
+ * is harmless: an already-embedded drawing comes back `unchanged`.
+ *
+ * `exclusive` lets the caller queue each write behind any other write to the
+ * same drawing (leaving it, closing it) so two never race.
+ */
+export async function migrateProjectTakeoffs(opts: {
+  db: SqlDriver
+  documents: readonly MigrationDrawing[]
+  appVersion: string
+  fileFor: (doc: MigrationDrawing) => DrawingFile
+  exclusive?: (docId: string, task: () => Promise<EmbedOutcome>) => Promise<EmbedOutcome>
+  cancelled?: () => boolean
+}): Promise<MigrationResult> {
+  const result: MigrationResult = { written: [], retry: [] }
+  let withTakeoff: Set<string>
+  try {
+    const rows = await opts.db.all<{ id: string }>(
+      'SELECT DISTINCT document_id AS id FROM markups WHERE deleted_at IS NULL')
+    withTakeoff = new Set(rows.map((r) => r.id))
+  } catch {
+    return result
+  }
+  const done = await readMigrated(opts.db)
+  const todo = opts.documents.filter((d) => withTakeoff.has(d.id) && !done.has(d.id) && d.missing !== true)
+  if (todo.length === 0) return result
+
+  for (const doc of todo) {
+    if (opts.cancelled?.() === true) break
+    const name = doc.displayName || doc.relativePath
+    const task = () => embedDrawing({
+      db: opts.db, documentId: doc.id, relativePath: doc.relativePath, displayName: name,
+      appVersion: opts.appVersion, file: opts.fileFor(doc),
+    })
+    const outcome = opts.exclusive === undefined ? await task() : await opts.exclusive(doc.id, task)
+    if (outcome.kind === 'written') result.written.push(name)
+    if (outcome.kind === 'busy' || outcome.kind === 'failed') {
+      result.retry.push({ name, outcome })
+      continue
+    }
+    done.add(doc.id)
+    // Recorded after every drawing, so quitting halfway keeps what was done.
+    await opts.db.run('INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES(?, ?)',
+      [MIGRATED_KEY, JSON.stringify([...done].sort())])
+  }
+  return result
+}
+
+/** A short line for the status bar after the on-open migration, or null for silence. */
+export function migrationStatus(result: MigrationResult): string | null {
+  const parts: string[] = []
+  if (result.written.length > 0) {
+    parts.push(result.written.length === 1
+      ? `older takeoff saved into ${result.written[0]}`
+      : `older takeoffs saved into ${result.written.length} drawings`)
+  }
+  if (result.retry.length > 0) {
+    const first = result.retry[0]!
+    parts.push(result.retry.length === 1
+      ? `${first.name} could not take its takeoff yet (open in Bluebeam?); REDBEAM will try again next time the project opens`
+      : `${result.retry.length} drawings could not take their takeoff yet (open in Bluebeam?); REDBEAM will try again next time the project opens`)
+  }
+  return parts.length === 0 ? null : parts.join('. ')
+}
+
 /** Order matters: a row's parents go in before it does. */
 const IMPORT_ORDER = ['scopes', 'calibrations', 'scale_regions', 'markups',
   'calculation_runs', 'quantity_results', 'layout_components'] as const
