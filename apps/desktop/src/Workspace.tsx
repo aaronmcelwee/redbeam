@@ -111,6 +111,7 @@ import {
   hiddenOnPage, hiddenStorageKey, hideAll, hideAnnotation, parseHiddenBook, showHidden,
   visibleAnnotations, type HiddenBook,
 } from './tools/foreignMarkups.js'
+import { readAnnotCutouts } from './tools/annotCutouts.js'
 import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
@@ -3745,30 +3746,65 @@ export default function Workspace({
    * length, and anything else (a circle, a highlight, a stamp, a text box) a
    * highlight over its box. The original stays in the PDF, untouched; the
    * markup remembers where it came from in its content.
+   *
+   * A Bluebeam area with cutouts comes over as an area plus one cutout markup
+   * per opening, in the same scope: the way a cutout drawn here is kept, so
+   * the net area matches Revu's and each opening can be edited on its own.
    */
   const convertAnnotations = useCallback(async (list: PageAnnotation[], scopeId: string | null = activeScopeRef.current) => {
     const docId = docIdRef.current
+    const pageIndex = pageIndexRef.current
     const pageId = pageIdFor(docId, pageIndexRef.current)
+
+    // Revu's openings live in a key PDFium cannot read; fetch them from the file.
+    const withCutouts = list.filter((a) => a.hasCutouts && kindForAnnotation(a) === 'area')
+    let openings = new Map<number, Array<Array<{ x: number; y: number }>>>()
+    let openingsLost = false
+    if (withCutouts.length > 0) {
+      const doc = documents.find((d) => d.id === docId)
+      try {
+        if (doc === undefined || !projectBridge.desktop) throw new Error('no file to read')
+        const bytes = await projectBridge.readDocument(projectPath, doc.relativePath)
+        openings = await readAnnotCutouts(bytes, pageIndex, withCutouts.map((a) => ({ index: a.index, name: a.name })))
+      } catch {
+        openingsLost = true
+      }
+    }
+
     const cmds = []
+    let cutouts = 0
     for (const a of list) {
       const kind = kindForAnnotation(a)
+      const content = {
+        source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
+        contents: a.contents, author: a.author, color: a.color,
+      }
       for (const ring of ringsForAnnotation(a)) {
         if (ring.length < (kind === 'polyline' ? 2 : 3)) continue
         cmds.push(cmdCreate({
           id: uid(), documentId: docId, pageId, scopeId, kind,
-          rings: [ring], origin: 'user', reviewState: 'accepted',
-          content: {
-            source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
-            contents: a.contents, author: a.author, color: a.color,
-          },
+          rings: [ring], origin: 'user', reviewState: 'accepted', content,
+        }))
+      }
+      if (kind !== 'area') continue
+      for (const hole of openings.get(a.index) ?? []) {
+        if (hole.length < 3) continue
+        cutouts++
+        cmds.push(cmdCreate({
+          id: uid(), documentId: docId, pageId, scopeId, kind: 'cutout',
+          rings: [hole], origin: 'user', reviewState: 'accepted',
+          content: { ...content, subtype: 'Cutout', parentName: a.name },
         }))
       }
     }
     if (cmds.length === 0) { setStatus('nothing there to convert'); return }
-    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${cmds.length} PDF markups`, cmds))
+    const markups = cmds.length - cutouts
+    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${markups} PDF markups`, cmds))
     selectAnnots([])
-    setStatus(`${cmds.length} PDF markup${cmds.length === 1 ? '' : 's'} converted`)
-  }, [runCommand, selectAnnots])
+    const cutText = cutouts > 0 ? ` with ${cutouts} cutout${cutouts === 1 ? '' : 's'}` : ''
+    const lostText = openingsLost ? '. Their Bluebeam cutouts could not be read from the file, so the areas are gross' : ''
+    setStatus(`${markups} PDF markup${markups === 1 ? '' : 's'} converted${cutText}${lostText}`)
+  }, [documents, projectPath, runCommand, selectAnnots])
 
   /** Every convertible annotation on the open sheet, converted. */
   const convertSheetAnnotations = useCallback(async (scopeId: string | null = activeScopeRef.current) => {

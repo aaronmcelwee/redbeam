@@ -49,6 +49,11 @@ export interface AnnotBackend {
   inkPaths(annot: number): AnnotPoint[][]
   /** FPDFAnnot_GetStringValue for a dictionary key. '' when absent. */
   stringValue(annot: number, key: string): string
+  /**
+   * FPDFAnnot_HasKey. Optional: a backend without it reports no key, and a
+   * fake in a test need not grow one.
+   */
+  hasKey?(annot: number, key: string): boolean
   /** FPDFAnnot_GetColor, the stroke colour, or null when unset. */
   color(annot: number): { r: number; g: number; b: number; a: number } | null
   /** The page's own box. */
@@ -82,6 +87,12 @@ export interface PageAnnotation {
   name: string
   /** Stroke colour as #rrggbb, or null when the annotation states none. */
   color: string | null
+  /**
+   * The annotation carries Bluebeam's /Cutouts: an area measurement with
+   * openings. PDFium cannot read the array itself, so whoever converts the
+   * annotation reads the openings from the file (annotCutouts.ts in the app).
+   */
+  hasCutouts: boolean
 }
 
 /** FPDF_ANNOT_* as PDFium numbers them (fpdf_annot.h). */
@@ -169,6 +180,7 @@ export function extractPageAnnotations(backend: AnnotBackend, page: number, _ind
         author: backend.stringValue(a, 'T'),
         name: backend.stringValue(a, 'NM'),
         color: c === null ? null : `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`,
+        hasCutouts: subtype === POLYGON && backend.hasKey?.(a, 'Cutouts') === true,
       })
     } finally {
       backend.close(a)

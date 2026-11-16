@@ -382,6 +382,7 @@ function annotBackend(): AnnotBackend {
         free(ptr)
       }
     },
+    hasKey: (a, key) => Boolean(P.FPDFAnnot_HasKey(a, key)),
     color: (a) => {
       const ptr = malloc(16)
       try {

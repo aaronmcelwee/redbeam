@@ -4,6 +4,20 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## Unreleased
+
+### Bluebeam areas come over with their cutouts
+
+- **Converting a Bluebeam area keeps its openings.** Right-click > convert
+  took only the outer boundary of a Revu area measurement, so every cutout
+  came back as floor and the area read gross. Each Revu cutout now becomes a
+  REDBEAM cutout in the same scope, and the net area matches the figure Revu
+  shows (checked against a Revu-saved RCP: 4,668.74 sf both ways).
+- **The cutouts are ordinary REDBEAM cutouts.** They can be selected, moved
+  or deleted one by one, like a cutout drawn in REDBEAM.
+- **The PDF is not changed.** If the file cannot be read for the cutouts,
+  the area still converts and the status bar says it is gross.
+
 ## 0.3.11 — 2026-11-16
 
 ### Older projects carry their takeoffs into their drawings

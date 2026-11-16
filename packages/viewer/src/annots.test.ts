@@ -13,6 +13,7 @@ interface FakeAnnot {
   ink?: AnnotPoint[][]
   strings?: Record<string, string>
   color?: { r: number; g: number; b: number; a: number }
+  keys?: string[]
   refuse?: boolean
 }
 
@@ -31,11 +32,24 @@ function fake(annots: FakeAnnot[], box: PageBox = CENTRED): AnnotBackend & { ope
     inkPaths: (a) => annots[a - 1]!.ink ?? [],
     stringValue: (a, key) => annots[a - 1]!.strings?.[key] ?? '',
     color: (a) => annots[a - 1]!.color ?? null,
+    hasKey: (a, key) => annots[a - 1]!.keys?.includes(key) ?? false,
     pageBox: () => box,
   }
 }
 
 describe('extractPageAnnotations', () => {
+  it('flags a polygon carrying Bluebeam cutouts, and only a polygon', () => {
+    const square = { left: 0, bottom: 0, right: 10, top: 10 }
+    const tri = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]
+    const list = extractPageAnnotations(fake([
+      { subtype: 7, rect: square, vertices: tri, keys: ['Cutouts'] },
+      { subtype: 7, rect: square, vertices: tri },
+      { subtype: 5, rect: square, keys: ['Cutouts'] },
+    ]), 1, 0)
+    expect(list.map((a) => a.hasCutouts)).toEqual([true, false, false])
+  })
+
+
   it('normalizes a polygon to the page box, origin-centred included', () => {
     const b = fake([{
       subtype: 7,
