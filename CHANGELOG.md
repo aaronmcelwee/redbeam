@@ -4,7 +4,7 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
-## 0.3.13 — 2026-11-17
+## 0.3.14 — 2026-11-17
 
 ### Change many markups at once, from the drawing or the list
 
@@ -26,6 +26,23 @@ SmartScreen will ask once.
   replacing it, so markups from two corners of a sheet can be picked together.
 - **A change that can't be saved or undone says why** in the status bar
   instead of silently doing nothing.
+
+## 0.3.13 — 2026-11-17
+
+### A converted Bluebeam area is one shape with its holes
+
+- **One area, holes and all.** 0.3.12 brought a Bluebeam area's cutouts in
+  as separate cutout markups beside the area, so the outline and the
+  openings did not form one shape. Now each converted area is a single
+  REDBEAM area with its openings cut out of it, the way Revu keeps it. An
+  opening wholly inside is a hole; one across the edge becomes a notch.
+- **The hole is really a hole.** The fill leaves the opening clear, the
+  selection outline includes it, clicking inside the opening doesn't pick
+  the area, and moving or reshaping the area carries its holes along.
+- **The numbers are net.** The markup list, the marked-up PDF export and the
+  drawing's Bluebeam copy all show the area less its openings. Checked on the
+  8 areas with cutouts in a Revu-saved set: each converts to one area whose
+  square footage matches Bluebeam's.
 
 ## 0.3.12 — 2026-11-16
 

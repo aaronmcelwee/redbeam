@@ -99,7 +99,7 @@ import { exportMarkedPdf } from './export/markedPdf.js'
 import { embedDrawing, embedStatus, importSlice, migrateProjectTakeoffs, migrationStatus, openingStatus } from './export/drawingEmbed.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
-import { cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
+import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
 import {
   buildEstimateExport, estimateToCsv, estimateToTsv, exportFileName, type EstimateExport,
@@ -850,7 +850,7 @@ export default function Workspace({
     // stays a rectangle. Any other edge drag moves the markup.
     | { mode: 'edge'; id: string; index: number }
     | { mode: 'move'; ids: string[]; lastN: { x: number; y: number }
-        origins: Map<string, Array<{ x: number; y: number }>> }
+        origins: Map<string, Array<Array<{ x: number; y: number }>>> }
     | null
   >(null)
   const snapRef = useRef<SnapResult | null>(null)
@@ -3107,20 +3107,23 @@ export default function Workspace({
   ) => {
     if (!undoRef.current || !before) return
     if (JSON.stringify(before) === JSON.stringify(ring)) return   // no-op drag
-    await runCommand(cmdEditGeometry(id, [before], [ring], what))
+    // Editing reshapes the outline, rings[0]. An area's other rings are its
+    // holes (a converted Bluebeam area, a traced region) and ride along.
+    const rest = markupsRef.current.find((m) => m.id === id)?.rings.slice(1) ?? []
+    await runCommand(cmdEditGeometry(id, [before, ...rest], [ring, ...rest], what))
   }, [runCommand])
 
   /** Commit a multi-markup move as a single undoable step. */
   const commitMove = useCallback(async (
     ids: string[],
-    origins: Map<string, Array<{ x: number; y: number }>>,
+    origins: Map<string, Array<Array<{ x: number; y: number }>>>,
   ) => {
     const cmds = ids.flatMap((id) => {
       const before = origins.get(id)
-      const after = markupsRef.current.find((m) => m.id === id)?.rings[0]
-      if (!before || !after) return []
+      const after = markupsRef.current.find((m) => m.id === id)?.rings
+      if (!before || !after || after.length === 0) return []
       if (JSON.stringify(before) === JSON.stringify(after)) return []
-      return [cmdEditGeometry(id, [before], [after], 'move markup')]
+      return [cmdEditGeometry(id, before, after, 'move markup')]
     })
     if (cmds.length === 0) return
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`move ${cmds.length} markups`, cmds))
@@ -3128,7 +3131,14 @@ export default function Workspace({
 
   /** Apply a live (unsaved) ring so dragging feels immediate. */
   const previewGeometry = useCallback((id: string, ring: Array<{ x: number; y: number }>) => {
-    setMarkups((cur) => cur.map((m) => (m.id === id ? { ...m, rings: [ring] } : m)))
+    setMarkups((cur) => cur.map((m) => (m.id === id ? { ...m, rings: [ring, ...m.rings.slice(1)] } : m)))
+  }, [])
+
+  /** A live move: every ring of the markup, holes included, shifts together. */
+  const previewMove = useCallback((id: string, dx: number, dy: number) => {
+    setMarkups((cur) => cur.map((m) => (m.id === id
+      ? { ...m, rings: m.rings.map((r) => r.map((p) => ({ x: p.x + dx, y: p.y + dy }))) }
+      : m)))
   }, [])
 
   /**
@@ -3296,10 +3306,10 @@ export default function Workspace({
           const movingIds = selectedRef.current.includes(hit.markupId)
             ? selectedRef.current
             : [hit.markupId]
-          const origins = new Map<string, Array<{ x: number; y: number }>>()
+          const origins = new Map<string, Array<Array<{ x: number; y: number }>>>()
           for (const id of movingIds) {
             const mm = markupsRef.current.find((x) => x.id === id)
-            if (mm?.rings[0]) origins.set(id, mm.rings[0].map((pt) => ({ ...pt })))
+            if (mm?.rings[0]) origins.set(id, mm.rings.map((r) => r.map((pt) => ({ ...pt }))))
           }
           editRef.current = { mode: 'move', ids: movingIds, lastN: n, origins }
         }
@@ -3558,11 +3568,7 @@ export default function Workspace({
         } else {
           const dx = n.x - ed.lastN.x
           const dy = n.y - ed.lastN.y
-          for (const id of ed.ids) {
-            const cur = markupsRef.current.find((x) => x.id === id)?.rings[0]
-            if (!cur) continue
-            previewGeometry(id, cur.map((p) => ({ x: p.x + dx, y: p.y + dy })))
-          }
+          for (const id of ed.ids) previewMove(id, dx, dy)
           ed.lastN = n
         }
         requestPaint()
@@ -3835,10 +3841,14 @@ export default function Workspace({
    * highlight over its box. The original stays in the PDF, untouched; the
    * markup remembers where it came from in its content.
    *
-   * A Bluebeam area with cutouts keeps them: each of its /Cutouts becomes a
-   * cutout markup in the same scope, so the area nets out as it did in Revu.
-   * PDFium only flags them, so the file is read for the rings (pdfCutouts.ts),
-   * and only when a flagged area is among those converted.
+   * A Bluebeam area with cutouts stays ONE area with holes in it, the way
+   * Revu keeps it: its rings are the outline with every /Cutouts opening
+   * subtracted (clip.ts), so an opening across the edge becomes a notch and
+   * one inside a hole, and the area measures, draws, moves and embeds as a
+   * single shape. Aaron, 2026-11-17: separate cutout markups beside the area
+   * "do not together form a boolean shape". PDFium only flags the openings,
+   * so the file is read for them (pdfCutouts.ts), and only when a flagged
+   * area is among those converted.
    */
   const documentsRef = useRef(documents)
   documentsRef.current = documents
@@ -3859,37 +3869,32 @@ export default function Workspace({
     }
     const cmds = []
     let holes = 0
+    let holed = 0
     for (const a of list) {
       const kind = kindForAnnotation(a)
       const content = {
         source: 'pdf-annotation', subtype: a.subtypeName, subject: a.subject,
         contents: a.contents, author: a.author, color: a.color,
       }
-      let made = false
+      const openings = kind === 'area' ? cutoutsFor(a, found) : []
       for (const ring of ringsForAnnotation(a)) {
         if (ring.length < (kind === 'polyline' ? 2 : 3)) continue
-        made = true
+        const rings = areaWithCutouts(ring, openings)
+        if (rings.length === 0) continue
+        if (openings.length > 0) { holes += openings.length; holed++ }
         cmds.push(cmdCreate({
           id: uid(), documentId: docId, pageId, scopeId, kind,
-          rings: [ring], origin: 'user', reviewState: 'accepted', content,
-        }))
-      }
-      if (!made || kind !== 'area') continue
-      for (const hole of cutoutsFor(a, found)) {
-        holes++
-        cmds.push(cmdCreate({
-          id: uid(), documentId: docId, pageId, scopeId, kind: 'cutout',
-          rings: [hole], origin: 'user', reviewState: 'accepted',
-          content: { ...content, cutoutOf: a.name },
+          rings, origin: 'user', reviewState: 'accepted',
+          content: openings.length === 0 ? content : { ...content, cutouts: openings.length },
         }))
       }
     }
     if (cmds.length === 0) { setStatus('nothing there to convert'); return }
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${cmds.length} PDF markups`, cmds))
     selectAnnots([])
-    const shapes = cmds.length - holes
+    const shapes = cmds.length
     setStatus(`${shapes} PDF markup${shapes === 1 ? '' : 's'} converted`
-      + (holes > 0 ? ` with ${holes} cutout${holes === 1 ? '' : 's'}` : '')
+      + (holes > 0 ? `, ${holed === 1 ? 'one area' : `${holed} areas`} with ${holes} cutout${holes === 1 ? '' : 's'}` : '')
       + (cutoutsUnread ? '. Their cutouts could not be read from the file' : ''))
   }, [runCommand, selectAnnots, projectPath])
 

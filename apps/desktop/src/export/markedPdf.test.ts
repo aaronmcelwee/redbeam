@@ -64,6 +64,14 @@ describe('noteFor', () => {
       .toBe('775.5 SF')
   })
 
+  it('states an area with holes net of them', () => {
+    const outer = [{ x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 0.5, y: 0.5 }, { x: 0, y: 0.5 }]
+    const hole = [{ x: 0.1, y: 0.1 }, { x: 0.2, y: 0.1 }, { x: 0.2, y: 0.2 }, { x: 0.1, y: 0.2 }]
+    // 306x396 pt less 61.2x79.2 pt, at 0.1 ft/pt: 1,211.76 - 48.47 sf.
+    expect(noteFor({ id: 'm', pageId: 'p', scopeId: 's', kind: 'area', rings: [outer, hole] }, 0.1, box))
+      .toBe('1,163.3 SF')
+  })
+
   it('says a page is uncalibrated rather than showing points as feet', () => {
     // A number in the wrong units is worse than no number: it gets quoted.
     const m = { id: 'm', pageId: 'p', scopeId: 's', kind: 'area', rings: [ring] }

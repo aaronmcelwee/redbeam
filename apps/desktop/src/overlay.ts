@@ -19,6 +19,10 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
       cx /= ring.length; cy /= ring.length
       set.polygons.push({
         poly: ring.map((p) => [p.x, p.y] as [number, number]),
+        // An area's further rings are its holes: drawn as openings in its fill.
+        ...(m.kind === 'area' && m.rings.length > 1
+          ? { holes: m.rings.slice(1).map((r) => r.map((p) => [p.x, p.y] as [number, number])) }
+          : {}),
         fill: color,
         stroke: color,
         // cutouts read as openings: no fill, dashed edge
