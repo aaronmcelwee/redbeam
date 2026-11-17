@@ -136,14 +136,16 @@ export function drawTakeoff(
       continue
     }
     ctx.beginPath()
-    ring.forEach((p, i) => { const s = at(p); if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y) })
-    if (m.kind === 'area' || m.kind === 'cutout') {
-      ctx.closePath()
-      if (m.kind === 'area') {
-        ctx.globalAlpha = 0.22
-        ctx.fillStyle = color
-        ctx.fill()
-      }
+    // An area's further rings are its holes: traced with it and filled
+    // even-odd, so the opening shows the sheet.
+    for (const r of m.kind === 'area' ? m.rings : [ring]) {
+      r.forEach((p, i) => { const s = at(p); if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y) })
+      if (m.kind === 'area' || m.kind === 'cutout') ctx.closePath()
+    }
+    if (m.kind === 'area') {
+      ctx.globalAlpha = 0.22
+      ctx.fillStyle = color
+      ctx.fill('evenodd')
     }
     ctx.globalAlpha = 1
     ctx.strokeStyle = color

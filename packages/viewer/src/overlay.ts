@@ -59,15 +59,19 @@ export function drawOverlay(
     if (cx < -120 || cy < -120 || cx > vw + 120 || cy > vh + 120) { culled++; continue }
 
     ctx.beginPath()
-    for (let i = 0; i < p.poly.length; i++) {
-      const v = p.poly[i]!
-      const X = px(v[0]), Y = py(v[1])
-      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y)
+    for (const ring of p.holes === undefined ? [p.poly] : [p.poly, ...p.holes]) {
+      for (let i = 0; i < ring.length; i++) {
+        const v = ring[i]!
+        const X = px(v[0]), Y = py(v[1])
+        if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y)
+      }
+      ctx.closePath()
     }
-    ctx.closePath()
     ctx.globalAlpha = p.fillOpacity
     ctx.fillStyle = p.fill
-    ctx.fill()
+    // Even-odd: a hole ring inside the outline is left unfilled, whichever
+    // way either ring winds.
+    ctx.fill('evenodd')
     ctx.globalAlpha = p.strokeOpacity
     ctx.strokeStyle = p.stroke
     ctx.lineWidth = p.strokeWidth * scale

@@ -221,6 +221,12 @@ export interface LineOverlay {
 export interface PolygonOverlay {
   /** Normalized [0,1] ring. */
   poly: Array<[number, number]>
+  /**
+   * More normalized rings of the same shape: an area's holes (or, after an
+   * opening split it, its other pieces). Filled even-odd with `poly`, so a
+   * hole shows the sheet through it, and stroked like the outline.
+   */
+  holes?: Array<Array<[number, number]>>
   fill: string
   stroke: string
   fillOpacity: number

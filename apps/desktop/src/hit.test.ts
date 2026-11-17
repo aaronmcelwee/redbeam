@@ -64,6 +64,14 @@ describe('hitTest', () => {
     expect(h).toEqual({ markupId: 'sq', part: 'edge', index: 0 })
   })
 
+  it('misses an area in its hole: the hole is the sheet', () => {
+    const holed: Markup = { ...square, id: 'holed', rings: [square.rings[0]!, [
+      { x: 0.15, y: 0.15 }, { x: 0.25, y: 0.15 }, { x: 0.25, y: 0.25 }, { x: 0.15, y: 0.25 },
+    ]] }
+    expect(hitTest(200, 200, [holed], view, W, H)).toBeNull()
+    expect(hitTest(120, 200, [holed], view, W, H)).toEqual({ markupId: 'holed', part: 'inside', index: -1 })
+  })
+
   it('hits the interior', () => {
     expect(hitTest(200, 200, [square], view, W, H)).toEqual({ markupId: 'sq', part: 'inside', index: -1 })
   })
