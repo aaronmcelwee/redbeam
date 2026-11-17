@@ -3038,7 +3038,13 @@ html[data-backdrop="tabbed"] .prefs {
 .es-hdsub > span { white-space: nowrap; }
 .es-rename { height: 24px; font-size: 14px; font-weight: 600; width: 100%; }
 /* The MenuFlyout under the ⋯: the shared menu surface, anchored to the header. */
-.es-menu { position: absolute; top: calc(100% - 4px); right: var(--rb-pad-row); z-index: 120; min-width: 210px; }
+/*
+ * `bottom: auto` matters: .dockmenu hangs its menus ABOVE the dock with
+ * `bottom`, and a menu that also set `top` without clearing it was stretched
+ * between the two — a negative height, so every ⋯ menu rendered as a ~10px
+ * sliver that had to be scrolled (Aaron, 2026-11-17).
+ */
+.es-menu { position: absolute; top: calc(100% - 4px); bottom: auto; right: var(--rb-pad-row); z-index: 120; min-width: 210px; }
 .es-menu.es-context { position: fixed; top: auto; right: auto; }
 .es-menu .menuitem { min-height: 28px; font-size: 12px; }
 /* The scope colour: a round Button that opens the colour picker. */
