@@ -4,6 +4,16 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.15 — 2026-11-17
+
+### Menus open at full size again
+
+- **The ⋯ menus show all their items.** The menus behind the ⋯ buttons in the
+  estimates sidebar and the Export sheet, the right-click menu on an estimate
+  round, and the right-click menu on a project on the start screen opened as a
+  sliver a few pixels tall that had to be scrolled through. They now open to
+  fit their items, and only scroll when they're taller than most of the window.
+
 ## 0.3.14 — 2026-11-17
 
 ### Change many markups at once, from the drawing or the list

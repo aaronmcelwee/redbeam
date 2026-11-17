@@ -435,7 +435,10 @@ h4 {
 .st-drop b { color: var(--rb-ink-2); }
 .st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }
 .st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-4); font-size: 11px; }
-.st-menu { position: fixed; z-index: 120; min-width: 230px; }
+/* Compound, so it outranks shell.css's bare .dockmenu whatever order the
+ * bundler loads the sheets in; and `bottom: auto`, or the dock menu's
+ * `bottom` and this menu's inline `top` squeeze it to a sliver. */
+.dockmenu.st-menu { position: fixed; bottom: auto; z-index: 120; min-width: 230px; }
 
 /* The scale picker and the list of a sheet's regions are the Contents pane's
    and the dock's now — shell.css, "the scale picker, as a column of its
