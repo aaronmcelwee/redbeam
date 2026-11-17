@@ -70,8 +70,13 @@ export function hitTest(
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
     if (m.kind !== 'area' && m.kind !== 'cutout' && m.kind !== 'shape') continue
-    const ring = toScreenRing(m.rings[0] ?? [], view, pageW, pageH)
-    if (pointInPolygon(p, ring)) return { markupId: m.id, part: 'inside', index: -1 }
+    // Even-odd over every ring, so a click in an area's hole is not a click
+    // on the area: the hole is the sheet.
+    let inside = false
+    for (const r of m.kind === 'area' ? m.rings : m.rings.slice(0, 1)) {
+      if (pointInPolygon(p, toScreenRing(r, view, pageW, pageH))) inside = !inside
+    }
+    if (inside) return { markupId: m.id, part: 'inside', index: -1 }
   }
 
   // count markups have no edges or interior — treat a near-miss as a hit
@@ -124,11 +129,17 @@ function drawOne(
 
   ctx.save()
 
-  // halo so the selection reads against any drawing
+  // halo so the selection reads against any drawing; an area's holes too
   if (ring.length >= 2) {
     ctx.beginPath()
-    ring.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
-    if (markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape') ctx.closePath()
+    const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape'
+    const outlined = markup.kind === 'area'
+      ? [ring, ...markup.rings.slice(1).map((r) => toScreenRing(r, view, pageW, pageH))]
+      : [ring]
+    for (const r of outlined) {
+      r.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+      if (closed) ctx.closePath()
+    }
     ctx.strokeStyle = 'rgba(57,162,255,0.9)'
     ctx.lineWidth = 3
     ctx.setLineDash([])

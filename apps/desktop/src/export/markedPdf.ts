@@ -10,7 +10,7 @@
  * WebView2 download, or a real PDF on disk.
  */
 import { pageNumberFrom } from '@redbeam/store'
-import { polylineLength, signedPolygonArea, squarePointsToSquareFeet } from '@redbeam/domain'
+import { polylineLength, regionArea, squarePointsToSquareFeet } from '@redbeam/domain'
 import { writeMarkupsToPdf, type WritableMarkup } from './pdfMarkup.js'
 
 export interface ExportableMarkup {
@@ -66,8 +66,9 @@ export function noteFor(
   }
   if (ring.length < 3) return ''
   if (feetPerPoint === undefined || box === undefined) return 'Not calibrated'
-  const points = ring.map((p) => ({ x: p.x * box.width, y: p.y * box.height }))
-  const sf = squarePointsToSquareFeet(Math.abs(signedPolygonArea(points)), feetPerPoint)
+  // Every ring: an area with holes (a converted Bluebeam area) states its net.
+  const region = markup.rings.map((r) => r.map((p) => ({ x: p.x * box.width, y: p.y * box.height })))
+  const sf = squarePointsToSquareFeet(regionArea(region), feetPerPoint)
   return `${fmt(sf)} SF`
 }
 
@@ -101,6 +102,15 @@ export async function exportMarkedPdf(req: MarkedPdfRequest): Promise<string | n
       color: scope?.color ?? '#888888',
       note: noteFor(m, req.calibrations.get(m.pageId), req.pageBoxes.get(m.pageId)),
     })
+    // An area's holes go on the sheet as its deductions, as the embed does.
+    if (m.kind === 'area') {
+      m.rings.slice(1).forEach((hole, n) => {
+        writable.push({
+          id: `${m.id}#hole${n + 1}`, pageIndex, kind: 'cutout', rings: [hole],
+          scopeLabel: scope?.label ?? 'Unassigned', color: scope?.color ?? '#888888', note: 'Deduction',
+        })
+      })
+    }
   }
 
   if (writable.length === 0) return 'This drawing has no markups to write.'
