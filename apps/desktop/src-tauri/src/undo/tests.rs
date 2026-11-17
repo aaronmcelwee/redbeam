@@ -519,6 +519,100 @@ fn a_batch_applies_and_reverts_as_one_unit_in_reverse_order() {
     assert_eq!(live_markups(&store).len(), 2);
 }
 
+/// A tick, so two writes cannot share a millisecond and hide a stale stamp.
+fn tick() {
+    std::thread::sleep(std::time::Duration::from_millis(3));
+}
+
+fn delete_markup(id: &str) -> UndoRecord {
+    record(json!({
+        "op": "delete_markup", "label": "delete area", "entityType": "markup",
+        "entityId": id, "documentId": "doc-1", "pageId": "page-1",
+        "before": { "kind": "area", "origin": "user" }, "origin": "user",
+    }))
+}
+
+fn batch_of(label: &str, children: Vec<UndoRecord>) -> UndoRecord {
+    let children: Vec<Json> = children
+        .into_iter()
+        .map(|c| serde_json::to_value(c).expect("child"))
+        .collect();
+    record(json!({
+        "op": "batch", "label": label, "entityType": "batch",
+        "after": { "children": children }, "origin": "user",
+    }))
+}
+
+#[test]
+fn undo_reaches_past_a_batch_to_an_earlier_edit_of_the_same_markup() {
+    // Move one markup, then delete it with another as one gesture. Undoing the
+    // delete and then the move used to refuse the move as a conflict: the
+    // batch moved the row's updated_at and never told the older entry.
+    let (store, undo) = project();
+    undo.record(&store, None, create_markup("m1", "user"), true, None).expect("m1");
+    undo.record(&store, None, create_markup("m2", "user"), true, None).expect("m2");
+    tick();
+    undo.record(&store, None, edit_geometry("m1", RING_A, RING_B), true, None).expect("move");
+    tick();
+    undo.record(
+        &store,
+        None,
+        batch_of("delete 2 markups", vec![delete_markup("m1"), delete_markup("m2")]),
+        true,
+        None,
+    )
+    .expect("batch delete");
+    assert!(live_markups(&store).is_empty());
+    tick();
+
+    undo.undo(&store, None).expect("undo the batch");
+    assert_eq!(live_markups(&store).len(), 2);
+    tick();
+    undo.undo(&store, None).expect("undo the move, past the batch");
+    assert_eq!(geometry_of(&store, "m1"), rings(RING_A));
+
+    // And back up again, all the way.
+    tick();
+    undo.redo(&store, None).expect("redo the move");
+    tick();
+    undo.redo(&store, None).expect("redo the batch");
+    assert!(live_markups(&store).is_empty());
+}
+
+#[test]
+fn a_batch_move_then_a_single_edit_unwind_in_order() {
+    let (store, undo) = project();
+    undo.record(&store, None, create_markup("m1", "user"), true, None).expect("m1");
+    undo.record(&store, None, create_markup("m2", "user"), true, None).expect("m2");
+    tick();
+    undo.record(
+        &store,
+        None,
+        batch_of(
+            "move 2 markups",
+            vec![edit_geometry("m1", RING_A, RING_B), edit_geometry("m2", RING_A, RING_B)],
+        ),
+        true,
+        None,
+    )
+    .expect("batch move");
+    tick();
+    undo.record(&store, None, edit_geometry("m1", RING_B, RING_C), true, None).expect("edit");
+    tick();
+
+    undo.undo(&store, None).expect("undo the edit");
+    assert_eq!(geometry_of(&store, "m1"), rings(RING_B));
+    tick();
+    undo.undo(&store, None).expect("undo the batch move");
+    assert_eq!(geometry_of(&store, "m1"), rings(RING_A));
+    assert_eq!(geometry_of(&store, "m2"), rings(RING_A));
+    tick();
+    // The two creates underneath were restamped by the batch's revert too.
+    undo.undo(&store, None).expect("undo create m2");
+    undo.undo(&store, None).expect("undo create m1");
+    assert!(live_markups(&store).is_empty());
+}
+
 #[test]
 fn record_without_applying_only_logs() {
     let (store, undo) = project();

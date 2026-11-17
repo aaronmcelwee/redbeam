@@ -4,6 +4,29 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.13 — 2026-11-17
+
+### Change many markups at once, from the drawing or the list
+
+- **Undo works after changing several markups together.** Moving, rescoping,
+  deleting or pasting a group of markups and then pressing Ctrl+Z past it to
+  an earlier edit of one of them was refused as "edited by someone else".
+  Undo and redo now step through group changes like any other.
+- **The scope's markup list can act on several markups.** Ctrl-click or
+  Shift-click rows to select them (they're selected on the drawing too), or
+  use *Select all*. Then *Move to* another scope, *Duplicate* or *Delete*
+  them in one step. Plain click still goes to the markup.
+- **Deleting or moving a markup from the list works on any sheet.** It used to
+  do nothing, without a message, unless the markup was on the sheet you had
+  open.
+- **Duplicate on the drawing.** Ctrl+D, or *Duplicate* in the right-click
+  menu, copies the selected markups in place, in their own scope, and selects
+  the copies. One Ctrl+Z takes them all back.
+- **Shift- or Ctrl-drag a selection box to add to the selection** instead of
+  replacing it, so markups from two corners of a sheet can be picked together.
+- **A change that can't be saved or undone says why** in the status bar
+  instead of silently doing nothing.
+
 ## 0.3.12 — 2026-11-16
 
 ### Bluebeam areas keep their cutouts when converted

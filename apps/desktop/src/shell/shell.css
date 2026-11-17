@@ -3202,6 +3202,12 @@ select.es-field > option { background: var(--rb-panel); color: var(--rb-ink); }
 .es-mkv { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .es-mk.off { color: var(--rb-ink-3); }
 .es-mk.off .es-mkv { color: var(--rb-ink-4); }
+.es-mk.on { background: var(--rb-selected); }
+.es-mk.on:hover { background: var(--rb-selected); }
+/* ---- the markup list's bulk actions: one row above the groups ---- */
+.es-mkbar { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 var(--rb-pad-row) 0 8px; background: var(--rb-raised); border-top: 1px solid var(--rb-line); }
+.es-mkcount { color: var(--rb-ink-3); font-size: 11px; white-space: nowrap; }
+.es-mkmove { width: auto; max-width: 140px; height: 22px; font-size: 11px; }
 .es-net { display: grid; grid-template-columns: 1fr auto; align-items: center; height: 26px; padding: 0 var(--rb-pad-row); border-top: 1px solid var(--rb-line-2); font-weight: 600; }
 .es-netv { font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
 .es-scope { display: flex; flex-direction: column; padding-bottom: 12px; }

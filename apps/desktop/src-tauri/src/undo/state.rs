@@ -27,7 +27,7 @@ use crate::store::state::StoreState;
 
 use super::apply;
 use super::log::{self, UndoOutcome, UndoStatus, DEFAULT_LIMIT};
-use super::record::{UndoError, UndoRecord, UndoTarget};
+use super::record::{OpKind, UndoError, UndoRecord, UndoTarget};
 
 /// The id that scopes a project's stack to this run, keyed by its database
 /// path. One entry per open project: the store keeps one connection per
@@ -225,7 +225,8 @@ impl UndoState {
 }
 
 /// The entity's `updated_at` as the operation just left it, or `None` when the
-/// record does not touch a markup.
+/// record does not touch a markup (a batch carries no stamp of its own: its
+/// children are restamped one by one in [`resync`]).
 fn entity_stamp(store: &Store, record: &UndoRecord) -> Result<Option<String>, UndoError> {
     match apply::markup_entity(record) {
         None => Ok(None),
@@ -233,17 +234,43 @@ fn entity_stamp(store: &Store, record: &UndoRecord) -> Result<Option<String>, Un
     }
 }
 
-/// Point every log entry for this entity at the row as it now stands.
+/// Point every log entry for the markups this record touched at the rows as
+/// they now stand.
+///
+/// A batch has no entity of its own, so this walks its children. It used to
+/// stop at the batch: every markup a batch moved, rescoped or deleted kept a
+/// stale stamp on its older entries, so the first Ctrl+Z that reached past the
+/// batch to one of those markups refused itself as a conflict ("last edited
+/// …, this command expected …"). Undo after any multi-select edit was broken.
 fn resync(
     store: &Store,
     session: &str,
     record: &UndoRecord,
-    stamp: Option<&str>,
+    _stamp: Option<&str>,
 ) -> Result<(), UndoError> {
-    match apply::markup_entity(record) {
-        None => Ok(()),
-        Some(id) => log::restamp_entity(store, session, id, stamp),
+    let mut ids = Vec::new();
+    touched_markups(record, &mut ids)?;
+    ids.sort();
+    ids.dedup();
+    for id in ids {
+        let stamp = apply::markup_updated_at(store, &id)?;
+        log::restamp_entity(store, session, &id, stamp.as_deref())?;
     }
+    Ok(())
+}
+
+/// Every markup id a record touches, a batch's children included (nested
+/// batches too, though nothing builds one today).
+fn touched_markups(record: &UndoRecord, out: &mut Vec<String>) -> Result<(), UndoError> {
+    if let Some(id) = apply::markup_entity(record) {
+        out.push(id.to_string());
+    }
+    if record.kind()? == OpKind::Batch {
+        for child in record.children()? {
+            touched_markups(&child, out)?;
+        }
+    }
+    Ok(())
 }
 
 fn nothing(status: UndoStatus) -> UndoOutcome {
