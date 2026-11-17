@@ -37,6 +37,9 @@ import {
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
 import { openDatabase, openMemory, debounceSave, type DbBackend } from './db.js'
+import {
+  resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
+} from './markupBatch.js'
 import { broadcastChange, onChange } from '@redbeam/store'
 import { getWindowRole, openContextWindow, isTauri } from './tauri/window.js'
 import { windowTitle } from './windowTitle.js'
@@ -588,6 +591,9 @@ export default function Workspace({
    * tabs and says nothing about having done so.
    */
   const [projectMarkups, setProjectMarkups] = useState<Markup[]>([])
+  /** Latest value, for write paths that act on markups off the open sheet. */
+  const projectMarkupsRef = useRef<Markup[]>([])
+  projectMarkupsRef.current = projectMarkups
   const [projectCalibrations, setProjectCalibrations] = useState<Map<string, number>>(new Map())
 
   /*
@@ -809,6 +815,8 @@ export default function Workspace({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const selectedRef = useRef<string[]>([])
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  /** What a Shift/Ctrl marquee adds to: the selection as it stood when it began. */
+  const marqueeBaseRef = useRef<string[]>([])
   /*
    * The PDF's OWN markups on this sheet, as selectable objects.
    *
@@ -2337,21 +2345,41 @@ export default function Workspace({
 
 
   /** Run an undoable command, then resync and persist. */
-  const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0]) => {
+  const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0]): Promise<boolean> => {
     const u = undoRef.current
-    if (!u) return
-    await u.run(cmd)
+    if (!u) return false
+    /*
+     * A write that fails has to say so. Every caller fires this with `void`,
+     * so a rejection here went nowhere: a batch delete the core refused left
+     * the markups on the sheet with no word about why, which reads exactly
+     * like the button doing nothing.
+     */
+    try {
+      await u.run(cmd)
+    } catch (err) {
+      setStatus(`could not ${cmd.label}: ${err instanceof Error ? err.message : String(err)}`)
+      await syncMarkups()
+      return false
+    }
     setUndoState(u.state)
     await syncMarkups()
     saveRef.current()
     // Tell the other windows on this project. No-op outside Tauri.
     void broadcastChange('markups', identity.projectId ?? 'default')
+    return true
   }, [syncMarkups, identity.projectId])
 
   const doUndo = useCallback(async () => {
     const db = dbRef.current, u = undoRef.current
     if (!db || !u) return
-    const cmd = await u.undo()
+    let cmd: Awaited<ReturnType<UndoStack['undo']>>
+    // The core refuses an undo that would overwrite newer work, and says why
+    // in words written to be shown. Unhandled, that reason was lost.
+    try { cmd = await u.undo() } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err))
+      setUndoState(await u.fetchState().catch(() => u.state))
+      return
+    }
     if (!cmd) return
     setUndoState(u.state)
     setSelectedIds([]); selectedRef.current = []
@@ -2365,7 +2393,12 @@ export default function Workspace({
   const doRedo = useCallback(async () => {
     const db = dbRef.current, u = undoRef.current
     if (!db || !u) return
-    const cmd = await u.redo()
+    let cmd: Awaited<ReturnType<UndoStack['redo']>>
+    try { cmd = await u.redo() } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err))
+      setUndoState(await u.fetchState().catch(() => u.state))
+      return
+    }
     if (!cmd) return
     setUndoState(u.state)
     await syncMarkups()
@@ -2620,16 +2653,36 @@ export default function Workspace({
     requestPaint()
   }, [requestPaint])
 
-  const removeMarkups = useCallback(async (ids: string[]) => {
-    const present = ids
-      .map((id) => markupsRef.current.find((m) => m.id === id))
-      .filter((m): m is Markup => !!m)
-    if (present.length === 0) return
-    const cmds = present.map((m) => cmdRemove({ id: m.id, kind: m.kind, origin: 'user' }))
-    // One undo step for one gesture: deleting six markups and pressing Ctrl+Z
-    // six times to get them back is not undo, it is punishment.
-    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`delete ${cmds.length} markups`, cmds))
-  }, [runCommand])
+  /** The markups behind these ids, on this sheet or anywhere in the project. */
+  const markupsFor = useCallback(
+    (ids: readonly string[]) => resolveMarkups(ids, markupsRef.current, projectMarkupsRef.current),
+    [],
+  )
+
+  /** Drop ids from the selection, for markups that no longer exist. */
+  const deselect = useCallback((ids: readonly string[]) => {
+    const gone = new Set(ids)
+    const next = selectedRef.current.filter((id) => !gone.has(id))
+    if (next.length === selectedRef.current.length) return
+    setSelectedIds(next); selectedRef.current = next
+    requestPaint()
+  }, [requestPaint])
+
+  /**
+   * Delete markups, as one undo step: deleting six and pressing Ctrl+Z six
+   * times to get them back is not undo, it is punishment. Any sheet, any
+   * drawing: the sidebar's list reaches past the open sheet, and this used to
+   * look only at the open sheet, so a delete from the list did nothing.
+   */
+  const removeMarkups = useCallback(async (ids: readonly string[]) => {
+    const present = markupsFor(ids)
+    const cmd = deleteMarkupsCommand(present)
+    if (cmd === null) return
+    deselect(present.map((m) => m.id))
+    if (await runCommand(cmd)) {
+      setStatus(present.length === 1 ? 'deleted 1 markup' : `deleted ${present.length} markups`)
+    }
+  }, [runCommand, markupsFor, deselect])
 
   /** Copy the selection. Geometry only — ids are minted fresh on paste. */
   const copySelection = useCallback(() => {
@@ -2670,15 +2723,39 @@ export default function Workspace({
     setSelectedIds(ids); selectedRef.current = ids
   }, [runCommand])
 
-  /** Move every selected markup to another scope, as one undo step. */
-  const reassignSelection = useCallback(async (scopeId: string | null) => {
-    const ids = new Set(selectedRef.current)
-    const present = markupsRef.current.filter((m) => ids.has(m.id) && m.scopeId !== scopeId)
-    if (present.length === 0) return
-    const cmds = present.map((m) => cmdReassign(m.id, m.scopeId, scopeId))
-    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`rescope ${cmds.length} markups`, cmds))
-  }, [runCommand])
+  /** Move markups to another scope (or none), as one undo step. Any sheet, any drawing. */
+  const reassignMarkups = useCallback(async (ids: readonly string[], scopeId: string | null) => {
+    const present = markupsFor(ids)
+    const cmd = rescopeMarkupsCommand(present, scopeId)
+    if (cmd === null) return
+    const moved = present.filter((m) => m.scopeId !== scopeId).length
+    if (await runCommand(cmd)) {
+      const to = scopeId === null ? 'no scope' : (scopesRef.current.find((sc) => sc.id === scopeId)?.label ?? 'scope')
+      setStatus(`moved ${moved} markup${moved === 1 ? '' : 's'} to ${to}`)
+    }
+  }, [runCommand, markupsFor])
 
+  /** Move every selected markup to another scope, as one undo step. */
+  const reassignSelection = useCallback(
+    (scopeId: string | null) => reassignMarkups(selectedRef.current, scopeId),
+    [reassignMarkups],
+  )
+
+  /**
+   * Copy markups in place, each on its own sheet and in its own scope, as one
+   * undo step, and select the copies. The canvas's Ctrl+D and the list's
+   * Duplicate both land here.
+   */
+  const duplicateMarkups = useCallback(async (ids: readonly string[]) => {
+    const present = markupsFor(ids)
+    const { command, ids: made } = duplicateMarkupsCommand(present, uid)
+    if (command === null) return
+    if (await runCommand(command)) {
+      setSelectedIds(made); selectedRef.current = made
+      setStatus(`duplicated ${made.length} markup${made.length === 1 ? '' : 's'}`)
+      requestPaint()
+    }
+  }, [runCommand, markupsFor, requestPaint])
 
   const removeMarkup = useCallback(async (id: string) => {
     const m = markupsRef.current.find((x) => x.id === id)
@@ -2729,6 +2806,9 @@ export default function Workspace({
       if (mod && e.key === ',') { e.preventDefault(); settingsOpen ? setSettingsOpen(false) : openSettings(); return }
       if (mod && (e.key === 'c' || e.key === 'C')) { e.preventDefault(); copySelection(); return }
       if (mod && (e.key === 'v' || e.key === 'V')) { e.preventDefault(); void pasteClipboard(); return }
+      if (mod && (e.key === 'd' || e.key === 'D') && selectedRef.current.length > 0) {
+        e.preventDefault(); void duplicateMarkups(selectedRef.current); return
+      }
       if (mod && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault()
         const all = markupsRef.current.map((m) => m.id)
@@ -2838,7 +2918,7 @@ export default function Workspace({
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [commitDraft, requestPaint, removeMarkups, doUndo, doRedo, copySelection, pasteClipboard,
+  }, [commitDraft, requestPaint, removeMarkups, duplicateMarkups, doUndo, doRedo, copySelection, pasteClipboard,
     cancelCalibration, cancelRegion, refreshFiles])
 
   /*
@@ -3256,9 +3336,15 @@ export default function Workspace({
       }
 
       // Empty space: the Select tool, or Shift in Pan, starts a marquee;
-      // otherwise pan and clear.
-      setSelectedIds([])
-      selectedRef.current = []
+      // otherwise pan and clear. A marquee with Shift or Ctrl ADDS to the
+      // selection, the way a Shift-click does: it cleared it here first, so
+      // gathering markups from two corners of a sheet was impossible.
+      const extendMarquee = (e.shiftKey || e.ctrlKey || e.metaKey) && (e.shiftKey || tool === 'select')
+      marqueeBaseRef.current = extendMarquee ? [...selectedRef.current] : []
+      if (!extendMarquee) {
+        setSelectedIds([])
+        selectedRef.current = []
+      }
       if (!(e.shiftKey || e.ctrlKey || e.metaKey)) selectAnnots([])
       editRef.current = null
       if (e.shiftKey || tool === 'select') {
@@ -3581,7 +3667,9 @@ export default function Workspace({
       // A click with Shift is a zero-area marquee; treat it as clearing, not
       // as selecting everything.
       if (Math.abs(r.x1 - r.x0) > 3 || Math.abs(r.y1 - r.y0) > 3) {
-        const ids = markupsInRect(r, markupsRef.current, viewRef.current, page.width, page.height)
+        const inRect = markupsInRect(r, markupsRef.current, viewRef.current, page.width, page.height)
+        const base = marqueeBaseRef.current
+        const ids = [...base, ...inRect.filter((id) => !base.includes(id))]
         setSelectedIds(ids); selectedRef.current = ids
         const n0 = screenToNormalized(Math.min(r.x0, r.x1), Math.min(r.y0, r.y1), viewRef.current, page.width, page.height)
         const n1 = screenToNormalized(Math.max(r.x0, r.x1), Math.max(r.y0, r.y1), viewRef.current, page.width, page.height)
@@ -6875,6 +6963,12 @@ export default function Workspace({
         },
       },
       {
+        id: 'duplicate-markup', kind: 'command', title: 'Duplicate selected markup', shortcut: 'Ctrl+D',
+        detail: `${selectedIds.length} selected`, keywords: ['copy', 'clone', 'selection'],
+        ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
+        run: () => void duplicateMarkups(selectedRef.current),
+      },
+      {
         id: 'delete-markup', kind: 'command', title: 'Delete selected markup', shortcut: 'Del',
         detail: `${selectedIds.length} selected`, keywords: ['remove', 'selection'],
         ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
@@ -7106,7 +7200,7 @@ export default function Workspace({
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
     scaleOfPage, applyScaleToSelection, markupCounts,
-    beginTakeoff, takeoff, tool, commitScope, selectedIds, reassignSelection, removeMarkups,
+    beginTakeoff, takeoff, tool, commitScope, selectedIds, reassignSelection, removeMarkups, duplicateMarkups,
     openParts, prefs, settings, setZoom, openDocument, refreshEstimates,
     identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged,
     openEstimateExport, markupRowsFor, goToMarkup, directionFromEdge, startPatternHere, clearPatternOrigin,
@@ -7701,6 +7795,18 @@ export default function Workspace({
 
                 <div className="menusep" />
                 <button
+                  className="menuitem"
+                  role="menuitem"
+                  onClick={() => {
+                    const ids = selectedRef.current.length > 0 ? selectedRef.current : [m.id]
+                    void duplicateMarkups(ids)
+                    setMarkupMenu(null)
+                  }}
+                >
+                  <Glyph icon={Copy} role="row" />
+                  <span className="grow">Duplicate markup{plural}</span>
+                </button>
+                <button
                   className="menuitem danger"
                   role="menuitem"
                   onClick={() => {
@@ -7851,6 +7957,11 @@ export default function Workspace({
         sheetTitle={sheetTitleFor}
         onGoToPage={goToPage}
         onGoToMarkup={goToMarkup}
+        selectedMarkupIds={selectedIds}
+        onSelectMarkups={(ids) => { setSelectedIds(ids); selectedRef.current = ids; requestPaint() }}
+        onDeleteMarkups={(ids) => void removeMarkups(ids)}
+        onMoveMarkups={(ids, scopeId) => void reassignMarkups(ids, scopeId)}
+        onDuplicateMarkups={(ids) => void duplicateMarkups(ids)}
         lengthDenominator={Number(prefs['takeoff.imperialPrecision'] ?? 16)}
         onCreateEstimate={(name) => void createEstimate(name)}
         onCreateScope={(label) => void createNamedScope(label)}

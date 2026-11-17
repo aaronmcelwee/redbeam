@@ -60,6 +60,7 @@ import {
   DocumentPdf, X,
 } from './icons.js'
 import { entriesForRound } from '../bom/bomRows.js'
+import { clickMarkupRow } from './markupSelection.js'
 import { saveOutcomeText, saveReportFile } from '../bom/exports.js'
 
 /**
@@ -230,6 +231,17 @@ export interface EstimatesPanelProps {
   onGoToPage: (page: number) => void
   /** Go to a markup's sheet, opening its document first if it is another one. */
   onGoToMarkup?: (markup: ScopeMarkup) => void
+  /**
+   * The markup selection, shared with the canvas: a row selected here is
+   * selected on its sheet, and a shape selected on the sheet is lit here.
+   * Absent (the harness) means the list cannot select.
+   */
+  selectedMarkupIds?: readonly string[]
+  onSelectMarkups?: (ids: string[]) => void
+  /** Act on several markups at once, each as one undo step. */
+  onDeleteMarkups?: (ids: string[]) => void
+  onMoveMarkups?: (ids: string[], scopeId: string | null) => void
+  onDuplicateMarkups?: (ids: string[]) => void
   /** Denominator of the inch fraction lengths are written to. 16 by default. */
   lengthDenominator?: number
 
@@ -1078,6 +1090,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const [renaming, setRenaming] = useState(false)
   const [group, setGroup] = useState<'page' | 'type'>('page')
   const onScopePage = p.onScopePage
+  const [anchor, setAnchor] = useState<string | null>(null)
 
   /* The caller's request brings a section on screen. On first render it only
      names the section, so opening a scope starts at its top. */
@@ -1121,6 +1134,14 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const blocked = pieces !== undefined && pieces.blockers.length > 0 && markups.length > 0
   const nothingDrawn = rows.length === 0 && markups.length === 0
   const sheets = new Set(markups.map((m) => `${m.documentId}#${m.page}`)).size
+  /* The list's selection is the canvas's, narrowed to this scope's rows. */
+  const canSelect = p.onSelectMarkups !== undefined
+  const selected = p.selectedMarkupIds ?? []
+  const selectedSet = new Set(selected)
+  const grouped = groupMarkups(markups, group, sheetLabel, p.sheetTitle)
+  const visible = grouped.flatMap(([, list]) => list.map((m) => m.id))
+  const inList = new Set(visible)
+  const picked = selected.filter((id) => inList.has(id))
   const day = dayOf(p.commit?.at ?? null)
 
   /*
@@ -1315,7 +1336,19 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
         {markups.length === 0 && (
           <div className="es-muted pad">None yet — each shape you draw is listed here, by sheet.</div>
         )}
-        {groupMarkups(markups, group, sheetLabel, p.sheetTitle).map(([heading, list]) => (
+        {canSelect && markups.length > 0 && (
+          <MarkupBulkBar
+            count={picked.length}
+            total={markups.length}
+            scopes={p.scopes.filter((sc) => sc.id !== scope.id)}
+            onSelectAll={() => { p.onSelectMarkups!(visible); setAnchor(visible[0] ?? null) }}
+            onClear={() => { p.onSelectMarkups!(selected.filter((id) => !inList.has(id))); setAnchor(null) }}
+            {...(p.onMoveMarkups !== undefined ? { onMove: (to: string | null) => p.onMoveMarkups!(picked, to) } : {})}
+            {...(p.onDuplicateMarkups !== undefined ? { onDuplicate: () => p.onDuplicateMarkups!(picked) } : {})}
+            {...(p.onDeleteMarkups !== undefined ? { onDelete: () => p.onDeleteMarkups!(picked) } : {})}
+          />
+        )}
+        {grouped.map(([heading, list]) => (
           <div key={heading.key}>
             <div className="es-grp">
               <b>{heading.title}</b>
@@ -1326,10 +1359,28 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
             {list.map((m) => (
               <button
                 key={m.id}
-                className={m.layoutNote === undefined ? 'es-mk' : 'es-mk off'}
-                onClick={() => (onGoToMarkup !== undefined ? onGoToMarkup(m) : onGoToPage(m.page))}
+                className={(m.layoutNote === undefined ? 'es-mk' : 'es-mk off') + (selectedSet.has(m.id) ? ' on' : '')}
+                {...(canSelect ? { 'aria-pressed': selectedSet.has(m.id) } : {})}
+                onClick={(e) => {
+                  const toggle = e.ctrlKey || e.metaKey
+                  const range = e.shiftKey
+                  /*
+                   * Ctrl and Shift build a selection without leaving the
+                   * sheet you are on; a plain click goes to the markup and
+                   * selects it, as it always did.
+                   */
+                  if (canSelect && (toggle || range)) {
+                    const next = clickMarkupRow(selected, anchor, m.id, { toggle, range }, visible)
+                    setAnchor(next.anchor)
+                    p.onSelectMarkups!(next.selected)
+                    return
+                  }
+                  if (onGoToMarkup !== undefined) onGoToMarkup(m)
+                  else onGoToPage(m.page)
+                  if (canSelect) { p.onSelectMarkups!([m.id]); setAnchor(m.id) }
+                }}
                 title={m.layoutNote === undefined
-                  ? (m.inOpenDocument ? `Go to ${sheetLabel(m.page)}` : `Open ${m.documentName}, page ${m.page + 1}`)
+                  ? (m.inOpenDocument ? `Go to ${sheetLabel(m.page)}` : `Open ${m.documentName}, page ${m.page + 1}`) + (canSelect ? ' · Ctrl or Shift to select several' : '')
                   : `Not in the layout: ${m.layoutNote}`}
               >
                 <Glyph icon={MARKUP_ICON[m.kind] ?? Pentagon} role="small" />
@@ -1648,6 +1699,63 @@ function SetupGrid({
 }
 
 // ---------------------------------------------------------------- fields --
+
+
+/**
+ * What to do with the selected rows of a scope's markup list, all at once.
+ *
+ * Each action is one undo step however many markups it touches. Move offers
+ * the open round's other scopes and "No scope", the same choices the canvas's
+ * right-click menu gives a selection.
+ */
+function MarkupBulkBar({ count, total, scopes, onSelectAll, onClear, onMove, onDuplicate, onDelete }: {
+  count: number
+  total: number
+  scopes: Scope[]
+  onSelectAll: () => void
+  onClear: () => void
+  onMove?: (scopeId: string | null) => void
+  onDuplicate?: () => void
+  onDelete?: () => void
+}) {
+  const none = count === 0
+  return (
+    <div className="es-mkbar" role="toolbar" aria-label="Selected markups">
+      {count === total
+        ? <button className="es-btn subtle tiny" onClick={onClear}>Clear</button>
+        : <button className="es-btn subtle tiny" onClick={onSelectAll}>Select all</button>}
+      <span className="es-mkcount">{none ? 'None selected' : `${count} selected`}</span>
+      <span className="es-sp" />
+      {onMove !== undefined && (
+        <select
+          className="es-field es-mkmove"
+          aria-label="Move selected markups to scope"
+          disabled={none}
+          value=""
+          onChange={(e) => {
+            const v = e.target.value
+            if (v === '') return
+            onMove(v === '__none__' ? null : v)
+          }}
+        >
+          <option value="">Move to…</option>
+          {scopes.map((sc) => <option key={sc.id} value={sc.id}>{sc.label}</option>)}
+          <option value="__none__">No scope</option>
+        </select>
+      )}
+      {onDuplicate !== undefined && (
+        <button className="es-btn subtle icon tiny" aria-label="Duplicate selected markups" title="Duplicate (Ctrl+D)" disabled={none} onClick={onDuplicate}>
+          <Glyph icon={Copy} role="small" />
+        </button>
+      )}
+      {onDelete !== undefined && (
+        <button className="es-btn subtle icon tiny" aria-label="Delete selected markups" title="Delete (Del)" disabled={none} onClick={onDelete}>
+          <Glyph icon={Trash2} role="small" />
+        </button>
+      )}
+    </div>
+  )
+}
 
 /**
  * A length, committed on blur or Enter rather than per keystroke. Per-keystroke
