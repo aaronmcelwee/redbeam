@@ -4,6 +4,24 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.17 — 2026-11-18
+
+### No more Commit: takeoffs save themselves
+
+- **Scopes save automatically.** The *Commit* button, *Commit again*, and the
+  *Commit scope…* and *Commit every scope in the round* commands are gone.
+  A moment after a scope's numbers change, REDBEAM records them on its own.
+  One saved record is kept per scope per day, so the parts list still shows
+  what each line *was* on an earlier day when it has moved since (for
+  example "changed since 13 Nov").
+- **The drawing's takeoff goes into the PDF as you work.** A few seconds after
+  your last change, the open drawing's markups, scopes and quantities are
+  saved into the PDF itself, so Bluebeam or a colleague on SharePoint sees
+  them without you switching drawings or closing the project. A drawing
+  that hasn't changed isn't rewritten. If the PDF can't be written (for
+  example it's open and being saved in Bluebeam), REDBEAM says so once and
+  tries again on your next change.
+
 ## 0.3.16 — 2026-11-18
 
 ### Markups survive the trip to Bluebeam and back

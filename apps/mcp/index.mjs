@@ -255,7 +255,8 @@ const tools = [
       'delete_markup, set_calibration, reassign_markup, set_scope_direction. ' +
       'Setting a takeoff up: create_scope, update_scope, duplicate_scope, ' +
       'archive_scope, set_page_scale, begin_scale_region, set_region_scale, ' +
-      'cancel_scale_region, delete_scale_region. Freezing an answer: ' +
+      'cancel_scale_region, delete_scale_region. Saving an answer now ' +
+      '(the app also saves each scope by itself once a change settles): ' +
       'commit_scope. Everything goes through ' +
       'the same handlers a click uses, so writes land on the undo stack with an ' +
       'origin of `agent` and are broadcast to other windows — a takeoff change ' +
