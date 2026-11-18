@@ -88,6 +88,26 @@ export type SettingDescriptor =
  */
 export const SETTINGS: readonly SettingDescriptor[] = [
   {
+    id: 'general.mode',
+    category: 'general',
+    section: 'Mode',
+    type: 'enum',
+    // Light by default. Aaron, 2026-11-18: the team wants "a regular PDF
+    // viewer with the enhanced takeoff functionality"; projects and
+    // cross-file markups are "a little too cumbersome for most users", so
+    // they stay behind Pro for the people who use them.
+    default: 'light',
+    choices: [
+      { value: 'light', label: 'Light — open PDFs, save takeoff into each file' },
+      { value: 'pro', label: 'Pro — projects, estimates and bidding rounds' },
+    ],
+    label: 'Mode',
+    description:
+      'Light works like a PDF viewer: open a drawing, take off, and the scopes and ' +
+      'markups are saved inside the PDF. Pro keeps a project database across a job ' +
+      'folder. Takes effect on the start screen.',
+  },
+  {
     id: 'general.restoreProjectWindows',
     category: 'general',
     section: 'Startup',

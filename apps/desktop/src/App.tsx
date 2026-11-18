@@ -22,6 +22,8 @@ import { ErrorBoundary } from './ErrorBoundary.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { visibleRecents } from './project/recents.js'
 import { UpdateOffer } from './update/UpdateOffer.js'
+import { readMode, writeMode, type AppMode } from './light.js'
+import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 
 export default function App() {
   const identity = useMemo(() => getWindowRole(), [])
@@ -38,11 +40,27 @@ export default function App() {
   const [openPath, setOpenPath] = useState<string | null>(null)
 
   /*
+   * Light or Pro (Settings › General, and the switch on the start screen).
+   * Read again whenever the window is back on the start screen, because the
+   * settings page that changes it lives inside the workspace.
+   */
+  const [mode, setMode] = useState<AppMode>(() => readMode())
+  const light = mode === 'light'
+  const [files, setFiles] = useState(() => recentFiles())
+  const changeMode = useCallback((next: AppMode) => {
+    writeMode(next)
+    setMode(next)
+  }, [])
+
+  /*
    * The window draws its own frame, so it also draws its own controls. They
    * mount here rather than inside the title bar because the start screen has no
    * title bar and a frameless window still has to be closable from it.
    */
   const win = useWindowControls()
+  /** What the open workspace must finish before this window closes (Light: save into the PDF). */
+  const beforeCloseRef = useRef<(() => Promise<void>) | null>(null)
+  const registerBeforeClose = useCallback((fn: (() => Promise<void>) | null) => { beforeCloseRef.current = fn }, [])
   useEffect(() => {
     document.documentElement.toggleAttribute('data-frameless', win.frameless)
   }, [win.frameless])
@@ -115,6 +133,7 @@ export default function App() {
     if (identity.projectId !== null) return
     if (project.loading || openPath !== null) return
     attempted.current = true
+    if (readMode() === 'light') return
     if (!SettingsStore.open(browserStorage()).bool('general.restoreProjectWindows')) return
     const last = project.recents.find((p) => !p.missing)
     if (last !== undefined) void project.openRecent(last)
@@ -167,12 +186,27 @@ export default function App() {
     setOpenPath(null)
     setQuick(null)
     setFirstDocument(null)
+    setMode(readMode())
+    setFiles(recentFiles())
     project.close()
   }, [project])
 
   /** A drawing, picked or dropped: the job that holds it, or quick view. */
   const showDrawing = useCallback((pick: { path: string | null; project: { path: string; hasDatabase: boolean } | null; relativePath: string | null }) => {
     if (pick.path === null) return
+    /*
+     * Light: the PDF is the record, so it opens on its own even when it sits
+     * in a job folder with a project. A takeoff saved there in Pro is already
+     * inside the PDF, because Pro embeds it on every leave.
+     */
+    if (readMode() === 'light') {
+      rememberFile(pick.path)
+      setFiles(recentFiles())
+      const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
+      setQuickNote(null)
+      setQuick({ folder: pick.path.slice(0, cut), file: pick.path, relativePath: pick.path.slice(cut + 1) })
+      return
+    }
     if (pick.project !== null && pick.project.hasDatabase && pick.relativePath !== null) {
       setFirstDocument(pick.relativePath)
       void project.open(pick.project.path)
@@ -191,6 +225,10 @@ export default function App() {
   /** A dropped path: a PDF is viewed, a folder is opened as a job. */
   const dropPath = useCallback((path: string) => {
     if (/\.pdf$/i.test(path)) { void project.locateFile(path).then((pick) => { if (pick !== null) showDrawing(pick) }); return }
+    if (readMode() === 'light') {
+      setQuickNote('Light mode opens PDFs. To open a project folder, switch to Pro at the bottom of this screen.')
+      return
+    }
     void project.open(path, { create: false })
   }, [project, showDrawing])
 
@@ -271,7 +309,8 @@ export default function App() {
         maximized={win.maximized}
         onMinimize={win.minimize}
         onToggleMaximize={win.toggleMaximize}
-        onClose={win.close}
+        // Light keeps its takeoff only in the PDF: save it before the window goes.
+        onClose={() => { void (beforeCloseRef.current?.() ?? Promise.resolve()).finally(win.close) }}
       />
       )
     : null
@@ -302,17 +341,24 @@ export default function App() {
             key={openPath ?? `view:${quick?.file}`}
             projectPath={path}
             onCloseProject={closeProject}
-            recentProjects={shownRecents}
-            onOpenProject={openProjectElsewhere}
+            {...(quick !== null && openPath === null && light
+              ? {}
+              : { recentProjects: shownRecents, onOpenProject: openProjectElsewhere })}
             {...(project.desktop && openPath ? { onBrowseProject: browseForProject, onRevealProject: () => void project.reveal(openPath) } : {})}
             onRenameProject={(name) => {
               const mine = project.recents.find((r) => r.path === openPath)
               if (mine !== undefined) void project.rename(mine, name)
             }}
             onRecentsChanged={project.refreshRecents}
+            onBeforeClose={registerBeforeClose}
             initialDocumentPath={openPath ? (firstDocument ?? identity.documentPath) : quick!.relativePath}
             {...(openPath === null && quick !== null
-              ? { quickView: { file: quick.file, relativePath: quick.relativePath, onAdopt: adoptProject } }
+              ? {
+                  quickView: {
+                    file: quick.file, relativePath: quick.relativePath, onAdopt: adoptProject,
+                    ...(light ? { light: true, ...(project.desktop ? { onOpenAnother: viewDrawing } : {}) } : {}),
+                  },
+                }
               : {})}
           />
         </ErrorBoundary>
@@ -326,17 +372,30 @@ export default function App() {
     {controls}
     {nestingDialog}
     <ProjectStartScreen
-      recents={shownRecents}
+      mode={mode}
+      onModeChange={changeMode}
+      recents={light ? files : shownRecents}
       onOpenPath={(path, options) => project.open(path, options)}
-      onOpenRecent={(p) => void project.openRecent(p)}
-      onOpenRecentElsewhere={(p) => openProjectElsewhere(p.path)}
-      onForgetRecent={(p) => void project.forget(p)}
-      onRenameRecent={(p, name) => void project.rename(p, name)}
+      onOpenRecent={light
+        ? (p) => void project.locateFile(p.path).then((pick) => {
+            if (pick !== null) showDrawing(pick)
+            else setQuickNote(`${p.path} could not be opened. It may have moved; right-click it to take it off the list.`)
+          })
+        : (p) => void project.openRecent(p)}
+      onForgetRecent={light
+        ? (p) => { forgetFile(p.path); setFiles(recentFiles()) }
+        : (p) => void project.forget(p)}
+      {...(light ? {} : {
+        onOpenRecentElsewhere: (p: RecentProject) => openProjectElsewhere(p.path),
+        onRenameRecent: (p: RecentProject, name: string) => void project.rename(p, name),
+      })}
       {...(project.desktop
         ? {
-            onRemoveData: (p: RecentProject) => void project.removeData(p),
-            onRevealRecent: (p: RecentProject) => void project.reveal(p.path),
-            onLocateRecent: locateRecent,
+            ...(light ? {} : {
+              onRemoveData: (p: RecentProject) => void project.removeData(p),
+              onRevealRecent: (p: RecentProject) => void project.reveal(p.path),
+              onLocateRecent: locateRecent,
+            }),
             onViewDrawing: viewDrawing,
             onDropPath: dropPath,
           }

@@ -96,7 +96,10 @@ import { projectCommands } from './palette/projects.js'
 import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
-import { embedDrawing, embedStatus, foreignEdits, foreignEditsStatus, importSlice, migrateProjectTakeoffs, migrationStatus, openingStatus } from './export/drawingEmbed.js'
+import {
+  embedDrawing, embedStatus, ensureFileRound, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice,
+} from './export/drawingEmbed.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
@@ -126,6 +129,7 @@ import {
 } from './report/report.js'
 import { APP_VERSION } from './update/updates.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Bug } from './shell/icons.js'
+import { lightCommands } from './light.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -186,7 +190,19 @@ export interface WorkspaceProps {
    * markup action asks for the drawing's project folder first — `onAdopt` —
    * rather than making a project beside the PDF by itself. Aaron, 2026-09-18.
    */
-  quickView?: { file: string; relativePath: string; onAdopt: () => void }
+  quickView?: {
+    file: string
+    relativePath: string
+    onAdopt: () => void
+    /**
+     * LIGHT MODE (Aaron, 2026-11-18): the file is the record. Takeoff is
+     * allowed straight away, the PDF carries the scopes and markups, and the
+     * project's rounds stay out of sight. Without it this is plain quick view.
+     */
+    light?: boolean
+    /** Light mode: pick another PDF to open in this window. */
+    onOpenAnother?: () => void
+  }
   /** Name this job, as the switcher's header offers. */
   onRenameProject?: (name: string) => void
   /** Show this job's folder in Explorer. Desktop only. */
@@ -201,6 +217,11 @@ export interface WorkspaceProps {
    * out" gesture is the one thing it must not do.
    */
   initialDocumentPath?: string | null
+  /**
+   * Hand the window what to finish before it closes, or null for nothing.
+   * Light mode registers saving the open drawing into its PDF.
+   */
+  onBeforeClose?: (fn: (() => Promise<void>) | null) => void
 }
 
 /**
@@ -340,8 +361,10 @@ function ColumnGrip({ side, onDrag, onReset }: {
 
 export default function Workspace({
   projectPath, onCloseProject, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged, onRenameProject, onRevealProject, quickView,
-  initialDocumentPath,
+  initialDocumentPath, onBeforeClose,
 }: WorkspaceProps) {
+  /** Light mode: a PDF on its own, its takeoff saved inside it. */
+  const light = quickView?.light === true
   const stageRef = useRef<HTMLDivElement>(null)
   const rasterRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -373,9 +396,10 @@ export default function Workspace({
   // The name the estimator gave the project, when there is one; the folder
   // name otherwise.
   const projectName = useMemo(
-    () => recentProjects?.find((p) => p.path.toLowerCase() === projectPath.toLowerCase())?.displayName
+    () => (light ? quickView?.relativePath.split('/').pop()?.replace(/\.pdf$/i, '') : undefined)
+      || recentProjects?.find((p) => p.path.toLowerCase() === projectPath.toLowerCase())?.displayName
       || projectNameFromPath(projectPath) || 'Project',
-    [projectPath, recentProjects],
+    [projectPath, recentProjects, light, quickView?.relativePath],
   )
   const [backend, setBackend] = useState<DbBackend | null>(null)
   /*
@@ -390,7 +414,13 @@ export default function Workspace({
    */
   const [statusEntry, setStatusEntry] = useState<{ text: string; at: number }>({ text: 'booting', at: 0 })
   const status = statusEntry.text
-  const setStatus = useCallback((text: string) => setStatusEntry({ text, at: Date.now() }), [])
+  /** When the status line last said something; Light's Save asks whether the save did. */
+  const statusAtRef = useRef(0)
+  const setStatus = useCallback((text: string) => {
+    const at = Date.now()
+    statusAtRef.current = at
+    setStatusEntry({ text, at })
+  }, [])
   const [page, setPage] = useState({ width: 0, height: 0 })
   const [documents, setDocuments] = useState<DocumentRow[]>([])
   /*
@@ -1193,7 +1223,7 @@ export default function Workspace({
    * one is chosen. With a project behind the window this is always true.
    */
   const requireProject = useCallback((): boolean => {
-    if (quickView === undefined) return true
+    if (quickView === undefined || quickView.light === true) return true
     setWorkOpen(true)
     setStatus('Open for viewing — choose the drawing’s project folder to take off')
     quickView.onAdopt()
@@ -4408,6 +4438,8 @@ export default function Workspace({
       const out = await embedDrawing({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
         file: projectDrawingFile(projectBridge, projectPath, doc.relativePath),
+        // Light: the file's scopes are all of the store's, drawn on or not.
+        allScopes: light,
       })
       const text = embedStatus(out, name)
       if (opts.quiet === true) {
@@ -4429,7 +4461,28 @@ export default function Workspace({
     const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(run, run)
     embedChainRef.current.set(docId, next)
     return next
-  }, [documents, projectPath, setStatus])
+  }, [documents, projectPath, setStatus, light])
+
+  /**
+   * Light mode's round: one, named after the file, holding every scope.
+   *
+   * Run once the drawing is in the store and again whenever scopes arrive from
+   * outside (the PDF's own, or another PDF's), so none of them sits outside
+   * the round where the sidebar would not show it.
+   */
+  const linkFileRound = useCallback(async () => {
+    const db = dbRef.current
+    if (!db || !light) return
+    const id = await ensureFileRound(db, projectName)
+    await refreshEstimates(id)
+    setOpenEstimateId((cur) => cur ?? id)
+  }, [light, projectName, refreshEstimates])
+  const roundMadeRef = useRef(false)
+  useEffect(() => {
+    if (!light || backend === null || roundMadeRef.current) return
+    roundMadeRef.current = true
+    void linkFileRound()
+  }, [light, backend, linkFileRound])
 
   /**
    * Opening an older project carries its takeoffs into its drawings.
@@ -4504,8 +4557,18 @@ export default function Workspace({
         if (reading.slice === null && !reading.privateDataLost) return
         const name = doc.displayName || doc.relativePath
         if (firstLook) {
-          const imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
-          if (imported !== null && imported.markups > 0) {
+          let imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+          /*
+           * A project that already has this drawing's takeoff still takes the
+           * PDF's when the PDF's is newer: someone in Light mode (or another
+           * job folder) changed it since this project last saved it.
+           */
+          if (imported === null && reading.slice !== null && !light) {
+            imported = await takeNewerSlice(db, doc.id, reading.slice)
+            if (imported !== null) saveRef.current?.()
+          }
+          if (light) await linkFileRound()
+          if (imported !== null && (imported.markups > 0 || imported.scopes > 0)) {
             await syncMarkups()
             await refreshScopes()
           }
@@ -4538,7 +4601,76 @@ export default function Workspace({
         // A drawing that cannot be read here is the viewer's to report.
       }
     })()
-  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand])
+  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound])
+
+  /**
+   * Light mode: bring last round's scopes in from its PDF.
+   *
+   * Aaron, 2026-11-18: "import scopes from a previous PDF file into a new PDF
+   * file. This will be used for rounds of bidding." Names, colours and
+   * specifications come across; the markups do not. Saved into this PDF with
+   * the next save, like any scope made here.
+   */
+  const importScopesFromPdf = useCallback(async () => {
+    const db = dbRef.current
+    if (!db) return
+    const pick = await projectBridge.pickFile()
+    if (pick.path === null) {
+      if (!pick.supported && pick.reason !== null) setStatus(pick.reason)
+      return
+    }
+    const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
+    const folder = pick.path.slice(0, cut)
+    const name = pick.path.slice(cut + 1)
+    try {
+      const reading = await readSheetEmbed(await projectBridge.readDocument(folder, name))
+      if (reading.slice === null) { setStatus(`${name} carries no REDBEAM scopes`); return }
+      const result = await importScopesFromSlice(db, reading.slice)
+      await linkFileRound()
+      await refreshScopes()
+      saveRef.current?.()
+      setWorkOpen(true)
+      setStatus(scopeImportStatus(result, name))
+    } catch (err) {
+      setStatus(`could not read scopes from ${name}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }, [linkFileRound, refreshScopes, setStatus])
+
+  /** Light mode: save now, then hand the window to another PDF. */
+  const openAnotherFile = useCallback(() => {
+    const go = quickView?.onOpenAnother
+    if (go === undefined) return
+    const id = leftDocRef.current
+    void (id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)).finally(go)
+  }, [quickView, saveTakeoffIntoDrawing])
+  const saveOpenFile = useCallback(() => {
+    const id = leftDocRef.current
+    if (id === null) return
+    const asked = Date.now()
+    void saveTakeoffIntoDrawing(id).then(() => {
+      // A write says so itself; silence means the PDF already held all of it.
+      if (statusAtRef.current < asked) setStatus('everything is already saved in this PDF')
+    })
+  }, [saveTakeoffIntoDrawing, setStatus])
+  useEffect(() => {
+    if (!light || onBeforeClose === undefined) return
+    onBeforeClose(() => {
+      const id = leftDocRef.current
+      return id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)
+    })
+    return () => onBeforeClose(null)
+  }, [light, onBeforeClose, saveTakeoffIntoDrawing])
+  useEffect(() => {
+    if (!light) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+      const k = e.key.toLowerCase()
+      if (k === 's') { e.preventDefault(); saveOpenFile() }
+      else if (k === 'o') { e.preventDefault(); openAnotherFile() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [light, saveOpenFile, openAnotherFile])
 
   /** Live markup counts per scope, for the shelf and the archive warning. */
   /**
@@ -5850,12 +5982,13 @@ export default function Workspace({
   }, [saveScopeRun, refreshCommitted, setStatus])
 
   useEffect(() => {
-    if (!dbRef.current || quickView !== undefined || identity.role === 'context') return
+    // Light files save too: their store is in memory, and the PDF is the record.
+    if (!dbRef.current || (quickView !== undefined && !light) || identity.role === 'context') return
     const st = autoSaveRef.current
     if (st.timer !== null) clearTimeout(st.timer)
     st.timer = setTimeout(() => { st.timer = null; void runAutoSave() }, AUTO_SAVE_MS)
     return () => { if (st.timer !== null) { clearTimeout(st.timer); st.timer = null } }
-  }, [quantities, pieces, committed, quickView, identity.role, runAutoSave])
+  }, [quantities, pieces, committed, quickView, light, identity.role, runAutoSave])
 
   /**
    * Auto-save: the open drawing's takeoff goes into its PDF a few seconds
@@ -5866,10 +5999,10 @@ export default function Workspace({
    */
   useEffect(() => {
     const docId = activeDocId
-    if (docId === null || !projectBridge.desktop || quickView !== undefined || identity.role === 'context') return
+    if (docId === null || !projectBridge.desktop || (quickView !== undefined && !light) || identity.role === 'context') return
     const t = setTimeout(() => { void saveTakeoffIntoDrawing(docId, { quiet: true }) }, AUTO_EMBED_MS)
     return () => clearTimeout(t)
-  }, [activeDocId, markups, scopes, committed, cal, quickView, identity.role, saveTakeoffIntoDrawing])
+  }, [activeDocId, markups, scopes, committed, cal, quickView, light, identity.role, saveTakeoffIntoDrawing])
 
   const activeEntry = pieces.find((p) => p.scope.id === shownScopeId)
   const activePieces = activeEntry?.result
@@ -5917,7 +6050,7 @@ export default function Workspace({
   const warnings = useMemo(() => {
     const out: PanelWarning[] = []
     /* Quick view: said first, with the one way out of it. */
-    if (quickView !== undefined) {
+    if (quickView !== undefined && !light) {
       out.push({
         text: 'Open for viewing. To take off, choose this drawing’s project folder.',
         action: { label: 'Choose folder…', run: quickView.onAdopt },
@@ -5958,7 +6091,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light])
 
   // ------------------------------------------------------------ view math --
 
@@ -6174,6 +6307,8 @@ export default function Workspace({
   const beginTakeoff = useCallback((on: boolean) => {
     if (!on) { setTakeoff(false); return }
     if (!requireProject()) return
+    // Light: the file's one round is made when it opens; nothing to choose.
+    if (light) { setTakeoff(true); return }
     if (estimates.length === 0) {
       setWorkOpen(true)
       setOpenEstimateId(null)
@@ -6186,7 +6321,7 @@ export default function Workspace({
       return
     }
     setTakeoff(true)
-  }, [estimates.length, requireProject])
+  }, [estimates.length, requireProject, light])
 
   const openTabs = openDocIds
     .map((id) => documents.find((d) => d.id === id))
@@ -7302,7 +7437,24 @@ export default function Workspace({
         } : {}),
       },
     }))
-    return out
+    if (!light) return out
+    return lightCommands(out, [
+      {
+        id: 'light-open', kind: 'command', title: 'Open PDF…', shortcut: 'Ctrl+O',
+        detail: 'Saves this one first, then opens the other in this window',
+        keywords: ['open', 'file', 'drawing', 'pdf'], run: openAnotherFile,
+      },
+      {
+        id: 'light-save', kind: 'command', title: 'Save takeoff into this PDF', shortcut: 'Ctrl+S',
+        detail: 'Scopes and markups travel inside the file; Bluebeam shows the markups',
+        keywords: ['save', 'embed', 'file'], ...stuck(activeDocId === null ? 'no drawing open' : undefined), run: saveOpenFile,
+      },
+      {
+        id: 'light-import-scopes', kind: 'command', title: 'Import scopes from another PDF…',
+        detail: 'Last round’s scopes, without its markups',
+        keywords: ['scopes', 'import', 'round', 'bid', 'copy', 'previous'], run: () => void importScopesFromPdf(),
+      },
+    ])
   }, [
     documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
     pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen,
@@ -7318,6 +7470,7 @@ export default function Workspace({
     hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, projectMarkups,
+    light, openAnotherFile, saveOpenFile, importScopesFromPdf,
   ])
 
   return (
@@ -7329,15 +7482,25 @@ export default function Workspace({
     >
       <TitleBar
         projectName={projectName}
-        appMenu={{
-          ...(onBrowseProject !== undefined ? { onOpenProject: onBrowseProject } : {}),
-          onOpenDrawing: openBrowser,
-          onContextWindow: () => void openContextWindow(identity.projectId ?? projectPath),
-          onPalette: openPalette,
-          onSettings: openSettings,
-          ...(projectBridge.desktop ? { onSetAside: () => setAsideAsk(true) } : {}),
-          onCloseProject: closeProjectSavingTakeoff,
-        }}
+        appMenu={light
+          ? {
+              ...(quickView?.onOpenAnother !== undefined ? { onOpenFile: openAnotherFile } : {}),
+              onSaveFile: saveOpenFile,
+              onImportScopes: () => void importScopesFromPdf(),
+              onPalette: openPalette,
+              onSettings: openSettings,
+              onCloseProject: closeProjectSavingTakeoff,
+              closeLabel: 'Close file',
+            }
+          : {
+              ...(onBrowseProject !== undefined ? { onOpenProject: onBrowseProject } : {}),
+              onOpenDrawing: openBrowser,
+              onContextWindow: () => void openContextWindow(identity.projectId ?? projectPath),
+              onPalette: openPalette,
+              onSettings: openSettings,
+              ...(projectBridge.desktop ? { onSetAside: () => setAsideAsk(true) } : {}),
+              onCloseProject: closeProjectSavingTakeoff,
+            }}
         {...(recentProjects !== undefined && onOpenProject !== undefined
           ? {
               projectMenu: {

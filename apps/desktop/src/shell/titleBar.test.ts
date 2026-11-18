@@ -33,7 +33,8 @@ describe('the project switcher', () => {
    */
   it('opens another project in a second window', () => {
     expect(app).toMatch(/openProjectWindow/)
-    expect(app).toMatch(/onOpenProject=\{openProjectElsewhere\}/)
+    // A prop in Pro; Light spreads it in only when a project is open.
+    expect(app).toMatch(/onOpenProject(=\{|: )openProjectElsewhere/)
   })
 })
 

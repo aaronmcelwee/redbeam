@@ -58,6 +58,13 @@ export interface ProjectStartScreenProps {
   /** Shown above everything — e.g. "browser mode: data lives in IndexedDB". */
   notice?: string | null
   now?: number
+  /**
+   * Light mode (Aaron, 2026-11-18): the screen opens PDFs, its recents are
+   * PDFs, and project folders are Pro's. Absent means Pro.
+   */
+  mode?: 'light' | 'pro'
+  /** Switch between Light and Pro. Absent, no switch is drawn. */
+  onModeChange?: (mode: 'light' | 'pro') => void
 }
 
 /** Pinned jobs, by path — this estimator's, on this machine. */
@@ -97,7 +104,10 @@ export function ProjectStartScreen({
   error = null,
   notice = null,
   now,
+  mode = 'pro',
+  onModeChange,
 }: ProjectStartScreenProps) {
+  const light = mode === 'light'
   const [query, setQuery] = useState('')
   const [pins, setPins] = useState<string[]>(() => readPins())
   const [armed, setArmed] = useState(0)
@@ -160,13 +170,21 @@ export function ProjectStartScreen({
   /* Ctrl+O browses for a job, as the card says. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'o' || onBrowse === undefined || busy) return
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'o' || busy) return
+      // Light opens a PDF, as its card says.
+      if (light) {
+        if (onViewDrawing === undefined) return
+        e.preventDefault()
+        onViewDrawing()
+        return
+      }
+      if (onBrowse === undefined) return
       e.preventDefault()
       void onBrowse().then((o) => { if (o.supported && o.path !== null) void onOpenPath(o.path, { create: false }) })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onBrowse, onOpenPath, busy])
+  }, [onBrowse, onOpenPath, onViewDrawing, busy, light])
 
   useEffect(() => {
     if (onRemoveData === undefined) return
@@ -223,8 +241,8 @@ export function ProjectStartScreen({
             <input
               ref={filterRef}
               value={query}
-              placeholder={recents.length === 0 ? 'No jobs opened yet' : 'Filter jobs'}
-              aria-label="Filter recent projects"
+              placeholder={recents.length === 0 ? (light ? 'No files opened yet' : 'No jobs opened yet') : (light ? 'Filter files' : 'Filter jobs')}
+              aria-label={light ? 'Filter recent files' : 'Filter recent projects'}
               disabled={recents.length === 0}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -239,12 +257,14 @@ export function ProjectStartScreen({
             <span className="st-keys"><kbd>↑↓</kbd><kbd>↵</kbd></span>
           </label>
 
-          <div className="st-list" role="listbox" aria-label="Recent projects">
+          <div className="st-list" role="listbox" aria-label={light ? 'Recent files' : 'Recent projects'}>
             {recents.length === 0 && (
-              <div className="st-empty">Open a project folder, or a drawing set, and it will be here tomorrow.</div>
+              <div className="st-empty">{light
+                ? 'Open a PDF and it will be here tomorrow.'
+                : 'Open a project folder, or a drawing set, and it will be here tomorrow.'}</div>
             )}
             {recents.length > 0 && rows.length === 0 && (
-              <div className="st-empty">No job matches “{query.trim()}”.</div>
+              <div className="st-empty">No {light ? 'file' : 'job'} matches “{query.trim()}”.</div>
             )}
             {rows.map((p, i) => {
               const isBusy = busyPath !== null && busyPath === p.path
@@ -293,7 +313,7 @@ export function ProjectStartScreen({
                   onDoubleClick={() => open(p)}
                   onContextMenu={(e) => { e.preventDefault(); setArmed(i); setMenu({ path: p.path, x: e.clientX, y: e.clientY }) }}
                 >
-                  <span className="st-ico"><Glyph icon={Folder} role="card" filled={i === at} /></span>
+                  <span className="st-ico"><Glyph icon={light ? DocumentPdf : Folder} role="card" filled={i === at} /></span>
                   <span className="st-rowtext">
                     <span className="st-name">{shownName(p)}</span>
                     <span className="st-path">{p.missing ? `${p.path} · not found` : shortFolder(p.path)}</span>
@@ -327,7 +347,17 @@ export function ProjectStartScreen({
 
         <div className="st-right">
           <h2 className="st-sec">Get started</h2>
-          {onBrowse !== undefined && (
+          {light && onViewDrawing !== undefined && (
+            <button type="button" className="st-card primary" disabled={busy} onClick={onViewDrawing}>
+              <span className="st-cardico"><Glyph icon={DocumentPdf} role="empty" /></span>
+              <span className="st-cardtext">
+                <span className="st-cardtitle">Open a PDF</span>
+                <span className="st-carddesc">Take off right on the drawing. Scopes and markups are saved inside the PDF, and Bluebeam shows the markups.</span>
+              </span>
+              <kbd>Ctrl O</kbd>
+            </button>
+          )}
+          {!light && onBrowse !== undefined && (
             <button
               type="button"
               className="st-card primary"
@@ -344,7 +374,7 @@ export function ProjectStartScreen({
               <kbd>Ctrl O</kbd>
             </button>
           )}
-          {onViewDrawing !== undefined && (
+          {!light && onViewDrawing !== undefined && (
             <button type="button" className="st-card" disabled={busy} onClick={onViewDrawing}>
               <span className="st-cardico"><Glyph icon={DocumentPdf} role="empty" /></span>
               <span className="st-cardtext">
@@ -353,7 +383,7 @@ export function ProjectStartScreen({
               </span>
             </button>
           )}
-          {hasDialogs && (
+          {hasDialogs && !light && (
             <button type="button" className="st-card" aria-expanded={showPath} onClick={() => setPathOpen((v) => !v)}>
               <span className="st-cardico"><Glyph icon={TextField} role="empty" /></span>
               <span className="st-cardtext">
@@ -362,7 +392,7 @@ export function ProjectStartScreen({
               </span>
             </button>
           )}
-          {showPath && (
+          {showPath && !light && (
             <section className="st-pathcard">
               <ProjectPicker
                 {...(onBrowse ? { onBrowse } : {})}
@@ -375,13 +405,30 @@ export function ProjectStartScreen({
             </section>
           )}
           {onDropPath !== undefined && (
-            <div className="st-drop"><b>Drop a PDF or a folder anywhere on this window</b> to open it</div>
+            <div className="st-drop"><b>{light ? 'Drop a PDF anywhere on this window' : 'Drop a PDF or a folder anywhere on this window'}</b> to open it</div>
           )}
         </div>
       </div>
 
       <footer className="st-foot">
         <span>REDBEAM {APP_VERSION}</span>
+        {onModeChange !== undefined && (
+          <span className="st-mode" role="radiogroup" aria-label="Mode">
+            {(['light', 'pro'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                className={`st-modebtn${mode === m ? ' on' : ''}`}
+                title={m === 'light'
+                  ? 'Light: open PDFs and save the takeoff inside each file'
+                  : 'Pro: project folders, estimates and bidding rounds'}
+                onClick={() => { if (mode !== m) onModeChange(m) }}
+              >{m === 'light' ? 'Light' : 'Pro'}</button>
+            ))}
+          </span>
+        )}
       </footer>
 
       {menu !== null && menuFor !== null && (
