@@ -42,14 +42,40 @@ const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
   ['layout_components', 'SELECT * FROM layout_components WHERE document_id = ?1'],
 ]
 
+/**
+ * The same, for a Light-mode file: every live scope travels, drawn on or not.
+ *
+ * In Light mode the store is in memory and holds this one PDF, so its scopes
+ * ARE the file's scopes (Aaron, 2026-11-18: "each file has its own scopes").
+ * A scope made but not yet drawn, or brought in from last round's PDF, has to
+ * survive the save, which the markup-filtered queries above would drop. Pro
+ * keeps those queries: there the scopes are the whole job's, and every sheet
+ * carrying all of them would be wrong.
+ */
+const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = SLICE_QUERIES.map(([table, sql]) => {
+  if (table === 'scopes') return [table, 'SELECT * FROM scopes WHERE archived_at IS NULL'] as const
+  if (table === 'calculation_runs') {
+    return [table, 'SELECT * FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL)'] as const
+  }
+  if (table === 'quantity_results') {
+    return [table, `SELECT * FROM quantity_results WHERE calculation_run_id IN (
+       SELECT id FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL))`] as const
+  }
+  return [table, sql] as const
+})
+
 /** Volatile columns that change without the takeoff changing. */
 const VOLATILE = new Set(['modified_at_observed', 'content_fingerprint', 'size_bytes', 'availability',
   'text_indexed_at', 'updated_at'])
 
 /** This drawing's rows of redbeam.db. A table the database lacks is left out. */
-export async function sliceTables(db: SqlDriver, documentId: string): Promise<SliceTables> {
+export async function sliceTables(
+  db: SqlDriver,
+  documentId: string,
+  opts: { allScopes?: boolean } = {},
+): Promise<SliceTables> {
   const out: SliceTables = {}
-  for (const [table, sql] of SLICE_QUERIES) {
+  for (const [table, sql] of opts.allScopes === true ? LIGHT_SLICE_QUERIES : SLICE_QUERIES) {
     try {
       const rows = await db.all<Record<string, unknown>>(sql.replace(/\?1/g, '?'),
         Array.from({ length: (sql.match(/\?1/g) ?? []).length }, () => documentId))
@@ -180,8 +206,10 @@ export async function embedDrawing(opts: {
   displayName: string
   appVersion: string
   file: DrawingFile
+  /** Light mode: the file carries every live scope, drawn on or not. */
+  allScopes?: boolean
 }): Promise<EmbedOutcome> {
-  const tables = await sliceTables(opts.db, opts.documentId)
+  const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
 
   let current: { bytes: Uint8Array, version: string }
@@ -192,7 +220,7 @@ export async function embedDrawing(opts: {
   }
 
   try {
-    if (markups.length === 0) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) return { kind: 'nothing-to-embed' }
@@ -391,6 +419,155 @@ export async function importSlice(
     throw err
   }
   return { markups, scopes }
+}
+
+/**
+ * Take a drawing's embedded takeoff when it is NEWER than the project's.
+ *
+ * `importSlice` only fills a database that has nothing on the drawing. That
+ * was enough while REDBEAM itself was the only writer, but a Light-mode user
+ * (or a second Pro project) can now change the takeoff inside the PDF while
+ * this project still holds the older one. Without this, opening the job in
+ * Pro showed the stale takeoff and leaving the drawing wrote it back over the
+ * newer one.
+ *
+ * Newer means: written after the last change this database made to the
+ * drawing's markups, AND saying something different (a Pro save of the same
+ * takeoff writes the same markups and is not a reason to touch anything).
+ * Then the slice wins for this drawing: its markups and scopes are upserted,
+ * and markups the database has that the slice does not are soft-deleted.
+ * Nothing is hard-deleted, so the old takeoff can still be recovered.
+ */
+export async function takeNewerSlice(
+  db: SqlDriver,
+  documentId: string,
+  slice: SheetSlice,
+): Promise<ImportOutcome | null> {
+  const mine = await db.all<{ id: string, updated_at: string, deleted_at: string | null }>(
+    'SELECT id, updated_at, deleted_at FROM markups WHERE document_id = ?', [documentId])
+  if (mine.length === 0) return null
+  let last = ''
+  for (const m of mine) {
+    if (m.updated_at > last) last = m.updated_at
+    if (m.deleted_at !== null && m.deleted_at > last) last = m.deleted_at
+  }
+  if (!(slice.writtenAt > last)) return null
+
+  const live = new Map(mine.filter((m) => m.deleted_at === null).map((m) => [m.id, m.updated_at]))
+  const theirs = (slice.tables.markups ?? []).map((r) => rekey(r, slice.documentId, documentId))
+  const same = theirs.length === live.size
+    && theirs.every((r) => live.get(String(r.id)) === String(r.updated_at))
+  if (same) return null
+
+  const keep = new Set(theirs.map((r) => String(r.id)))
+  const now = new Date().toISOString()
+  let markups = 0
+  let scopes = 0
+  await db.exec('BEGIN')
+  try {
+    for (const id of live.keys()) {
+      if (!keep.has(id)) await db.run('UPDATE markups SET deleted_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+    }
+    const upsert = async (table: string, raw: Record<string, unknown>): Promise<boolean> => {
+      const row = rekey(raw, slice.documentId, documentId)
+      const cols = Object.keys(row).filter((c) => IDENT.test(c))
+      if (!cols.includes('id')) return false
+      const sets = cols.filter((c) => c !== 'id').map((c) => `${c}=excluded.${c}`).join(',')
+      const sql = `INSERT INTO ${table}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`
+        + (sets === '' ? ' ON CONFLICT(id) DO NOTHING' : ` ON CONFLICT(id) DO UPDATE SET ${sets}`)
+      try {
+        await db.run(sql, cols.map((c) => row[c]))
+        return true
+      } catch {
+        return false
+      }
+    }
+    for (const raw of slice.tables.pages ?? []) {
+      const row = rekey(raw, slice.documentId, documentId)
+      const cols = Object.keys(row).filter((c) => IDENT.test(c))
+      try {
+        await db.run(`INSERT OR IGNORE INTO pages(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`,
+          cols.map((c) => row[c]))
+      } catch { /* the page is already there under its own row */ }
+    }
+    for (const raw of slice.tables.scopes ?? []) if (await upsert('scopes', raw)) scopes++
+    for (const table of ['calibrations', 'scale_regions'] as const) {
+      for (const raw of slice.tables[table] ?? []) await upsert(table, raw)
+    }
+    for (const raw of slice.tables.markups ?? []) if (await upsert('markups', raw)) markups++
+    await db.exec('COMMIT')
+  } catch (err) {
+    await db.exec('ROLLBACK')
+    throw err
+  }
+  return { markups, scopes }
+}
+
+/**
+ * Light mode: the one bidding round a file's takeoff lands in.
+ *
+ * The workspace puts every takeoff in a round. A Light file has no rounds to
+ * choose between, so it gets one, named after the drawing, and every scope in
+ * the file belongs to it, including scopes that just came in from the PDF.
+ * The store is in memory, so none of this is ever written anywhere.
+ */
+export async function ensureFileRound(db: SqlDriver, name: string): Promise<string> {
+  const rows = await db.all<{ id: string }>('SELECT id FROM estimates ORDER BY created_at LIMIT 1')
+  let id = rows[0]?.id
+  if (id === undefined) {
+    id = `estimate-${crypto.randomUUID()}`
+    const now = new Date().toISOString()
+    await db.run(
+      `INSERT INTO estimates(id, name, state, notes_json, created_at, updated_at) VALUES(?,?,'working','{}',?,?)`,
+      [id, name.trim() === '' ? 'Takeoff' : name.trim(), now, now])
+  }
+  await db.run(
+    `INSERT OR IGNORE INTO estimate_scopes(estimate_id, scope_id, position, created_at)
+     SELECT ?, s.id, (SELECT COUNT(*) FROM estimate_scopes), ? FROM scopes s
+      WHERE NOT EXISTS (SELECT 1 FROM estimate_scopes es WHERE es.scope_id = s.id)`,
+    [id, new Date().toISOString()])
+  return id
+}
+
+export interface ScopeImport { added: string[], skipped: string[] }
+
+/**
+ * Bring another PDF's scopes into this file: names, colours and
+ * specifications, without its markups or results.
+ *
+ * Aaron, 2026-11-18: "import scopes from a previous PDF file into a new PDF
+ * file. This will be used for rounds of bidding." Each copy gets a new id, so
+ * the two files never share a row, and a scope whose name this file already
+ * has is left alone rather than duplicated.
+ */
+export async function importScopesFromSlice(db: SqlDriver, slice: SheetSlice): Promise<ScopeImport> {
+  const have = await db.all<{ label: string }>('SELECT label FROM scopes WHERE archived_at IS NULL')
+  const taken = new Set(have.map((r) => r.label.trim().toLowerCase()))
+  const out: ScopeImport = { added: [], skipped: [] }
+  const now = new Date().toISOString()
+  for (const raw of slice.tables.scopes ?? []) {
+    if (raw.archived_at !== null && raw.archived_at !== undefined) continue
+    const label = String(raw.label ?? '').trim()
+    if (label === '') continue
+    if (taken.has(label.toLowerCase())) { out.skipped.push(label); continue }
+    await db.run(
+      `INSERT INTO scopes(id, label, scope_type, color, specifications_json, archived_at, created_at, updated_at)
+       VALUES(?,?,?,?,?,NULL,?,?)`,
+      [`sc-${crypto.randomUUID()}`, label, String(raw.scope_type ?? 'area'), String(raw.color ?? '#888888'),
+        typeof raw.specifications_json === 'string' ? raw.specifications_json : '{}', now, now])
+    taken.add(label.toLowerCase())
+    out.added.push(label)
+  }
+  return out
+}
+
+/** What to say after importing scopes from another PDF. */
+export function scopeImportStatus(result: ScopeImport, from: string): string {
+  if (result.added.length === 0 && result.skipped.length === 0) return `${from} carries no REDBEAM scopes`
+  const parts: string[] = []
+  if (result.added.length > 0) parts.push(`${result.added.length} scope${result.added.length === 1 ? '' : 's'} imported from ${from}`)
+  if (result.skipped.length > 0) parts.push(`${result.skipped.length} already here by name`)
+  return parts.join(', ')
 }
 
 /** A short line for the status bar after an embed, or null for silence. */

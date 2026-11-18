@@ -70,6 +70,14 @@ export interface AppMenuActions {
   /** Move this project's database aside. Drawings stay. */
   onSetAside?: () => void
   onCloseProject?: () => void
+  /** Light mode: open another PDF in this window, saving this one first. */
+  onOpenFile?: () => void
+  /** Light mode: save the takeoff into the open PDF now. */
+  onSaveFile?: () => void
+  /** Light mode: bring another PDF's scopes into this one. */
+  onImportScopes?: () => void
+  /** What closing says: "Close project", or "Close file" in Light mode. */
+  closeLabel?: string
 }
 
 /** One entry in the project switcher. Structurally a `RecentProject`. */
@@ -228,6 +236,9 @@ export function TitleBar({
         {appOpen && appMenu !== undefined && (
           <div className="titlemenu" role="menu" aria-label="Application">
             {item('Open project…', <Glyph icon={Folder} role="row" />, appMenu.onOpenProject, 'Ctrl+O')}
+            {item('Open PDF…', <Glyph icon={FileText} role="row" />, appMenu.onOpenFile, 'Ctrl+O')}
+            {item('Save takeoff into this PDF', <Glyph icon={FileText} role="row" />, appMenu.onSaveFile, 'Ctrl+S')}
+            {item('Import scopes from another PDF…', <Glyph icon={FileText} role="row" />, appMenu.onImportScopes)}
             {item('Add drawing…', <Glyph icon={FileText} role="row" />, appMenu.onOpenDrawing)}
             {item('New context window', <Glyph icon={PopOut} role="row" />, appMenu.onContextWindow)}
             <div className="menusep" />
@@ -235,7 +246,7 @@ export function TitleBar({
             {item('Settings', <Glyph icon={SlidersHorizontal} role="row" />, appMenu.onSettings, 'Ctrl+,')}
             <div className="menusep" />
             {item('Set this project’s data aside', <Glyph icon={Trash2} role="row" />, appMenu.onSetAside)}
-            {item('Close project', <Glyph icon={X} role="row" />, appMenu.onCloseProject)}
+            {item(appMenu.closeLabel ?? 'Close project', <Glyph icon={X} role="row" />, appMenu.onCloseProject)}
           </div>
         )}
       </div>

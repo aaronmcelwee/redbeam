@@ -4,6 +4,34 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.16 — 2026-11-18
+
+### Light mode: open a PDF, take off, and it saves into the file
+
+- **REDBEAM now starts in Light mode.** The start screen opens PDFs instead of
+  project folders, and lists the PDFs you opened recently. Open a drawing and
+  take off straight away: scopes, markups, scales and counts are saved inside
+  the PDF itself, and Bluebeam shows the markups with their scope and quantity.
+  Nothing is kept anywhere else, so the file can be emailed, moved or put in
+  another folder and the takeoff goes with it.
+- **Saving.** The takeoff is saved into the PDF when you close it, open another
+  one, or press Ctrl+S (*Save takeoff into this PDF* in the app menu).
+- **Each PDF has its own scopes.** Scopes you make in a file are saved in that
+  file even before anything is drawn with them.
+- **Import scopes from another PDF.** For the next round of bidding, *Import
+  scopes from another PDF…* in the app menu (or the palette) brings last
+  round's scopes, with their colours and specifications, into the file you
+  have open. Their markups stay behind, and a scope with a name the file
+  already has is skipped.
+- **Pro mode keeps projects.** Project folders, estimates and bidding rounds
+  are all still there: switch to Pro at the bottom of the start screen, or in
+  Settings › General › Mode.
+- **Projects pick up changes made in Light mode.** When a drawing's PDF holds
+  a newer takeoff than its project (someone changed it in Light mode), opening
+  the drawing in Pro now takes the PDF's version instead of writing the older
+  one back over it. Markups the PDF no longer has are deleted softly and can
+  still be recovered.
+
 ## 0.3.15 — 2026-11-17
 
 ### Menus open at full size again

@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { PDFDocument } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import {
-  embedDrawing, embedMarkupsFor, embedStatus, importSlice, migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY,
-  openingStatus, sliceTables, type DrawingFile,
+  embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, importScopesFromSlice, importSlice, migrateProjectTakeoffs,
+  migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, type DrawingFile,
 } from './drawingEmbed.js'
 import { readSheetEmbed } from './sheetEmbed.js'
 
@@ -231,5 +231,116 @@ describe('opening an older project', () => {
     })
     expect(locked).toEqual([docId])
     expect(file.writes).toBe(1)
+  })
+})
+
+describe('light mode files', () => {
+  let db: SqlJsDriver
+  let docId: string
+  beforeEach(async () => { ({ db, docId } = await freshDb()) })
+
+  const addScope = (id: string, label: string) => db.run(
+    `INSERT INTO scopes(id,label,scope_type,color,specifications_json,created_at,updated_at) VALUES(?,?,'ceiling','#123456','{"k":"v"}',?,?)`,
+    [id, label, NOW, NOW])
+
+  it('carries a scope with nothing drawn yet when the whole store is the file', async () => {
+    await addScope('s-empty', 'GWB soffit')
+    expect((await sliceTables(db, docId)).scopes).toHaveLength(0)
+    expect((await sliceTables(db, docId, { allScopes: true })).scopes).toHaveLength(1)
+
+    const file = memoryFile(await blankPdf())
+    const pro = await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    expect(pro.kind).toBe('nothing-to-embed')
+    const out = await embedDrawing({
+      db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true,
+    })
+    expect(out.kind).toBe('written')
+    const reading = await readSheetEmbed(file.bytes)
+    expect(reading.slice?.tables.scopes?.map((r) => r.label)).toEqual(['GWB soffit'])
+
+    // Reopened in Light: a fresh in-memory store takes the scope back.
+    const next = await freshDb()
+    expect(await importSlice(next.db, next.docId, reading.slice!)).toEqual({ markups: 0, scopes: 1 })
+  })
+
+  it('makes one round for the file and puts every scope in it', async () => {
+    await addScope('s1', 'ACT-1')
+    const id = await ensureFileRound(db, 'A-101')
+    await addScope('s2', 'ACT-2')
+    expect(await ensureFileRound(db, 'ignored')).toBe(id)
+    const rounds = await db.all<{ name: string }>('SELECT name FROM estimates')
+    expect(rounds).toEqual([{ name: 'A-101' }])
+    const linked = await db.all<{ scope_id: string }>('SELECT scope_id FROM estimate_scopes WHERE estimate_id = ? ORDER BY scope_id', [id])
+    expect(linked.map((r) => r.scope_id)).toEqual(['s1', 's2'])
+  })
+
+  it('imports another PDF\'s scopes without its markups, under new ids, skipping names already here', async () => {
+    await seedTakeoff(db, docId)
+    await addScope('s-two', 'Wall panels')
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const slice = (await readSheetEmbed(file.bytes)).slice!
+
+    const target = await freshDb('Round 2/A-101.pdf')
+    await target.db.run(`INSERT INTO scopes(id,label,scope_type,color,specifications_json,created_at,updated_at)
+      VALUES('mine','wall PANELS','wall','#000000','{}',?,?)`, [NOW, NOW])
+    const result = await importScopesFromSlice(target.db, slice)
+    expect(result).toEqual({ added: ['ACT-1 Ceiling'], skipped: ['Wall panels'] })
+    const scopes = await target.db.all<{ id: string, label: string, specifications_json: string }>(
+      'SELECT id, label, specifications_json FROM scopes ORDER BY label')
+    const act = scopes.find((r) => r.label === 'ACT-1 Ceiling')!
+    expect(act.id).not.toBe('s1')
+    expect(act.specifications_json).toContain('secret layout')
+    expect(await target.db.all('SELECT id FROM markups')).toEqual([])
+    expect(scopeImportStatus(result, 'A-101 round 1.pdf')).toBe('1 scope imported from A-101 round 1.pdf, 1 already here by name')
+    expect(scopeImportStatus({ added: [], skipped: [] }, 'x.pdf')).toBe('x.pdf carries no REDBEAM scopes')
+  })
+})
+
+describe('a project opening a drawing changed in Light mode', () => {
+  it('takes the PDF\'s takeoff when it is newer and different, and keeps the old markup soft-deleted', async () => {
+    const pro = await freshDb()
+    await seedTakeoff(pro.db, pro.docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db: pro.db, documentId: pro.docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+
+    // Pro's own save is not newer news.
+    const own = (await readSheetEmbed(file.bytes)).slice!
+    expect(await takeNewerSlice(pro.db, pro.docId, own)).toBeNull()
+
+    // Light opens the PDF in a fresh store, redraws the area and adds a run.
+    const light = await freshDb()
+    await importSlice(light.db, light.docId, own)
+    const later = '2026-11-18T10:00:00.000Z'
+    await light.db.run('UPDATE markups SET deleted_at = ?, updated_at = ? WHERE id = ?', [later, later, 'm1'])
+    await light.db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+      VALUES('m2',?,?,'s1','polyline',?,'user',?,?)`,
+      [light.docId, `${light.docId}-p0`, JSON.stringify([[{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }]]), later, later])
+    await light.db.run(`UPDATE scopes SET label = 'ACT-1 Ceiling (rev)' WHERE id = 's1'`)
+    await embedDrawing({
+      db: light.db, documentId: light.docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true,
+    })
+    const theirs = (await readSheetEmbed(file.bytes)).slice!
+
+    expect(await takeNewerSlice(pro.db, pro.docId, theirs)).toEqual({ markups: 1, scopes: 1 })
+    const live = await pro.db.all<{ id: string, page_id: string }>('SELECT id, page_id FROM markups WHERE deleted_at IS NULL')
+    expect(live).toEqual([{ id: 'm2', page_id: `${pro.docId}-p0` }])
+    const gone = await pro.db.all<{ id: string }>('SELECT id FROM markups WHERE deleted_at IS NOT NULL')
+    expect(gone).toEqual([{ id: 'm1' }])
+    const label = await pro.db.all<{ label: string }>(`SELECT label FROM scopes WHERE id = 's1'`)
+    expect(label[0]!.label).toBe('ACT-1 Ceiling (rev)')
+
+    // Once taken, the same slice is not news again.
+    expect(await takeNewerSlice(pro.db, pro.docId, theirs)).toBeNull()
+  })
+
+  it('ignores a slice older than the project\'s own last change', async () => {
+    const pro = await freshDb()
+    await seedTakeoff(pro.db, pro.docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db: pro.db, documentId: pro.docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    const slice = { ...(await readSheetEmbed(file.bytes)).slice!, writtenAt: '2000-01-01T00:00:00.000Z' }
+    slice.tables = { ...slice.tables, markups: [] }
+    expect(await takeNewerSlice(pro.db, pro.docId, slice)).toBeNull()
   })
 })
