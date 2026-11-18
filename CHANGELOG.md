@@ -4,6 +4,20 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+## 0.3.16 — 2026-11-18
+
+### Markups survive the trip to Bluebeam and back
+
+- **Cutouts reach Bluebeam as real cutouts.** An area's holes, and any separate
+  cutout drawn over it, are now written into the drawing as Revu cutouts on
+  that one area, so Bluebeam shows the net area and lets you edit the
+  openings, instead of a separate "deduction" shape beside a gross area.
+- **Changes made in Bluebeam come back.** Move, reshape or add and remove
+  cutouts on a REDBEAM markup in Bluebeam, save, and REDBEAM picks the change
+  up the next time the drawing is opened. Ctrl+Z undoes it. When the same
+  markup was also changed in REDBEAM in the meantime, REDBEAM's version is
+  kept and the status bar says so.
+
 ## 0.3.15 — 2026-11-17
 
 ### Menus open at full size again
