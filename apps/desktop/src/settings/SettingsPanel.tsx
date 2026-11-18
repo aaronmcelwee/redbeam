@@ -46,6 +46,8 @@ interface Props {
   initialSettingId?: string
   /** Open the bug report card over this page. Absent where nothing can send one. */
   onReportBug?: () => void
+  /** Settings that mean nothing in this window, left off the page (Light has no recent projects). */
+  hidden?: readonly string[]
 }
 
 /** The page's runs: every root descriptor under its section, in registry order. */
@@ -61,7 +63,7 @@ function runs(): Array<{ title: string; roots: SettingDescriptor[] }> {
   return out
 }
 
-export function SettingsPanel({ store, onClose, initialSettingId, onReportBug }: Props) {
+export function SettingsPanel({ store, onClose, initialSettingId, onReportBug, hidden = [] }: Props) {
   useReturnFocus(true)
   const trap = useFocusTrap<HTMLDivElement>(true)
   const [values, setValues] = useState(() => store.all())
@@ -103,7 +105,10 @@ export function SettingsPanel({ store, onClose, initialSettingId, onReportBug }:
   /* The filter narrows the page: a row stays when any word of it matches, and a run stays while any row in it does. */
   const q = query.trim().toLowerCase()
   const shows = (d: SettingDescriptor) => q === '' || `${d.label} ${d.description}`.toLowerCase().includes(q)
-  const page = useMemo(() => runs(), [])
+  const page = useMemo(
+    () => runs().map((r) => ({ ...r, roots: r.roots.filter((d) => !hidden.includes(d.id)) })).filter((r) => r.roots.length > 0),
+    [hidden],
+  )
   const visible = page
     .map((r) => ({ ...r, roots: r.roots.filter((d) => shows(d) || childrenOf(d.id).some(shows)) }))
     .filter((r) => r.roots.length > 0)

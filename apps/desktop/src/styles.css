@@ -323,7 +323,8 @@ h4 {
  * on the right as cards with the primary in the accent, the version in the
  * footer. The whole window is a drop target.
  */
-.st { position: relative; font-size: 13px; line-height: 18px; color: var(--rb-ink); }
+/* No position here: `.startscreen` is fixed to the window, and a `relative` on this later rule cut the screen off at its content. */
+.st { font-size: 13px; line-height: 18px; color: var(--rb-ink); }
 .st.dropping { box-shadow: inset 0 0 0 2px var(--rb-accent); }
 .st-body {
   grid-row: 2;

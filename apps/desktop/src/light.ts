@@ -12,6 +12,8 @@
  * project behind the window.
  */
 import { SettingsStore, browserStorage } from './settings/store.js'
+import type { RailPanel } from './shell/Shell.js'
+import type { SearchScope } from './search/SearchPanel.js'
 
 export type AppMode = 'light' | 'pro'
 
@@ -38,8 +40,10 @@ const PROJECT_ONLY = new Set([
   'new-round', 'rename-round', 'duplicate-round', 'delete-round',
   'set-project-aside', 'context-window', 'refresh-files',
   'search', 'search-folder',
-  'close-other-tabs', 'reopen-tab',
+  'close-tab', 'close-other-tabs', 'reopen-tab',
   'pane-files',
+  // Light's own "Save takeoff into this PDF" says the same thing with the file's words.
+  'save-takeoff',
 ])
 
 /** Ids of commands built per round, per project or per recent project. */
@@ -59,6 +63,29 @@ export function lightCommands<C extends { id: string; title: string; detail?: st
 ): C[] {
   const kept = all
     .filter((c) => !isProjectOnlyCommand(c.id))
-    .map((c) => (c.id === 'close-project' ? { ...c, title: 'Close file', detail: 'Saves the takeoff into the PDF, then back to the start page' } : c))
+    .map((c) => {
+      if (c.id === 'close-project') return { ...c, title: 'Close file', detail: 'Saves the takeoff into the PDF, then back to the start page' }
+      if (c.id === 'pane-estimates') return { ...c, title: c.title.replace('estimates pane', 'takeoff pane') }
+      if (c.id === 'export-estimate') return { ...c, title: 'Export takeoff…' }
+      if (c.id === 'remove-scope') return { ...c, title: 'Remove scope…' }
+      return c
+    })
   return [...extra, ...kept]
 }
+
+/**
+ * The left rail in Light. Files lists a project's folder of drawings; a Light
+ * window is one PDF, so the rail is that file's sheets and its search.
+ */
+export const LIGHT_PANELS: readonly RailPanel[] = ['contents', 'thumbnails', 'search']
+
+/**
+ * Settings that only steer projects: reopening the last one, and how long the
+ * recent-projects list is. Light's recents are PDFs and are not governed by them.
+ */
+export const LIGHT_HIDDEN_SETTINGS: readonly string[] = [
+  'general.restoreProjectWindows', 'general.recentProjectLimit', 'general.recentExpiry',
+]
+
+/** Search reaches in Light: Folder and Project would only repeat Document. */
+export const LIGHT_REACHES: readonly SearchScope[] = ['sheet', 'document']

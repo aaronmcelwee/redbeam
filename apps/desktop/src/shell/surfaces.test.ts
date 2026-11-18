@@ -81,7 +81,7 @@ describe('the scope editor, in the sidebar', () => {
       expect(src, `${action} is not offered`).toContain(`${action}(`)
     }
     expect(src).not.toContain('scopefoot')
-    expect(src).toContain('label="Remove from round…"')
+    expect(src).toContain("'Remove from round…'")
     // Rename in place (F2 or the menu) and what-it-counts were the two fields only the dialog had.
     expect(src).toContain('label="Scope name"')
     expect(src).toContain('id="scope-counts"')

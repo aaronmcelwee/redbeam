@@ -177,9 +177,15 @@ export function WindowControls({
 // ------------------------------------------------------------- title bar --
 
 export function TitleBar({
-  projectName, appMenu, projectMenu, children, workOpen, onToggleWork,
+  projectName, appMenu, projectMenu, children, workOpen, onToggleWork, fileMode = false,
 }: {
   projectName: string
+  /**
+   * Light mode: the window is one PDF, not a project. The cell names the file
+   * and is not a control — there is no project to switch to (Aaron,
+   * 2026-11-18: "Project selector still shows in light mode").
+   */
+  fileMode?: boolean
   appMenu?: AppMenuActions
   projectMenu?: ProjectMenuProps
   children?: ReactNode
@@ -252,6 +258,12 @@ export function TitleBar({
       </div>
 
       <div className="projectcell" ref={projRef}>
+        {fileMode ? (
+          <span className="projectpick filelabel" title={projectName}>
+            <Glyph icon={FileText} role="inline" />
+            <span className="projectname">{projectName}</span>
+          </span>
+        ) : (
         <button
           className="projectpick"
           aria-haspopup="menu"
@@ -264,7 +276,8 @@ export function TitleBar({
           <span className="projectname">{projectName}</span>
           <Glyph icon={ChevronDown} role="small" />
         </button>
-        {projOpen && projectMenu !== undefined && (
+        )}
+        {!fileMode && projOpen && projectMenu !== undefined && (
           <ProjectMenu {...projectMenu} onDone={() => setProjOpen(false)} />
         )}
       </div>
@@ -284,8 +297,8 @@ export function TitleBar({
         <button
           className="titleicon paneltoggle"
           aria-pressed={workOpen}
-          title={workOpen ? 'Hide the estimate panel' : 'Show the estimate panel'}
-          aria-label={workOpen ? 'Hide the estimate panel' : 'Show the estimate panel'}
+          title={`${workOpen ? 'Hide' : 'Show'} the ${fileMode ? 'takeoff' : 'estimate'} panel`}
+          aria-label={`${workOpen ? 'Hide' : 'Show'} the ${fileMode ? 'takeoff' : 'estimate'} panel`}
           onClick={onToggleWork}
         >
           <Glyph icon={PanelRight} role="inline" />
@@ -469,7 +482,8 @@ export function DocumentTabStrip({
   activeId: string | null
   onSelect: (id: string) => void
   onClose?: (id: string) => void
-  onBrowse: () => void
+  /** The "+" that opens another document. Absent in Light, where a window is one file. */
+  onBrowse?: () => void
   /** Open this document in a context window — a second view, side by side. */
   onPopOut?: (id: string) => void
 }) {
@@ -514,7 +528,7 @@ export function DocumentTabStrip({
       if (all.length === 0) return
       // Space for the `+N` button is only reserved when there is something to
       // put in it; reserving it unconditionally cost a tab at every width.
-      const reserve = ADD_W + (all.length > 1 ? OVERFLOW_W : 0)
+      const reserve = (onBrowse !== undefined ? ADD_W : 0) + (all.length > 1 ? OVERFLOW_W : 0)
       const budget = el.clientWidth - reserve
       let used = 0
       let n = 0
@@ -648,9 +662,11 @@ export function DocumentTabStrip({
         </div>
       )}
 
-      <button className="titleicon tabadd" onClick={onBrowse} title="Open another document" aria-label="Open another document">
-        <Glyph icon={Plus} role="inline" />
-      </button>
+      {onBrowse !== undefined && (
+        <button className="titleicon tabadd" onClick={onBrowse} title="Open another document" aria-label="Open another document">
+          <Glyph icon={Plus} role="inline" />
+        </button>
+      )}
     </div>
     </>
   )
@@ -704,8 +720,10 @@ const TABS: Array<{ id: RailPanel; label: string; icon: Icon }> = [
  * the three document views adjacent is what makes the strip scannable.
  */
 export function Sidebar({
-  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children, documentOpen = true,
+  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children, documentOpen = true, panels,
 }: {
+  /** The navigation tabs to show, when not all of them. Light has no Files: the window is one file. */
+  panels?: readonly RailPanel[]
   active: RailPanel | null
   onSelect: (p: RailPanel) => void
   onSettings: () => void
@@ -786,7 +804,7 @@ export function Sidebar({
   return (
     <aside className="side">
       <nav className="sidetabs" aria-label="Panels">
-        {TABS.map((t) => tab(t.id, t.label, t.icon))}
+        {TABS.filter((t) => panels === undefined || panels.includes(t.id)).map((t) => tab(t.id, t.label, t.icon))}
         <span className="grow" />
         {tab('search', 'Search', SearchText)}
       </nav>

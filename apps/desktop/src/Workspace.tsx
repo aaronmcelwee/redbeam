@@ -129,7 +129,7 @@ import {
 } from './report/report.js'
 import { APP_VERSION } from './update/updates.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Bug } from './shell/icons.js'
-import { lightCommands } from './light.js'
+import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -574,7 +574,7 @@ export default function Workspace({
    * Files first. A project opens with no drawing on the stage (see the open
    * effect), so the pane that lists the drawings is the one to be looking at.
    */
-  const [railPanel, setRailPanel] = useState<RailPanel | null>('files')
+  const [railPanel, setRailPanel] = useState<RailPanel | null>(light ? 'contents' : 'files')
   /**
    * Whether the drawing tools are on screen.
    *
@@ -803,7 +803,7 @@ export default function Workspace({
       const id = activeScopeRef.current
       if (id !== null) setOpenScopeId(id)
     }
-    if (open === 'browser') { setRailPanel('files'); setFilesFocus((n) => n + 1) }
+    if (open === 'browser' && !light) { setRailPanel('files'); setFilesFocus((n) => n + 1) }
     if (open === 'scope') {
       setWorkOpen(true)
       setOpenScopeId(null)
@@ -1390,7 +1390,7 @@ export default function Workspace({
       setActiveDocId((cur) => cur ?? first)
       // One tab on open, not one per document.
       setOpenDocIds((cur) => (cur.length > 0 ? cur : first !== null ? [first] : []))
-      if (first === null) setRailPanel('files')
+      if (first === null && !light) setRailPanel('files')
     })()
     return () => {
       cancelled = true
@@ -4394,9 +4394,9 @@ export default function Workspace({
   useEffect(() => {
     const has = activeDocId !== null
     if (has && !hadDocumentRef.current) setRailPanel((cur) => (cur === 'files' || cur === null ? 'contents' : cur))
-    if (!has && hadDocumentRef.current) setRailPanel((cur) => (cur === 'contents' || cur === 'thumbnails' ? 'files' : cur))
+    if (!has && hadDocumentRef.current && !light) setRailPanel((cur) => (cur === 'contents' || cur === 'thumbnails' ? 'files' : cur))
     hadDocumentRef.current = has
-  }, [activeDocId])
+  }, [activeDocId, light])
 
   /**
    * Close a tab. Closing the active one falls back to its NEIGHBOUR rather than
@@ -7482,6 +7482,7 @@ export default function Workspace({
     >
       <TitleBar
         projectName={projectName}
+        fileMode={light}
         appMenu={light
           ? {
               ...(quickView?.onOpenAnother !== undefined ? { onOpenFile: openAnotherFile } : {}),
@@ -7530,16 +7531,19 @@ export default function Workspace({
           activeId={activeDocId}
           onSelect={setActiveDocId}
           {...(openDocIds.length > 1 ? { onClose: closeDocument } : {})}
-          onBrowse={openBrowser}
-          onPopOut={(id) => {
-            const tab = openTabs.find((t) => t.id === id)
-            void openContextWindow(identity.projectId ?? projectPath, tab?.relativePath)
-          }}
+          {...(light ? {} : {
+            onBrowse: openBrowser,
+            onPopOut: (id: string) => {
+              const tab = openTabs.find((t) => t.id === id)
+              void openContextWindow(identity.projectId ?? projectPath, tab?.relativePath)
+            },
+          })}
         />
       </TitleBar>
 
       <Sidebar
         active={railPanel}
+        {...(light ? { panels: LIGHT_PANELS } : {})}
         documentOpen={activeDocId !== null}
         /*
           The scan's own verdict — reconciliation refused, folder unreadable,
@@ -7579,6 +7583,7 @@ export default function Workspace({
               focusNonce={searchFocus}
               seed={searchSeed}
               indexing={indexing}
+              {...(light ? { reaches: LIGHT_REACHES } : {})}
             />
           )}
           {/*
@@ -7662,6 +7667,7 @@ export default function Workspace({
       {settingsOpen && (
         <div className="settingsview">
           <SettingsPanel
+            {...(light ? { hidden: LIGHT_HIDDEN_SETTINGS } : {})}
             store={settings}
             onClose={() => setSettingsOpen(false)}
             onReportBug={() => openReport()}
@@ -8208,6 +8214,7 @@ export default function Workspace({
 
       <EstimatesPanel
         projectName={projectName}
+        fileMode={light}
         estimates={estimates}
         loaded={estimatesLoaded}
         openEstimateId={openEstimateId}
