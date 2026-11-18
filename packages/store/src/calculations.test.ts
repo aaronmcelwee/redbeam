@@ -7,7 +7,8 @@ import { SqlJsDriver } from './sqljs.js'
 import { ensureDocumentAndPage, upsertScope } from './repo.js'
 import {
   freezeLayout, latestCalculation, latestFrozenCalculation, listCalculationQuantities,
-  listCalculations, listLayoutComponents, recordCalculation, type CalculationInput,
+  listCalculations, listLayoutComponents, recordCalculation, recordFrozenCalculation,
+  frozenCalculationBefore, type CalculationInput,
 } from './calculations.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -214,5 +215,45 @@ describe('concurrent calculation writes', () => {
       recordCalculation(db, good),
     ])
     expect(results[1]?.status).toBe('fulfilled')
+  })
+})
+
+describe('saving automatically', () => {
+  it('records a run already frozen, with its quantities and components', async () => {
+    const id = await recordFrozenCalculation(db, input(), { now: '2026-11-18T15:00:00.000Z' })
+    const run = await latestFrozenCalculation(db, 's1')
+    expect(run?.id).toBe(id)
+    expect(run?.frozen).toBe(true)
+    expect(run?.acceptedAt).toBe('2026-11-18T15:00:00.000Z')
+    expect(await listCalculationQuantities(db, id)).toHaveLength(2)
+  })
+
+  it('replaces the run it supersedes, leaving one per day', async () => {
+    const yesterday = await recordFrozenCalculation(db, input(), { now: '2026-11-17T15:00:00.000Z' })
+    const morning = await recordFrozenCalculation(db, input(), { now: '2026-11-18T09:00:00.000Z' })
+    const noon = await recordFrozenCalculation(db, input({
+      quantities: [{ itemKey: 'primary_stock', label: 'Baffle stock', quantity: 14, unit: 'EA' }],
+    }), { now: '2026-11-18T12:00:00.000Z', replaces: morning })
+
+    const runs = await listCalculations(db, 's1')
+    expect(runs.map((r) => r.id)).toEqual([noon, yesterday])
+    expect(await listCalculationQuantities(db, morning)).toEqual([])
+    expect(await listLayoutComponents(db, morning)).toEqual([])
+    expect((await listCalculationQuantities(db, noon))[0]?.quantity).toBe(14)
+  })
+
+  it('finds the earlier day a scope is compared with', async () => {
+    const before = await recordFrozenCalculation(db, input(), { now: '2026-11-16T15:00:00.000Z' })
+    await recordFrozenCalculation(db, input(), { now: '2026-11-18T09:00:00.000Z' })
+    expect((await frozenCalculationBefore(db, 's1', '2026-11-18T00:00:00.000Z'))?.id).toBe(before)
+    expect(await frozenCalculationBefore(db, 's1', '2026-11-16T00:00:00.000Z')).toBeNull()
+  })
+
+  it('keeps the old run when the new one cannot be written', async () => {
+    const first = await recordFrozenCalculation(db, input(), { now: '2026-11-18T09:00:00.000Z' })
+    await expect(recordFrozenCalculation(db, input({ scopeId: 'no-such-scope' }), {
+      now: '2026-11-18T10:00:00.000Z', replaces: first,
+    })).rejects.toThrow()
+    expect((await latestFrozenCalculation(db, 's1'))?.id).toBe(first)
   })
 })

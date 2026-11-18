@@ -681,7 +681,6 @@ export function ShellHarness() {
         layoutOn={false}
         onToggleLayout={() => {}}
         commit={{ at: '2026-08-29T10:12:00Z', delta: [] }}
-        onCommit={() => {}}
         onDuplicateEstimate={() => {}}
         onRenameEstimate={() => {}}
         onDeleteEstimate={() => {}}

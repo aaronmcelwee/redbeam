@@ -4,6 +4,7 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
+
 ## 0.3.18 — 2026-11-18
 
 ### Light mode: open a PDF, take off, and it saves into the file
@@ -14,8 +15,9 @@ SmartScreen will ask once.
   the PDF itself, and Bluebeam shows the markups with their scope and quantity.
   Nothing is kept anywhere else, so the file can be emailed, moved or put in
   another folder and the takeoff goes with it.
-- **Saving.** The takeoff is saved into the PDF when you close it, open another
-  one, or press Ctrl+S (*Save takeoff into this PDF* in the app menu).
+- **Saving.** The takeoff saves itself into the PDF a few seconds after each
+  change, and again when you close it or open another one. Ctrl+S (*Save
+  takeoff into this PDF* in the app menu) saves straight away.
 - **Each PDF has its own scopes.** Scopes you make in a file are saved in that
   file even before anything is drawn with them.
 - **Import scopes from another PDF.** For the next round of bidding, *Import
@@ -31,6 +33,24 @@ SmartScreen will ask once.
   the drawing in Pro now takes the PDF's version instead of writing the older
   one back over it. Markups the PDF no longer has are deleted softly and can
   still be recovered.
+
+## 0.3.17 — 2026-11-18
+
+### No more Commit: takeoffs save themselves
+
+- **Scopes save automatically.** The *Commit* button, *Commit again*, and the
+  *Commit scope…* and *Commit every scope in the round* commands are gone.
+  A moment after a scope's numbers change, REDBEAM records them on its own.
+  One saved record is kept per scope per day, so the parts list still shows
+  what each line *was* on an earlier day when it has moved since (for
+  example "changed since 13 Nov").
+- **The drawing's takeoff goes into the PDF as you work.** A few seconds after
+  your last change, the open drawing's markups, scopes and quantities are
+  saved into the PDF itself, so Bluebeam or a colleague on SharePoint sees
+  them without you switching drawings or closing the project. A drawing
+  that hasn't changed isn't rewritten. If the PDF can't be written (for
+  example it's open and being saved in Bluebeam), REDBEAM says so once and
+  tries again on your next change.
 
 ## 0.3.16 — 2026-11-18
 
