@@ -29,7 +29,7 @@
  *                  ink-3 and one command or aside on the right.
  *   Fields         Compact 24px TextBox and ComboBox, label left, the unit
  *                  inside the field.
- *   Words          Sheet numbers, never filenames. Commit, never Lock. No word
+ *   Words          Sheet numbers, never filenames. Saved, never Commit or Lock. No word
  *                  twice on one screen.
  *
  * THERE IS NO BILL OF MATERIALS AT THE ROUND. Aaron, 2026-09-04: material never
@@ -161,9 +161,11 @@ export interface ScopeMarkup {
  */
 export interface ScopeStanding {
   rows: readonly QuantityResult[]
-  /** When the scope was last committed; null when never. */
+  /** When the scope was last saved (automatically); null when never. */
   committedAt: string | null
-  /** Quantities that moved since that commit. Zero when unchanged, or never committed. */
+  /** The earlier day's save its numbers are compared with; null when there is none. */
+  since?: string | null
+  /** Quantities that moved since that earlier day. Zero when unchanged, or no earlier day. */
   changed: number
 }
 
@@ -293,11 +295,10 @@ export interface EstimatesPanelProps {
   layoutOn: boolean
   onToggleLayout: (on: boolean) => void
   /**
-   * The committed answer for the open scope, and what has moved since.
-   * Absent when this scope has never been committed.
+   * The open scope's automatic save, and what has moved since the earlier
+   * day's save (`since`). Absent when this scope has never been saved.
    */
-  commit?: { at: string | null, delta: QuantityDelta[] }
-  onCommit: (scopeId: string) => void
+  commit?: { at: string | null, since?: string | null, delta: QuantityDelta[] }
   /**
    * Check and name a round before it leaves as a PDF, a CSV or a TSV. The
    * round's accent action. The sheet it opens is `exportSheet`.
@@ -662,13 +663,13 @@ function WarningStack({ warnings }: { warnings: PanelWarning[] }) {
 
 // ------------------------------------------------------- level 1: the list --
 
-/** How much of a round is committed, said once. */
+/** How a round stands against its earlier saves, said once. */
 function roundStanding(scopeIds: readonly string[], standingFor: EstimatesPanelProps['standingFor']) {
   const standings = scopeIds.map((id) => standingFor?.(id) ?? null)
   const known = standings.filter((s): s is ScopeStanding => s !== null)
   const committed = known.filter((s) => s.committedAt !== null)
   const changed = committed.filter((s) => s.changed > 0).length
-  const days = new Set(committed.map((s) => dayOf(s.committedAt)))
+  const days = new Set(committed.filter((s) => s.changed > 0).map((s) => dayOf(s.since ?? null)))
   const day = days.size === 1 ? [...days][0] ?? null : null
   const counted = known.filter((s) => s.rows.length > 0).length
   return {
@@ -681,25 +682,18 @@ function roundStanding(scopeIds: readonly string[], standingFor: EstimatesPanelP
   }
 }
 
-/** "1 committed 13 Sep · 2 not committed · 1 changed" */
+/** "Saved automatically · 1 changed since 13 Sep" */
 function standingText(r: ReturnType<typeof roundStanding>): string {
-  const parts: string[] = []
-  if (r.committed > 0) parts.push(`${r.committed} committed${r.day === null ? '' : ` ${r.day}`}`)
-  if (r.notCommitted > 0) parts.push(`${r.notCommitted} not committed`)
-  if (r.changed > 0) parts.push(`${r.changed} changed`)
+  if (r.committed === 0) return ''
+  const parts = ['Saved automatically']
+  if (r.changed > 0) parts.push(`${r.changed} changed since ${r.day ?? 'earlier saves'}`)
   return parts.join(' · ')
 }
 
-/** The same, in the room a list row has: "1 of 3 committed · 1 changed". */
+/** The same, in the room a list row has: "1 changed since 13 Sep". */
 function standingShort(r: ReturnType<typeof roundStanding>): string {
-  const n = r.committed + r.notCommitted
-  if (n === 0) return ''
-  const parts: string[] = []
-  if (r.committed === 0) parts.push('none committed')
-  else if (r.notCommitted === 0) parts.push(`all committed${r.day === null ? '' : ` ${r.day}`}`)
-  else parts.push(`${r.committed} of ${n} committed`)
-  if (r.changed > 0) parts.push(`${r.changed} changed`)
-  return parts.join(' · ')
+  if (r.committed === 0) return ''
+  return r.changed > 0 ? `${r.changed} changed since ${r.day ?? 'earlier saves'}` : 'saved'
 }
 
 function EstimateList({
@@ -954,8 +948,8 @@ function EstimateOverview({
         <InfoBar tone="warn">No sheet in this project has a scale yet, so nothing here is in real units.</InfoBar>
       )}
       {scopes.length > 0 && exportNote === null && (
-        <InfoBar tone={standing.changed > 0 ? 'warn' : 'info'}>
-          {stateText === '' ? 'Nothing committed yet' : stateText}
+        <InfoBar tone="info">
+          {stateText === '' ? 'Nothing measured yet' : stateText}
         </InfoBar>
       )}
 
@@ -1014,11 +1008,11 @@ function EstimateOverview({
         const first = st?.rows[0]
         const state = st === null || n === 0
           ? { text: 'No takeoff', tone: '' }
-          : st.committedAt === null
-            ? { text: 'Not committed', tone: '' }
-            : st.changed > 0
-              ? { text: `Changed since ${dayOf(st.committedAt) ?? 'commit'}`, tone: ' warn' }
-              : { text: `Committed ${dayOf(st.committedAt) ?? ''}`.trim(), tone: ' good' }
+          : st.changed > 0
+            ? { text: `Changed since ${dayOf(st.since ?? null) ?? 'last save'}`, tone: ' warn' }
+            : st.committedAt === null
+              ? { text: 'Not saved yet', tone: '' }
+              : { text: 'Saved', tone: ' good' }
         return (
           <button key={s.id} className={n === 0 ? 'es-row off' : 'es-row'} onClick={() => onOpenScope(s.id)}>
             <span className="es-dot" style={{ background: s.color }} aria-hidden="true" />
@@ -1083,7 +1077,7 @@ const MARKUP_ICON: Record<string, typeof Pentagon> = {
 
 function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scope: Scope }) {
   const {
-    estimate, scope, rows, pieces, factoryCut, markups, sheetLabel, onGoToPage, onGoToMarkup, onSaveScope, onTakeOff, onCommit,
+    estimate, scope, rows, pieces, factoryCut, markups, sheetLabel, onGoToPage, onGoToMarkup, onSaveScope, onTakeOff,
     onDuplicateScope, onRemoveScope,
   } = p
   const pageRef = useRef<HTMLDivElement | null>(null)
@@ -1142,7 +1136,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const visible = grouped.flatMap(([, list]) => list.map((m) => m.id))
   const inList = new Set(visible)
   const picked = selected.filter((id) => inList.has(id))
-  const day = dayOf(p.commit?.at ?? null)
+  const day = dayOf(p.commit?.since ?? null)
 
   /*
    * One InfoBar under the numbers: what is committed and what moved, or what
@@ -1159,12 +1153,12 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
       return { tone: 'warn', text: pieces.blockers.join('; '), action: p.onSetDirection === undefined ? null : { label: 'Set direction', run: p.onSetDirection } }
     }
     if (p.commit === undefined) {
-      return { tone: 'info', text: 'Not committed', action: { label: 'Commit', run: () => onCommit(scope.id) } }
+      return { tone: 'info', text: 'Saving automatically…', action: null }
     }
     if (p.commit.delta.length === 0) {
-      return { tone: 'good', text: `Committed${day === null ? '' : ` ${day}`} · unchanged`, action: { label: 'Commit again', run: () => onCommit(scope.id) } }
+      return { tone: 'good', text: 'Saved automatically', action: null }
     }
-    return { tone: 'warn', text: `Changed since the${day === null ? '' : ` ${day}`} commit`, action: { label: 'Commit', run: () => onCommit(scope.id) } }
+    return { tone: 'info', text: `Saved automatically · changed since${day === null ? ' the last save' : ` ${day}`}`, action: null }
   })()
 
   const delta = p.commit?.delta ?? []
@@ -1280,7 +1274,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
                 {hasParts && !isVerifiedProduct(product) && (
                   <span className="es-chip" title="Piece counts match arithmetic but are not verified against the Qt build">unverified</span>
                 )}
-                {partsChanged && <span className="es-aside">was = at the{day === null ? '' : ` ${day}`} commit</span>}
+                {partsChanged && <span className="es-aside">was = on{day === null ? ' the last day saved' : ` ${day}`}</span>}
               </>
             )}
           />

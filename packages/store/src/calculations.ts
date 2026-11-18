@@ -150,6 +150,23 @@ async function recordUnserialised(
 ): Promise<string> {
   await db.run('BEGIN')
   try {
+    await insertRun(db, input, now, id)
+    await db.run('COMMIT')
+  } catch (err) {
+    await db.run('ROLLBACK')
+    throw err
+  }
+  return id
+}
+
+/** The INSERTs of a run, its quantities and components. The caller owns the transaction. */
+async function insertRun(
+  db: SqlDriver,
+  input: CalculationInput,
+  now: string,
+  id: string,
+): Promise<void> {
+  {
     await db.run(
       `INSERT INTO calculation_runs
          (id, scope_id, state, engine_version, specifications_snapshot_json,
@@ -187,12 +204,73 @@ async function recordUnserialised(
         ],
       )
     }
-    await db.run('COMMIT')
-  } catch (err) {
-    await db.run('ROLLBACK')
-    throw err
   }
-  return id
+}
+
+/**
+ * Record a run already frozen, replacing an earlier one, in one transaction.
+ *
+ * This is how the app saves a scope's answer now that nobody presses Commit:
+ * every settled change records the scope as it stands, and the run it
+ * `replaces` (the same day's earlier save) goes in the same transaction, so a
+ * scope keeps one run per day — the history of how a number moved from day to
+ * day, without a row for every vertex dragged. Either the new run is there
+ * and the old one is gone, or nothing changed.
+ */
+export async function recordFrozenCalculation(
+  db: SqlDriver,
+  input: CalculationInput,
+  opts: { replaces?: string | null, now?: string, id?: string } = {},
+): Promise<string> {
+  const now = opts.now ?? new Date().toISOString()
+  const id = opts.id ?? crypto.randomUUID()
+  return serialised(async () => {
+    await db.run('BEGIN')
+    try {
+      if (opts.replaces != null) await deleteRun(db, opts.replaces)
+      await insertRun(db, input, now, id)
+      await db.run('UPDATE layout_components SET frozen = 1 WHERE calculation_run_id = ?', [id])
+      await db.run(
+        `UPDATE calculation_runs SET state = 'frozen', accepted_at = ?, updated_at = ? WHERE id = ?`,
+        [now, now, id],
+      )
+      await db.run('COMMIT')
+    } catch (err) {
+      await db.run('ROLLBACK')
+      throw err
+    }
+    return id
+  })
+}
+
+async function deleteRun(db: SqlDriver, runId: string): Promise<void> {
+  await db.run('DELETE FROM layout_components WHERE calculation_run_id = ?', [runId])
+  await db.run('DELETE FROM quantity_results WHERE calculation_run_id = ?', [runId])
+  await db.run('DELETE FROM calculation_runs WHERE id = ?', [runId])
+}
+
+/**
+ * The newest frozen run for a scope accepted BEFORE `before` (an ISO time).
+ *
+ * The baseline a scope's numbers are compared against: today's saves keep
+ * replacing each other, so "what moved" means since the last day's.
+ */
+export async function frozenCalculationBefore(
+  db: SqlDriver,
+  scopeId: string,
+  before: string,
+): Promise<CalculationRun | null> {
+  const rows = await db.all<RunRow>(
+    `${RUN_SELECT}
+      WHERE c.scope_id = ?
+        AND c.accepted_at IS NOT NULL
+        AND c.accepted_at < ?
+      ORDER BY c.accepted_at DESC, c.id DESC
+      LIMIT 1`,
+    [scopeId, before],
+  )
+  const row = rows[0]
+  return row === undefined ? null : toRun(row)
 }
 
 /**

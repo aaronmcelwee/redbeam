@@ -613,8 +613,6 @@ export const ALIASES: Record<string, readonly string[]> = {
   'duplicate-scope': ['copy scope', 'clone scope'],
   'remove-scope': ['delete scope', 'archive scope', 'drop scope', 'remove product', 'trash'],
   'restore-scope': ['unarchive', 'undelete', 'bring back', 'restore'],
-  'commit-scope': ['freeze', 'record', 'lock in', 'save quantity', 'snapshot'],
-  'commit-all': ['freeze all', 'record all', 'commit everything'],
   'specs': ['scope setup', 'setup page', 'configure', 'edit'],
   'quantities': ['parts', 'bill', 'bom', 'order', 'material list', 'pieces', 'how many'],
   // markups

@@ -28,7 +28,7 @@ import {
   editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
   reassignScope as cmdReassign,
   type UndoState,
-  recordCalculation, freezeLayout, latestFrozenCalculation,
+  recordFrozenCalculation, latestFrozenCalculation, frozenCalculationBefore,
   listCalculationQuantities,
   type CalculationRun, type QuantityResultInput,
   listAllCalibrations, listPageBoxes, applyScaleToPages, listDocuments,
@@ -151,6 +151,17 @@ const FALLBACK_DOC = { id: 'doc-sample', relativePath: 'sample.pdf', displayName
  * silently orphaned: written under one scheme, looked up under the other, and
  * simply not found. The store owns identity.
  */
+
+/** How long after the last change a scope's numbers are saved. */
+const AUTO_SAVE_MS = 1500
+/** How long after the last change the open drawing's takeoff is written into its PDF. */
+const AUTO_EMBED_MS = 5000
+/** Local midnight, as the ISO time runs are stamped in: where "today's save" begins. */
+function startOfToday(now = new Date()): string {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
 
 const uid = () => `mk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -4386,7 +4397,9 @@ export default function Workspace({
    * One write per drawing at a time.
    */
   const embedChainRef = useRef(new Map<string, Promise<void>>())
-  const saveTakeoffIntoDrawing = useCallback((docId: string): Promise<void> => {
+  /** Drawings whose last automatic save was refused, so it is said once, not every few seconds. */
+  const autoEmbedComplainedRef = useRef(new Set<string>())
+  const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<void> => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === docId)
     if (!db || !doc || !projectBridge.desktop) return Promise.resolve()
@@ -4397,6 +4410,20 @@ export default function Workspace({
         file: projectDrawingFile(projectBridge, projectPath, doc.relativePath),
       })
       const text = embedStatus(out, name)
+      if (opts.quiet === true) {
+        // An automatic save speaks only when it could not save, and only once
+        // until the next one goes through.
+        const refused = out.kind === 'busy' || out.kind === 'failed'
+        if (!refused) {
+          autoEmbedComplainedRef.current.delete(docId)
+          if (out.kind === 'written' && out.editedElsewhere.length > 0 && text !== null) setStatus(text)
+          return
+        }
+        if (autoEmbedComplainedRef.current.has(docId)) return
+        autoEmbedComplainedRef.current.add(docId)
+      } else if (out.kind !== 'busy' && out.kind !== 'failed') {
+        autoEmbedComplainedRef.current.delete(docId)
+      }
       if (text !== null) setStatus(text)
     }
     const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(run, run)
@@ -4773,10 +4800,10 @@ export default function Workspace({
           return { error: `unknown export: ${what} (tsv, report, marked-pdf, csv, estimate-tsv or pdf)` }
         }
         /*
-         * Freeze a scope's current answer. A write, but not an undoable one:
-         * a committed run is a RECORD of what the takeoff said, so undoing it
-         * would erase evidence rather than reverse an edit. It is removed by
-         * committing again, which supersedes it.
+         * Save a scope's current answer now rather than when the change
+         * settles. The app saves by itself; this is for an agent that wants
+         * the record written before it reports. Not undoable: a saved run is
+         * a RECORD of what the takeoff said, superseded by the next save.
          */
         case 'commit_scope': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
@@ -4785,12 +4812,13 @@ export default function Workspace({
           const p = piecesRef.current.find((x) => x.scope.id === id)
           if (!p) return { error: `no calculation for ${sc.label} yet` }
           if (p.result.blockers.length > 0) {
-            return { error: `cannot commit ${sc.label}: ${p.result.blockers.join('; ')}` }
+            return { error: `cannot save ${sc.label}: ${p.result.blockers.join('; ')}` }
           }
-          // Awaited: reporting a commit that has not happened yet is how a
+          // Awaited: reporting a save that has not happened yet is how a
           // failure gets recorded as a success.
-          await commitScope(id)
-          return { committed: sc.label, quantities: p.result.quantities.length }
+          const outcome = await saveScopeRun(id)
+          if (outcome === 'saved') { saveRef.current(); await refreshCommitted() }
+          return { committed: sc.label, quantities: p.result.quantities.length, unchanged: outcome === 'unchanged' }
         }
 
         // ---- writes ----
@@ -5678,80 +5706,153 @@ export default function Workspace({
   const activeQuantities = quantities.find((q) => q.scope.id === shownScopeId)?.rows ?? []
 
   /**
-   * The committed run for each scope, and what has moved since.
+   * Each scope's saved run, and the earlier day's run it is compared against.
    *
    * Everything else in this panel is recomputed from the markups whenever
-   * anything changes — right for working, useless for bidding. A committed run
-   * is the answer at a moment with the evidence behind it, so that changing a
-   * specification tomorrow shows a DELTA rather than quietly replacing the
-   * number somebody sent.
+   * anything changes — right for working, useless for bidding. So the app
+   * records each scope's answer by itself once a change settles (there is no
+   * Commit button: Aaron, 2026-11-18, "make it auto-commit, auto-save"), and
+   * keeps one run per scope per day. The numbers are compared with the last
+   * EARLIER day's run, so changing a specification today still shows what
+   * moved since the number somebody sent last week.
    */
-  const [committed, setCommitted] = useState<Map<string, {
-    run: CalculationRun
-    quantities: QuantityResultInput[]
-  }>>(new Map())
+  type SavedRun = { run: CalculationRun, quantities: QuantityResultInput[] }
+  const [committed, setCommitted] = useState<Map<string, { latest: SavedRun, baseline: SavedRun | null }>>(new Map())
+  const committedRef = useRef(committed)
+  committedRef.current = committed
 
   const refreshCommitted = useCallback(async () => {
     const db = dbRef.current
     if (!db) return
-    const next = new Map<string, { run: CalculationRun, quantities: QuantityResultInput[] }>()
+    const today = startOfToday()
+    const next = new Map<string, { latest: SavedRun, baseline: SavedRun | null }>()
     for (const sc of scopesRef.current) {
       const run = await latestFrozenCalculation(db, sc.id)
       if (run === null) continue
-      next.set(sc.id, { run, quantities: await listCalculationQuantities(db, run.id) })
+      const latest = { run, quantities: await listCalculationQuantities(db, run.id) }
+      const before = (run.acceptedAt ?? '') < today ? run : await frozenCalculationBefore(db, sc.id, today)
+      const baseline = before === null ? null
+        : before.id === run.id ? latest
+          : { run: before, quantities: await listCalculationQuantities(db, before.id) }
+      next.set(sc.id, { latest, baseline })
     }
     setCommitted(next)
   }, [])
 
   useEffect(() => { void refreshCommitted() }, [scopes, refreshCommitted])
 
+  /** What a scope reports right now, as the rows a run records. */
+  const liveQuantitiesOf = useCallback((scopeId: string): QuantityResultInput[] => {
+    const rows = quantitiesRef.current.find((q) => q.scope.id === scopeId)?.rows ?? []
+    const parts = piecesRef.current.find((p) => p.scope.id === scopeId)?.result.quantities ?? []
+    return [
+      ...rows.map((r) => ({ itemKey: r.itemKey, label: r.label, quantity: r.quantity, unit: r.unit })),
+      ...parts.map((q) => ({ itemKey: q.itemKey, label: q.label, quantity: q.quantity, unit: q.unit })),
+    ]
+  }, [])
+
   /**
-   * Freeze what this scope currently reports.
+   * Record a scope's answer as it stands, replacing today's earlier save.
    *
-   * Recorded AND frozen in one gesture: a run that is written but never
-   * accepted is a draft nobody asked for, and the button says commit.
+   * Skipped when nothing moved since the last save, and when the scope cannot
+   * be calculated (its blocker is already on screen). Throws on a failed
+   * write, so the bridge never reports a save that did not happen.
    */
-  const commitScope = useCallback(async (scopeId: string) => {
+  const projectMarkupsLatest = useRef(projectMarkups)
+  projectMarkupsLatest.current = projectMarkups
+  const projectCalibrationsLatest = useRef(projectCalibrations)
+  projectCalibrationsLatest.current = projectCalibrations
+  const saveScopeRun = useCallback(async (scopeId: string): Promise<'saved' | 'unchanged' | 'blocked'> => {
     const db = dbRef.current
-    if (!db || !requireProject()) return
     const sc = scopesRef.current.find((x) => x.id === scopeId)
     const pieces = piecesRef.current.find((p) => p.scope.id === scopeId)
-    if (!sc || !pieces) return
-    if (pieces.result.blockers.length > 0) {
-      setStatus(`cannot commit ${sc.label}: ${pieces.result.blockers[0]}`)
-      return
-    }
+    if (!db || !sc || !pieces) return 'blocked'
+    if (pieces.result.blockers.length > 0) return 'blocked'
+    const mine = projectMarkupsLatest.current.filter((m) => m.scopeId === scopeId)
+    const prev = committedRef.current.get(scopeId)?.latest ?? null
+    // A scope nobody has measured yet has nothing to save.
+    if (mine.length === 0 && prev === null) return 'unchanged'
+    const live = liveQuantitiesOf(scopeId)
+    if (prev !== null && deltaBetween(prev.quantities, live).length === 0) return 'unchanged'
     const rollup = (quantitiesRef.current.find((q) => q.scope.id === scopeId)?.rows ?? [])
       .map((r) => ({ itemKey: r.itemKey, label: r.label, quantity: r.quantity, unit: r.unit }))
+    const replaces = prev !== null && (prev.run.acceptedAt ?? '') >= startOfToday() ? prev.run.id : null
+    await recordFrozenCalculation(db, calculationFor(sc, pieces.result, rollup, {
+      documentId: docIdRef.current,
+      // The PROJECT's markups for this scope, matching what the totals above
+      // are made of. Saving the open document's would freeze a fragment.
+      markups: mine,
+      calibrations: projectCalibrationsLatest.current,
+    }), { replaces })
+    return 'saved'
+  }, [liveQuantitiesOf])
+
+  /**
+   * Save every scope whose numbers moved, a moment after the last change.
+   *
+   * One pass at a time; a change during a pass runs one more after it. Not in
+   * a popped-out context window (the main window saves the shared project)
+   * and not while a drawing is only open for viewing.
+   */
+  const autoSaveRef = useRef<{ timer: ReturnType<typeof setTimeout> | null, running: boolean, again: boolean }>(
+    { timer: null, running: false, again: false })
+  const runAutoSave = useCallback(async () => {
+    const st = autoSaveRef.current
+    if (st.running) { st.again = true; return }
+    st.running = true
     try {
-      const id = await recordCalculation(db, calculationFor(sc, pieces.result, rollup, {
-        documentId: docIdRef.current,
-        // The PROJECT's markups for this scope, matching what the totals above
-        // are made of. Committing the open document's would freeze a fragment.
-        markups: projectMarkups.filter((m) => m.scopeId === scopeId),
-        calibrations: projectCalibrations,
-      }))
-      await freezeLayout(db, id)
-      saveRef.current()
-      await refreshCommitted()
-      setStatus(`committed ${sc.label}`)
-    } catch (err) {
-      /*
-       * Say so. Five scopes committed in succession used to lose one silently
-       * — the write failed on a nested transaction and the caller was told it
-       * had succeeded, which on a bid is the worst possible combination.
-       */
-      const why = err instanceof Error ? err.message : String(err)
-      setStatus(`could not commit ${sc.label}: ${why}`)
-      throw err
+      do {
+        st.again = false
+        let saved = 0
+        for (const sc of scopesRef.current) {
+          try {
+            if (await saveScopeRun(sc.id) === 'saved') saved++
+          } catch (err) {
+            // Say so: a save that silently fails on a bid is the worst case.
+            const why = err instanceof Error ? err.message : String(err)
+            setStatus(`could not save ${sc.label}: ${why}`)
+          }
+        }
+        if (saved > 0) {
+          saveRef.current()
+          await refreshCommitted()
+        }
+      } while (st.again)
+    } finally {
+      st.running = false
     }
-  }, [projectMarkups, projectCalibrations, refreshCommitted])
+  }, [saveScopeRun, refreshCommitted, setStatus])
+
+  useEffect(() => {
+    if (!dbRef.current || quickView !== undefined || identity.role === 'context') return
+    const st = autoSaveRef.current
+    if (st.timer !== null) clearTimeout(st.timer)
+    st.timer = setTimeout(() => { st.timer = null; void runAutoSave() }, AUTO_SAVE_MS)
+    return () => { if (st.timer !== null) { clearTimeout(st.timer); st.timer = null } }
+  }, [quantities, pieces, committed, quickView, identity.role, runAutoSave])
+
+  /**
+   * Auto-save: the open drawing's takeoff goes into its PDF a few seconds
+   * after the last change, so Bluebeam (or a colleague on SharePoint) sees it
+   * without anyone leaving the drawing or closing the project. Unchanged
+   * takeoffs are not rewritten (embedDrawing compares first), and the write
+   * goes through the same per-drawing queue as every other save.
+   */
+  useEffect(() => {
+    const docId = activeDocId
+    if (docId === null || !projectBridge.desktop || quickView !== undefined || identity.role === 'context') return
+    const t = setTimeout(() => { void saveTakeoffIntoDrawing(docId, { quiet: true }) }, AUTO_EMBED_MS)
+    return () => clearTimeout(t)
+  }, [activeDocId, markups, scopes, committed, cal, quickView, identity.role, saveTakeoffIntoDrawing])
 
   const activeEntry = pieces.find((p) => p.scope.id === shownScopeId)
   const activePieces = activeEntry?.result
   const activeFactoryCut = activeEntry?.factoryCut
 
-  /** The committed run against what a scope shows now. Undefined when never committed. */
+  /**
+   * A scope's save against what it shows now: when it was last saved, and
+   * what moved since the earlier day's run. Undefined when never saved.
+   */
   const commitStateFor = useCallback((scopeId: string) => {
     const hit = committed.get(scopeId)
     if (hit === undefined) return undefined
@@ -5761,7 +5862,11 @@ export default function Workspace({
       ...rows.map((r) => ({ itemKey: r.itemKey, label: r.label, quantity: r.quantity, unit: r.unit })),
       ...parts,
     ]
-    return { at: hit.run.acceptedAt, delta: deltaBetween(hit.quantities, live) }
+    return {
+      at: hit.latest.run.acceptedAt,
+      since: hit.baseline?.run.acceptedAt ?? null,
+      delta: hit.baseline === null ? [] : deltaBetween(hit.baseline.quantities, live),
+    }
   }, [committed, quantities, pieces])
 
   const commitState = shownScopeId === null ? undefined : commitStateFor(shownScopeId)
@@ -5775,7 +5880,12 @@ export default function Workspace({
     const q = quantities.find((x) => x.scope.id === scopeId)
     if (q === undefined) return null
     const c = commitStateFor(scopeId)
-    return { rows: q.rows, committedAt: c === undefined ? null : c.at, changed: c === undefined ? 0 : c.delta.length }
+    return {
+      rows: q.rows,
+      committedAt: c === undefined ? null : c.at,
+      since: c === undefined ? null : c.since,
+      changed: c === undefined ? 0 : c.delta.length,
+    }
   }, [quantities, commitStateFor])
 
   const warnings = useMemo(() => {
@@ -6440,7 +6550,6 @@ export default function Workspace({
         { id: `hub-${sc.id}-direction`, kind: 'command', title: 'Set direction on the sheet', detail: 'drawn as an arrow', ...stuck(noSheet), run: () => { setActiveScope(sc.id); setTakeoff(true); setTool('direction') } },
         markupsCommand(sc.id),
         partsCommand(sc.id),
-        { id: `hub-${sc.id}-commit`, kind: 'command', title: 'Commit', detail: 'freeze the count as it stands', ...stuck(noRound), run: () => void commitScope(sc.id) },
         { ...renameCommand(sc.id), title: 'Rename…' },
         { id: `hub-${sc.id}-duplicate`, kind: 'command', title: 'Duplicate', detail: 'the specification, not the takeoff', run: () => void duplicateScope(sc.id) },
         { ...removeCommand(sc.id), title: 'Archive' },
@@ -6932,20 +7041,6 @@ export default function Workspace({
           run: () => { setActiveScope(sc.id); setTakeoff(true); setTool('direction') },
         })),
       },
-      {
-        id: 'commit-scope', kind: 'command', title: 'Commit scope…',
-        detail: 'Freeze its quantities into the round', keywords: ['scope-action', 'freeze', 'lock'],
-        ...stuck(noRound), step: pickScope('Commit', (sc) => ({
-          id: `commit-in-${sc.id}`, kind: 'command', title: `Commit ${sc.label}`, run: () => void commitScope(sc.id),
-        })),
-      },
-      {
-        id: 'commit-all', kind: 'command', title: 'Commit every scope in the round',
-        detail: `${estimateScopes.length} scope${estimateScopes.length === 1 ? '' : 's'}`, keywords: ['freeze', 'lock', 'all'],
-        ...stuck(noRound ?? (estimateScopes.length === 0 ? 'the round has no scopes' : undefined)),
-        run: async () => { for (const sc of estimateScopes) await commitScope(sc.id) },
-      },
-
       /* ---- markups ---- */
       {
         id: 'move-markup', kind: 'command', title: 'Move selected markup to…',
@@ -7131,16 +7226,6 @@ export default function Workspace({
         ...(sc.id === shownScopeId && noSheet === undefined ? { suggest: 'the active scope' } : {}),
         run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); beginTakeoff(true); setTool(firstToolFor(sc.id)) },
       })
-      // The active scope's commit, offered when it has moved since the last one.
-      const state = sc.id === shownScopeId ? commitState : undefined
-      if (state !== undefined && state.delta.length > 0 && noSheet === undefined) {
-        out.push({
-          id: `commit-now-${sc.id}`, kind: 'command', title: `Commit ${sc.label}`, whenTyped: true,
-          detail: `changed since ${new Date(state.at ?? '').getDate()} ${new Date(state.at ?? '').toLocaleDateString(undefined, { month: 'short' })}`,
-          keywords: ['scope-action', 'freeze', 'lock'], suggest: 'changed since the commit',
-          run: () => void commitScope(sc.id),
-        })
-      }
     }
     for (const d of documents) {
       out.push({
@@ -7200,13 +7285,13 @@ export default function Workspace({
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
     scaleOfPage, applyScaleToSelection, markupCounts,
-    beginTakeoff, takeoff, tool, commitScope, selectedIds, reassignSelection, removeMarkups, duplicateMarkups,
+    beginTakeoff, takeoff, tool, selectedIds, reassignSelection, removeMarkups, duplicateMarkups,
     openParts, prefs, settings, setZoom, openDocument, refreshEstimates,
     identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged,
     openEstimateExport, markupRowsFor, goToMarkup, directionFromEdge, startPatternHere, clearPatternOrigin,
     hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
-    quantities, commitState, projectMarkups,
+    quantities, projectMarkups,
   ])
 
   return (
@@ -8030,7 +8115,6 @@ export default function Workspace({
         layoutOn={layoutOn}
         onToggleLayout={setLayoutOn}
         {...(commitState !== undefined ? { commit: commitState } : {})}
-        onCommit={(id) => void commitScope(id)}
         onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool(firstToolFor(id)) }}
         onExportEstimate={openEstimateExport}
         {...(exportDraft !== null

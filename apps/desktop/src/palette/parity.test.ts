@@ -86,8 +86,6 @@ const REGISTER: ReadonlyArray<[affordance: string, commandId: string]> = [
   ['scope · duplicate', 'duplicate-scope'],
   ['scope · archive', 'remove-scope'],
   ['scope · restore', 'restore-scope'],
-  ['scope · commit', 'commit-scope'],
-  ['round · commit every scope', 'commit-all'],
   ['scope · parts page', 'quantities'],
   ['scope · setup page', 'specs'],
   ['scope · markups page', 'scope-markups'],
