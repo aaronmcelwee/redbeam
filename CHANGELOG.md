@@ -5,6 +5,26 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.19 — 2026-11-18
+
+### Light mode shows only what a single PDF needs
+
+- **No project switcher.** The top-left of the window names the open PDF; it
+  is no longer a drop-down of projects.
+- **One file per window.** The "+" for opening another tab and *Pop out to
+  context window* are gone. Open another PDF with Ctrl+O or *Open PDF…*.
+- **No Files pane.** The left side is the PDF's Contents, Thumbnails and
+  Search, and Search looks in this sheet or this document only.
+- **The right panel is the file's Takeoff.** It opens straight on the file's
+  scopes, with no list of estimates or bidding rounds to go back to, and the
+  menu keeps *Save report* and *Save marked-up PDF* without Rename, Duplicate
+  round or Delete round.
+- **Settings and the command palette** leave out what only steers projects:
+  reopening the last project, the recent-projects list, closing other tabs,
+  and the round commands.
+- **The start screen fills the window** (it stopped at its content before, in
+  both modes).
+
 ## 0.3.18 — 2026-11-18
 
 ### Light mode: open a PDF, take off, and it saves into the file

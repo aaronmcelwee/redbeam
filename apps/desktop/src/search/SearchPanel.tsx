@@ -72,6 +72,11 @@ export interface SearchPanelProps {
   focusNonce?: number
   /** A query handed in from outside — the prompt's "Search the sheets for…". */
   seed?: string
+  /**
+   * Which reaches to offer, when not all four. Light mode is one file, so
+   * Folder and Project would only repeat Document.
+   */
+  reaches?: readonly SearchScope[]
   /** The project-wide indexer's progress while it runs. */
   indexing?: { done: number; total: number; document: string | null } | null
 }
@@ -93,11 +98,13 @@ const markable = (h: SearchHit) => h.boxes !== null && h.boxes.length > 0
 
 export function SearchPanel({
   onSearch, onGoToHit, onMarkHits, onUnmarkHits, targets = [], onNewTarget, currentDocumentId = null, sheetFor,
-  onClose, focusNonce = 0, seed = '', indexing = null,
+  onClose, focusNonce = 0, seed = '', indexing = null, reaches,
 }: SearchPanelProps) {
+  const shown = reaches === undefined ? REACHES : REACHES.filter((r) => reaches.includes(r.id))
+  const wide = shown.some((r) => r.id === 'project')
   useReturnFocus(true)
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<SearchScope>('project')
+  const [scope, setScope] = useState<SearchScope>(wide ? 'project' : shown[shown.length - 1]?.id ?? 'document')
   const [report, setReport] = useState<SearchReport | null>(null)
   const [busy, setBusy] = useState(false)
   /** The scope highlights go into. Null until chosen: the gate. */
@@ -230,7 +237,7 @@ export function SearchPanel({
       </div>
       {/* The reach: one tap, no dropdown. */}
       <div className="sr-reach" role="group" aria-label="Where to search">
-        {REACHES.map((r) => (
+        {shown.map((r) => (
           <button key={r.id} className="sr-reachitem" aria-pressed={scope === r.id} onClick={() => setScope(r.id)}>{r.label}</button>
         ))}
       </div>
@@ -294,8 +301,7 @@ export function SearchPanel({
             <div>Find text on any sheet.</div>
             <div className="panehint">
               Notes, schedules, tags like C-MT-01 and specification clauses —
-              every page with readable text, across all the drawings in this
-              project.
+              every page with readable text, {wide ? 'across all the drawings in this project.' : 'in this file.'}
               {onSearch === null && ' Open a project to search it.'}
             </div>
           </div>

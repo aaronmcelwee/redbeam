@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isProjectOnlyCommand, lightCommands, readMode, writeMode } from './light.js'
+import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, isProjectOnlyCommand, lightCommands, readMode, writeMode } from './light.js'
+import { SETTINGS } from './settings/registry.js'
 import { SettingsStore, memoryStorage } from './settings/store.js'
 import { forgetFile, recentFiles, rememberFile, type RecentFileStorage } from './project/recentFiles.js'
 
@@ -31,6 +32,34 @@ describe('the Light palette', () => {
     )
     expect(out.map((c) => c.id)).toEqual(['light-open', 'fit-page', 'close-project'])
     expect(out.find((c) => c.id === 'close-project')?.title).toBe('Close file')
+  })
+
+  it('names the panel and the exports for a file, and drops the duplicate save', () => {
+    const out = lightCommands(
+      [
+        { id: 'pane-estimates', title: 'Show the estimates pane' },
+        { id: 'export-estimate', title: 'Export estimate…' },
+        { id: 'remove-scope', title: 'Remove scope from round…' },
+        { id: 'save-takeoff', title: 'Save takeoff into this drawing' },
+        { id: 'close-tab', title: 'Close A-101' },
+      ],
+      [],
+    )
+    expect(out.map((c) => c.title)).toEqual(['Show the takeoff pane', 'Export takeoff…', 'Remove scope…'])
+  })
+})
+
+describe('the Light window', () => {
+  it('has no Files pane and searches only this file', () => {
+    expect(LIGHT_PANELS).not.toContain('files')
+    expect(LIGHT_PANELS).toContain('search')
+    expect(LIGHT_REACHES).toEqual(['sheet', 'document'])
+  })
+
+  it('hides only settings that exist, and never the mode switch', () => {
+    const ids = new Set(SETTINGS.map((d) => d.id))
+    for (const id of LIGHT_HIDDEN_SETTINGS) expect(ids.has(id)).toBe(true)
+    expect(LIGHT_HIDDEN_SETTINGS).not.toContain('general.mode')
   })
 })
 

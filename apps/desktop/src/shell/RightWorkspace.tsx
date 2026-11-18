@@ -189,6 +189,12 @@ export interface RoundBill {
 
 export interface EstimatesPanelProps {
   projectName: string
+  /**
+   * Light mode: the window is one PDF with one round made for it, so there is
+   * no list of rounds to go back to and nothing to rename, copy or delete at
+   * that level. The panel is the file's takeoff: its scopes, then a scope.
+   */
+  fileMode?: boolean
   estimates: EstimateListItem[]
   /**
    * Whether the list has been read at all. Before the database answers the
@@ -597,10 +603,19 @@ export function EstimatesPanel(p: EstimatesPanelProps) {
   return (
     <aside className="workspace es-panel">
       <div className="wshead-bar">
-        <span className="wstitle"><Glyph icon={Round} role="inline" /> Estimates</span>
+        <span className="wstitle"><Glyph icon={Round} role="inline" /> {p.fileMode === true ? 'Takeoff' : 'Estimates'}</span>
       </div>
 
-      {estimate !== null && p.exportSheet === undefined && (
+      {/* Light: the scopes are the top, so a crumb appears only inside a scope, and leads back to the file. */}
+      {p.fileMode === true && estimate !== null && scope !== null && p.exportSheet === undefined && (
+        <nav className="crumbs" aria-label="Breadcrumb">
+          <button className="crumb" onClick={() => p.onOpenScope(null)}>{p.projectName}</button>
+          <Glyph icon={ChevronRight} role="small" />
+          <span className="crumb current">{scope.label}</span>
+        </nav>
+      )}
+
+      {p.fileMode !== true && estimate !== null && p.exportSheet === undefined && (
         <nav className="crumbs" aria-label="Breadcrumb">
           <button className="crumb" onClick={() => { p.onOpenScope(null); p.onOpenEstimate(null) }}>
             Estimates
@@ -625,7 +640,10 @@ export function EstimatesPanel(p: EstimatesPanelProps) {
         {p.exportSheet === undefined && p.warnings.length > 0 && <WarningStack warnings={p.warnings} />}
 
         {p.exportSheet !== undefined && p.exportSheet}
-        {p.exportSheet === undefined && estimate === null && <EstimateList {...p} />}
+        {p.exportSheet === undefined && estimate === null && p.fileMode !== true && <EstimateList {...p} />}
+        {p.exportSheet === undefined && estimate === null && p.fileMode === true && (
+          <div className="es-muted pad" role="status">Opening the takeoff…</div>
+        )}
         {p.exportSheet === undefined && estimate !== null && scope === null && (
           <EstimateOverview {...p} estimate={estimate} billEntries={billEntries} />
         )}
@@ -837,7 +855,7 @@ function EstimateOverview({
   estimate, estimates, scopes, scopesLoaded = true, markupCountFor, standingFor, onOpenScope,
   onCreateScope, addScopeRequest = 0, archived = [], onRestoreScope,
   bill, billEntries, projectName, onRenameEstimate, onDuplicateEstimate, onDeleteEstimate,
-  onExportEstimate,
+  onExportEstimate, fileMode = false,
 }: EstimatesPanelProps & { estimate: EstimateListItem; billEntries: ScopePieces[] }) {
   const [naming, setNaming] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -855,7 +873,7 @@ function EstimateOverview({
   /* F2 renames, as the menu says it does. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'F2' || renaming) return
+      if (e.key !== 'F2' || renaming || fileMode) return
       const t = e.target
       if (t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
       e.preventDefault()
@@ -863,7 +881,7 @@ function EstimateOverview({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [renaming])
+  }, [renaming, fileMode])
 
   /*
    * The round's exports, from its menu. Each says what happened: a drawing
@@ -916,11 +934,15 @@ function EstimateOverview({
         menuLabel={`${estimate.name} menu`}
         menu={(
           <>
-            <MenuItem icon={Pencil} label="Rename" hint="F2" onClick={() => setRenaming(true)} />
-            <MenuItem icon={Copy} label="Duplicate round" title="Its scopes and specifications, not its markups" onClick={() => onDuplicateEstimate(estimate.id, nextRoundName(estimate.name, estimates))} />
+            {!fileMode && (
+              <>
+                <MenuItem icon={Pencil} label="Rename" hint="F2" onClick={() => setRenaming(true)} />
+                <MenuItem icon={Copy} label="Duplicate round" title="Its scopes and specifications, not its markups" onClick={() => onDuplicateEstimate(estimate.id, nextRoundName(estimate.name, estimates))} />
+              </>
+            )}
             {bill !== undefined && (
               <>
-                <div className="menusep" />
+                {!fileMode && <div className="menusep" />}
                 <MenuItem icon={FileText} label="Save report…" hint="html" title="One self-contained HTML file, for sending" onClick={saveReport} />
                 {bill.onExportMarkedPdf !== undefined && (
                   <MenuItem
@@ -933,8 +955,12 @@ function EstimateOverview({
                 )}
               </>
             )}
-            <div className="menusep" />
-            <MenuItem icon={Trash2} label="Delete round…" danger onClick={() => onDeleteEstimate(estimate.id)} />
+            {!fileMode && (
+              <>
+                <div className="menusep" />
+                <MenuItem icon={Trash2} label="Delete round…" danger onClick={() => onDeleteEstimate(estimate.id)} />
+              </>
+            )}
           </>
         )}
       />
@@ -945,7 +971,7 @@ function EstimateOverview({
         <InfoBar tone="info" onDismiss={() => setExportNote(null)}>{exportNote}</InfoBar>
       )}
       {bill !== undefined && !bill.calibrated && billEntries.length > 0 && (
-        <InfoBar tone="warn">No sheet in this project has a scale yet, so nothing here is in real units.</InfoBar>
+        <InfoBar tone="warn">No sheet in this {fileMode ? 'file' : 'project'} has a scale yet, so nothing here is in real units.</InfoBar>
       )}
       {scopes.length > 0 && exportNote === null && (
         <InfoBar tone="info">
@@ -957,7 +983,7 @@ function EstimateOverview({
         title="Scopes"
         count={scopes.length}
         right={scopes.length > 0 && canAdd && !naming
-          ? <button className="es-cmd" title="Add a scope to this estimate" onClick={() => setNaming(true)}><Glyph icon={Plus} role="small" /> Add scope</button>
+          ? <button className="es-cmd" title={fileMode ? 'Add a scope to this file' : 'Add a scope to this estimate'} onClick={() => setNaming(true)}><Glyph icon={Plus} role="small" /> Add scope</button>
           : undefined}
       />
 
@@ -974,7 +1000,7 @@ function EstimateOverview({
       )}
 
       {scopes.length === 0 && !scopesLoaded && (
-        <div className="es-muted pad" role="status">Opening the estimate…</div>
+        <div className="es-muted pad" role="status">{fileMode ? 'Opening the takeoff…' : 'Opening the estimate…'}</div>
       )}
       {scopes.length === 0 && scopesLoaded && !naming && (
         <div className="emptystate" role="status">
@@ -1051,7 +1077,7 @@ function EstimateOverview({
               </span>
               <button
                 className="es-btn subtle icon"
-                title={`Restore ${s.label} to this estimate`}
+                title={`Restore ${s.label} to this ${fileMode ? 'file' : 'estimate'}`}
                 aria-label={`Restore ${s.label}`}
                 onClick={() => onRestoreScope(s.id)}
               ><Glyph icon={RotateCcw} role="row" /></button>
@@ -1078,7 +1104,7 @@ const MARKUP_ICON: Record<string, typeof Pentagon> = {
 function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scope: Scope }) {
   const {
     estimate, scope, rows, pieces, factoryCut, markups, sheetLabel, onGoToPage, onGoToMarkup, onSaveScope, onTakeOff,
-    onDuplicateScope, onRemoveScope,
+    onDuplicateScope, onRemoveScope, fileMode = false,
   } = p
   const pageRef = useRef<HTMLDivElement | null>(null)
   const [renaming, setRenaming] = useState(false)
@@ -1235,11 +1261,11 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
                 <div className="menusep" />
                 <MenuItem
                   icon={Trash2}
-                  label="Remove from round…"
+                  label={fileMode ? 'Remove scope…' : 'Remove from round…'}
                   danger
                   title={markups.length > 0
                     ? `Archives it. Its ${markups.length} markup${markups.length === 1 ? '' : 's'} stay and come back if you restore it.`
-                    : 'Archives it. Restore it from the round’s archived list.'}
+                    : `Archives it. Restore it from the ${fileMode ? 'file' : 'round'}’s archived list.`}
                   onClick={() => onRemoveScope(estimate.id, scope.id)}
                 />
               </>

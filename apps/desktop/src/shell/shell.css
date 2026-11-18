@@ -1606,6 +1606,9 @@
 .brand:disabled { cursor: default; }
 .projectcell { position: relative; display: flex; align-items: stretch; min-width: 0; }
 .projectpick:disabled { cursor: default; }
+.projectpick.filelabel, .projectpick.filelabel:hover { cursor: default; background: none; color: var(--rb-ink-2); }
+/* The file name is a label in Light: its icon is the first svg and there is no chevron to push right. */
+.projectpick.filelabel > svg:first-child { margin-left: 0; }
 
 /*
  * THE TITLE BAR IS A SUBGRID OF THE SHELL.
