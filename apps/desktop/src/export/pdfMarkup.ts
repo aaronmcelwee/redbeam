@@ -103,6 +103,27 @@ export function toUserSpace(
 }
 
 /** `#rrggbb` to PDF's 0..1 triple. Anything unparseable reads as black. */
+/**
+ * The inverse of `toUserSpace`: a point in PDF user space back to the
+ * normalized, y-down frame of the page as displayed. For reading geometry
+ * another app wrote (Bluebeam's /Vertices and /Cutouts) back into markups.
+ */
+export function fromUserSpace(
+  p: WritablePoint, box: PageBox, rotation: number,
+): WritablePoint {
+  const rot = (((Math.round(rotation / 90) * 90) % 360) + 360) % 360
+  const { x, y, width: w, height: h } = box
+  if (!(w > 0) || !(h > 0)) return { x: 0, y: 0 }
+  const u = (p.x - x) / w
+  const v = (p.y - y) / h
+  switch (rot) {
+    case 90: return { x: v, y: u }
+    case 180: return { x: 1 - u, y: v }
+    case 270: return { x: 1 - v, y: 1 - u }
+    default: return { x: u, y: 1 - v }
+  }
+}
+
 export function toPdfColor(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
   if (m === null) return [0, 0, 0]
@@ -128,6 +149,7 @@ export function appearanceOps(
   stroke: readonly [number, number, number],
   lineWidth: number,
   shape: AnnotShape,
+  holes: ReadonlyArray<ReadonlyArray<WritablePoint>> = [],
 ): string {
   const rgb = stroke.map(f).join(' ')
   const head = ['/GS gs', `${rgb} RG`, `${rgb} rg`, `${f(lineWidth)} w`]
@@ -149,12 +171,16 @@ export function appearanceOps(
     ].join('\n')
   }
 
-  const path = pts.map((p, i) => `${f(p.x)} ${f(p.y)} ${i === 0 ? 'm' : 'l'}`).join('\n')
+  const trace = (ring: ReadonlyArray<WritablePoint>): string =>
+    ring.map((p, i) => `${f(p.x)} ${f(p.y)} ${i === 0 ? 'm' : 'l'}`).join('\n')
+  const path = trace(pts)
   // A polyline is a RUN, not a region: closing and filling it would draw a
   // shape the estimator never measured and add area that is not in the bid.
-  return shape === 'polyline'
-    ? [...head, path, 'S'].join('\n')
-    : [...head, path, 'h', 'B'].join('\n')
+  if (shape === 'polyline') return [...head, path, 'S'].join('\n')
+  if (holes.length === 0) return [...head, path, 'h', 'B'].join('\n')
+  // An area with cutouts: every ring in one path, filled even-odd (B*), so
+  // each opening shows the drawing through it and is outlined like the edge.
+  return [...head, path, 'h', ...holes.filter((r) => r.length >= 3).flatMap((r) => [trace(r), 'h']), 'B*'].join('\n')
 }
 
 /** Radius of a count marker, in points. */

@@ -12,9 +12,9 @@
  */
 import type { SqlDriver } from '@redbeam/store'
 import { pageNumberFrom } from '@redbeam/store'
-import { polylineLength, regionArea, squarePointsToSquareFeet } from '@redbeam/domain'
+import { polylineLength, regionArea, ringsOverlap, squarePointsToSquareFeet, subtractRings } from '@redbeam/domain'
 import {
-  embedSheet, readSheetEmbed, type EmbedMarkup, type SheetEmbedReading, type SheetSlice, type SliceTables,
+  embedSheet, hash53, readSheetEmbed, type EmbedMarkup, type SheetEmbedReading, type SheetSlice, type SliceTables,
 } from './sheetEmbed.js'
 import type { WritableScaleRegion } from './pdfMarkup.js'
 
@@ -111,9 +111,27 @@ const parseRings = (json: string): Array<Array<{ x: number, y: number }>> => {
 }
 
 /**
+ * A markup's revision: what it is in redbeam.db, as one hash. Recorded in the
+ * slice beside the annotation written from it, so a later reading can tell
+ * "the annotation changed and the markup did not" (an edit made in another
+ * app) from "both changed" (a conflict REDBEAM leaves alone).
+ */
+export function markupRev(row: { kind: string, scope_id: string | null, geometry_json: string }): string {
+  let rings: unknown = []
+  try { rings = JSON.parse(row.geometry_json) } catch { rings = row.geometry_json }
+  return hash53(JSON.stringify([row.kind, row.scope_id ?? '', rings])).toString(16)
+}
+
+/**
  * The Bluebeam-facing markups for a slice: one per takeoff markup, with the
- * scope as its label and its NET quantity. An area's holes are drawn as
- * deductions so the shape on the sheet matches the number beside it.
+ * scope as its label and its NET quantity.
+ *
+ * An area's openings travel as Revu's own cutouts on the area (`cutouts`, which
+ * sheetEmbed writes as /Cutouts), so Bluebeam shows one area with holes and
+ * measures it net: the area's own hole rings, and every separate cutout markup
+ * of the same scope on the same sheet that overlaps it. A cutout folded into
+ * an area is not written again on its own; one that overlaps no area still is,
+ * as the deduction it was drawn as.
  */
 export function embedMarkupsFor(tables: SliceTables, documentId: string): {
   markups: EmbedMarkup[]
@@ -144,35 +162,128 @@ export function embedMarkupsFor(tables: SliceTables, documentId: string): {
     pageRegions.set(i, list)
   }
 
+  const rows = ((tables.markups ?? []) as unknown as MarkupRowLike[])
+    .map((raw) => ({ raw, rings: parseRings(raw.geometry_json) }))
+    .filter((r) => r.rings.length > 0 && pageNumberFrom(r.raw.page_id, documentId) !== null)
+
+  // Which separate cutouts open which area: same sheet, same scope, overlapping.
+  // Overlap is judged in points, so a tall sheet's aspect cannot fake it.
+  const inPoints = (ring: ReadonlyArray<{ x: number, y: number }>, pageId: string) => {
+    const box = boxes.get(pageId)
+    const w = box !== undefined && box.width > 0 ? box.width : 1
+    const h = box !== undefined && box.height > 0 ? box.height : 1
+    return ring.map((p) => ({ x: p.x * w, y: p.y * h }))
+  }
+  const cutoutRows = rows.filter((r) => r.raw.kind === 'cutout')
+  const foldedInto = new Map<string, typeof cutoutRows>()
+  const foldedIds = new Set<string>()
+  for (const area of rows) {
+    if (area.raw.kind !== 'area') continue
+    const outline = inPoints(area.rings[0]!, area.raw.page_id)
+    const mine = cutoutRows.filter((c) => c.raw.page_id === area.raw.page_id && c.raw.scope_id === area.raw.scope_id
+      && c.rings[0] !== undefined && c.rings[0].length >= 3 && ringsOverlap(inPoints(c.rings[0], c.raw.page_id), outline))
+    if (mine.length === 0) continue
+    foldedInto.set(area.raw.id, mine)
+    for (const c of mine) foldedIds.add(c.raw.id)
+  }
+
   const markups: EmbedMarkup[] = []
-  for (const raw of (tables.markups ?? []) as unknown as MarkupRowLike[]) {
-    const pageIndex = pageNumberFrom(raw.page_id, documentId)
-    if (pageIndex === null) continue
-    const rings = parseRings(raw.geometry_json)
-    if (rings.length === 0) continue
+  for (const { raw, rings } of rows) {
+    if (raw.kind === 'cutout' && foldedIds.has(raw.id)) continue
+    const pageIndex = pageNumberFrom(raw.page_id, documentId)!
     const scope = raw.scope_id === null ? undefined : scopes.get(raw.scope_id)
     const label = scope?.label ?? 'Unassigned'
     const color = scope?.color ?? '#888888'
     const box = boxes.get(raw.page_id)
     const fpp = fppByPage.get(raw.page_id)
+    const folded = foldedInto.get(raw.id) ?? []
+    const cutouts = raw.kind === 'area'
+      ? [...rings.slice(1), ...folded.map((c) => c.rings[0]!)]
+      : []
     let quantity: number | null = null
     if (box !== undefined && box.width > 0 && box.height > 0 && fpp !== undefined) {
       if (raw.kind === 'area') {
-        const region = rings.map((ring) => ring.map((p) => ({ x: p.x * box.width, y: p.y * box.height })))
+        const own = rings.map((ring) => inPoints(ring, raw.page_id))
+        const region = folded.length === 0
+          ? own
+          // The outline less its own holes AND the folded cutouts, as one
+          // subtraction: a union of the own rings would fill the holes back in.
+          : subtractRings([own[0]!], [...own.slice(1), ...folded.map((c) => inPoints(c.rings[0]!, raw.page_id))])
         quantity = squarePointsToSquareFeet(regionArea(region), fpp)
       } else if (raw.kind === 'polyline') {
         quantity = polylineLength([...rings[0]!], box.width, box.height) * fpp
       }
     }
     if (raw.kind === 'count') quantity = 1
-    markups.push({ id: raw.id, pageIndex, kind: raw.kind, rings: [rings[0]!], scopeLabel: label, color, quantity })
-    if (raw.kind === 'area') {
-      rings.slice(1).forEach((hole, n) => {
-        markups.push({ id: `${raw.id}#hole${n + 1}`, pageIndex, kind: 'cutout', rings: [hole], scopeLabel: label, color })
-      })
-    }
+    markups.push({
+      id: raw.id, pageIndex, kind: raw.kind, rings: [rings[0]!], scopeLabel: label, color, quantity,
+      rev: markupRev(raw),
+      ...(cutouts.length === 0 ? {} : { cutouts }),
+      ...(folded.length === 0 ? {} : { folded: folded.map((c) => c.raw.id) }),
+    })
   }
   return { markups, pageScales, pageRegions }
+}
+
+/** A change to one markup that was made in another app, ready to apply. */
+export interface ForeignEdit {
+  markupId: string
+  before: Array<Array<{ x: number, y: number }>>
+  after: Array<Array<{ x: number, y: number }>>
+}
+
+export interface ForeignEdits {
+  /** Markups whose shape was changed in Bluebeam and not since in REDBEAM. */
+  edits: ForeignEdit[]
+  /**
+   * Separate cutout markups that went out inside an edited area's /Cutouts.
+   * The area now carries whatever cutouts Bluebeam left it, so these are
+   * removed rather than counted twice.
+   */
+  absorbed: string[]
+  /** Changed in Bluebeam AND in REDBEAM since: left alone, REDBEAM's kept. */
+  conflicts: string[]
+}
+
+/**
+ * What was done in Bluebeam (or any app that keeps REDBEAM's annotations) to
+ * the markups REDBEAM put on this drawing, as edits to the markups.
+ *
+ * An annotation whose fingerprint differs from the one recorded when it was
+ * written was edited there. It is taken only when the markup is still the
+ * revision it was written from: then the other app's version is the newer one.
+ * When both changed, REDBEAM's is kept and the clash reported. An area takes
+ * the outline and every /Cutouts opening as its rings, so a cutout added,
+ * moved or removed in Bluebeam arrives as one area with those holes.
+ *
+ * Pure: `rows` are this drawing's markups as redbeam.db has them now.
+ */
+export function foreignEdits(
+  reading: SheetEmbedReading,
+  rows: ReadonlyArray<{ id: string, kind: string, scope_id: string | null, geometry_json: string }>,
+): ForeignEdits {
+  const out: ForeignEdits = { edits: [], absorbed: [], conflicts: [] }
+  const slice = reading.slice
+  if (slice === null) return out
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  for (const a of reading.redbeamAnnots) {
+    const recorded = slice.annots[a.nm]
+    if (recorded === undefined || recorded.fp === a.fp) continue
+    const row = byId.get(recorded.markupId)
+    if (row === undefined || recorded.rev === undefined) continue
+    if (markupRev(row) !== recorded.rev) { out.conflicts.push(row.id); continue }
+    if (a.rings.length === 0) continue
+    const min = row.kind === 'polyline' ? 2 : 3
+    const outline = a.rings[0]!
+    if (outline.length < min) continue
+    const after = row.kind === 'area'
+      ? [outline, ...a.rings.slice(1).filter((r) => r.length >= 3)]
+      : row.kind === 'polyline' || row.kind === 'cutout' || row.kind === 'shape' ? [outline] : null
+    if (after === null) continue
+    out.edits.push({ markupId: row.id, before: parseRings(row.geometry_json), after })
+    for (const id of recorded.folded ?? []) if (byId.has(id)) out.absorbed.push(id)
+  }
+  return out
 }
 
 export interface DrawingFile {
@@ -584,6 +695,18 @@ export function embedStatus(outcome: EmbedOutcome, name: string): string | null 
     default:
       return null
   }
+}
+
+/** What to tell the user after Bluebeam's edits were brought in, or null. */
+export function foreignEditsStatus(pulled: ForeignEdits, name: string): string | null {
+  const parts: string[] = []
+  if (pulled.edits.length > 0) {
+    parts.push(`${pulled.edits.length} markup${pulled.edits.length === 1 ? '' : 's'} changed in Bluebeam brought into ${name} (Ctrl+Z undoes)`)
+  }
+  if (pulled.conflicts.length > 0) {
+    parts.push(`${pulled.conflicts.length} markup${pulled.conflicts.length === 1 ? ' was' : 's were'} changed both here and in Bluebeam; REDBEAM's version is kept`)
+  }
+  return parts.length === 0 ? null : parts.join('. ')
 }
 
 /** What to tell the user when a drawing is opened, or null. */

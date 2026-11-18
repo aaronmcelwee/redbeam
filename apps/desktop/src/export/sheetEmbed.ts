@@ -47,7 +47,7 @@ import {
 } from 'pdf-lib'
 import { appendIncrementalUpdate, newRefsSince, reserveExistingNumbers } from './pdfIncremental.js'
 import {
-  COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, regionAt, shapeForKind,
+  COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, regionAt, shapeForKind,
   toPdfColor, toUserSpace,
   type PageBox, type WritableMarkup, type WritableScaleRegion,
 } from './pdfMarkup.js'
@@ -75,15 +75,40 @@ export interface SheetSlice {
    * written. A later save compares the annotation against this to tell
    * "untouched" from "edited in another app".
    */
-  annots: Record<string, { markupId: string, fp: string }>
+  annots: Record<string, SliceAnnot>
   /** Hash of everything the write depended on; equal hash, nothing to write. */
   contentHash: string
+}
+
+/** What the slice remembers about one annotation REDBEAM wrote. */
+export interface SliceAnnot {
+  markupId: string
+  /** Fingerprint of the annotation as written (`annotFingerprint`). */
+  fp: string
+  /**
+   * The markup's own revision when it was written (`EmbedMarkup.rev`). When
+   * the annotation has since changed and the markup has NOT, the edit was
+   * made in another app and REDBEAM can take it (`bluebeamEdits`). Absent in
+   * slices written before 0.3.16, which are then never adopted from.
+   */
+  rev?: string
+  /** Separate REDBEAM cutout markups written into this area's /Cutouts. */
+  folded?: string[]
 }
 
 /** A markup to put on the sheet, plus what its Bluebeam annotation says. */
 export interface EmbedMarkup extends WritableMarkup {
   /** Net quantity in the unit of its kind: sq ft for areas, ft for runs. */
   quantity?: number | null
+  /**
+   * An area's openings, normalized: written as Revu's /Cutouts on the same
+   * annotation so Bluebeam shows one area with cutouts, measured net.
+   */
+  cutouts?: ReadonlyArray<ReadonlyArray<{ x: number, y: number }>>
+  /** Separate cutout markups among `cutouts`, by id. */
+  folded?: readonly string[]
+  /** The source markup's revision, recorded in the slice. */
+  rev?: string
 }
 
 export interface EmbedInput {
@@ -265,7 +290,30 @@ export function annotFingerprint(a: PDFDict): string {
       const n = rect.lookup(i)
       return n instanceof PDFNumber ? Math.round(n.asNumber() * 10) / 10 : NaN
     })
-  return hashHex(`${geom.join(',')}|${textOf(a, 'Label')}`)
+  // Cutouts count as geometry, so one added or moved in Bluebeam is an edit.
+  // Only when present: a file written before they were read keeps its
+  // fingerprints, and is not taken for edited on its next save.
+  const cuts = cutoutsOf(a)
+  const cutPart = cuts.length === 0 ? '' : `|c:${cuts.map((r) => r.map((n) => Math.round(n * 10) / 10).join(',')).join(';')}`
+  return hashHex(`${geom.join(',')}|${textOf(a, 'Label')}${cutPart}`)
+}
+
+/** Revu's /Cutouts: one flat [x y x y …] array per opening, page space. */
+function cutoutsOf(a: PDFDict): number[][] {
+  const v = a.lookup(PDFName.of('Cutouts'))
+  if (!(v instanceof PDFArray)) return []
+  const out: number[][] = []
+  for (let i = 0; i < v.size(); i++) {
+    const inner = v.lookup(i)
+    if (!(inner instanceof PDFArray)) continue
+    const ring: number[] = []
+    for (let k = 0; k < inner.size(); k++) {
+      const n = inner.lookup(k)
+      ring.push(n instanceof PDFNumber ? n.asNumber() : NaN)
+    }
+    if (ring.length >= 6 && ring.every(Number.isFinite)) out.push(ring)
+  }
+  return out
 }
 
 // --------------------------------------------------------------- carriers --
@@ -342,6 +390,14 @@ export interface RedbeamAnnot {
   contents: string
   /** PDF user space. */
   vertices: number[]
+  /** Revu /Cutouts, PDF user space; [] when it has none. */
+  cutouts: number[][]
+  /**
+   * The geometry normalized to the page as displayed, the frame markups are
+   * stored in: the outline, then each cutout. [] for an annotation with no
+   * vertices (a count's circle).
+   */
+  rings: Array<Array<{ x: number, y: number }>>
   fp: string
 }
 
@@ -388,6 +444,13 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
   const redbeamAnnots: RedbeamAnnot[] = []
   let foreignAnnots = 0
   doc.getPages().forEach((page, pageIndex) => {
+    const box = page.getCropBox() as PageBox
+    const rotation = page.getRotation().angle
+    const toRing = (flat: number[]) => {
+      const ring: Array<{ x: number, y: number }> = []
+      for (let i = 0; i + 1 < flat.length; i += 2) ring.push(fromUserSpace({ x: flat[i]!, y: flat[i + 1]! }, box, rotation))
+      return ring
+    }
     for (const a of annotsOn(page)) {
       if (NOT_MARKUP.has(subtypeOf(a))) continue
       if (!isOurs(a)) { foreignAnnots++; continue }
@@ -404,6 +467,10 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
         label: textOf(a, 'Label'),
         contents: textOf(a, 'Contents'),
         vertices: vertsOf(a),
+        cutouts: cutoutsOf(a),
+        rings: vertsOf(a).length >= 4 && vertsOf(a).every(Number.isFinite)
+          ? [toRing(vertsOf(a)), ...cutoutsOf(a).map(toRing)]
+          : [],
         fp: annotFingerprint(a),
       })
     }
@@ -461,6 +528,9 @@ function buildAnnot(
   const ys = pts.map((p) => p.y)
   const rect = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad]
   const color = toPdfColor(markup.color)
+  const holes = shape === 'polygon' && markup.kind !== 'cutout'
+    ? (markup.cutouts ?? []).filter((r) => r.length >= 3).map((r) => r.map((p) => toUserSpace(p, box, rotation)))
+    : []
 
   // A cutout is a deduction: drawn so a reader can see it, but deliberately
   // NOT a measurement, or Revu would add its area to the scope's total
@@ -469,7 +539,7 @@ function buildAnnot(
   const measured = feetPerPoint !== undefined && !isCutout && shape !== 'circle'
   const fill = shape === 'polyline' ? null : color
   const ap = ctx.register(ctx.flateStream(
-    appearanceOps(pts, color, lineWidth, shape),
+    appearanceOps(pts, color, lineWidth, shape, holes),
     {
       Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: rect,
       Resources: ctx.obj({
@@ -488,6 +558,9 @@ function buildAnnot(
     Subtype: subtype,
     Rect: rect,
     ...(shape === 'circle' ? {} : { Vertices: pts.flatMap((p) => [p.x, p.y]) }),
+    // Revu's own key for an area's openings: Bluebeam shows one area with
+    // cutouts, measures it net, and lets them be edited there.
+    ...(holes.length === 0 ? {} : { Cutouts: holes.map((r) => r.flatMap((p) => [p.x, p.y])) }),
     C: color,
     ...(fill === null || isCutout ? {} : { IC: fill }),
     CA: 1,
@@ -588,10 +661,17 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
 
   // Every annotation REDBEAM wrote last time must still be as it wrote it;
   // otherwise it was edited elsewhere and the file is not "unchanged".
+  //
+  // Kept as the other app left it only while REDBEAM has not acted on the
+  // markup since: once REDBEAM has taken the edit in (foreignEdits) or changed
+  // the markup itself, its revision moved on, and REDBEAM's version is written.
   const editedNms = new Set<string>()
   for (const a of before.redbeamAnnots) {
     const recorded = prev?.annots[a.nm]
-    if (recorded !== undefined && recorded.fp !== a.fp) editedNms.add(a.nm)
+    if (recorded === undefined || recorded.fp === a.fp) continue
+    const now = input.markups.find((m) => m.id === recorded.markupId)
+    if (recorded.rev !== undefined && now?.rev !== undefined && now.rev !== recorded.rev) continue
+    editedNms.add(a.nm)
   }
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0
     && prev.documentId === input.documentId) {
@@ -647,7 +727,14 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
   // The edited ones stay recorded with their CURRENT fingerprint, so the next
   // save sees them as settled rather than as freshly edited again.
   for (const a of before.redbeamAnnots) {
-    if (keptNms.has(a.nm)) annots[a.nm] = { markupId: prev?.annots[a.nm]?.markupId ?? a.markupId ?? '', fp: a.fp }
+    if (!keptNms.has(a.nm)) continue
+    const markupId = prev?.annots[a.nm]?.markupId ?? a.markupId ?? ''
+    const source = input.markups.find((m) => m.id === markupId)
+    annots[a.nm] = {
+      markupId, fp: a.fp,
+      ...(source?.rev === undefined ? {} : { rev: source.rev }),
+      ...(prev?.annots[a.nm]?.folded === undefined ? {} : { folded: prev.annots[a.nm]!.folded }),
+    }
   }
   const editedMarkupIds = new Set(Object.values(annots).map((v) => v.markupId))
 
@@ -667,7 +754,11 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     if (annot === null) continue
     annot.set(PDFName.of(KEY), ctx.obj({ MarkupId: PDFString.of(markup.id) }))
     annot.set(PDFName.of('P'), page.ref)
-    annots[nm] = { markupId: markup.id, fp: annotFingerprint(annot) }
+    annots[nm] = {
+      markupId: markup.id, fp: annotFingerprint(annot),
+      ...(markup.rev === undefined ? {} : { rev: markup.rev }),
+      ...(markup.folded === undefined || markup.folded.length === 0 ? {} : { folded: [...markup.folded] }),
+    }
     annotRefs.push([markup.pageIndex, ctx.register(annot)])
   }
   for (const [pageIndex, ref] of annotRefs) {

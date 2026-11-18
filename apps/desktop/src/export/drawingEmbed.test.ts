@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PDFDocument } from 'pdf-lib'
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import {
-  embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, importScopesFromSlice, importSlice, migrateProjectTakeoffs,
-  migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, type DrawingFile,
+  embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice,
+  type DrawingFile,
 } from './drawingEmbed.js'
 import { readSheetEmbed } from './sheetEmbed.js'
 
@@ -231,6 +232,123 @@ describe('opening an older project', () => {
     })
     expect(locked).toEqual([docId])
     expect(file.writes).toBe(1)
+  })
+})
+
+/** Edit one REDBEAM annotation the way Bluebeam would: same /NM, new geometry. */
+async function editInBluebeam(bytes: Uint8Array, nm: string, edit: { vertices?: number[], cutouts?: number[][] }): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(bytes)
+  const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray)
+  for (let i = 0; i < annots.size(); i++) {
+    const a = annots.lookup(i, PDFDict)
+    const v = a.lookup(PDFName.of('NM'))
+    if (!(v instanceof PDFString || v instanceof PDFHexString) || v.decodeText() !== nm) continue
+    if (edit.vertices !== undefined) a.set(PDFName.of('Vertices'), doc.context.obj(edit.vertices))
+    if (edit.cutouts !== undefined) a.set(PDFName.of('Cutouts'), doc.context.obj(edit.cutouts))
+  }
+  return doc.save()
+}
+
+const rowsOf = (db: SqlJsDriver) =>
+  db.all<{ id: string, kind: string, scope_id: string | null, geometry_json: string }>(
+    'SELECT id, kind, scope_id, geometry_json FROM markups WHERE deleted_at IS NULL ORDER BY id')
+
+describe('round trip with Bluebeam', () => {
+  let db: SqlJsDriver
+  let docId: string
+  beforeEach(async () => { ({ db, docId } = await freshDb()) })
+
+  async function addCutout(id: string, ring: Array<{ x: number, y: number }>): Promise<void> {
+    await db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+      VALUES(?,?,?,'s1','cutout',?,'user',?,?)`, [id, docId, `${docId}-p0`, JSON.stringify([ring]), NOW, NOW])
+  }
+
+  it('folds a separate cutout into the area it overlaps, as one Bluebeam area with a net quantity', async () => {
+    await seedTakeoff(db, docId)
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'm1'`,
+      [JSON.stringify([sq(0.1, 0.2, 0.3, 0.4), sq(0.12, 0.22, 0.14, 0.24)])])
+    await addCutout('k1', sq(0.2, 0.3, 0.25, 0.35))
+    await addCutout('k2', sq(0.7, 0.7, 0.8, 0.8))
+    const { markups } = embedMarkupsFor(await sliceTables(db, docId), docId)
+    const area = markups.find((m) => m.id === 'm1')!
+    expect(area.cutouts).toHaveLength(2)
+    expect(area.folded).toEqual(['k1'])
+    const gross = 57.6 * 38.4
+    const ftPerUnit = { x: 57.6 / 0.2, y: 38.4 / 0.2 }
+    const hole = (w: number, h: number) => w * ftPerUnit.x * h * ftPerUnit.y
+    expect(area.quantity).toBeCloseTo(gross - hole(0.02, 0.02) - hole(0.05, 0.05), 1)
+    expect(markups.map((m) => m.id).sort()).toEqual(['k2', 'm1'])
+  })
+
+  it('writes the holes as Revu /Cutouts, filled even-odd, and reads them back as rings', async () => {
+    await seedTakeoff(db, docId)
+    await addCutout('k1', sq(0.2, 0.3, 0.25, 0.35))
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    const reading = await readSheetEmbed(file.bytes)
+    expect(reading.redbeamAnnots).toHaveLength(1)
+    const a = reading.redbeamAnnots[0]!
+    expect(a.cutouts).toHaveLength(1)
+    expect(a.rings).toHaveLength(2)
+    expect(a.rings[1]![0]!.x).toBeCloseTo(0.2, 4)
+    expect(a.rings[1]![0]!.y).toBeCloseTo(0.3, 4)
+    expect(reading.slice!.annots[a.nm]!.folded).toEqual(['k1'])
+  })
+
+  it('brings a shape and cutouts changed in Bluebeam back as an edit, and absorbs folded cutouts', async () => {
+    await seedTakeoff(db, docId)
+    await addCutout('k1', sq(0.2, 0.3, 0.25, 0.35))
+    const file = memoryFile(await blankPdf())
+    const opts = { db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file }
+    await embedDrawing(opts)
+    const before = await readSheetEmbed(file.bytes)
+    const nm = before.redbeamAnnots[0]!.nm
+    // 2592 x 1728 page: x 0.1..0.4 → 259.2..1036.8; y 0.2..0.4 down → 1382.4..1036.8 up.
+    file.bytes = await editInBluebeam(file.bytes, nm, {
+      vertices: [259.2, 1382.4, 1036.8, 1382.4, 1036.8, 1036.8, 259.2, 1036.8],
+      cutouts: [[518.4, 1209.6, 648, 1209.6, 648, 1123.2, 518.4, 1123.2], [800, 1300, 900, 1300, 900, 1200]],
+    })
+    const pulled = foreignEdits(await readSheetEmbed(file.bytes), await rowsOf(db))
+    expect(pulled.conflicts).toEqual([])
+    expect(pulled.absorbed).toEqual(['k1'])
+    expect(pulled.edits).toHaveLength(1)
+    const after = pulled.edits[0]!.after
+    expect(after).toHaveLength(3)
+    expect(after[0]![1]!.x).toBeCloseTo(0.4, 4)
+    expect(after[1]![0]!.x).toBeCloseTo(0.2, 4)
+    expect(foreignEditsStatus(pulled, 'A-101')).toMatch(/1 markup changed in Bluebeam/)
+
+    // Once REDBEAM adopts the edit, the next save writes REDBEAM's version, and
+    // reading it again finds nothing new.
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'm1'`, [JSON.stringify(after)])
+    await db.run(`UPDATE markups SET deleted_at = ? WHERE id = 'k1'`, [NOW])
+    expect((await embedDrawing(opts)).kind).toBe('written')
+    const again = await readSheetEmbed(file.bytes)
+    expect(again.redbeamAnnots).toHaveLength(1)
+    expect(again.redbeamAnnots[0]!.cutouts).toHaveLength(2)
+    expect(foreignEdits(again, await rowsOf(db)).edits).toEqual([])
+  })
+
+  it('keeps REDBEAM\'s version when the markup changed on both sides', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    const nm = (await readSheetEmbed(file.bytes)).redbeamAnnots[0]!.nm
+    file.bytes = await editInBluebeam(file.bytes, nm, { cutouts: [[518.4, 1209.6, 648, 1209.6, 648, 1123.2]] })
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'm1'`, [JSON.stringify([sq(0.1, 0.2, 0.5, 0.4)])])
+    const pulled = foreignEdits(await readSheetEmbed(file.bytes), await rowsOf(db))
+    expect(pulled.edits).toEqual([])
+    expect(pulled.conflicts).toEqual(['m1'])
+    expect(foreignEditsStatus(pulled, 'A-101')).toMatch(/both here and in Bluebeam/)
+  })
+
+  it('finds nothing to bring in from a drawing nobody touched', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    const pulled = foreignEdits(await readSheetEmbed(file.bytes), await rowsOf(db))
+    expect(pulled).toEqual({ edits: [], absorbed: [], conflicts: [] })
+    expect(foreignEditsStatus(pulled, 'A-101')).toBeNull()
   })
 })
 
