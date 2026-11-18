@@ -96,7 +96,7 @@ import { projectCommands } from './palette/projects.js'
 import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
-import { embedDrawing, embedStatus, importSlice, migrateProjectTakeoffs, migrationStatus, openingStatus } from './export/drawingEmbed.js'
+import { embedDrawing, embedStatus, foreignEdits, foreignEditsStatus, importSlice, migrateProjectTakeoffs, migrationStatus, openingStatus } from './export/drawingEmbed.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
@@ -4495,24 +4495,50 @@ export default function Workspace({
   useEffect(() => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === activeDocId)
-    if (!db || !doc || !projectBridge.desktop || embedCheckedRef.current.has(doc.id)) return
+    if (!db || !doc || !projectBridge.desktop) return
+    const firstLook = !embedCheckedRef.current.has(doc.id)
     embedCheckedRef.current.add(doc.id)
     void (async () => {
       try {
         const reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
         if (reading.slice === null && !reading.privateDataLost) return
-        const imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
-        if (imported !== null && imported.markups > 0) {
-          await syncMarkups()
-          await refreshScopes()
+        const name = doc.displayName || doc.relativePath
+        if (firstLook) {
+          const imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+          if (imported !== null && imported.markups > 0) {
+            await syncMarkups()
+            await refreshScopes()
+          }
+          const text = openingStatus(reading, imported, name)
+          if (text !== null) setStatus(text)
         }
-        const text = openingStatus(reading, imported, doc.displayName || doc.relativePath)
+        /*
+         * Every time the drawing comes to the front, not only the first: what
+         * was changed in Bluebeam since (a vertex moved, a cutout added) comes
+         * back into REDBEAM's markups, as one undoable step. Only markups
+         * REDBEAM has not changed since it wrote them; the rest are reported.
+         */
+        const rows = await db.all<{ id: string, kind: string, scope_id: string | null, geometry_json: string, page_id: string }>(
+          'SELECT id, kind, scope_id, geometry_json, page_id FROM markups WHERE document_id = ? AND deleted_at IS NULL', [doc.id])
+        const pulled = foreignEdits(reading, rows)
+        const cmds = [
+          ...pulled.edits.map((e) => cmdEditGeometry(e.markupId, e.before, e.after, 'changed in Bluebeam')),
+          ...pulled.absorbed.flatMap((id) => {
+            const r = rows.find((x) => x.id === id)
+            return r === undefined ? [] : [cmdRemove({ id, kind: r.kind, origin: 'user', documentId: doc.id, pageId: r.page_id })]
+          }),
+        ]
+        if (cmds.length > 0) {
+          await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch('changes made in Bluebeam', cmds))
+          await syncMarkups()
+        }
+        const text = foreignEditsStatus(pulled, name)
         if (text !== null) setStatus(text)
       } catch {
         // A drawing that cannot be read here is the viewer's to report.
       }
     })()
-  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus])
+  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand])
 
   /** Live markup counts per scope, for the shelf and the archive warning. */
   /**
