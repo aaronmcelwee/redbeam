@@ -10,7 +10,7 @@
  * WebView2 download, or a real PDF on disk.
  */
 import { pageNumberFrom } from '@redbeam/store'
-import { polylineLength, regionArea, squarePointsToSquareFeet } from '@redbeam/domain'
+import { areaRegion, polylineLength, regionArea, squarePointsToSquareFeet } from '@redbeam/domain'
 import { writeMarkupsToPdf, type WritableMarkup } from './pdfMarkup.js'
 
 export interface ExportableMarkup {
@@ -67,7 +67,7 @@ export function noteFor(
   if (ring.length < 3) return ''
   if (feetPerPoint === undefined || box === undefined) return 'Not calibrated'
   // Every ring: an area with holes (a converted Bluebeam area) states its net.
-  const region = markup.rings.map((r) => r.map((p) => ({ x: p.x * box.width, y: p.y * box.height })))
+  const region = areaRegion(markup.rings.map((r) => r.map((p) => ({ x: p.x * box.width, y: p.y * box.height }))))
   const sf = squarePointsToSquareFeet(regionArea(region), feetPerPoint)
   return `${fmt(sf)} SF`
 }
@@ -91,11 +91,13 @@ export async function exportMarkedPdf(req: MarkedPdfRequest): Promise<string | n
     const pageIndex = pageNumberFrom(m.pageId, req.documentId)
     if (pageIndex === null) continue
     const scope = m.scopeId === null ? undefined : byScope.get(m.scopeId)
+    // An area as measured: the outline less its cuts, then its holes.
+    const shape = m.kind === 'area' ? areaRegion(m.rings) : m.rings
     writable.push({
       id: m.id,
       pageIndex,
       kind: m.kind,
-      rings: m.rings,
+      rings: shape.slice(0, 1),
       // An orphaned markup still belongs on the sheet — it is evidence of
       // work, and hiding it would make the export disagree with the app.
       scopeLabel: scope?.label ?? 'Unassigned',
@@ -104,7 +106,7 @@ export async function exportMarkedPdf(req: MarkedPdfRequest): Promise<string | n
     })
     // An area's holes go on the sheet as its deductions, as the embed does.
     if (m.kind === 'area') {
-      m.rings.slice(1).forEach((hole, n) => {
+      shape.slice(1).forEach((hole, n) => {
         writable.push({
           id: `${m.id}#hole${n + 1}`, pageIndex, kind: 'cutout', rings: [hole],
           scopeLabel: scope?.label ?? 'Unassigned', color: scope?.color ?? '#888888', note: 'Deduction',

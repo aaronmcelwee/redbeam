@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
+import type { Markup } from '@redbeam/domain'
+import { cutoutsOf } from '../cutouts.js'
 import {
   copyName, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice, importTakeoffFromSlice, takeoffImportStatus,
   migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, rebuildFromAnnots, rebuiltStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
@@ -758,5 +760,33 @@ describe('a Light file another app saved without REDBEAM\u2019s private data', (
     expect(rebuilt).toBeNull()
     expect((await next.db.all<{ n: number }>('SELECT COUNT(*) AS n FROM markups'))[0]!.n).toBe(0)
     expect(fileLoadVerdict(reading, null, 'A-101', rebuilt).state).toBe('blocked')
+  })
+})
+
+describe('cuts that are part of the area', () => {
+  it('go to Bluebeam as each area\'s /Cutouts, measured net, and come back as one cutout', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    const across = sq(0.25, 0.25, 0.35, 0.3)
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'm1'`, [JSON.stringify([sq(0.1, 0.2, 0.3, 0.4), across])])
+    await db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+      VALUES('m2',?,?,'s1','area',?,'user',?,?)`, [docId, `${docId}-p0`, JSON.stringify([sq(0.3, 0.2, 0.5, 0.4), across]), NOW, NOW])
+
+    const { markups } = embedMarkupsFor(await sliceTables(db, docId), docId)
+    const m1 = markups.find((m) => m.id === 'm1')!
+    // 0.2 x 0.2 at 288 x 192 ft per unit, less the half of the cut inside it.
+    expect(m1.quantity).toBeCloseTo((0.2 * 0.2 - 0.05 * 0.05) * 288 * 192, 1)
+    expect(m1.cutouts).toEqual([across])
+
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file })
+    const reading = await readSheetEmbed(file.bytes)
+    expect(reading.redbeamAnnots).toHaveLength(2)
+    const back: Markup[] = reading.redbeamAnnots.map((a) => ({
+      id: a.markupId!, scopeId: 's1', documentId: docId, pageId: `${docId}-p0`, kind: 'area', rings: a.rings,
+    }))
+    const cutouts = cutoutsOf(back)
+    expect(cutouts).toHaveLength(1)
+    expect(cutouts[0]!.rings[0]![0]!.x).toBeCloseTo(0.25, 4)
   })
 })

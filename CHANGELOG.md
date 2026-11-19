@@ -5,6 +5,23 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.34 — 2026-11-19
+
+### Cutouts are part of the area they cut
+
+- **The cutter cuts the area itself.** A cutout is no longer a separate
+  markup: it cuts every area it crosses, and each area measures and draws as
+  its outline less its cuts.
+- **One cutout, however many areas it crosses.** Click it on the sheet or pick
+  it in the markups list. Delete it and every area it cut is whole again;
+  drag it and the cut moves in each of them.
+- **Cutouts move with their area.** Moving an area takes its cuts along. If a
+  cutout spans two areas and you move one, each keeps its own cut.
+- **The same in Bluebeam.** Each area is saved as one Revu area with its
+  cutouts and the net quantity, and the cuts come back as one cutout.
+- Cutouts drawn as separate markups in earlier versions are folded into the
+  areas they open when the drawing is opened. Ctrl+Z puts them back.
+
 ## 0.3.33 — 2026-11-19
 
 ### Takeoffs no longer stall while the PDF saves
