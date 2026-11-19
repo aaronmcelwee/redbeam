@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.22 — 2026-11-19
+
+### Sidebars stay put
+
+- **No more bounce or scrolling past the end.** Scrolling the sheet list, the Takeoff panel, Settings, the command palette or any menu now stops dead at the top and bottom instead of rubber-banding, and the leftover scroll no longer carries on into the window behind it. A sideways trackpad swipe no longer tries to go "back" either. This is the same in Light and Pro.
+- **No sideways scrolling in the panels.** A row a little too wide for its panel used to let the whole panel slide left and right. Panels now only scroll up and down; long names are cut off with "…" as before.
+
 ## 0.3.20 — 2026-11-19
 
 ### Keyboard and toolbar fixes

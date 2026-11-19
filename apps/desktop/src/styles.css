@@ -98,6 +98,16 @@
 }
 
 * { box-sizing: border-box }
+/*
+ * Nothing in this app scrolls past its ends. A desktop window is not a web
+ * page: a sidebar that rubber-bands, hands its leftover scroll to the window
+ * behind it, or turns a sideways trackpad swipe into a back-navigation feels
+ * like a browser showing through. `none` stops the bounce, the chaining and
+ * the swipe gesture on every scroller, in both axes, Light and Pro alike.
+ * The canvas is unaffected: it handles its own wheel events.
+ */
+html, body, *, *::before, *::after { overscroll-behavior: none }
+html { overflow: hidden }
 body {
   margin: 0;
   font-family: var(--ads-sans);
@@ -189,7 +199,7 @@ h4 {
   background: var(--input); color: var(--ink); border: 1px solid var(--rule-strong);
   border-radius: var(--r-md); padding: 2px 5px; font: inherit; font-size: 12px; text-align: center;
 }
-.thumbs { display: flex; gap: 6px; overflow-x: auto; padding: 0 10px 8px; scrollbar-width: thin }
+.thumbs { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 0 10px 8px; scrollbar-width: thin }
 .thumb {
   flex: none; background: none; border: 1px solid var(--rule-strong); border-radius: var(--r-sm);
   padding: 3px; cursor: pointer; display: grid; gap: 2px; justify-items: center;
@@ -310,6 +320,7 @@ h4 {
   grid-template-rows: var(--rb-topbar-h) 1fr;
   padding: 0 var(--ads-sp-6) var(--ads-sp-6);
   overflow-y: auto;
+  overflow-x: hidden;
   /* Opaque unless a backdrop was confirmed — see shell.css. Transparent here
      unconditionally would be a hole onto the desktop on any machine without
      Mica, which is the one failure the gate exists to prevent. */
