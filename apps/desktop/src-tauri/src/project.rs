@@ -1442,17 +1442,54 @@ pub enum DocumentWrite {
 /// current file's SHA-256 must equal `expected_sha256`. The write goes to a
 /// temporary file in the same folder and is renamed over the original, so a
 /// crash or a full disk leaves the old drawing whole rather than half written.
+///
+/// The bytes arrive as the raw request body and the rest as headers
+/// (`x-redbeam-path`, `x-redbeam-relative-path`, percent-encoded, and
+/// `x-redbeam-expected-sha256`). Taking `bytes: Vec<u8>` as a JSON argument
+/// made the window build an 80-million-number array for an 80 MB drawing set,
+/// which froze it for seconds on every automatic save.
 #[tauri::command]
 pub async fn project_write_document(
-    path: String,
-    relative_path: String,
-    bytes: Vec<u8>,
-    expected_sha256: String,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<DocumentWrite, String> {
+    let header = |name: &str| -> Result<String, String> {
+        let raw = request
+            .headers()
+            .get(name)
+            .ok_or_else(|| format!("missing {name}"))?
+            .to_str()
+            .map_err(|_| format!("{name} is not ASCII"))?;
+        percent_decode(raw).ok_or_else(|| format!("{name} is not valid percent-encoding"))
+    };
+    let path = header("x-redbeam-path")?;
+    let relative_path = header("x-redbeam-relative-path")?;
+    let expected_sha256 = header("x-redbeam-expected-sha256")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(format!("{relative_path}: the drawing's bytes must be sent as the raw body"));
+    };
     let root = canonical_project_root(Path::new(&path));
     let target = resolve_inside(&root, &relative_path)?;
-    write_document_if_unchanged(&target, &bytes, &expected_sha256)
+    write_document_if_unchanged(&target, bytes, &expected_sha256)
         .map_err(|e| format!("{relative_path}: {e}"))
+}
+
+/// Undo `encodeURIComponent`: `%XX` escapes to bytes, then UTF-8. `None` for a
+/// broken escape or bytes that are not UTF-8.
+fn percent_decode(s: &str) -> Option<String> {
+    let src = s.as_bytes();
+    let mut out = Vec::with_capacity(src.len());
+    let mut i = 0;
+    while i < src.len() {
+        if src[i] == b'%' {
+            let hex = std::str::from_utf8(src.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(src[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 fn write_document_if_unchanged(
@@ -2337,6 +2374,19 @@ mod tests {
     fn write_document_stays_inside_the_project() {
         let root = temp_dir("write-escape");
         assert!(resolve_inside(&canonical_project_root(&root), "../x.pdf").is_err());
+    }
+
+    #[test]
+    fn percent_decode_undoes_encode_uri_component() {
+        // encodeURIComponent('C:\\Jobs\\260415 — REDBEAM/A-101 ½.pdf')
+        assert_eq!(
+            percent_decode("C%3A%5CJobs%5C260415%20%E2%80%94%20REDBEAM%2FA-101%20%C2%BD.pdf").as_deref(),
+            Some("C:\\Jobs\\260415 — REDBEAM/A-101 ½.pdf")
+        );
+        assert_eq!(percent_decode("plain-name_1.pdf").as_deref(), Some("plain-name_1.pdf"));
+        assert_eq!(percent_decode("bad%2"), None);
+        assert_eq!(percent_decode("bad%zz"), None);
+        assert_eq!(percent_decode("%FF"), None);
     }
 
 }

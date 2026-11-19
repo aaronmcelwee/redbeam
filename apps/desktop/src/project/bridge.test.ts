@@ -108,19 +108,43 @@ describe('Workspace derives the project name once', () => {
 // ------------------------------------------------------------- desktop --
 
 describe('desktop bridge', () => {
-  const calls: Array<{ cmd: string; args: Record<string, unknown> | undefined }> = []
+  const calls: Array<{
+    cmd: string
+    args: Record<string, unknown> | Uint8Array | undefined
+    options?: { headers: Record<string, string> } | undefined
+  }> = []
 
   function bridge(responses: Record<string, unknown>) {
     calls.length = 0
     return createProjectBridge({
       desktop: true,
       storage: null,
-      invoke: async (cmd, args) => {
-        calls.push({ cmd, args })
+      invoke: async (cmd, args, options) => {
+        calls.push({ cmd, args, options })
         return responses[cmd] as never
       },
     })
   }
+
+  it('sends a drawing to project_write_document as raw bytes, not a JSON number array', async () => {
+    const b = bridge({ project_write_document: { outcome: 'written', fingerprint: 'ab' } })
+    const bytes = new Uint8Array([37, 80, 68, 70])
+
+    const out = await b.writeDocument('C:\\Jobs\\260415 — REDBEAM', 'A/A-101 ½.pdf', bytes, 'cafe')
+
+    expect(out).toEqual({ outcome: 'written', fingerprint: 'ab' })
+    const call = calls[0]!
+    expect(call.cmd).toBe('project_write_document')
+    // The same buffer, untouched: no Array.from, no copy into JSON.
+    expect(call.args).toBe(bytes)
+    expect(call.options?.headers).toEqual({
+      'x-redbeam-path': encodeURIComponent('C:\\Jobs\\260415 — REDBEAM'),
+      'x-redbeam-relative-path': encodeURIComponent('A/A-101 ½.pdf'),
+      'x-redbeam-expected-sha256': 'cafe',
+    })
+    // Header values must be ASCII.
+    for (const v of Object.values(call.options!.headers)) expect(v).toMatch(/^[\x20-\x7e]*$/)
+  })
 
   it('camelizes what project_open returns', async () => {
     const b = bridge({

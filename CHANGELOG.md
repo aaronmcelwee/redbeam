@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.21 — 2026-11-19
+
+### Smooth pan and zoom again
+
+- **No more freezes after a change.** Since 0.3.17 the takeoff is saved into the PDF a few seconds after every change. That save handed the whole PDF to the save step as a list of numbers, one per byte, so an 80 MB drawing set froze the window for several seconds each time and left pan and zoom stuttering afterwards. The PDF now goes across as plain bytes and the save takes a fraction of a second. It mattered most in Light mode, where the open PDF is often a full drawing set.
+
 ## 0.3.20 — 2026-11-19
 
 ### Keyboard and toolbar fixes

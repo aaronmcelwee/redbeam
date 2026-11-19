@@ -23,8 +23,18 @@ import type {
   DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, ProjectNesting, RecentProject, ScanResult,
 } from './types.js'
 
-/** The shape of `invoke` this module needs. Injectable so tests need no runtime. */
-export type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
+/**
+ * The shape of `invoke` this module needs. Injectable so tests need no runtime.
+ *
+ * `args` may be raw bytes, with what would have been the named arguments in
+ * `options.headers`: Tauri then hands the bytes to Rust as the request body
+ * instead of encoding them as JSON. See `writeDocument`.
+ */
+export type InvokeFn = <T>(
+  cmd: string,
+  args?: Record<string, unknown> | Uint8Array,
+  options?: { headers: Record<string, string> },
+) => Promise<T>
 
 /** The slice of `Storage` the browser fallback uses. */
 export interface KeyValueStore {
@@ -260,7 +270,8 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
   const desktop = opts.desktop ?? isTauri()
   const invoke: InvokeFn =
     opts.invoke ??
-    (<T>(cmd: string, args?: Record<string, unknown>) => tauriInvoke<T>(cmd, args ?? {}))
+    (<T>(cmd: string, args?: Record<string, unknown> | Uint8Array, options?: { headers: Record<string, string> }) =>
+      tauriInvoke<T>(cmd, args ?? {}, options))
   const storage = opts.storage === undefined ? defaultStorage() : opts.storage
   const now = opts.now ?? (() => new Date())
 
@@ -447,8 +458,23 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
 
     async writeDocument(projectPath, relativePath, bytes, expectedSha256): Promise<DocumentWrite> {
       if (!desktop) throw new Error(BROWSER_NO_READ)
-      return invoke<DocumentWrite>('project_write_document', {
-        path: projectPath, relativePath, bytes: Array.from(bytes), expectedSha256,
+      /*
+       * The bytes go as the raw request body, the paths as headers.
+       *
+       * This sent `bytes: Array.from(bytes)` inside the JSON arguments, so an
+       * 80 MB drawing set became an 80-million-element array and then a ~300 MB
+       * JSON string, built on the UI thread: four seconds and more with the
+       * window frozen, and a gigabyte of garbage to collect after it. Harmless
+       * while this ran only on leaving a drawing; since 0.3.17 it runs a few
+       * seconds after every change, which is what made pan and zoom stutter.
+       * Headers are ASCII, so the paths are percent-encoded (Rust decodes).
+       */
+      return invoke<DocumentWrite>('project_write_document', bytes, {
+        headers: {
+          'x-redbeam-path': encodeURIComponent(projectPath),
+          'x-redbeam-relative-path': encodeURIComponent(relativePath),
+          'x-redbeam-expected-sha256': expectedSha256,
+        },
       })
     },
   }
