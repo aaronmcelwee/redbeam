@@ -11,7 +11,7 @@
  * and an in-memory "disk".
  */
 import type { SqlDriver } from '@redbeam/store'
-import { pageNumberFrom } from '@redbeam/store'
+import { pageIdFor, pageNumberFrom } from '@redbeam/store'
 import { polylineLength, regionArea, ringsOverlap, squarePointsToSquareFeet, subtractRings } from '@redbeam/domain'
 import {
   embedSheet, hash53, readSheetEmbed, type EmbedMarkup, type SheetEmbedReading, type SheetSlice, type SliceTables,
@@ -543,7 +543,11 @@ export type FileLoad = { state: 'loaded' } | { state: 'blocked', reason: string 
  * once everything it carried is known to be in the window; anything less
  * leaves the file exactly as it was found and says why.
  */
-export function fileLoadVerdict(reading: SheetEmbedReading, imported: ImportOutcome | null, name: string): FileLoad {
+export function fileLoadVerdict(
+  reading: SheetEmbedReading, imported: ImportOutcome | null, name: string, rebuilt: RebuiltTakeoff | null = null,
+): FileLoad {
+  // Every REDBEAM annotation the file shows is in the window as a markup, so a save puts back all of it.
+  if (reading.privateDataLost && !reading.sliceTooNew && rebuilt !== null) return { state: 'loaded' }
   if (reading.sliceTooNew) {
     return { state: 'blocked', reason: `${name} was saved by a newer REDBEAM than this one. Update REDBEAM to work on it. This version will not save into it, so its takeoff is safe; what you draw here can be saved as a copy.` }
   }
@@ -557,6 +561,147 @@ export function fileLoadVerdict(reading: SheetEmbedReading, imported: ImportOutc
     return { state: 'blocked', reason: `Part of the takeoff inside ${name} could not be loaded (${imported!.skipped} item${imported!.skipped === 1 ? '' : 's'}). REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy.` }
   }
   return { state: 'loaded' }
+}
+
+export interface RebuiltTakeoff {
+  markups: number
+  scopes: number
+  /** Sheets with measured markups whose scale the file no longer says. */
+  unscaled: number
+}
+
+const DEDUCTION = /\s\(deduction\)$/i
+const finiteRing = (ring: ReadonlyArray<{ x: number, y: number }>): boolean =>
+  ring.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+
+/**
+ * Light mode: put a takeoff back together from REDBEAM's own annotations.
+ *
+ * Another app (Bluebeam flattening or re-saving, a PDF optimizer) can keep
+ * the markups REDBEAM drew and drop the private data that said what they
+ * were. Aaron, 2026-11-19: the takeoff must "survive across different REDBEAM
+ * as well as Bluebeam sessions." What the annotations still say is enough for
+ * the takeoff itself: each one's shape, its scope by name and colour, and the
+ * sheet's scale from REDBEAM's viewports. A scope's product specifications
+ * were only ever in the private data and are not recovered.
+ *
+ * All or nothing. The next save replaces REDBEAM's annotations with ones
+ * written from the markups, so an annotation that could not be turned back
+ * into a markup would be deleted by it. If any one cannot be read, nothing is
+ * rebuilt and the file stays blocked, exactly as it was found.
+ */
+export async function rebuildFromAnnots(
+  db: SqlDriver,
+  documentId: string,
+  reading: SheetEmbedReading,
+): Promise<RebuiltTakeoff | null> {
+  if (!reading.privateDataLost || reading.sliceTooNew || reading.redbeamAnnots.length === 0) return null
+  const existing = await db.all<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM markups WHERE document_id = ? AND deleted_at IS NULL', [documentId])
+  if ((existing[0]?.n ?? 0) > 0) return null
+
+  interface Planned { pageIndex: number, kind: string, label: string, color: string, rings: Array<Array<{ x: number, y: number }>> }
+  const planned: Planned[] = []
+  for (const a of reading.redbeamAnnots) {
+    const text = a.label.trim()
+    const color = a.color ?? '#888888'
+    const outline = a.rings[0]
+    if (a.subtype === 'Polygon') {
+      if (outline === undefined || outline.length < 3 || !a.rings.every(finiteRing)) return null
+      if (DEDUCTION.test(text)) {
+        planned.push({ pageIndex: a.pageIndex, kind: 'cutout', label: text.replace(DEDUCTION, '').trim(), color, rings: [outline] })
+      } else {
+        planned.push({ pageIndex: a.pageIndex, kind: 'area', label: text, color, rings: [outline, ...a.rings.slice(1).filter((r) => r.length >= 3)] })
+      }
+    } else if (a.subtype === 'PolyLine') {
+      if (outline === undefined || outline.length < 2 || !finiteRing(outline)) return null
+      planned.push({ pageIndex: a.pageIndex, kind: 'polyline', label: text, color, rings: [outline] })
+    } else if (a.subtype === 'Circle') {
+      if (a.center === null || !finiteRing([a.center])) return null
+      planned.push({ pageIndex: a.pageIndex, kind: 'count', label: text, color, rings: [[a.center]] })
+    } else {
+      return null
+    }
+  }
+  const sheetAt = new Map(reading.sheets.map((s) => [s.pageIndex, s]))
+  if (planned.some((m) => !sheetAt.has(m.pageIndex))) return null
+
+  const out: RebuiltTakeoff = { markups: 0, scopes: 0, unscaled: 0 }
+  const now = new Date().toISOString()
+  await db.exec('BEGIN')
+  try {
+    // Scopes, by the name each annotation carries. A deduction never names the type.
+    const have = await db.all<{ id: string, label: string }>('SELECT id, label FROM scopes WHERE archived_at IS NULL')
+    const byName = new Map(have.map((r) => [r.label.trim().toLowerCase(), r.id]))
+    const typeOf: Record<string, string> = { area: 'area', polyline: 'linear', count: 'count' }
+    const scopeIdFor = async (m: Planned): Promise<string | null> => {
+      if (m.label === '' || m.label.toLowerCase() === 'unassigned') return null
+      const key = m.label.toLowerCase()
+      const here = byName.get(key)
+      if (here !== undefined) return here
+      const lead = planned.find((p) => p.kind !== 'cutout' && p.label.toLowerCase() === key) ?? m
+      const id = `sc-${crypto.randomUUID()}`
+      await db.run(
+        `INSERT INTO scopes(id, label, scope_type, color, specifications_json, archived_at, created_at, updated_at)
+         VALUES(?,?,?,?,?,NULL,?,?)`,
+        [id, m.label, typeOf[lead.kind] ?? 'area', lead.color, '{}', now, now])
+      byName.set(key, id)
+      out.scopes++
+      return id
+    }
+
+    for (const sheet of reading.sheets) {
+      const pageId = pageIdFor(documentId, sheet.pageIndex)
+      await db.run(
+        `INSERT OR IGNORE INTO pages(id, document_id, page_number, width_pdf_points, height_pdf_points, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?)`, [pageId, documentId, sheet.pageIndex, sheet.width, sheet.height, now, now])
+      const whole = sheet.scales.find((s) => s.rect === null)
+      if (whole !== undefined) {
+        await db.run(
+          `INSERT OR IGNORE INTO calibrations(id, document_id, page_id, feet_per_pdf_point, source, created_at, updated_at)
+           VALUES(?,?,?,?,?,?,?)`, [`cal-${crypto.randomUUID()}`, documentId, pageId, whole.feetPerPoint, 'manual', now, now])
+      }
+      const regioned = await db.all<{ n: number }>('SELECT COUNT(*) AS n FROM scale_regions WHERE page_id = ?', [pageId])
+      if ((regioned[0]?.n ?? 0) === 0) {
+        for (const s of sheet.scales) {
+          if (s.rect === null) continue
+          await db.run(
+            `INSERT INTO scale_regions(id, document_id, page_id, label, x0, y0, x1, y1, feet_per_pdf_point, source, created_at, updated_at)
+             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [`sr-${crypto.randomUUID()}`, documentId, pageId, s.label, s.rect.x0, s.rect.y0, s.rect.x1, s.rect.y1, s.feetPerPoint, 'manual', now, now])
+        }
+      }
+      const measured = planned.some((m) => m.pageIndex === sheet.pageIndex && m.kind !== 'count')
+      const scaled = await db.all<{ n: number }>('SELECT COUNT(*) AS n FROM calibrations WHERE page_id = ?', [pageId])
+      if (measured && (scaled[0]?.n ?? 0) === 0) out.unscaled++
+    }
+
+    for (const m of planned) {
+      await db.run(
+        `INSERT INTO markups(id, document_id, page_id, scope_id, kind, geometry_json, style_json, content_json, origin, review_state, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [crypto.randomUUID(), documentId, pageIdFor(documentId, m.pageIndex), await scopeIdFor(m), m.kind, JSON.stringify(m.rings),
+          '{}', '{}', 'user', 'accepted', now, now])
+      out.markups++
+    }
+    await db.exec('COMMIT')
+  } catch (err) {
+    await db.exec('ROLLBACK')
+    throw err
+  }
+  return out
+}
+
+/** What to tell the user about a takeoff rebuilt from its annotations. */
+export function rebuiltStatus(result: RebuiltTakeoff, name: string): string {
+  const parts = [
+    `${name} was saved by another app that dropped REDBEAM's takeoff detail. REDBEAM rebuilt ${result.markups} markup${result.markups === 1 ? '' : 's'} in ${result.scopes} scope${result.scopes === 1 ? '' : 's'} from the markups the PDF still shows, and the next save puts the detail back.`,
+    'Product details on the scopes were not in the markups, so they need entering again.',
+  ]
+  if (result.unscaled > 0) {
+    parts.push(`${result.unscaled} sheet${result.unscaled === 1 ? ' has' : 's have'} lost ${result.unscaled === 1 ? 'its' : 'their'} scale and need${result.unscaled === 1 ? 's' : ''} it set again.`)
+  }
+  return parts.join(' ')
 }
 
 /**
