@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import {
-  embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  copyName, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
   migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
   type DrawingFile,
 } from './drawingEmbed.js'
@@ -530,5 +530,27 @@ describe('a Light file is saved into only once its own takeoff is in the window'
     // Held back with nothing drawn here: the file is as it was found.
     expect(unsavedReason({ kind: 'held', reason: null }, 0)).toBeNull()
     expect(unsavedReason({ kind: 'held', reason: 'why' }, 2)).toBe('why')
+  })
+
+  it('can always be saved as a copy, leaving the original untouched', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    const original = await blankPdf()
+    const copy = await embedCopy({
+      db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't',
+      read: async () => original, allScopes: true,
+    })
+    expect(copy).not.toBe(original)
+    expect((await readSheetEmbed(original)).slice).toBeNull()
+    const carried = (await readSheetEmbed(copy)).slice!
+    expect(carried.tables.markups).toHaveLength(1)
+    expect(carried.tables.scopes).toHaveLength(1)
+    // A copy of a file that already says all of it is the file itself.
+    expect(await embedCopy({
+      db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't',
+      read: async () => copy, allScopes: true,
+    })).toBe(copy)
+    expect(copyName('Round 2/A-101.PDF')).toBe('A-101 (takeoff).pdf')
+    expect(copyName('C:\\jobs\\plan')).toBe('plan (takeoff).pdf')
   })
 })

@@ -10,8 +10,9 @@ SmartScreen will ask once.
 ### A Light takeoff is not lost on the way into its PDF
 
 - **Saving waits for the PDF's own takeoff.** A file opens empty for a moment while its takeoff is read. A save in that moment, or after a read that failed, could write that emptiness over the takeoff. REDBEAM now saves into a PDF only once everything it carried is in the window.
-- **A file REDBEAM cannot fully read is left alone.** A PDF saved by a newer REDBEAM, or by another app that dropped REDBEAM's takeoff detail, opens with a warning and is not saved into, so what it holds stays as it is.
-- **A refused save no longer closes the file.** If the PDF is open in Bluebeam or still syncing, closing the file, opening another or closing the window now asks: try again, leave without saving, or keep working.
+- **A file REDBEAM cannot fully read is left alone.** A PDF saved by a newer REDBEAM, or by another app that dropped REDBEAM's takeoff detail, opens with a warning and is not saved over, so what it holds stays as it is. What you draw in it can be saved as a copy.
+- **A refused save no longer closes the file.** If the PDF is open in Bluebeam or still syncing, closing the file, opening another or closing the window now asks: save a copy, try again, leave without saving, or keep working.
+- **You can always save.** When the PDF itself cannot take the takeoff, *Save a copy…* writes the PDF with its scopes and markups wherever you choose. Ctrl+S offers it, the warning bar offers it, and *Save a copy with the takeoff…* is in the command palette at any time.
 - **Every way of closing saves first.** Alt+F4, the taskbar, Windows shutting down and installing or restarting for an update used to skip the save that the window's own X button made.
 - **Opening a PDF no longer rewrites it.** Reopening a file and paging through it counted as a change, so the whole takeoff was appended to the PDF again each time. A file is now written only when the takeoff changes.
 

@@ -98,7 +98,7 @@ import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
 import {
-  embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
   migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
   type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
@@ -4575,7 +4575,33 @@ export default function Workspace({
    * hold. A refused save (the PDF open in Bluebeam, mid-sync, read-only) used
    * to be followed by the leave anyway. Now the leave waits for an answer.
    */
-  const [unsavedAsk, setUnsavedAsk] = useState<{ why: string, leave: () => void } | null>(null)
+  const [unsavedAsk, setUnsavedAsk] = useState<{ why: string, leave: (() => void) | null } | null>(null)
+  /**
+   * Save the takeoff as a copy of the PDF, wherever the person says. Never
+   * refused: this is the way out when the PDF itself cannot be written.
+   * Resolves true once a copy exists.
+   */
+  const saveCopyOfFile = useCallback(async (): Promise<boolean> => {
+    const db = dbRef.current
+    const doc = documents.find((d) => d.id === leftDocRef.current)
+    if (!db || !doc) return false
+    const name = doc.displayName || doc.relativePath
+    try {
+      const bytes = await embedCopy({
+        db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
+        read: () => projectBridge.readDocument(projectPath, doc.relativePath),
+        allScopes: light,
+      })
+      const out = await saveFile(bytes, {
+        name: copyName(doc.relativePath), type: 'application/pdf', filter: { name: 'PDF drawing', extensions: ['pdf'] },
+      })
+      setStatus(saveOutcomeText(out, 'copy with the takeoff'))
+      return out.path !== null || out.downloaded
+    } catch (err) {
+      setStatus(`could not save a copy: ${err instanceof Error ? err.message : String(err)}`)
+      return false
+    }
+  }, [documents, projectPath, light, setStatus])
   /** Save the open file, then say whether it is safe to leave it. Pro: always, redbeam.db has it. */
   const saveBeforeLeaving = useCallback(async (leave: () => void): Promise<boolean> => {
     const id = leftDocRef.current
@@ -4613,7 +4639,7 @@ export default function Workspace({
           reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
         } catch (err) {
           if (light && firstLook) {
-            const reason = `REDBEAM could not read what ${name} carries (${err instanceof Error ? err.message : String(err)}), so nothing will be saved into it.`
+            const reason = `REDBEAM could not read what ${name} carries (${err instanceof Error ? err.message : String(err)}), so REDBEAM will not save into it. What you draw here can be saved as a copy.`
             fileLoadRef.current.set(doc.id, { state: 'blocked', reason })
             setLoadBlock(reason)
           }
@@ -4630,7 +4656,7 @@ export default function Workspace({
             imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
           } catch (err) {
             if (!light) throw err
-            const reason = `The takeoff inside ${name} could not be loaded (${err instanceof Error ? err.message : String(err)}). Nothing will be saved into it, so it stays as it is. Close and reopen the file to try again.`
+            const reason = `The takeoff inside ${name} could not be loaded (${err instanceof Error ? err.message : String(err)}). REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy.`
             fileLoadRef.current.set(doc.id, { state: 'blocked', reason })
             setLoadBlock(reason)
             return
@@ -4730,11 +4756,16 @@ export default function Workspace({
     const id = leftDocRef.current
     if (id === null) return
     const asked = Date.now()
-    void saveTakeoffIntoDrawing(id).then(() => {
+    void saveTakeoffIntoDrawing(id).then((out) => {
+      // Ctrl+S always ends in a save: into the PDF, or as a copy when the PDF cannot take it.
+      if (light && (out.kind === 'busy' || out.kind === 'failed' || out.kind === 'held')) {
+        setUnsavedAsk({ why: unsavedReason(out, 1) ?? 'The takeoff could not be saved into the PDF.', leave: null })
+        return
+      }
       // A write says so itself; silence means the PDF already held all of it.
       if (statusAtRef.current < asked) setStatus('everything is already saved in this PDF')
     })
-  }, [saveTakeoffIntoDrawing, setStatus])
+  }, [saveTakeoffIntoDrawing, setStatus, light])
   useEffect(() => {
     if (!light || onBeforeClose === undefined) return
     onBeforeClose(saveBeforeLeaving)
@@ -6158,7 +6189,7 @@ export default function Workspace({
      * the dock carries controls only.
      */
     /* Light: this file is not being saved into, and why. Said first after quick view. */
-    if (loadBlock !== null) out.unshift(loadBlock)
+    if (loadBlock !== null) out.unshift({ text: loadBlock, action: { label: 'Save a copy…', run: () => void saveCopyOfFile() } })
     if (toolWarning !== null) out.push(toolWarning)
     /*
      * A cutout subtracts only from an area of ITS OWN scope on the same sheet
@@ -6173,7 +6204,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, saveCopyOfFile])
 
   // ------------------------------------------------------------ view math --
 
@@ -7532,6 +7563,12 @@ export default function Workspace({
         keywords: ['save', 'embed', 'file'], ...stuck(activeDocId === null ? 'no drawing open' : undefined), run: saveOpenFile,
       },
       {
+        id: 'light-save-copy', kind: 'command', title: 'Save a copy with the takeoff…',
+        detail: 'The PDF with its scopes and markups, saved wherever you choose',
+        keywords: ['save', 'copy', 'as', 'export', 'file'], ...stuck(activeDocId === null ? 'no drawing open' : undefined),
+        run: () => void saveCopyOfFile(),
+      },
+      {
         id: 'light-import-scopes', kind: 'command', title: 'Import scopes from another PDF…',
         detail: 'Last round’s scopes, without its markups',
         keywords: ['scopes', 'import', 'round', 'bid', 'copy', 'previous'], run: () => void importScopesFromPdf(),
@@ -7552,7 +7589,7 @@ export default function Workspace({
     hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, projectMarkups,
-    light, openAnotherFile, saveOpenFile, importScopesFromPdf,
+    light, openAnotherFile, saveOpenFile, importScopesFromPdf, saveCopyOfFile,
   ])
 
   return (
@@ -8200,16 +8237,30 @@ export default function Workspace({
             <div className="nesting-card" role="dialog" aria-labelledby="unsaved-title">
               <h2 id="unsaved-title">This takeoff is not saved in the PDF</h2>
               <p>{unsavedAsk.why}</p>
-              <p>If the PDF is open in Bluebeam or another app, close it there and try again.</p>
+              <p>Save a copy to keep the takeoff now, or close the PDF in the other app and try again.</p>
               <div className="nesting-actions">
                 <button
                   type="button" className="st-btn"
-                  onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leaveSaving(leave) }}
-                >Try again</button>
+                  onClick={() => {
+                    const { leave } = unsavedAsk
+                    void saveCopyOfFile().then((saved) => { if (saved) { setUnsavedAsk(null); leave?.() } })
+                  }}
+                >Save a copy…</button>
                 <button
-                  type="button" className="st-btn danger"
-                  onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leave() }}
-                >Leave without saving</button>
+                  type="button" className="st-btn"
+                  onClick={() => {
+                    const { leave } = unsavedAsk
+                    setUnsavedAsk(null)
+                    if (leave !== null) leaveSaving(leave)
+                    else saveOpenFile()
+                  }}
+                >Try again</button>
+                {unsavedAsk.leave !== null && (
+                  <button
+                    type="button" className="st-btn danger"
+                    onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leave?.() }}
+                  >Leave without saving</button>
+                )}
                 <button type="button" className="st-btn subtle" onClick={() => setUnsavedAsk(null)}>Keep working</button>
               </div>
             </div>

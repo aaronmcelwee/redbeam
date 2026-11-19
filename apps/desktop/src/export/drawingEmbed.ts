@@ -357,6 +357,40 @@ export async function embedDrawing(opts: {
   }
 }
 
+/**
+ * The drawing with this window's takeoff in it, as bytes to save somewhere else.
+ *
+ * Aaron, 2026-11-19: "offer to save a copy elsewhere. Don't ever refuse to
+ * save." When the PDF itself cannot take the takeoff (open in another app,
+ * read-only, or carrying a takeoff this build could not read and so must not
+ * overwrite), the work still has to land somewhere. The original is only
+ * read. A drawing that already says exactly this comes back as it is.
+ */
+export async function embedCopy(opts: {
+  db: SqlDriver
+  documentId: string
+  relativePath: string
+  displayName: string
+  appVersion: string
+  read: () => Promise<Uint8Array>
+  allScopes?: boolean
+}): Promise<Uint8Array> {
+  const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
+  const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
+  const source = await opts.read()
+  const result = await embedSheet(source, {
+    documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
+    appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
+  })
+  return result.bytes ?? source
+}
+
+/** The name offered for a copy: "A-101.pdf" becomes "A-101 (takeoff).pdf". */
+export function copyName(fileName: string): string {
+  const base = fileName.replace(/^.*[\\/]/, '')
+  return /\.pdf$/i.test(base) ? base.replace(/\.pdf$/i, ' (takeoff).pdf') : `${base} (takeoff).pdf`
+}
+
 /** The redbeam_meta key listing the drawings the on-open migration has finished. */
 export const MIGRATED_KEY = 'pdf_embed_migrated'
 
@@ -505,16 +539,16 @@ export type FileLoad = { state: 'loaded' } | { state: 'blocked', reason: string 
  */
 export function fileLoadVerdict(reading: SheetEmbedReading, imported: ImportOutcome | null, name: string): FileLoad {
   if (reading.sliceTooNew) {
-    return { state: 'blocked', reason: `${name} was saved by a newer REDBEAM than this one. Update REDBEAM to work on it. Nothing will be saved into it from this version, so its takeoff is safe.` }
+    return { state: 'blocked', reason: `${name} was saved by a newer REDBEAM than this one. Update REDBEAM to work on it. This version will not save into it, so its takeoff is safe; what you draw here can be saved as a copy.` }
   }
   if (reading.privateDataLost) {
-    return { state: 'blocked', reason: `${name} was saved by another app that dropped REDBEAM's takeoff detail, so the takeoff could not be loaded. Nothing will be saved into it, so the markups it still shows are kept.` }
+    return { state: 'blocked', reason: `${name} was saved by another app that dropped REDBEAM's takeoff detail, so the takeoff could not be loaded. REDBEAM will not save into it, so the markups it still shows are kept; what you draw here can be saved as a copy.` }
   }
   if (reading.slice !== null && imported === null) {
-    return { state: 'blocked', reason: `The takeoff inside ${name} could not be loaded. Nothing will be saved into it, so it stays as it is. Close and reopen the file to try again.` }
+    return { state: 'blocked', reason: `The takeoff inside ${name} could not be loaded. REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy. Close and reopen the file to try again.` }
   }
   if ((imported?.skipped ?? 0) > 0) {
-    return { state: 'blocked', reason: `Part of the takeoff inside ${name} could not be loaded (${imported!.skipped} item${imported!.skipped === 1 ? '' : 's'}). Nothing will be saved into it, so it stays as it is.` }
+    return { state: 'blocked', reason: `Part of the takeoff inside ${name} could not be loaded (${imported!.skipped} item${imported!.skipped === 1 ? '' : 's'}). REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy.` }
   }
   return { state: 'loaded' }
 }
