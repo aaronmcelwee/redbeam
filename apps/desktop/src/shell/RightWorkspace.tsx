@@ -55,13 +55,14 @@ import {
   deriveRunTriple, granularityKey, readGranularity, readBool, GRANULARITIES, isDeviceScope, DEVICE_SPEC_KEY, factoryCutLine,
 } from '@redbeam/domain'
 import {
-  Area, ChevronRight, Count, Crosshair, Cutout, Ellipsis, FileText, Glyph, Highlighter,
+  Area, Check, ChevronDown, ChevronRight, Count, Crosshair, Cutout, Ellipsis, FileText, Glyph, Highlighter,
   Plus, Polyline, Round, Ruler, Pentagon, TriangleAlert, Copy, Trash2, RotateCcw, Archive, Pencil,
   DocumentPdf, X,
 } from './icons.js'
 import { entriesForRound } from '../bom/bomRows.js'
 import { clickMarkupRow } from './markupSelection.js'
 import { saveOutcomeText, saveReportFile } from '../bom/exports.js'
+import { openFor, scopeStage, summaryToTsv, type SummaryLine } from './scopeSummary.js'
 
 /**
  * What a scope counts, in the order an estimator meets them: most ceiling
@@ -293,6 +294,11 @@ export interface EstimatesPanelProps {
   onRemoveScope: (estimateId: string, scopeId: string) => void
   onSaveScope: (scope: Scope) => void
   onTakeOff: (scopeId: string) => void
+  /**
+   * Takeoff mode is on and drawing into the OPEN scope. The pane leads with
+   * what moves as you draw, and the Take off button shows it is on.
+   */
+  takingOff?: boolean
   /** Pick up the direction tool for the open scope. Absent where there is no sheet to set it on. */
   onSetDirection?: () => void
   /** How the open scope's direction stands, in words — "set on A-413A". Null means not set. */
@@ -1111,21 +1117,42 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const [group, setGroup] = useState<'page' | 'type'>('page')
   const onScopePage = p.onScopePage
   const [anchor, setAnchor] = useState<string | null>(null)
+  const takingOff = p.takingOff === true
 
-  /* The caller's request brings a section on screen. On first render it only
-     names the section, so opening a scope starts at its top. */
+  const product = readProductType(scope.specifications)
+  const missing = missingRequiredMeasures(product, scope.specifications)
+
+  /*
+   * The pane follows the estimator (Aaron, 2026-11-19): Setup leads a new
+   * scope, then what moves while you draw, then the markups to check. Each
+   * stage opens its own section; what the estimator opens or closes by hand
+   * holds until the stage changes.
+   */
+  const stage = scopeStage({ takingOff, markups: markups.length, missing: missing.length })
+  const [open, setOpen] = useState(() => openFor(stage, markups.length))
+  useEffect(() => { setOpen(openFor(stage, markups.length)) }, [stage, scope.id])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* The caller's request opens that section and brings it on screen. 'parts' is the summary card, at the top. */
   const show = useCallback((to: ScopePage) => {
     onScopePage?.(to)
+    if (to !== 'parts') setOpen((o) => ({ ...o, [to]: true }))
     requestAnimationFrame(() => {
       const scroller = pageRef.current?.closest('.wsbody')
       if (to === 'parts') { if (scroller instanceof HTMLElement) scroller.scrollTo({ top: 0 }); return }
       pageRef.current?.querySelector<HTMLElement>(`[data-section="${to}"]`)?.scrollIntoView({ block: 'start' })
     })
   }, [onScopePage])
-  const mounted = useRef(false)
+  /*
+   * Only a CHANGE of request moves the pane. The value the scope opens with
+   * is stale — whatever was last asked of the last scope — and must not
+   * overrule the stage. (A mounted flag let React's double-run of effects in
+   * development read the opening value as a new request.)
+   */
+  const askedPage = useRef(p.scopePage)
   useEffect(() => {
-    if (p.scopePage !== undefined && mounted.current) show(p.scopePage)
-    mounted.current = true
+    if (p.scopePage === askedPage.current) return
+    askedPage.current = p.scopePage
+    if (p.scopePage !== undefined) show(p.scopePage)
   }, [p.scopePage])  // eslint-disable-line react-hooks/exhaustive-deps
 
   /* F2 renames, as the menu says it does. */
@@ -1141,8 +1168,6 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
     return () => window.removeEventListener('keydown', onKey)
   }, [renaming])
 
-  const product = readProductType(scope.specifications)
-  const missing = missingRequiredMeasures(product, scope.specifications)
   /*
    * Every specification edit goes through `deriveRunTriple`: plank width,
    * reveal and on-centre spacing are three views of one geometry, so entering
@@ -1165,7 +1190,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const day = dayOf(p.commit?.since ?? null)
 
   /*
-   * One InfoBar under the numbers: what is committed and what moved, or what
+   * One InfoBar under the summary: what is committed and what moved, or what
    * is missing and where to fix it.
    */
   const status: { tone: 'info' | 'warn' | 'good'; text: string; action: null | { label: string; run: () => void } } = (() => {
@@ -1194,9 +1219,164 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const partsChanged = hasParts && pieces !== undefined && pieces.quantities.some((q) => wasOf(q.itemKey) !== undefined)
   const drawable = pieces !== undefined && (pieces.runs.length > 0 || pieces.cells.length > 0)
   const net = rows[0]
+  const slots: Slot[] = [
+    ...slotsOf([rows]),
+    // A run product's installed length is a measurement, not a part (board 4).
+    ...(view.installedFeet === null ? [] : [{ itemKey: 'net_linear', unit: 'LF' as const, label: 'Installed', total: view.installedFeet, scopes: 1 }]),
+  ]
+
+  /* The summary card, line for line, as the copy carries it. */
+  const lines: SummaryLine[] = [
+    ...slots.map((sl) => ({ label: sl.label, unit: sl.unit, quantity: sl.total })),
+    ...view.primary.map((r) => ({ label: r.chip === undefined ? r.label : `${r.label} ${r.chip}`, unit: r.unit, quantity: blocked ? null : r.quantity })),
+    ...(view.factoryCut === null ? [] : [{ label: 'Factory-cut for devices', unit: 'EA', quantity: blocked ? null : view.factoryCut.quantity }]),
+    ...view.accessories.map((r) => ({ label: r.label, unit: r.unit, quantity: blocked ? null : r.quantity })),
+  ]
+  const canCopy = lines.some((l) => l.quantity !== null)
+  const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle')
+  useEffect(() => {
+    if (copied === 'idle') return
+    const t = window.setTimeout(() => setCopied('idle'), 2000)
+    return () => window.clearTimeout(t)
+  }, [copied])
+  const copySummary = () => {
+    const text = summaryToTsv(lines)
+    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined
+    if (clip === undefined) { setCopied('failed'); return }
+    clip.writeText(text).then(() => setCopied('copied'), () => setCopied('failed'))
+  }
+
+  const setupSummary = setupLine(product, scope.specifications, p.lengthDenominator ?? 16)
+  const markupSummary = markups.length === 0
+    ? 'None yet'
+    : `${markups.length} on ${sheets} sheet${sheets === 1 ? '' : 's'}`
+
+  const setupSection = (
+    <Expander
+      key="setup"
+      id="setup"
+      title="Setup"
+      summary={open.setup ? undefined : setupSummary}
+      open={open.setup}
+      onToggle={() => setOpen((o) => ({ ...o, setup: !o.setup }))}
+    >
+      <SetupGrid
+        scope={scope}
+        product={product}
+        missing={missing}
+        patch={patch}
+        onSaveScope={onSaveScope}
+        lengthDenominator={p.lengthDenominator ?? 16}
+        {...(p.direction !== undefined ? { direction: p.direction } : {})}
+        {...(p.onSetDirection !== undefined ? { onSetDirection: p.onSetDirection } : {})}
+      />
+      {pieces !== undefined && (
+        <label className={drawable ? 'es-swrow es-exprow' : 'es-swrow es-exprow off'}>
+          <span className="es-swlabel">Show layout on sheet</span>
+          <span className="es-swstate">{p.layoutOn ? 'On' : 'Off'}</span>
+          <button
+            type="button"
+            role="switch"
+            className={p.layoutOn ? 'es-sw on' : 'es-sw'}
+            aria-checked={p.layoutOn}
+            aria-label="Show layout on sheet"
+            disabled={!drawable}
+            onClick={() => p.onToggleLayout(!p.layoutOn)}
+          ><span /></button>
+        </label>
+      )}
+    </Expander>
+  )
+
+  const markupsSection = (
+    <Expander
+      key="markups"
+      id="markups"
+      title="Markups"
+      summary={open.markups ? undefined : markupSummary}
+      count={open.markups && markups.length > 0 ? markupSummary : undefined}
+      open={open.markups}
+      onToggle={() => setOpen((o) => ({ ...o, markups: !o.markups }))}
+    >
+      {markups.length === 0 && (
+        <div className="es-muted pad">None yet — each shape you draw is listed here, by sheet.</div>
+      )}
+      {markups.length > 0 && (
+        <div className="es-exprow es-exptools">
+          <span className="es-sp" />
+          <span className="es-sb" role="group" aria-label="Group markups by">
+            <button className="es-sbi" aria-pressed={group === 'page'} onClick={() => setGroup('page')}>By sheet</button>
+            <button className="es-sbi" aria-pressed={group === 'type'} onClick={() => setGroup('type')}>By kind</button>
+          </span>
+        </div>
+      )}
+      {canSelect && markups.length > 0 && (
+        <MarkupBulkBar
+          count={picked.length}
+          total={markups.length}
+          scopes={p.scopes.filter((sc) => sc.id !== scope.id)}
+          onSelectAll={() => { p.onSelectMarkups!(visible); setAnchor(visible[0] ?? null) }}
+          onClear={() => { p.onSelectMarkups!(selected.filter((id) => !inList.has(id))); setAnchor(null) }}
+          {...(p.onMoveMarkups !== undefined ? { onMove: (to: string | null) => p.onMoveMarkups!(picked, to) } : {})}
+          {...(p.onDuplicateMarkups !== undefined ? { onDuplicate: () => p.onDuplicateMarkups!(picked) } : {})}
+          {...(p.onDeleteMarkups !== undefined ? { onDelete: () => p.onDeleteMarkups!(picked) } : {})}
+        />
+      )}
+      {grouped.map(([heading, list]) => (
+        <div key={heading.key}>
+          <div className="es-grp">
+            <b>{heading.title}</b>
+            {heading.detail !== '' && <span className="es-grpdetail">{heading.detail}</span>}
+            <span className="es-sp" />
+            <span>{list.length}</span>
+          </div>
+          {list.map((m) => (
+            <button
+              key={m.id}
+              className={(m.layoutNote === undefined ? 'es-mk' : 'es-mk off') + (selectedSet.has(m.id) ? ' on' : '')}
+              {...(canSelect ? { 'aria-pressed': selectedSet.has(m.id) } : {})}
+              onClick={(e) => {
+                const toggle = e.ctrlKey || e.metaKey
+                const range = e.shiftKey
+                /*
+                 * Ctrl and Shift build a selection without leaving the
+                 * sheet you are on; a plain click goes to the markup and
+                 * selects it, as it always did.
+                 */
+                if (canSelect && (toggle || range)) {
+                  const next = clickMarkupRow(selected, anchor, m.id, { toggle, range }, visible)
+                  setAnchor(next.anchor)
+                  p.onSelectMarkups!(next.selected)
+                  return
+                }
+                if (onGoToMarkup !== undefined) onGoToMarkup(m)
+                else onGoToPage(m.page)
+                if (canSelect) { p.onSelectMarkups!([m.id]); setAnchor(m.id) }
+              }}
+              title={m.layoutNote === undefined
+                ? (m.inOpenDocument ? `Go to ${sheetLabel(m.page)}` : `Open ${m.documentName}, page ${m.page + 1}`) + (canSelect ? ' · Ctrl or Shift to select several' : '')
+                : `Not in the layout: ${m.layoutNote}`}
+            >
+              <Glyph icon={MARKUP_ICON[m.kind] ?? Pentagon} role="small" />
+              <span className="es-mkname">
+                {m.name}
+                {m.parentName !== undefined && <span className="es-mkin"> in {m.parentName}</span>}
+                {group === 'type' && <span className="es-mkin"> · {m.inOpenDocument ? sheetLabel(m.page) : `${m.documentName} p${m.page + 1}`}</span>}
+                {m.layoutNote !== undefined && <span className="es-mkwhy">⚠ {m.layoutNote}</span>}
+              </span>
+              <span className="es-mkv">{m.measure}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+      {markups.length > 0 && net !== undefined && (
+        <div className="es-net"><span>Net</span><span className="es-netv">{fmt(net.quantity)} {net.unit}</span></div>
+      )}
+    </Expander>
+  )
 
   return (
-    <div className="es-scope" ref={pageRef}>
+    <div className="es-scope" ref={pageRef} data-stage={stage}>
       <HeaderBlock
         dot={(
           <label className="es-dotbtn" title="Scope colour — shown on this scope’s markups">
@@ -1220,33 +1400,17 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
             )
           : scope.label}
         sub={(
-          <>
-            {/* The product, as a subtle DropDownButton: it names the scope's
-                kind, so it sits with the name and not in the grid below. */}
-            <span className="es-ddb">
-              <select
-                id="scope-type"
-                className="es-ddbsel"
-                aria-label="Product"
-                value={product}
-                onChange={(e) => {
-                  const next = e.target.value as ProductType
-                  // The product decides what it is measured as; only a custom
-                  // assembly keeps what was chosen.
-                  const scopeType: ScopeType = scopeTypeForProduct(next) ?? scope.scopeType
-                  onSaveScope({ ...scope, scopeType, specifications: writeProductType(scope.specifications, next) })
-                }}
-              >
-                {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
-              </select>
-              <span className="es-ddbface" aria-hidden="true">{PRODUCT_TYPE_LABEL[product]}<span className="es-chev">⌄</span></span>
-            </span>
-            <span> · {markups.length} markup{markups.length === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}</span>
-          </>
+          <span>
+            {PRODUCT_TYPE_LABEL[product]} · {markups.length} markup{markups.length === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}
+          </span>
         )}
         primary={(
-          <button className="es-btn primary" onClick={() => onTakeOff(scope.id)}>
-            <Glyph icon={Crosshair} role="row" /> Take off
+          <button
+            className={takingOff ? 'es-btn primary on' : 'es-btn primary'}
+            title={takingOff ? 'Taking off: what you draw lands in this scope' : 'Draw on the sheet into this scope'}
+            onClick={() => onTakeOff(scope.id)}
+          >
+            <Glyph icon={Crosshair} role="row" filled={takingOff} /> Take off
           </button>
         )}
         menuLabel={`${scope.label} menu`}
@@ -1274,153 +1438,112 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
         )}
       />
 
-      <QuantityStrip
-        slots={[
-          ...slotsOf([rows]),
-          // A run product's installed length is a measurement, not a part (board 4).
-          ...(view.installedFeet === null ? [] : [{ itemKey: 'net_linear', unit: 'LF' as const, label: 'Installed', total: view.installedFeet, scopes: 1 }]),
-        ]}
-        delta={delta.filter((d) => rows.some((r) => r.itemKey === d.itemKey) || d.itemKey === 'net_linear')}
-      />
+      {/*
+        THE SUMMARY CARD (Aaron, 2026-11-19): the measurements and the parts
+        together at the top, always open, with a Copy that puts the card on
+        the clipboard as a two-column table for the estimate form.
+      */}
+      <section className="es-card" data-section="parts" aria-labelledby="es-summary">
+        <div className="es-cardhd">
+          <h3 className="es-cardtitle" id="es-summary">Summary</h3>
+          {hasParts && !isVerifiedProduct(product) && (
+            <span className="es-chip" title="Piece counts match arithmetic but are not verified against the Qt build">unverified</span>
+          )}
+          {partsChanged && <span className="es-aside">was = on{day === null ? ' the last day saved' : ` ${day}`}</span>}
+          <span className="es-sp" />
+          <button
+            className="es-btn tiny"
+            disabled={!canCopy}
+            title={canCopy ? 'Copy the summary as a two-column table for your estimate' : 'Nothing to copy yet'}
+            onClick={copySummary}
+          >
+            <Glyph icon={copied === 'copied' ? Check : Copy} role="row" />
+            {copied === 'copied' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy'}
+          </button>
+        </div>
+        {slots.length > 0 && (
+          <QuantityStrip
+            slots={slots}
+            delta={delta.filter((d) => rows.some((r) => r.itemKey === d.itemKey) || d.itemKey === 'net_linear')}
+          />
+        )}
+        {/*
+          No parts, no list: a custom assembly is quantified by hand, and
+          "No parts for this product" was a sentence about the software.
+        */}
+        {product !== 'custom_assembly' && (
+          <PartsTable view={view} pieces={pieces} nothingDrawn={nothingDrawn} missing={missing} wasOf={partsChanged ? wasOf : null} />
+        )}
+      </section>
       <InfoBar tone={status.tone} action={status.action}>{status.text}</InfoBar>
 
-      {/*
-        No parts, no section: a custom assembly is quantified by hand, and
-        "No parts for this product" was a sentence about the software.
-      */}
-      {product !== 'custom_assembly' && (
-        <section data-section="parts" aria-labelledby="es-parts">
-          <SectionHead
-            id="es-parts"
-            title="Parts"
-            count={hasParts ? view.primary.length : undefined}
-            right={(
-              <>
-                {/* Confidence, said once: the run products match arithmetic but are not verified against the Qt build. */}
-                {hasParts && !isVerifiedProduct(product) && (
-                  <span className="es-chip" title="Piece counts match arithmetic but are not verified against the Qt build">unverified</span>
-                )}
-                {partsChanged && <span className="es-aside">was = on{day === null ? ' the last day saved' : ` ${day}`}</span>}
-              </>
-            )}
-          />
-          <PartsTable view={view} pieces={pieces} nothingDrawn={nothingDrawn} missing={missing} wasOf={partsChanged ? wasOf : null} />
-        </section>
-      )}
-
-      <section data-section="setup" aria-labelledby="es-setup">
-        <SectionHead
-          id="es-setup"
-          title="Setup"
-          right={pieces !== undefined
-            ? (
-              <label className={drawable ? 'es-swrow' : 'es-swrow off'}>
-                <span className="es-aside">Show layout on sheet</span>
-                <button
-                  type="button"
-                  role="switch"
-                  className={p.layoutOn ? 'es-sw on' : 'es-sw'}
-                  aria-checked={p.layoutOn}
-                  aria-label="Show layout on sheet"
-                  disabled={!drawable}
-                  onClick={() => p.onToggleLayout(!p.layoutOn)}
-                ><span /></button>
-              </label>
-              )
-            : undefined}
-        />
-        <SetupGrid
-          scope={scope}
-          product={product}
-          missing={missing}
-          patch={patch}
-          onSaveScope={onSaveScope}
-          lengthDenominator={p.lengthDenominator ?? 16}
-          {...(p.direction !== undefined ? { direction: p.direction } : {})}
-          {...(p.onSetDirection !== undefined ? { onSetDirection: p.onSetDirection } : {})}
-        />
-      </section>
-
-      <section data-section="markups" aria-labelledby="es-markups">
-        <SectionHead
-          id="es-markups"
-          title="Markups"
-          count={`${markups.length} on ${sheets} sheet${sheets === 1 ? '' : 's'}`}
-          right={(
-            <span className="es-sb" role="group" aria-label="Group markups by">
-              <button className="es-sbi" aria-pressed={group === 'page'} onClick={() => setGroup('page')}>By sheet</button>
-              <button className="es-sbi" aria-pressed={group === 'type'} onClick={() => setGroup('type')}>By kind</button>
-            </span>
-          )}
-        />
-        {markups.length === 0 && (
-          <div className="es-muted pad">None yet — each shape you draw is listed here, by sheet.</div>
-        )}
-        {canSelect && markups.length > 0 && (
-          <MarkupBulkBar
-            count={picked.length}
-            total={markups.length}
-            scopes={p.scopes.filter((sc) => sc.id !== scope.id)}
-            onSelectAll={() => { p.onSelectMarkups!(visible); setAnchor(visible[0] ?? null) }}
-            onClear={() => { p.onSelectMarkups!(selected.filter((id) => !inList.has(id))); setAnchor(null) }}
-            {...(p.onMoveMarkups !== undefined ? { onMove: (to: string | null) => p.onMoveMarkups!(picked, to) } : {})}
-            {...(p.onDuplicateMarkups !== undefined ? { onDuplicate: () => p.onDuplicateMarkups!(picked) } : {})}
-            {...(p.onDeleteMarkups !== undefined ? { onDelete: () => p.onDeleteMarkups!(picked) } : {})}
-          />
-        )}
-        {grouped.map(([heading, list]) => (
-          <div key={heading.key}>
-            <div className="es-grp">
-              <b>{heading.title}</b>
-              {heading.detail !== '' && <span className="es-grpdetail">{heading.detail}</span>}
-              <span className="es-sp" />
-              <span>{list.length}</span>
-            </div>
-            {list.map((m) => (
-              <button
-                key={m.id}
-                className={(m.layoutNote === undefined ? 'es-mk' : 'es-mk off') + (selectedSet.has(m.id) ? ' on' : '')}
-                {...(canSelect ? { 'aria-pressed': selectedSet.has(m.id) } : {})}
-                onClick={(e) => {
-                  const toggle = e.ctrlKey || e.metaKey
-                  const range = e.shiftKey
-                  /*
-                   * Ctrl and Shift build a selection without leaving the
-                   * sheet you are on; a plain click goes to the markup and
-                   * selects it, as it always did.
-                   */
-                  if (canSelect && (toggle || range)) {
-                    const next = clickMarkupRow(selected, anchor, m.id, { toggle, range }, visible)
-                    setAnchor(next.anchor)
-                    p.onSelectMarkups!(next.selected)
-                    return
-                  }
-                  if (onGoToMarkup !== undefined) onGoToMarkup(m)
-                  else onGoToPage(m.page)
-                  if (canSelect) { p.onSelectMarkups!([m.id]); setAnchor(m.id) }
-                }}
-                title={m.layoutNote === undefined
-                  ? (m.inOpenDocument ? `Go to ${sheetLabel(m.page)}` : `Open ${m.documentName}, page ${m.page + 1}`) + (canSelect ? ' · Ctrl or Shift to select several' : '')
-                  : `Not in the layout: ${m.layoutNote}`}
-              >
-                <Glyph icon={MARKUP_ICON[m.kind] ?? Pentagon} role="small" />
-                <span className="es-mkname">
-                  {m.name}
-                  {m.parentName !== undefined && <span className="es-mkin"> in {m.parentName}</span>}
-                  {group === 'type' && <span className="es-mkin"> · {m.inOpenDocument ? sheetLabel(m.page) : `${m.documentName} p${m.page + 1}`}</span>}
-                  {m.layoutNote !== undefined && <span className="es-mkwhy">⚠ {m.layoutNote}</span>}
-                </span>
-                <span className="es-mkv">{m.measure}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-        {markups.length > 0 && net !== undefined && (
-          <div className="es-net"><span>Net</span><span className="es-netv">{fmt(net.quantity)} {net.unit}</span></div>
-        )}
-      </section>
+      {stage === 'setup' ? [setupSection, markupsSection] : [markupsSection, setupSection]}
     </div>
   )
+}
+
+/**
+ * A WinUI Expander: the whole header is the button, the chevron on the right
+ * turns when it opens, and a folded section says in one line what is in it.
+ */
+function Expander({ id, title, summary, count, open, onToggle, children }: {
+  id: 'setup' | 'markups'
+  title: string
+  summary?: string | undefined
+  count?: string | undefined
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <section className={open ? 'es-exp open' : 'es-exp'} data-section={id}>
+      <h3 className="es-exph">
+        <button
+          type="button"
+          className="es-expbtn"
+          id={`es-${id}`}
+          aria-expanded={open}
+          aria-controls={`es-${id}-body`}
+          onClick={onToggle}
+        >
+          <span className="es-exptitle">{title}</span>
+          {count !== undefined && <span className="es-n">{count}</span>}
+          {summary !== undefined && <span className="es-expsum">{summary}</span>}
+          <span className="es-sp" />
+          <span className="es-expchev"><Glyph icon={ChevronDown} role="small" /></span>
+        </button>
+      </h3>
+      {open && (
+        <div className="es-expb" id={`es-${id}-body`} role="region" aria-labelledby={`es-${id}`}>
+          {children}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Setup in one line, for when it is folded: the product, its measures, yield and seams. */
+function setupLine(product: ProductType, specs: Specifications, denominator: number): string {
+  const bits: string[] = [PRODUCT_TYPE_LABEL[product]]
+  const sizes = editableMeasures(product)
+    .map((f) => {
+      const value = readString(specs, f.valueKey) ?? ''
+      const n = parseNumberOrFraction(value)
+      if (value === '' || n === null) return null
+      return { label: f.label, text: formatLength(n, readString(specs, f.unitKey) ?? 'in', denominator) }
+    })
+    .filter((v): v is { label: string; text: string } => v !== null)
+  // A panel is its size, W × L; any other product names its first measure.
+  if (product === 'panels' && sizes.length >= 2 && sizes[0]!.label === 'Panel W' && sizes[1]!.label === 'Panel L') {
+    bits.push(`${sizes[0]!.text} × ${sizes[1]!.text}`)
+  } else if (sizes.length > 0) {
+    bits.push(`${sizes[0]!.label} ${sizes[0]!.text}`)
+  }
+  if (product !== 'custom_assembly' && product !== 'linear_parts') {
+    bits.push(readGranularity(specs, granularityKey(product)))
+    bits.push(readBool(specs, 'alignSeams') ? 'aligned' : 'free')
+  }
+  return bits.join(' · ')
 }
 
 /**
@@ -1520,6 +1643,14 @@ function PartsTable({ view, pieces, nothingDrawn, missing, wasOf }: {
   wasOf: ((itemKey: string) => QuantityDelta | undefined) | null
 }) {
   const hasParts = view.primary.length + view.accessories.length > 0
+  /* What Setup still needs comes first: it is the next step, before drawing. */
+  if (missing.length > 0 && !hasParts) {
+    return (
+      <div className="es-muted pad">
+        Set {missing.join(' and ')} before this scope can be counted. Nothing is estimated in its place.
+      </div>
+    )
+  }
   if (nothingDrawn) {
     return (
       <div className="es-muted pad">
@@ -1566,12 +1697,15 @@ function PartsTable({ view, pieces, nothingDrawn, missing, wasOf }: {
   }
   return (
     <div className={wasOf === null ? 'es-tbl nowas' : 'es-tbl'}>
-      <div className="es-tr h">
-        <span>Part</span>
-        <span className="es-trn">Qty</span>
-        <span />
-        {wasOf !== null && <span className="es-trw">was</span>}
-      </div>
+      {/* The card's list reads as a list; the column heads come back only to say which column is "was". */}
+      {wasOf !== null && (
+        <div className="es-tr h">
+          <span>Part</span>
+          <span className="es-trn">Qty</span>
+          <span />
+          <span className="es-trw">was</span>
+        </div>
+      )}
       {view.primary.map((r) => row(r, false))}
       {view.factoryCut !== null && (
         <div className="es-trg" key="factory_cut">
@@ -1618,6 +1752,28 @@ function SetupGrid({
   const laysOut = product !== 'custom_assembly' && product !== 'linear_parts'
   return (
     <div className="es-sg">
+      {/*
+        The product leads Setup (Aaron, 2026-11-19: the dropdown in the
+        header's subline was "not very evident and hidden"). It decides what
+        the scope is measured as and which fields follow.
+      */}
+      <label className="es-k" htmlFor="scope-type">Product</label>
+      <span className="es-fieldwrap wide">
+        <select
+          id="scope-type"
+          className="es-field"
+          value={product}
+          onChange={(e) => {
+            const next = e.target.value as ProductType
+            // The product decides what it is measured as; only a custom
+            // assembly keeps what was chosen.
+            const scopeType: ScopeType = scopeTypeForProduct(next) ?? scope.scopeType
+            onSaveScope({ ...scope, scopeType, specifications: writeProductType(scope.specifications, next) })
+          }}
+        >
+          {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
+        </select>
+      </span>
       {product === 'custom_assembly' && (
         <>
           <label className="es-k" htmlFor="scope-counts">Measured as</label>
