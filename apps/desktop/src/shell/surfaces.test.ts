@@ -148,30 +148,33 @@ describe('the scope pane, one screen', () => {
   })
 
   /**
-   * One column (Aaron, 2026-09-11): Parts, Setup and Markups are on screen
-   * together, Parts first. The board of 2026-09-18 removed the jump bar
-   * that repeated their names above them and the folds; nothing switches,
-   * nothing folds, and the caller's section request scrolls.
+   * The pane follows the estimator (Aaron, 2026-11-19). The summary card —
+   * the tiles and the parts together, always open, with Copy — leads every
+   * stage. Under it, Setup and Markups are Expanders whose order and opening
+   * the stage decides; the caller's section request still opens and scrolls.
    */
-  it('is one column, Parts then Setup then Markups, with no jump bar and no folds', () => {
+  it('leads with the summary card, then Setup and Markups as Expanders in stage order', () => {
     expect(src).not.toContain('jumpbar')
     expect(src).not.toContain('role="tablist"')
-    expect(src).not.toContain('aria-expanded={!folded')
-    const parts = src.indexOf('data-section="parts"')
-    const setup = src.indexOf('data-section="setup"')
-    const markups = src.indexOf('data-section="markups"')
-    expect(parts).toBeGreaterThan(0)
-    expect(setup).toBeGreaterThan(parts)
-    expect(markups).toBeGreaterThan(setup)
-    expect(src).toContain('if (p.scopePage !== undefined && mounted.current) show(p.scopePage)')
+    const card = src.indexOf('className="es-card" data-section="parts"')
+    expect(card).toBeGreaterThan(0)
+    expect(src.indexOf('<QuantityStrip', card)).toBeGreaterThan(card)
+    expect(src.indexOf('<PartsTable', card)).toBeGreaterThan(card)
+    expect(src).toContain('onClick={copySummary}')
+    expect(src).toContain('function Expander(')
+    expect(src).toContain('aria-expanded={open}')
+    expect(src).toContain("{stage === 'setup' ? [setupSection, markupsSection] : [markupsSection, setupSection]}")
+    expect(src).toContain('if (p.scopePage !== undefined) show(p.scopePage)')
   })
 
-  /** The product names the scope's kind, so it sits in the header, not the grid. */
-  it('keeps the product in the header and the grid uniform', () => {
-    const header = src.indexOf('id="scope-type"')
+  /** Aaron, 2026-11-19: the product dropdown in the subline was "not very evident and hidden". */
+  it('asks for the product first in Setup, not in the header', () => {
+    const header = src.indexOf('<HeaderBlock', src.indexOf('function ScopeDetail('))
     const grid = src.indexOf('function SetupGrid(')
+    const field = src.indexOf('id="scope-type"')
     expect(header).toBeGreaterThan(0)
-    expect(header).toBeLessThan(grid)
+    expect(field).toBeGreaterThan(grid)
+    expect(field).toBeLessThan(src.indexOf('id="scope-counts"'))
   })
 })
 

@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.31 — 2026-11-19
+## 0.3.33 — 2026-11-19
 
 ### Takeoffs no longer stall while the PDF saves
 
@@ -13,6 +13,24 @@ SmartScreen will ask once.
 - **The drawing is not read back from disk on every save.** REDBEAM keeps the copy it last saved instead of re-reading and re-checking the whole set each time. A file that changed on disk meanwhile (Bluebeam, OneDrive) is still noticed before anything is written, and the save then starts again from the file as it is now.
 - **It waits for a pause.** The save into the PDF now waits until you stop clicking for a couple of seconds (and never holds a change for more than 30 seconds), instead of rewriting the set in a OneDrive folder between two clicks of a polygon.
 - **Placing a point is cheaper.** Each click of an area or line no longer redraws the whole window, only the sheet.
+
+## 0.3.31 — 2026-11-19
+
+### The Takeoff panel follows where you are with a scope
+
+- **A summary card on top.** Area, perimeter (or length, or count) and the parts list now sit together in one card at the top of the scope, always open.
+- **Copy for your estimate.** The card's Copy button puts the summary on the clipboard as a two-column table, item on the left and number on the right, ready to paste into Excel.
+- **Setup first, then markups.** A new scope opens with Setup. While you take off, and once you're done, Markups comes first and Setup folds to a one-line summary. Open or fold either one at any time.
+- **Product is the first Setup field.** It used to be a small dropdown under the scope name.
+- **Take off shows when it's on** for the scope you're looking at.
+
+## 0.3.30 — 2026-11-19
+
+### Two people's takeoffs no longer overwrite each other
+
+- **A takeoff saved by someone else is not replaced.** If a PDF is open in two REDBEAM windows, or a synced copy comes in from a colleague, and the other side saves its takeoff first, REDBEAM used to save yours straight over theirs. It now notices the PDF carries a takeoff it has not seen and does not write.
+- **You choose what happens to yours.** Ctrl+S, closing the file and closing the window all ask: save yours as a copy, or leave without saving and reopen the PDF to see theirs. A window that only looked at the file is not asked anything.
+- Markups added in Bluebeam are not affected: they were already kept, and still are.
 
 ## 0.3.29 — 2026-11-19
 

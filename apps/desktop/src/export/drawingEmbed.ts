@@ -320,8 +320,10 @@ const embedHere: SheetEmbedder = async (source, input) => ({ result: await embed
 export type EmbedOutcome =
   /** Light: not attempted, because the file's own takeoff is not (yet) in the window. */
   | { kind: 'held', reason: string | null }
-  | { kind: 'written', editedElsewhere: string[], foreignKept: number }
-  | { kind: 'unchanged' }
+  | { kind: 'written', editedElsewhere: string[], foreignKept: number, stamp?: string | null }
+  | { kind: 'unchanged', stamp?: string | null }
+  /** Light: the PDF now carries a takeoff someone else saved since this window read it. Not written. */
+  | { kind: 'elsewhere' }
   | { kind: 'nothing-to-embed' }
   | { kind: 'busy' }
   | { kind: 'failed', message: string }
@@ -351,6 +353,8 @@ export interface EmbedDrawingOptions {
   allScopes?: boolean
   /** Where the PDF is built; in this thread when left out. */
   embed?: SheetEmbedder
+  /** Light mode: the takeoff this window last saw in the file; see `EmbedInput.expectStamp`. */
+  expectStamp?: string | null
 }
 
 async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
@@ -382,14 +386,14 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
       markups,
       pageScales,
       pageRegions,
+      ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
     })
-    if (result.bytes === null) {
-      opts.file.keep?.(source, current.version)
-      return { kind: 'unchanged' }
-    }
+    if (result.bytes === null) opts.file.keep?.(source, current.version)
+    if (result.conflict === true) return { kind: 'elsewhere' }
+    if (result.bytes === null) return { kind: 'unchanged', stamp: result.stamp }
     const ok = await opts.file.write(result.bytes, current.version)
     if (!ok) return { kind: 'busy' }
-    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept }
+    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp }
   } catch (err) {
     return { kind: 'failed', message: err instanceof Error ? err.message : String(err) }
   }
@@ -969,6 +973,10 @@ export function unsavedReason(outcome: EmbedOutcome, editsMade: number): string 
       return 'The PDF changed on disk or is open in another app, so the takeoff could not be saved into it.'
     case 'failed':
       return `The takeoff could not be saved into the PDF: ${outcome.message}`
+    case 'elsewhere':
+      // Nothing made here, nothing of ours to lose: theirs simply stays.
+      if (editsMade <= 0) return null
+      return 'Someone else saved a different takeoff into this PDF after you opened it (another REDBEAM window, or a synced copy). Saving here would replace theirs, so REDBEAM has not. Save yours as a copy, or leave without saving and reopen the PDF to see theirs.'
     case 'held':
       if (editsMade <= 0) return null
       return outcome.reason ?? 'The PDF\u2019s own takeoff had not finished loading, so what was drawn here has not been saved into it.'
@@ -988,6 +996,8 @@ export function embedStatus(outcome: EmbedOutcome, name: string): string | null 
       return `${name} changed on disk (open in Bluebeam?), so its takeoff was not saved into it this time`
     case 'failed':
       return `could not save the takeoff into ${name}: ${outcome.message}`
+    case 'elsewhere':
+      return `${name} now carries a takeoff someone else saved after you opened it, so yours was not saved over it. Ctrl+S for the choices`
     case 'held':
       return outcome.reason
     default:

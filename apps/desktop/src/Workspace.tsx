@@ -108,7 +108,7 @@ import {
 } from './export/oldProject.js'
 import { keptDrawingFile, projectDrawingFile } from './export/drawingSync.js'
 import { embedInWorker } from './export/embedInWorker.js'
-import { sheetSizes, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
+import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
 import {
@@ -4456,6 +4456,12 @@ export default function Workspace({
    * the file's takeoff is not in would write that emptiness over it.
    */
   const fileLoadRef = useRef(new Map<string, FileLoad>())
+  /**
+   * Light: the takeoff each file carried when this window last read or wrote
+   * it. A save that finds a different one there (another window, a synced
+   * copy from someone else) does not replace it; see `EmbedInput.expectStamp`.
+   */
+  const seenStampRef = useRef(new Map<string, string | null>())
   const [loadBlock, setLoadBlock] = useState<string | null>(null)
   const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<EmbedOutcome> => {
     const db = dbRef.current
@@ -4479,12 +4485,16 @@ export default function Workspace({
         embed: embedInWorker,
         // Light: the file's scopes are all of the store's, drawn on or not.
         allScopes: light,
+        ...(light && seenStampRef.current.has(docId) ? { expectStamp: seenStampRef.current.get(docId) ?? null } : {}),
       })
+      if ((out.kind === 'written' || out.kind === 'unchanged') && out.stamp !== undefined) seenStampRef.current.set(docId, out.stamp)
+      // A window that only looked has nothing to save over theirs, and nothing to say about it.
+      if (out.kind === 'elsewhere' && (undoRef.current?.state.depth ?? 0) === 0) return { kind: 'unchanged' }
       const text = embedStatus(out, name)
       if (opts.quiet === true) {
         // An automatic save speaks only when it could not save, and only once
         // until the next one goes through.
-        const refused = out.kind === 'busy' || out.kind === 'failed'
+        const refused = out.kind === 'busy' || out.kind === 'failed' || out.kind === 'elsewhere'
         if (!refused) {
           autoEmbedComplainedRef.current.delete(docId)
           if (out.kind === 'written' && out.editedElsewhere.length > 0 && text !== null) setStatus(text)
@@ -4492,7 +4502,7 @@ export default function Workspace({
         }
         if (autoEmbedComplainedRef.current.has(docId)) return out
         autoEmbedComplainedRef.current.add(docId)
-      } else if (out.kind !== 'busy' && out.kind !== 'failed') {
+      } else if (out.kind !== 'busy' && out.kind !== 'failed' && out.kind !== 'elsewhere') {
         autoEmbedComplainedRef.current.delete(docId)
       }
       if (text !== null) setStatus(text)
@@ -4721,6 +4731,7 @@ export default function Workspace({
           }
           return
         }
+        if (light && firstLook) seenStampRef.current.set(doc.id, sliceStamp(reading.slice))
         if (reading.slice === null && !reading.privateDataLost && !reading.sliceTooNew) {
           // A PDF with nothing of REDBEAM's in it: there is nothing to wait for.
           if (light && firstLook) fileLoadRef.current.set(doc.id, { state: 'loaded' })
@@ -4870,7 +4881,7 @@ export default function Workspace({
     const asked = Date.now()
     void saveTakeoffIntoDrawing(id).then((out) => {
       // Ctrl+S always ends in a save: into the PDF, or as a copy when the PDF cannot take it.
-      if (light && (out.kind === 'busy' || out.kind === 'failed' || out.kind === 'held')) {
+      if (light && (out.kind === 'busy' || out.kind === 'failed' || out.kind === 'held' || out.kind === 'elsewhere')) {
         setUnsavedAsk({ why: unsavedReason(out, 1) ?? 'The takeoff could not be saved into the PDF.', leave: null })
         return
       }
@@ -8625,6 +8636,7 @@ export default function Workspace({
         onToggleLayout={setLayoutOn}
         {...(commitState !== undefined ? { commit: commitState } : {})}
         onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool(firstToolFor(id)) }}
+        takingOff={takeoff && openScopeId !== null && activeScope === openScopeId}
         onExportEstimate={openEstimateExport}
         {...(exportDraft !== null
           ? {
