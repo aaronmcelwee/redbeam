@@ -96,6 +96,17 @@ export interface ProjectBridge {
    * forget it. The drawings are untouched. Desktop only.
    */
   removeProjectData(path: string): Promise<RecentProject[]>
+  /**
+   * The older project whose `redbeam.db` sits in `folder` or above it, or
+   * null. Opens nothing. `prefix` plus a file name in `folder` is that file's
+   * path as the old project knew it. Always null in the browser.
+   */
+  findOldProject(folder: string): Promise<OldProject | null>
+  /**
+   * Set aside an old project's database once its takeoff is inside the PDFs:
+   * moved into `.redbeam/superseded-<stamp>/`, never deleted. Desktop only.
+   */
+  supersedeOldProject(root: string): Promise<void>
   /** Show the folder in Explorer / Finder. Desktop only. */
   revealProject(path: string): Promise<void>
   clearRecents(): Promise<void>
@@ -117,6 +128,9 @@ export interface ProjectBridge {
    */
   writeDocument(projectPath: string, relativePath: string, bytes: Uint8Array, expectedSha256: string): Promise<DocumentWrite>
 }
+
+/** See `ProjectBridge.findOldProject`. */
+export interface OldProject { root: string, prefix: string }
 
 export type DocumentWrite =
   | { outcome: 'written'; fingerprint: string }
@@ -406,6 +420,20 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
       if (!desktop) throw new Error('The browser build keeps its data in IndexedDB and cannot set a project folder aside.')
       const raw = await invoke<unknown>('project_remove_data', { path })
       return Array.isArray(raw) ? raw.map(toRecent) : []
+    },
+
+    async findOldProject(folder): Promise<OldProject | null> {
+      if (!desktop || folder.trim() === '') return null
+      const raw = await invoke<unknown>('project_old_data', { path: folder })
+      if (raw === null || raw === undefined) return null
+      const r = asRecord(raw)
+      const root = str(r.root)
+      return root === '' ? null : { root, prefix: str(r.prefix) }
+    },
+
+    async supersedeOldProject(root): Promise<void> {
+      if (!desktop) throw new Error('The browser build has no project database on disk to set aside.')
+      await invoke<unknown>('project_supersede_data', { path: root })
     },
 
     async revealProject(path): Promise<void> {

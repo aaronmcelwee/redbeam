@@ -297,6 +297,8 @@ export interface DrawingFile {
 }
 
 export type EmbedOutcome =
+  /** Light: not attempted, because the file's own takeoff is not (yet) in the window. */
+  | { kind: 'held', reason: string | null }
   | { kind: 'written', editedElsewhere: string[], foreignKept: number }
   | { kind: 'unchanged' }
   | { kind: 'nothing-to-embed' }
@@ -353,6 +355,40 @@ export async function embedDrawing(opts: {
   } catch (err) {
     return { kind: 'failed', message: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/**
+ * The drawing with this window's takeoff in it, as bytes to save somewhere else.
+ *
+ * Aaron, 2026-11-19: "offer to save a copy elsewhere. Don't ever refuse to
+ * save." When the PDF itself cannot take the takeoff (open in another app,
+ * read-only, or carrying a takeoff this build could not read and so must not
+ * overwrite), the work still has to land somewhere. The original is only
+ * read. A drawing that already says exactly this comes back as it is.
+ */
+export async function embedCopy(opts: {
+  db: SqlDriver
+  documentId: string
+  relativePath: string
+  displayName: string
+  appVersion: string
+  read: () => Promise<Uint8Array>
+  allScopes?: boolean
+}): Promise<Uint8Array> {
+  const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
+  const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
+  const source = await opts.read()
+  const result = await embedSheet(source, {
+    documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
+    appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
+  })
+  return result.bytes ?? source
+}
+
+/** The name offered for a copy: "A-101.pdf" becomes "A-101 (takeoff).pdf". */
+export function copyName(fileName: string): string {
+  const base = fileName.replace(/^.*[\\/]/, '')
+  return /\.pdf$/i.test(base) ? base.replace(/\.pdf$/i, ' (takeoff).pdf') : `${base} (takeoff).pdf`
 }
 
 /** The redbeam_meta key listing the drawings the on-open migration has finished. */
@@ -461,6 +497,9 @@ const IMPORT_ORDER = ['scopes', 'calibrations', 'scale_regions', 'markups',
 
 const IDENT = /^[a-z_][a-z0-9_]*$/
 
+/** Tables holding what a person made, which nothing can work out again. */
+const HAND_MADE = new Set(['scopes', 'calibrations', 'scale_regions', 'markups'])
+
 /**
  * Re-key a slice's rows onto this project's document.
  *
@@ -479,7 +518,40 @@ function rekey(row: Record<string, unknown>, from: string, to: string): Record<s
   return out
 }
 
-export interface ImportOutcome { markups: number, scopes: number }
+export interface ImportOutcome {
+  markups: number
+  scopes: number
+  /** Rows of the slice this database could not take. Absent when it took all of them. */
+  skipped?: number
+}
+
+/** Whether a Light file's takeoff is in the window, so the window may save over the file's. */
+export type FileLoad = { state: 'loaded' } | { state: 'blocked', reason: string }
+
+/**
+ * Light mode: may this window save into the PDF it just opened?
+ *
+ * The window's store starts empty and is filled from the PDF. A save made
+ * from a store that never received the file's takeoff, or only part of it,
+ * would write that emptiness over the takeoff. So a file is saved into only
+ * once everything it carried is known to be in the window; anything less
+ * leaves the file exactly as it was found and says why.
+ */
+export function fileLoadVerdict(reading: SheetEmbedReading, imported: ImportOutcome | null, name: string): FileLoad {
+  if (reading.sliceTooNew) {
+    return { state: 'blocked', reason: `${name} was saved by a newer REDBEAM than this one. Update REDBEAM to work on it. This version will not save into it, so its takeoff is safe; what you draw here can be saved as a copy.` }
+  }
+  if (reading.privateDataLost) {
+    return { state: 'blocked', reason: `${name} was saved by another app that dropped REDBEAM's takeoff detail, so the takeoff could not be loaded. REDBEAM will not save into it, so the markups it still shows are kept; what you draw here can be saved as a copy.` }
+  }
+  if (reading.slice !== null && imported === null) {
+    return { state: 'blocked', reason: `The takeoff inside ${name} could not be loaded. REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy. Close and reopen the file to try again.` }
+  }
+  if ((imported?.skipped ?? 0) > 0) {
+    return { state: 'blocked', reason: `Part of the takeoff inside ${name} could not be loaded (${imported!.skipped} item${imported!.skipped === 1 ? '' : 's'}). REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy.` }
+  }
+  return { state: 'loaded' }
+}
 
 /**
  * Bring a drawing's embedded takeoff into a database that has none for it.
@@ -505,6 +577,7 @@ export async function importSlice(
   ]
   let markups = 0
   let scopes = 0
+  let skipped = 0
   await db.exec('BEGIN')
   try {
     for (const [table, rows] of tables) {
@@ -517,7 +590,10 @@ export async function importSlice(
           await db.run(sql, cols.map((c) => row[c]))
         } catch {
           // A column this database does not have (an older schema) or a row
-          // whose parent is missing: skip the row, keep the rest.
+          // whose parent is missing: skip the row, keep the rest. What was
+          // drawn or set by hand is counted, so a Light file is not then
+          // saved without it; runs and layouts are worked out again anyway.
+          if (HAND_MADE.has(table)) skipped++
           continue
         }
         if (table === 'markups') markups++
@@ -529,7 +605,7 @@ export async function importSlice(
     await db.exec('ROLLBACK')
     throw err
   }
-  return { markups, scopes }
+  return { markups, scopes, ...(skipped > 0 ? { skipped } : {}) }
 }
 
 /**
@@ -681,6 +757,27 @@ export function scopeImportStatus(result: ScopeImport, from: string): string {
   return parts.join(', ')
 }
 
+/**
+ * Light mode: why leaving this file now would lose work, or null when it is
+ * safe to leave. `editsMade` is how many undoable edits this window holds.
+ *
+ * A save that was held back loses something only if something was made here:
+ * a file that was opened and looked at has nothing of its own to lose.
+ */
+export function unsavedReason(outcome: EmbedOutcome, editsMade: number): string | null {
+  switch (outcome.kind) {
+    case 'busy':
+      return 'The PDF changed on disk or is open in another app, so the takeoff could not be saved into it.'
+    case 'failed':
+      return `The takeoff could not be saved into the PDF: ${outcome.message}`
+    case 'held':
+      if (editsMade <= 0) return null
+      return outcome.reason ?? 'The PDF\u2019s own takeoff had not finished loading, so what was drawn here has not been saved into it.'
+    default:
+      return null
+  }
+}
+
 /** A short line for the status bar after an embed, or null for silence. */
 export function embedStatus(outcome: EmbedOutcome, name: string): string | null {
   switch (outcome.kind) {
@@ -692,6 +789,8 @@ export function embedStatus(outcome: EmbedOutcome, name: string): string | null 
       return `${name} changed on disk (open in Bluebeam?), so its takeoff was not saved into it this time`
     case 'failed':
       return `could not save the takeoff into ${name}: ${outcome.message}`
+    case 'held':
+      return outcome.reason
     default:
       return null
   }

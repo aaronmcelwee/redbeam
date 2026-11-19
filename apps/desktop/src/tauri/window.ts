@@ -219,3 +219,31 @@ export async function closeWindow(label: string): Promise<boolean> {
   }
   return invoke<boolean>('close_window', { label })
 }
+
+/**
+ * Hear every request to close this window, however it was made.
+ *
+ * The app's own X button was the only close that saved a Light file first.
+ * Alt+F4, the taskbar's Close, Windows shutting down and the updater's
+ * restart all went straight to the window, and a Light file's takeoff lives
+ * in memory until it is written into the PDF. While a listener for this
+ * event exists the window does not close by itself: it reports the request
+ * and waits, so `onRequest` must end in the returned release followed by
+ * `closeThisWindow()`, or the window can no longer be closed.
+ *
+ * Resolves a function that stops listening; after it, a close is immediate
+ * again. Outside Tauri, or if listening is refused, there is nothing to stop.
+ */
+export async function guardWindowClose(onRequest: () => void): Promise<() => Promise<void>> {
+  const w = await thisWindow()
+  if (w === null) return async () => {}
+  try {
+    const stop = await w.listen('tauri://close-requested', () => { onRequest() })
+    return async () => {
+      try { await Promise.resolve(stop()) } catch { /* already gone */ }
+    }
+  } catch (err) {
+    console.error('[window] could not listen for close requests; closing will not save first.', err)
+    return async () => {}
+  }
+}

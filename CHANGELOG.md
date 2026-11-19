@@ -5,11 +5,35 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.25 — 2026-11-19
+## 0.3.27 — 2026-11-19
 
 ### Smooth pan and zoom again
 
 - **No more freezes after a change.** Since 0.3.17 the takeoff is saved into the PDF a few seconds after every change. That save handed the whole PDF to the save step as a list of numbers, one per byte, so an 80 MB drawing set froze the window for several seconds each time and left pan and zoom stuttering afterwards. The PDF now goes across as plain bytes and the save takes a fraction of a second. It mattered most in Light mode, where the open PDF is often a full drawing set.
+
+## 0.3.26 — 2026-11-19
+
+### An older project's takeoff moves into its PDFs
+
+REDBEAM now keeps a takeoff inside its PDF. A folder that was once a REDBEAM project still has its takeoff in a `redbeam.db` file beside the drawings, where a PDF opened on its own could not see it.
+
+- **The PDF you open takes its takeoff with it.** When a PDF is opened from a folder (or a subfolder) of an older project, the scopes, markups and scales that project held for it are written into the PDF first, then the PDF opens with them.
+- **The other PDFs are offered once.** If the project holds takeoff for other PDFs too, a note says how many and *Move them now* moves them all in one go. A PDF that is open in Bluebeam is skipped and tried again next time.
+- **A PDF that is already ahead is left alone.** If a PDF's own takeoff was changed after the project last touched it, the PDF is the record and nothing is written over it.
+- **Nothing is deleted.** Once every PDF has its takeoff, `redbeam.db` is moved into `.redbeam/superseded-…` in the same folder and is not looked at again. Until then it stays where it is.
+- **Rounds become part of the scope name.** A project with more than one bidding round in use had scopes with the same name in each. In the PDF they arrive as "ACT-1 Ceiling (Bid 2)", so they can be told apart. A project with one round keeps its names as they are.
+- **Scopes set up but never drawn in are kept.** They travel in the first PDF that is moved, which is the one being opened when it belongs to the project.
+
+## 0.3.24 — 2026-11-19
+
+### A Light takeoff is not lost on the way into its PDF
+
+- **Saving waits for the PDF's own takeoff.** A file opens empty for a moment while its takeoff is read. A save in that moment, or after a read that failed, could write that emptiness over the takeoff. REDBEAM now saves into a PDF only once everything it carried is in the window.
+- **A file REDBEAM cannot fully read is left alone.** A PDF saved by a newer REDBEAM, or by another app that dropped REDBEAM's takeoff detail, opens with a warning and is not saved over, so what it holds stays as it is. What you draw in it can be saved as a copy.
+- **A refused save no longer closes the file.** If the PDF is open in Bluebeam or still syncing, closing the file, opening another or closing the window now asks: save a copy, try again, leave without saving, or keep working.
+- **You can always save.** When the PDF itself cannot take the takeoff, *Save a copy…* writes the PDF with its scopes and markups wherever you choose. Ctrl+S offers it, the warning bar offers it, and *Save a copy with the takeoff…* is in the command palette at any time.
+- **Every way of closing saves first.** Alt+F4, the taskbar, Windows shutting down and installing or restarting for an update used to skip the save that the window's own X button made.
+- **Opening a PDF no longer rewrites it.** Reopening a file and paging through it counted as a change, so the whole takeoff was appended to the PDF again each time. A file is now written only when the takeoff changes.
 
 ## 0.3.23 — 2026-11-19
 

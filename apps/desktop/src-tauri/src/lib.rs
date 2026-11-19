@@ -87,6 +87,8 @@ pub fn run() {
             project::project_clear_recents,
             project::project_rename_recent,
             project::project_remove_data,
+            project::project_old_data,
+            project::project_supersede_data,
             project::project_reveal,
             project::project_scan,
             project::project_read_document,

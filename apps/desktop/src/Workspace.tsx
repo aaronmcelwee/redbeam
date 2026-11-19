@@ -36,7 +36,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
-import { openDatabase, openMemory, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
+import { openDatabase, openMemory, openOldProjectDatabase, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
 import {
   resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
 } from './markupBatch.js'
@@ -98,9 +98,13 @@ import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
 import {
-  embedDrawing, embedStatus, ensureFileRound, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
-  migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice,
+  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
+  type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
+import {
+  drawingsToTransfer, oldDrawingAt, undrawnPending, transferComplete, transferOffer, transferOldProject, transferStatus, type TransferResult,
+} from './export/oldProject.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
@@ -222,7 +226,12 @@ export interface WorkspaceProps {
    * Hand the window what to finish before it closes, or null for nothing.
    * Light mode registers saving the open drawing into its PDF.
    */
-  onBeforeClose?: (fn: (() => Promise<void>) | null) => void
+  /**
+   * What must happen before this window closes. The function saves, and
+   * resolves false when the window should stay open (it has then asked the
+   * person, and calls `leave` itself if they choose to go).
+   */
+  onBeforeClose?: (fn: ((leave: () => void) => Promise<boolean>) | null) => void
 }
 
 /**
@@ -4439,12 +4448,27 @@ export default function Workspace({
   const embedChainRef = useRef(new Map<string, Promise<void>>())
   /** Drawings whose last automatic save was refused, so it is said once, not every few seconds. */
   const autoEmbedComplainedRef = useRef(new Set<string>())
-  const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<void> => {
+  /**
+   * Light: whether each file's own takeoff reached this window. Saving waits
+   * for 'loaded' and never happens for 'blocked', because a save from a store
+   * the file's takeoff is not in would write that emptiness over it.
+   */
+  const fileLoadRef = useRef(new Map<string, FileLoad>())
+  const [loadBlock, setLoadBlock] = useState<string | null>(null)
+  const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<EmbedOutcome> => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === docId)
-    if (!db || !doc || !projectBridge.desktop) return Promise.resolve()
+    if (!db || !doc || !projectBridge.desktop) return Promise.resolve({ kind: 'nothing-to-embed' })
     const name = doc.displayName || doc.relativePath
-    const run = async () => {
+    const run = async (): Promise<EmbedOutcome> => {
+      if (light) {
+        const load = fileLoadRef.current.get(docId)
+        if (load === undefined || load.state === 'blocked') {
+          const held: EmbedOutcome = { kind: 'held', reason: load === undefined ? null : load.reason }
+          if (opts.quiet !== true && held.reason !== null) setStatus(held.reason)
+          return held
+        }
+      }
       const out = await embedDrawing({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
         file: projectDrawingFile(projectBridge, projectPath, doc.relativePath),
@@ -4459,17 +4483,20 @@ export default function Workspace({
         if (!refused) {
           autoEmbedComplainedRef.current.delete(docId)
           if (out.kind === 'written' && out.editedElsewhere.length > 0 && text !== null) setStatus(text)
-          return
+          return out
         }
-        if (autoEmbedComplainedRef.current.has(docId)) return
+        if (autoEmbedComplainedRef.current.has(docId)) return out
         autoEmbedComplainedRef.current.add(docId)
       } else if (out.kind !== 'busy' && out.kind !== 'failed') {
         autoEmbedComplainedRef.current.delete(docId)
       }
       if (text !== null) setStatus(text)
+      return out
     }
-    const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(run, run)
-    embedChainRef.current.set(docId, next)
+    const guarded = (): Promise<EmbedOutcome> => run().catch((err: unknown): EmbedOutcome => (
+      { kind: 'failed', message: err instanceof Error ? err.message : String(err) }))
+    const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(guarded, guarded)
+    embedChainRef.current.set(docId, next.then(() => undefined))
     return next
   }, [documents, projectPath, setStatus, light])
 
@@ -4544,10 +4571,120 @@ export default function Workspace({
     if (prev !== null && prev !== activeDocId) void saveTakeoffIntoDrawing(prev)
   }, [activeDocId, saveTakeoffIntoDrawing])
 
-  const closeProjectSavingTakeoff = useCallback(() => {
+  /**
+   * Light: leaving a file whose takeoff could not be saved into it.
+   *
+   * The store is in memory, so leaving IS losing whatever the PDF does not
+   * hold. A refused save (the PDF open in Bluebeam, mid-sync, read-only) used
+   * to be followed by the leave anyway. Now the leave waits for an answer.
+   */
+  const [unsavedAsk, setUnsavedAsk] = useState<{ why: string, leave: (() => void) | null } | null>(null)
+  /**
+   * Save the takeoff as a copy of the PDF, wherever the person says. Never
+   * refused: this is the way out when the PDF itself cannot be written.
+   * Resolves true once a copy exists.
+   */
+  const saveCopyOfFile = useCallback(async (): Promise<boolean> => {
+    const db = dbRef.current
+    const doc = documents.find((d) => d.id === leftDocRef.current)
+    if (!db || !doc) return false
+    const name = doc.displayName || doc.relativePath
+    try {
+      const bytes = await embedCopy({
+        db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
+        read: () => projectBridge.readDocument(projectPath, doc.relativePath),
+        allScopes: light,
+      })
+      const out = await saveFile(bytes, {
+        name: copyName(doc.relativePath), type: 'application/pdf', filter: { name: 'PDF drawing', extensions: ['pdf'] },
+      })
+      setStatus(saveOutcomeText(out, 'copy with the takeoff'))
+      return out.path !== null || out.downloaded
+    } catch (err) {
+      setStatus(`could not save a copy: ${err instanceof Error ? err.message : String(err)}`)
+      return false
+    }
+  }, [documents, projectPath, light, setStatus])
+  /** Save the open file, then say whether it is safe to leave it. Pro: always, redbeam.db has it. */
+  const saveBeforeLeaving = useCallback(async (leave: () => void): Promise<boolean> => {
     const id = leftDocRef.current
-    void (id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)).finally(() => onCloseProject())
-  }, [onCloseProject, saveTakeoffIntoDrawing])
+    if (id === null) return true
+    const out = await saveTakeoffIntoDrawing(id)
+    if (!light) return true
+    const lost = unsavedReason(out, undoRef.current?.state.depth ?? 0)
+    if (lost === null) return true
+    setUnsavedAsk({ why: lost, leave })
+    return false
+  }, [light, saveTakeoffIntoDrawing])
+  const leaveSaving = useCallback((leave: () => void) => {
+    void saveBeforeLeaving(leave).then((ok) => { if (ok) leave() }, leave)
+  }, [saveBeforeLeaving])
+
+  const closeProjectSavingTakeoff = useCallback(() => leaveSaving(onCloseProject), [leaveSaving, onCloseProject])
+
+  /**
+   * Light: an older project in this folder still holds takeoff that belongs
+   * inside the PDFs.
+   *
+   * Aaron, 2026-11-19: "the PDF becomes the only truth. If you open a file
+   * with an adjacent DB file, transfer the DB file once to the PDF, and then
+   * mark the DB file as superseded", and for the other PDFs it covers, "offer
+   * to do so as a one-time event." So the PDF being opened takes its own
+   * takeoff straight away, before it is read into this window, and the rest
+   * are offered in the warning bar. Once nothing is left the database is set
+   * aside under .redbeam, never deleted.
+   */
+  const [oldOffer, setOldOffer] = useState<number | null>(null)
+  const oldBusyRef = useRef(false)
+  const transferFromOldProject = useCallback(async (which: 'opened' | 'rest', openedName: string | null): Promise<void> => {
+    if (!projectBridge.desktop || oldBusyRef.current) return
+    oldBusyRef.current = true
+    try {
+      const found = await projectBridge.findOldProject(projectPath)
+      if (found === null) { setOldOffer(null); return }
+      const old = await openOldProjectDatabase(found.root)
+      let result: TransferResult
+      let remaining: number
+      let others: number
+      try {
+        const todo = await drawingsToTransfer(old.driver)
+        const openedPath = openedName === null ? null : `${found.prefix}${openedName}`.toLowerCase()
+        let opened = todo.find((d) => d.relativePath.toLowerCase() === openedPath)
+        // Scopes set up and never drawn in have no PDF of their own: this one takes them.
+        if (opened === undefined && which === 'opened' && openedPath !== null && (await undrawnPending(old.driver)).length > 0) {
+          opened = await oldDrawingAt(old.driver, openedPath)
+        }
+        result = await transferOldProject({
+          old: old.driver,
+          /*
+           * The open PDF is only ever written before this window reads it. If
+           * it could not take its takeoff then, it waits for the next open:
+           * written now, this window's next save would put its own, older
+           * picture of the file back over it.
+           */
+          drawings: which === 'rest' ? todo.filter((d) => d !== opened) : opened === undefined ? [] : [opened],
+          appVersion: APP_VERSION,
+          fileFor: (d) => projectDrawingFile(projectBridge, found.root, d.relativePath),
+        })
+        const left = await drawingsToTransfer(old.driver)
+        // Undrawn scopes with no PDF to ride in do not hold the database back once every drawing is done.
+        remaining = left.length
+        others = left.filter((d) => d.relativePath.toLowerCase() !== openedPath).length
+      } finally {
+        await old.close().catch(() => undefined)
+      }
+      let setAside = false
+      if (transferComplete(result, remaining)) {
+        // A database that will not move (still open in another window) is tried again next time.
+        try { await projectBridge.supersedeOldProject(found.root); setAside = true } catch { /* kept where it is */ }
+      }
+      setOldOffer(others > 0 ? others : null)
+      const text = transferStatus(result, setAside)
+      if (text !== null) setStatus(text)
+    } finally {
+      oldBusyRef.current = false
+    }
+  }, [projectPath, setStatus])
 
   /**
    * Opening a drawing reads what it carries. A takeoff embedded elsewhere comes
@@ -4563,11 +4700,38 @@ export default function Workspace({
     embedCheckedRef.current.add(doc.id)
     void (async () => {
       try {
-        const reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
-        if (reading.slice === null && !reading.privateDataLost) return
         const name = doc.displayName || doc.relativePath
+        if (light && firstLook) {
+          // Before the file is read: what an older project holds for it goes into it first.
+          try { await transferFromOldProject('opened', doc.relativePath) } catch { /* the PDF opens as it is */ }
+        }
+        let reading: Awaited<ReturnType<typeof readSheetEmbed>>
+        try {
+          reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
+        } catch (err) {
+          if (light && firstLook) {
+            const reason = `REDBEAM could not read what ${name} carries (${err instanceof Error ? err.message : String(err)}), so REDBEAM will not save into it. What you draw here can be saved as a copy.`
+            fileLoadRef.current.set(doc.id, { state: 'blocked', reason })
+            setLoadBlock(reason)
+          }
+          return
+        }
+        if (reading.slice === null && !reading.privateDataLost && !reading.sliceTooNew) {
+          // A PDF with nothing of REDBEAM's in it: there is nothing to wait for.
+          if (light && firstLook) fileLoadRef.current.set(doc.id, { state: 'loaded' })
+          return
+        }
         if (firstLook) {
-          let imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+          let imported: Awaited<ReturnType<typeof importSlice>>
+          try {
+            imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+          } catch (err) {
+            if (!light) throw err
+            const reason = `The takeoff inside ${name} could not be loaded (${err instanceof Error ? err.message : String(err)}). REDBEAM will not save into it, so it stays as it is; what you draw here can be saved as a copy.`
+            fileLoadRef.current.set(doc.id, { state: 'blocked', reason })
+            setLoadBlock(reason)
+            return
+          }
           /*
            * A project that already has this drawing's takeoff still takes the
            * PDF's when the PDF's is newer: someone in Light mode (or another
@@ -4577,12 +4741,19 @@ export default function Workspace({
             imported = await takeNewerSlice(db, doc.id, reading.slice)
             if (imported !== null) saveRef.current?.()
           }
-          if (light) await linkFileRound()
+          if (light) {
+            // Decided before anything else can throw: an undecided file is never saved.
+            const verdict = fileLoadVerdict(reading, imported, name)
+            fileLoadRef.current.set(doc.id, verdict)
+            setLoadBlock(verdict.state === 'blocked' ? verdict.reason : null)
+            await linkFileRound()
+          }
           if (imported !== null && (imported.markups > 0 || imported.scopes > 0)) {
             await syncMarkups()
             await refreshScopes()
           }
-          const text = openingStatus(reading, imported, name)
+          // A blocked Light file says so in the warning bar; redbeam.db is not where its markups are.
+          const text = light && fileLoadRef.current.get(doc.id)?.state === 'blocked' ? null : openingStatus(reading, imported, name)
           if (text !== null) setStatus(text)
         }
         /*
@@ -4611,7 +4782,7 @@ export default function Workspace({
         // A drawing that cannot be read here is the viewer's to report.
       }
     })()
-  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound])
+  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound, transferFromOldProject])
 
   /**
    * Light mode: bring last round's scopes in from its PDF.
@@ -4650,26 +4821,27 @@ export default function Workspace({
   const openAnotherFile = useCallback(() => {
     const go = quickView?.onOpenAnother
     if (go === undefined) return
-    const id = leftDocRef.current
-    void (id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)).finally(go)
-  }, [quickView, saveTakeoffIntoDrawing])
+    leaveSaving(go)
+  }, [quickView, leaveSaving])
   const saveOpenFile = useCallback(() => {
     const id = leftDocRef.current
     if (id === null) return
     const asked = Date.now()
-    void saveTakeoffIntoDrawing(id).then(() => {
+    void saveTakeoffIntoDrawing(id).then((out) => {
+      // Ctrl+S always ends in a save: into the PDF, or as a copy when the PDF cannot take it.
+      if (light && (out.kind === 'busy' || out.kind === 'failed' || out.kind === 'held')) {
+        setUnsavedAsk({ why: unsavedReason(out, 1) ?? 'The takeoff could not be saved into the PDF.', leave: null })
+        return
+      }
       // A write says so itself; silence means the PDF already held all of it.
       if (statusAtRef.current < asked) setStatus('everything is already saved in this PDF')
     })
-  }, [saveTakeoffIntoDrawing, setStatus])
+  }, [saveTakeoffIntoDrawing, setStatus, light])
   useEffect(() => {
     if (!light || onBeforeClose === undefined) return
-    onBeforeClose(() => {
-      const id = leftDocRef.current
-      return id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)
-    })
+    onBeforeClose(saveBeforeLeaving)
     return () => onBeforeClose(null)
-  }, [light, onBeforeClose, saveTakeoffIntoDrawing])
+  }, [light, onBeforeClose, saveBeforeLeaving])
   useEffect(() => {
     if (!light) return
     const onKey = (e: KeyboardEvent) => {
@@ -6087,6 +6259,22 @@ export default function Workspace({
      * instead, with everything else that says a number cannot be trusted —
      * the dock carries controls only.
      */
+    /* Light: this file is not being saved into, and why. Said first after quick view. */
+    if (loadBlock !== null) out.unshift({ text: loadBlock, action: { label: 'Save a copy…', run: () => void saveCopyOfFile() } })
+    if (light && oldOffer !== null) {
+      out.push({
+        text: transferOffer(oldOffer),
+        action: {
+          label: oldOffer === 1 ? 'Move it now' : 'Move them now',
+          run: () => {
+            setStatus('moving the older project\u2019s takeoff into its PDFs\u2026')
+            void transferFromOldProject('rest', documents.find((d) => d.id === activeDocId)?.relativePath ?? null).catch((err: unknown) => {
+              setStatus(`could not move the older project\u2019s takeoff: ${err instanceof Error ? err.message : String(err)}`)
+            })
+          },
+        },
+      })
+    }
     if (toolWarning !== null) out.push(toolWarning)
     /*
      * A cutout subtracts only from an area of ITS OWN scope on the same sheet
@@ -6101,7 +6289,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents])
 
   // ------------------------------------------------------------ view math --
 
@@ -7460,6 +7648,12 @@ export default function Workspace({
         keywords: ['save', 'embed', 'file'], ...stuck(activeDocId === null ? 'no drawing open' : undefined), run: saveOpenFile,
       },
       {
+        id: 'light-save-copy', kind: 'command', title: 'Save a copy with the takeoff…',
+        detail: 'The PDF with its scopes and markups, saved wherever you choose',
+        keywords: ['save', 'copy', 'as', 'export', 'file'], ...stuck(activeDocId === null ? 'no drawing open' : undefined),
+        run: () => void saveCopyOfFile(),
+      },
+      {
         id: 'light-import-scopes', kind: 'command', title: 'Import scopes from another PDF…',
         detail: 'Last round’s scopes, without its markups',
         keywords: ['scopes', 'import', 'round', 'bid', 'copy', 'previous'], run: () => void importScopesFromPdf(),
@@ -7480,7 +7674,7 @@ export default function Workspace({
     hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, projectMarkups,
-    light, openAnotherFile, saveOpenFile, importScopesFromPdf,
+    light, openAnotherFile, saveOpenFile, importScopesFromPdf, saveCopyOfFile,
   ])
 
   return (
@@ -8134,6 +8328,41 @@ export default function Workspace({
             {...(activeDoc === null ? {} : { captureView })}
             initial={report.initial}
           />
+        )}
+
+        {unsavedAsk !== null && (
+          <div className="nesting" role="presentation">
+            <div className="nesting-card" role="dialog" aria-labelledby="unsaved-title">
+              <h2 id="unsaved-title">This takeoff is not saved in the PDF</h2>
+              <p>{unsavedAsk.why}</p>
+              <p>Save a copy to keep the takeoff now, or close the PDF in the other app and try again.</p>
+              <div className="nesting-actions">
+                <button
+                  type="button" className="st-btn"
+                  onClick={() => {
+                    const { leave } = unsavedAsk
+                    void saveCopyOfFile().then((saved) => { if (saved) { setUnsavedAsk(null); leave?.() } })
+                  }}
+                >Save a copy…</button>
+                <button
+                  type="button" className="st-btn"
+                  onClick={() => {
+                    const { leave } = unsavedAsk
+                    setUnsavedAsk(null)
+                    if (leave !== null) leaveSaving(leave)
+                    else saveOpenFile()
+                  }}
+                >Try again</button>
+                {unsavedAsk.leave !== null && (
+                  <button
+                    type="button" className="st-btn danger"
+                    onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leave?.() }}
+                  >Leave without saving</button>
+                )}
+                <button type="button" className="st-btn subtle" onClick={() => setUnsavedAsk(null)}>Keep working</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {asideAsk && (
