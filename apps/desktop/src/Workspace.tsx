@@ -98,7 +98,7 @@ import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
 import {
-  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice,
+  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice, rebuildFromAnnots, rebuiltStatus,
   migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
   type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
@@ -4461,6 +4461,8 @@ export default function Workspace({
    */
   const seenStampRef = useRef(new Map<string, string | null>())
   const [loadBlock, setLoadBlock] = useState<string | null>(null)
+  /** Light: this file's takeoff was rebuilt from its markups, and what that could not bring back. */
+  const [rebuiltNote, setRebuiltNote] = useState<string | null>(null)
   const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<EmbedOutcome> => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === docId)
@@ -4754,17 +4756,31 @@ export default function Workspace({
           }
           if (light) {
             // Decided before anything else can throw: an undecided file is never saved.
-            const verdict = fileLoadVerdict(reading, imported, name)
+            /*
+             * Another app kept REDBEAM's markups and dropped what said what
+             * they were: the takeoff is put back together from the markups.
+             * A file it cannot do that for stays blocked, as it was found.
+             */
+            let rebuilt: Awaited<ReturnType<typeof rebuildFromAnnots>> = null
+            if (reading.privateDataLost) {
+              try { rebuilt = await rebuildFromAnnots(db, doc.id, reading) } catch { rebuilt = null }
+            }
+            const verdict = fileLoadVerdict(reading, imported, name, rebuilt)
             fileLoadRef.current.set(doc.id, verdict)
             setLoadBlock(verdict.state === 'blocked' ? verdict.reason : null)
+            setRebuiltNote(rebuilt === null ? null : rebuiltStatus(rebuilt, name))
             await linkFileRound()
+            if (rebuilt !== null) {
+              await syncMarkups()
+              await refreshScopes()
+            }
           }
           if (imported !== null && (imported.markups > 0 || imported.scopes > 0)) {
             await syncMarkups()
             await refreshScopes()
           }
           // A blocked Light file says so in the warning bar; redbeam.db is not where its markups are.
-          const text = light && fileLoadRef.current.get(doc.id)?.state === 'blocked' ? null : openingStatus(reading, imported, name)
+          const text = light && (fileLoadRef.current.get(doc.id)?.state === 'blocked' || reading.privateDataLost) ? null : openingStatus(reading, imported, name)
           if (text !== null) setStatus(text)
         }
         /*
@@ -6308,6 +6324,7 @@ export default function Workspace({
      */
     /* Light: this file is not being saved into, and why. Said first after quick view. */
     if (loadBlock !== null) out.unshift({ text: loadBlock, action: { label: 'Save a copy…', run: () => void saveCopyOfFile() } })
+    if (rebuiltNote !== null) out.push(rebuiltNote)
     if (light && oldOffer !== null) {
       out.push({
         text: transferOffer(oldOffer),
@@ -6336,7 +6353,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents])
 
   // ------------------------------------------------------------ view math --
 

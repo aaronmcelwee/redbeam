@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.32 — 2026-11-19
+
+### A takeoff survives an app that drops REDBEAM's data
+
+- **The takeoff is rebuilt from its markups.** Some apps keep the markups REDBEAM drew in a PDF and throw away the hidden data that said what they were. That file used to open with no takeoff and could only be saved as a copy. REDBEAM now reads its own markups back: each area with its cutouts, each run, each count, the scope it belongs to by name and colour, and each sheet's scale.
+- **The next save puts the detail back** into the PDF, so the file is whole again.
+- **What cannot come back is said.** Product details entered on a scope were only in the dropped data, so they need entering again, and a sheet whose scale the other app also removed needs its scale set again. A note in the warning bar says which applies.
+- If even one markup cannot be read back, nothing is rebuilt and the file opens as before: untouched, with Save a copy.
+
 ## 0.3.30 — 2026-11-19
 
 ### Two people's takeoffs no longer overwrite each other

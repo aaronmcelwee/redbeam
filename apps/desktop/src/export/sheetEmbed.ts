@@ -419,6 +419,29 @@ export interface RedbeamAnnot {
    */
   rings: Array<Array<{ x: number, y: number }>>
   fp: string
+  /** The annotation's /Subtype: Polygon, PolyLine or Circle as REDBEAM writes them. */
+  subtype: string
+  /** Its stroke colour as `#rrggbb`, or null when it has none readable. */
+  color: string | null
+  /** The middle of its /Rect, normalized like `rings`: where a count sits. */
+  center: { x: number, y: number } | null
+}
+
+/** A scale REDBEAM wrote on a sheet, read back from the sheet's viewports. */
+export interface SheetScale {
+  feetPerPoint: number
+  /** Null for the whole sheet; otherwise the region it covers, normalized. */
+  rect: { x0: number, y0: number, x1: number, y1: number } | null
+  label: string
+}
+
+/** A sheet as the file itself describes it, whatever became of the slice. */
+export interface SheetFacts {
+  pageIndex: number
+  /** Size in points as displayed: the crop box, turned by the page's rotation. */
+  width: number
+  height: number
+  scales: SheetScale[]
 }
 
 export interface SheetEmbedReading {
@@ -426,6 +449,8 @@ export interface SheetEmbedReading {
   /** Which carrier the slice came from. */
   source: 'catalog' | 'annotation' | null
   redbeamAnnots: RedbeamAnnot[]
+  /** Every sheet that carries a REDBEAM annotation or a REDBEAM scale. */
+  sheets: SheetFacts[]
   /** Markup annotations REDBEAM did not write: Bluebeam's, Acrobat's. */
   foreignAnnots: number
   /**
@@ -463,16 +488,74 @@ function subtypeOf(a: PDFDict): string {
   return s instanceof PDFName ? s.decodeText() : ''
 }
 
+const numsOf = (a: PDFDict, key: string): number[] => {
+  const v = a.lookup(PDFName.of(key))
+  if (!(v instanceof PDFArray)) return []
+  const out: number[] = []
+  for (let i = 0; i < v.size(); i++) {
+    const n = v.lookup(i)
+    out.push(n instanceof PDFNumber ? n.asNumber() : NaN)
+  }
+  return out
+}
+
+function colorOf(a: PDFDict): string | null {
+  const c = numsOf(a, 'C')
+  if (c.length !== 3 || !c.every((n) => Number.isFinite(n) && n >= 0 && n <= 1)) return null
+  return `#${c.map((n) => Math.round(n * 255).toString(16).padStart(2, '0')).join('')}`
+}
+
+/** Feet per point from a /Measure as `revuMeasure` writes it: /X's conversion. */
+function feetPerPointOf(holder: PDFDict): number | null {
+  const m = holder.lookup(PDFName.of('Measure'))
+  if (!(m instanceof PDFDict)) return null
+  const x = m.lookup(PDFName.of('X'))
+  const first = x instanceof PDFArray ? x.lookup(0) : null
+  if (!(first instanceof PDFDict)) return null
+  const c = first.lookup(PDFName.of('C'))
+  const unit = textOf(first, 'U')
+  return c instanceof PDFNumber && c.asNumber() > 0 && unit === 'ft' ? c.asNumber() : null
+}
+
+/** REDBEAM's own viewports on a page: its page scale and its scale regions. */
+function scalesOn(page: PDFPage, box: PageBox, rotation: number): SheetScale[] {
+  const vps = page.node.lookup(PDFName.of('VP'))
+  if (!(vps instanceof PDFArray)) return []
+  const out: SheetScale[] = []
+  for (let i = 0; i < vps.size(); i++) {
+    const vp = vps.lookup(i)
+    if (!(vp instanceof PDFDict)) continue
+    const name = textOf(vp, 'Name')
+    if (!name.startsWith('REDBEAM')) continue
+    const feetPerPoint = feetPerPointOf(vp)
+    if (feetPerPoint === null) continue
+    if (name === 'REDBEAM page scale') { out.push({ feetPerPoint, rect: null, label: '' }); continue }
+    const b = numsOf(vp, 'BBox')
+    if (b.length !== 4 || !b.every(Number.isFinite)) continue
+    const c0 = fromUserSpace({ x: b[0]!, y: b[1]! }, box, rotation)
+    const c1 = fromUserSpace({ x: b[2]!, y: b[3]! }, box, rotation)
+    const label = name.slice('REDBEAM '.length)
+    out.push({
+      feetPerPoint,
+      rect: { x0: Math.min(c0.x, c1.x), y0: Math.min(c0.y, c1.y), x1: Math.max(c0.x, c1.x), y1: Math.max(c0.y, c1.y) },
+      label: label === 'scale region' ? '' : label,
+    })
+  }
+  return out
+}
+
 function readDoc(doc: PDFDocument): SheetEmbedReading {
   const fromCatalog = sliceFromPieceInfo(doc.catalog)
   let sliceTooNew = fromCatalog === TOO_NEW
   let slice = fromCatalog === TOO_NEW ? null : fromCatalog
   let source: SheetEmbedReading['source'] = slice === null ? null : 'catalog'
   const redbeamAnnots: RedbeamAnnot[] = []
+  const sheets: SheetFacts[] = []
   let foreignAnnots = 0
   doc.getPages().forEach((page, pageIndex) => {
     const box = page.getCropBox() as PageBox
     const rotation = page.getRotation().angle
+    const oursBefore = redbeamAnnots.length
     const toRing = (flat: number[]) => {
       const ring: Array<{ x: number, y: number }> = []
       for (let i = 0; i + 1 < flat.length; i += 2) ring.push(fromUserSpace({ x: flat[i]!, y: flat[i + 1]! }, box, rotation))
@@ -500,7 +583,19 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
           ? [toRing(vertsOf(a)), ...cutoutsOf(a).map(toRing)]
           : [],
         fp: annotFingerprint(a),
+        subtype: subtypeOf(a),
+        color: colorOf(a),
+        center: (() => {
+          const r = numsOf(a, 'Rect')
+          if (r.length !== 4 || !r.every(Number.isFinite)) return null
+          return fromUserSpace({ x: (r[0]! + r[2]!) / 2, y: (r[1]! + r[3]!) / 2 }, box, rotation)
+        })(),
       })
+    }
+    const scales = scalesOn(page, box, rotation)
+    if (redbeamAnnots.length > oursBefore || scales.length > 0) {
+      const turned = Math.abs(Math.round(rotation / 90)) % 2 === 1
+      sheets.push({ pageIndex, width: turned ? box.height : box.width, height: turned ? box.width : box.height, scales })
     }
   })
   if (slice !== null) {
@@ -512,6 +607,7 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     slice,
     source,
     redbeamAnnots,
+    sheets,
     foreignAnnots,
     privateDataLost: slice === null && redbeamAnnots.length > 0,
     // An older copy that still reads does not make the newer one safe to drop.
