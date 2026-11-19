@@ -19,9 +19,24 @@ export type AppMode = 'light' | 'pro'
 
 export const MODE_SETTING = 'general.mode'
 
-/** The mode Settings › General holds. Light unless someone chose Pro. */
-export function readMode(store: Pick<SettingsStore, 'str'> = SettingsStore.open(browserStorage())): AppMode {
-  return store.str(MODE_SETTING) === 'pro' ? 'pro' : 'light'
+/**
+ * Whether Pro can be chosen at all.
+ *
+ * Aaron, 2026-11-19: "Let's put Pro on the back burner for now. I want the
+ * app to be rebuilt to be dedicated to Light mode. We can introduce Pro later
+ * when we have more of a cohesive workflow." Pro's code stays; this is the one
+ * switch that brings it back. While it is off the app is Light whatever the
+ * setting holds, the start screen and Settings do not offer the choice, and a
+ * project's takeoff reaches Light through its PDFs (export/oldProject.ts).
+ */
+export const PRO_AVAILABLE: boolean = false
+
+/** The mode the app runs in. Light unless Pro is available and someone chose it. */
+export function readMode(
+  store: Pick<SettingsStore, 'str'> = SettingsStore.open(browserStorage()),
+  proAvailable: boolean = PRO_AVAILABLE,
+): AppMode {
+  return proAvailable && store.str(MODE_SETTING) === 'pro' ? 'pro' : 'light'
 }
 
 /** Remember a mode. Returns the refusal, if the store gave one. */
@@ -85,6 +100,8 @@ export const LIGHT_PANELS: readonly RailPanel[] = ['contents', 'thumbnails', 'se
  */
 export const LIGHT_HIDDEN_SETTINGS: readonly string[] = [
   'general.restoreProjectWindows', 'general.recentProjectLimit', 'general.recentExpiry',
+  // A choice with one answer is not a setting.
+  ...(PRO_AVAILABLE ? [] : [MODE_SETTING]),
 ]
 
 /** Search reaches in Light: Folder and Project would only repeat Document. */
