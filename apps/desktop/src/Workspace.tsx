@@ -36,7 +36,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
-import { openDatabase, openMemory, debounceSave, type DbBackend } from './db.js'
+import { openDatabase, openMemory, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
 import {
   resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
 } from './markupBatch.js'
@@ -1276,7 +1276,7 @@ export default function Workspace({
       saveRef.current = debounceSave(opened.save)
       setBackend(opened.backend)
       setStatus(`${opened.backend === 'tauri' ? 'desktop store' : 'browser store'} · ${opened.location}`)
-      undoRef.current = new UndoStack(opened.driver)
+      undoRef.current = new UndoStack(opened.driver, 100, undoOptionsFor(opened.backend, projectPath))
 
       let existing = await listScopes(opened.driver)
       /*
