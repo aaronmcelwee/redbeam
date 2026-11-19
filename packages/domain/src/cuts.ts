@@ -2,21 +2,21 @@
  * Cutouts as cuts of the area itself.
  *
  * Aaron, 2026-11-19: "The cutter should make a boolean edit to the markup
- * itself. It shouldn't be treated as a separate markup." And: "If a single
- * cutout crosses multiple markups, it should make corresponding boolean edits
- * to each markup, but I should be able to select that one cutout and delete
- * it and have it reverse those boolean edits."
+ * itself. It shouldn't be treated as a separate markup."
  *
  * So an area markup's rings are `[outline, ...cuts]`. Each cut is the ring as
- * the cutter drew it, unclipped: it may run across the outline (a notch) or
- * overlap another cut. What the area IS, for measuring, drawing and hit
- * testing, is `areaRegion(rings)`: the outline less its cuts. The cut moves
+ * the cutter left it in that area: trimmed to the outline by the cutter, but
+ * Bluebeam's and older ones may run across it (a notch) or overlap another.
+ * What the area IS, for measuring, drawing and hit testing, is
+ * `areaRegion(rings)`: the outline less its cuts. The cut moves
  * with the area because it is part of it, and it goes to Bluebeam as Revu's
  * own /Cutouts, which is the same model.
  *
- * One cutout across several areas is the same ring in each of them. The
- * desktop finds them by equal geometry and shows them as one cutout to
- * select, drag or delete (apps/desktop/src/cutouts.ts).
+ * The cutter is a one-shot boolean (Aaron, 2026-11-19: "act as a Boolean
+ * operation on each Markup and then disappear"): each area it crosses gets
+ * its own copy trimmed to its edge, and the copies are not tied together.
+ * The desktop offers each hole for deleting on its own
+ * (apps/desktop/src/cutouts.ts).
  */
 
 import type { Point, Polygon, Region } from './geometry.js'

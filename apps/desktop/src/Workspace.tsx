@@ -111,7 +111,7 @@ import { embedInWorker } from './export/embedInWorker.js'
 import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import {
-  cutEdits, cutHolders, cutRemoves, foldCutouts, isCutId, previewCut, recutEdits, uncutEdits, withCutouts,
+  cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts,
   type GeometryEdit,
 } from './cutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
@@ -1995,7 +1995,8 @@ export default function Workspace({
   useEffect(() => {
     const v = viewerRef.current
     if (!v) return
-    const set: OverlaySet = toOverlay(markups, scopes)
+    // A hole is shown by its area's shape, not as an object of its own.
+    const set: OverlaySet = toOverlay(markups.filter((m) => !isCutId(m.id)), scopes)
     v.setOverlay(set)
     requestPaint()
   }, [markups, scopes, requestPaint])
@@ -2780,34 +2781,26 @@ export default function Workspace({
   const removeMarkups = useCallback(async (ids: readonly string[]) => {
     const present = markupsFor(ids)
     /*
-     * A cutout is not a row: deleting it takes its ring out of every area it
-     * cut, which is the cut undone (Aaron, 2026-11-19). An area deleted in
-     * the same gesture is simply deleted.
+     * A cutout is not a row: it is a hole in one area, and deleting it takes
+     * that ring out of that area alone (Aaron, 2026-11-19: "delete Boolean
+     * value per markup"). An area deleted in the same gesture is simply
+     * deleted.
      */
     const goneIds = new Set(present.map((m) => m.id))
-    const allCuts = [...markupsRef.current, ...withCutouts(projectMarkupsRef.current)]
-    const cuts = ids.filter(isCutId)
-      .map((id) => allCuts.find((m) => m.id === id))
-      .filter((m): m is Markup => m !== undefined)
     const everywhere = [...markupsRef.current.filter((m) => !isCutId(m.id)), ...projectMarkupsRef.current.filter((m) => !markupsRef.current.some((x) => x.id === m.id))]
-    let live = everywhere
-    const uncut: GeometryEdit[] = []
-    for (const c of cuts) {
-      const edits = uncutEdits(live, c, goneIds)
-      uncut.push(...edits)
-      live = live.map((m) => { const e = edits.find((x) => x.id === m.id); return e === undefined ? m : { ...m, rings: e.after } })
-    }
+    const cuts = ids.filter((id) => isCutId(id) && cutOwner(everywhere, id) !== undefined)
+    const uncut: GeometryEdit[] = uncutAllEdits(everywhere, cuts, goneIds)
     const parts = [
       ...(uncut.length === 0 ? [] : [editsCommand(uncut, 'delete cutout')!]),
       ...(present.length === 0 ? [] : [deleteMarkupsCommand(present)].filter((c): c is NonNullable<typeof c> => c !== null)),
     ]
     if (parts.length === 0) return
     const cmd = parts.length === 1 ? parts[0]! : cmdBatch(`delete ${present.length + cuts.length} markups`, parts)
-    deselect([...present.map((m) => m.id), ...cuts.map((c) => c.id)])
+    deselect([...present.map((m) => m.id), ...cuts])
     if (await runCommand(cmd)) {
       const n = present.length + cuts.length
       setStatus(cuts.length > 0 && present.length === 0
-        ? (cuts.length === 1 ? 'deleted the cutout; its areas are whole again' : `deleted ${cuts.length} cutouts`)
+        ? (cuts.length === 1 ? 'removed the cutout from its area' : `removed ${cuts.length} cutouts`)
         : n === 1 ? 'deleted 1 markup' : `deleted ${n} markups`)
     }
   }, [runCommand, markupsFor, deselect])
@@ -2889,7 +2882,7 @@ export default function Workspace({
     const m = markupsRef.current.find((x) => x.id === id)
     if (!m) return
     if (isCutId(id)) {
-      const cmd = editsCommand(uncutEdits(markupsRef.current, m), 'delete cutout')
+      const cmd = editsCommand(uncutEdits(markupsRef.current, id), 'delete cutout')
       if (cmd !== null) await runCommand(cmd)
       return
     }
@@ -3242,11 +3235,9 @@ export default function Workspace({
   ) => {
     if (!undoRef.current || !before) return
     if (JSON.stringify(before) === JSON.stringify(ring)) return   // no-op drag
-    // A cutout is the cut in every area holding it: reshape it in each.
+    // A cutout is a hole in one area: reshape it there.
     if (isCutId(id)) {
-      const cut = markupsRef.current.find((m) => m.id === id)
-      if (cut === undefined) return
-      const cmd = editsCommand(recutEdits(markupsRef.current, cut, before, ring), what)
+      const cmd = editsCommand(recutEdits(markupsRef.current, id, before, ring), what)
       if (cmd !== null) await runCommand(cmd)
       return
     }
@@ -3268,7 +3259,7 @@ export default function Workspace({
         const was = before?.[0], now = cut?.rings[0]
         if (cut === undefined || was === undefined || now === undefined) return []
         if (JSON.stringify(was) === JSON.stringify(now)) return []
-        return recutEdits(markupsRef.current, cut, was, now).map((e) => cmdEditGeometry(e.id, e.before, e.after, 'move cutout'))
+        return recutEdits(markupsRef.current, id, was, now).map((e) => cmdEditGeometry(e.id, e.before, e.after, 'move cutout'))
       }
       const after = markupsRef.current.find((m) => m.id === id)?.rings
       if (!before || !after || after.length === 0) return []
@@ -3465,14 +3456,9 @@ export default function Workspace({
           const picked = selectedRef.current.includes(hit.markupId)
             ? selectedRef.current
             : [hit.markupId]
-          // A cutout whose areas all move goes with them; moving it as well
-          // would move the cut twice.
-          const movingIds = picked.filter((id) => {
-            if (!isCutId(id)) return true
-            const c = markupsRef.current.find((x) => x.id === id)
-            const holders = c === undefined ? [] : cutHolders(markupsRef.current, c.pageId, c.rings[0] ?? [])
-            return !holders.every(({ area }) => picked.includes(area.id))
-          })
+          // A hole whose area moves goes with it; moving it as well would
+          // move it twice.
+          const movingIds = picked.filter((id) => !isCutId(id) || !picked.includes(cutTarget(id)?.areaId ?? ''))
           const origins = new Map<string, Array<Array<{ x: number; y: number }>>>()
           for (const id of movingIds) {
             const mm = markupsRef.current.find((x) => x.id === id)
@@ -6142,9 +6128,8 @@ export default function Workspace({
     }
     const parentOf = (c: Markup): string | undefined => {
       if (isCutId(c.id)) {
-        const names = cutHolders(projectMarkups, c.pageId, c.rings[0] ?? [])
-          .map(({ area }) => nameOfMarkup.get(area.id) ?? 'another scope\'s area')
-        return names.length === 0 ? undefined : names.join(', ')
+        const owner = cutOwner(projectMarkups, c.id)
+        return owner === undefined ? undefined : nameOfMarkup.get(owner.id)
       }
       const b = bbox(c)
       const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2
@@ -6172,7 +6157,7 @@ export default function Workspace({
             const box = projectPageBoxes.get(pageId) ?? size
             return ring.map((pt) => ({ x: pt.x * box.width, y: pt.y * box.height }))
           }
-          measure = `−${one(cutRemoves(projectMarkups, m, pts) * fpp * fpp)} SF`
+          measure = `−${one(cutRemoves(projectMarkups, m.id, pts) * fpp * fpp)} SF`
         }
         else if (m.kind === 'cutout') measure = `−${one(cutoutSquareFeet(m, projectMarkups, c))} SF`
         else if (m.kind === 'polyline') measure = `${one(linearFeet([m], c))} LF`

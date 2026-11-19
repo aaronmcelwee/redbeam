@@ -5,6 +5,20 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.36 — 2026-11-19
+
+### The cutter is a one-shot cut into each markup
+
+- **A cutout cuts and is gone.** Drawing one cuts a hole, trimmed to the
+  edge, into every area it crosses. Each area keeps its own hole; nothing
+  ties them together any more.
+- **Moving an area moves only its own holes.** Before, moving one area of a
+  cutout that spanned several dragged the shared cutout along and left a
+  copy behind.
+- **Remove a hole per markup.** Click inside it, or pick it under its area in
+  the markups list, and press Delete; only that area changes.
+- Each area still goes to Bluebeam as one area with its own cutouts.
+
 ## 0.3.35 — 2026-11-19
 
 ### Finishing a shape is quicker, and saves write only what changed
