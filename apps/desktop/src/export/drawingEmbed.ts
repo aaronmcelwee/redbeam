@@ -289,8 +289,10 @@ export interface DrawingFile {
   /**
    * Replace the drawing, but only if it is still the version `read` returned.
    * Resolves false when somebody (Bluebeam, OneDrive) changed it in between.
+   * `appendsAt`, when given, says `bytes` is the version `read` returned
+   * (that many bytes long) with more after it, so only the rest need writing.
    */
-  write: (bytes: Uint8Array, expectedVersion: string) => Promise<boolean>
+  write: (bytes: Uint8Array, expectedVersion: string, appendsAt?: number) => Promise<boolean>
   /**
    * Hands back bytes `read` gave out that were not written (the takeoff was
    * already in the file), so a file that keeps its last version in memory
@@ -310,7 +312,16 @@ export interface DrawingFile {
  * passes one that runs in a worker, which may take ownership of `source`
  * and so hands it (or a copy) back.
  */
-export type SheetEmbedder = (source: Uint8Array, input: EmbedInput) => Promise<{ result: EmbedResult, source: Uint8Array }>
+export type SheetEmbedder = (source: Uint8Array, input: EmbedInput) => Promise<{
+  result: EmbedResult
+  source: Uint8Array
+  /**
+   * Set when `result.bytes` is `source` with more added after it, checked byte
+   * for byte: the length of `source`. A file that can append (see
+   * `DrawingFile.write`) then writes only what comes after it.
+   */
+  appendsAt?: number
+}>
 
 const embedHere: SheetEmbedder = async (source, input) => ({ result: await embedSheet(source, input), source })
 
@@ -374,7 +385,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
         return { kind: 'nothing-to-embed' }
       }
     }
-    const { result, source } = await (opts.embed ?? embedHere)(current.bytes, {
+    const { result, source, appendsAt } = await (opts.embed ?? embedHere)(current.bytes, {
       documentId: opts.documentId,
       relativePath: opts.relativePath,
       displayName: opts.displayName,
@@ -388,7 +399,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
     if (result.bytes === null) opts.file.keep?.(source, current.version)
     if (result.conflict === true) return { kind: 'elsewhere' }
     if (result.bytes === null) return { kind: 'unchanged', stamp: result.stamp }
-    const ok = await opts.file.write(result.bytes, current.version)
+    const ok = await opts.file.write(result.bytes, current.version, appendsAt)
     if (!ok) return { kind: 'busy' }
     return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp }
   } catch (err) {

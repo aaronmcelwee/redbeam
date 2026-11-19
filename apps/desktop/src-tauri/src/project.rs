@@ -1606,6 +1606,101 @@ fn write_document_if_unchanged(
     Ok(DocumentWrite::Written { fingerprint: sha256_hex(bytes) })
 }
 
+/// Add an incremental update to the end of a drawing, but only if the drawing
+/// is still exactly the file it was built from.
+///
+/// [`project_write_document`] rewrites the whole file through a temporary copy
+/// and a rename. REDBEAM's saves only ever add a tail, so for a 50-80 MB set
+/// that meant writing and syncing the whole set again to add ~30 KB, a few
+/// seconds after every change, and in a OneDrive or SharePoint folder a new
+/// file to upload in full each time. This writes the tail alone.
+///
+/// The file is checked first, through the same handle that then writes: its
+/// length must be `x-redbeam-expected-length` and its SHA-256
+/// `x-redbeam-expected-sha256`, or nothing is written (`Changed`). A write
+/// that fails part way is cut back to the original length, so the drawing is
+/// left as it was. Opened for writing, a drawing open in Bluebeam is refused
+/// by Windows (`Busy`), as the rename was.
+///
+/// Headers as in [`project_write_document`]; the body is the tail alone.
+#[tauri::command]
+pub async fn project_append_document(
+    request: tauri::ipc::Request<'_>,
+) -> Result<DocumentWrite, String> {
+    let header = |name: &str| -> Result<String, String> {
+        let raw = request
+            .headers()
+            .get(name)
+            .ok_or_else(|| format!("missing {name}"))?
+            .to_str()
+            .map_err(|_| format!("{name} is not ASCII"))?;
+        percent_decode(raw).ok_or_else(|| format!("{name} is not valid percent-encoding"))
+    };
+    let path = header("x-redbeam-path")?;
+    let relative_path = header("x-redbeam-relative-path")?;
+    let expected_sha256 = header("x-redbeam-expected-sha256")?;
+    let expected_length: u64 = header("x-redbeam-expected-length")?
+        .parse()
+        .map_err(|_| "x-redbeam-expected-length is not a number".to_string())?;
+    let tauri::ipc::InvokeBody::Raw(tail) = request.body() else {
+        return Err(format!("{relative_path}: the update must be sent as the raw body"));
+    };
+    let root = canonical_project_root(Path::new(&path));
+    let target = resolve_inside(&root, &relative_path)?;
+    append_document_if_unchanged(&target, tail, &expected_sha256, expected_length)
+        .map_err(|e| format!("{relative_path}: {e}"))
+}
+
+fn append_document_if_unchanged(
+    target: &Path,
+    tail: &[u8],
+    expected_sha256: &str,
+    expected_length: u64,
+) -> Result<DocumentWrite, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    if !target.is_file() {
+        return Err("not a file".into());
+    }
+    let busy = |e: std::io::Error| DocumentWrite::Busy { message: e.to_string() };
+    let mut file = match fs::OpenOptions::new().read(true).write(true).open(target) {
+        Ok(f) => f,
+        Err(e) => return Ok(busy(e)),
+    };
+    match file.metadata() {
+        Ok(m) if m.len() == expected_length => {}
+        Ok(_) => return Ok(DocumentWrite::Changed),
+        Err(e) => return Ok(busy(e)),
+    }
+    let mut hasher = Sha256::new();
+    let mut chunk = vec![0u8; 1024 * 1024];
+    loop {
+        let read = match file.read(&mut chunk) {
+            Ok(n) => n,
+            Err(e) => return Ok(busy(e)),
+        };
+        if read == 0 {
+            break;
+        }
+        hasher.update(&chunk[..read]);
+    }
+    if !hex(&hasher.clone().finalize()).eq_ignore_ascii_case(expected_sha256) {
+        return Ok(DocumentWrite::Changed);
+    }
+    let written = file
+        .seek(SeekFrom::Start(expected_length))
+        .and_then(|_| file.write_all(tail))
+        .and_then(|_| file.sync_all());
+    if let Err(e) = written {
+        let _ = file.set_len(expected_length);
+        let _ = file.sync_all();
+        return Err(format!("could not add the update: {e}"));
+    }
+    hasher.update(tail);
+    Ok(DocumentWrite::Written { fingerprint: hex(&hasher.finalize()) })
+}
+
 /// Cap on [`project_read_document`]. A drawing set's individual sheets are
 /// single-digit megabytes; anything past this wants the asset protocol.
 pub const MAX_DOCUMENT_READ_BYTES: u64 = 256 * 1024 * 1024;
@@ -2454,6 +2549,30 @@ mod tests {
         let out = write_document_if_unchanged(&target, b"old+tail", &sha256_hex(b"old")).unwrap();
         assert_eq!(out, DocumentWrite::Changed);
         assert_eq!(fs::read(&target).unwrap(), b"saved in bluebeam");
+    }
+
+    #[test]
+    fn append_document_adds_the_tail_to_an_unchanged_file() {
+        let root = temp_dir("append-ok");
+        write_file(&root, "A.pdf", b"old");
+        let target = root.join("A.pdf");
+        let out = append_document_if_unchanged(&target, b"+tail", &sha256_hex(b"old"), 3).unwrap();
+        assert_eq!(out, DocumentWrite::Written { fingerprint: sha256_hex(b"old+tail") });
+        assert_eq!(fs::read(&target).unwrap(), b"old+tail");
+    }
+
+    #[test]
+    fn append_document_refuses_a_file_changed_since_it_was_read() {
+        let root = temp_dir("append-changed");
+        write_file(&root, "A.pdf", b"new");
+        let target = root.join("A.pdf");
+        // Same length, different content.
+        let out = append_document_if_unchanged(&target, b"+tail", &sha256_hex(b"old"), 3).unwrap();
+        assert_eq!(out, DocumentWrite::Changed);
+        // Different length.
+        let out = append_document_if_unchanged(&target, b"+tail", &sha256_hex(b"new"), 4).unwrap();
+        assert_eq!(out, DocumentWrite::Changed);
+        assert_eq!(fs::read(&target).unwrap(), b"new");
     }
 
     #[test]

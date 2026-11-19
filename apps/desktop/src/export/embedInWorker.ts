@@ -12,7 +12,7 @@ import { embedSheet, type EmbedResult } from './sheetEmbed.js'
 import type { SheetEmbedder } from './drawingEmbed.js'
 
 type Reply =
-  | { id: number, ok: true, result: EmbedResult, source: Uint8Array }
+  | { id: number, ok: true, result: EmbedResult, source: Uint8Array, appendsAt?: number }
   | { id: number, ok: false, error: string, source: Uint8Array }
 
 let worker: Worker | null = null
@@ -59,5 +59,5 @@ export const embedInWorker: SheetEmbedder = async (source, input) => {
   })
   if (reply === null) throw new Error('the save worker stopped; the next save will build the PDF here')
   if (!reply.ok) throw new Error(reply.error)
-  return { result: reply.result, source: reply.source }
+  return { result: reply.result, source: reply.source, ...(reply.appendsAt === undefined ? {} : { appendsAt: reply.appendsAt }) }
 }

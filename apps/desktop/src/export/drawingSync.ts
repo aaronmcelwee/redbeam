@@ -11,7 +11,7 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-type Bridge = Pick<ProjectBridge, 'readDocument' | 'writeDocument'>
+type Bridge = Pick<ProjectBridge, 'readDocument' | 'writeDocument'> & Partial<Pick<ProjectBridge, 'appendDocument'>>
 
 export function projectDrawingFile(bridge: Bridge, projectPath: string, relativePath: string): DrawingFile {
   return {
@@ -70,8 +70,17 @@ export function keptDrawingFile(bridge: Bridge, projectPath: string, relativePat
       const bytes = await bridge.readDocument(projectPath, relativePath)
       return { bytes, version: await sha256Hex(bytes) }
     },
-    write: async (bytes, expectedVersion) => {
-      const out = await bridge.writeDocument(projectPath, relativePath, bytes, expectedVersion)
+    write: async (bytes, expectedVersion, appendsAt) => {
+      /*
+       * Only the update, when there is one to add: the desktop side checks
+       * the file is still the one it was built from (length and SHA-256) and
+       * writes the tail, rather than the whole set again. In a OneDrive or
+       * SharePoint folder that is the difference between uploading a few
+       * kilobytes and the whole drawing after every pause in the work.
+       */
+      const out = appendsAt !== undefined && bridge.appendDocument !== undefined
+        ? await bridge.appendDocument(projectPath, relativePath, bytes.subarray(appendsAt), expectedVersion, appendsAt)
+        : await bridge.writeDocument(projectPath, relativePath, bytes, expectedVersion)
       if (out.outcome === 'written') keep(key, bytes, out.fingerprint)
       return out.outcome === 'written'
     },

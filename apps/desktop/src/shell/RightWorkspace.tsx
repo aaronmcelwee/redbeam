@@ -73,7 +73,8 @@ const SCOPE_TYPES: ReadonlyArray<{ id: ScopeType; label: string; help: string }>
   { id: 'linear', label: 'lengths', help: 'Linear feet from the polylines you draw — trims, troughs, runs of a product bought by length.' },
   { id: 'count', label: 'counts', help: 'Each from the points you place — fixtures, penetrations, anything tallied rather than measured.' },
 ]
-const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 1 })
+// One formatter, not one per number: toLocaleString builds a new one each call.
+const fmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format
 
 /**
  * A storage key is not a label, and neither is a generic one.

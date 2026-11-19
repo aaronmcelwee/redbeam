@@ -93,6 +93,7 @@ pub fn run() {
             project::project_scan,
             project::project_read_document,
             project::project_write_document,
+            project::project_append_document,
             project::project_save_file,
             window::open_project_window,
             window::open_context_window,
