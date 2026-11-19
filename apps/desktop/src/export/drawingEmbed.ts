@@ -12,7 +12,7 @@
  */
 import type { SqlDriver } from '@redbeam/store'
 import { pageIdFor, pageNumberFrom } from '@redbeam/store'
-import { polylineLength, regionArea, ringsOverlap, squarePointsToSquareFeet, subtractRings } from '@redbeam/domain'
+import { cutAreas, polylineLength, regionArea, ringsOverlap, squarePointsToSquareFeet } from '@redbeam/domain'
 import {
   embedSheet, hash53, readSheetEmbed, type EmbedInput, type EmbedMarkup, type EmbedResult, type SheetEmbedReading, type SheetSlice, type SliceTables,
 } from './sheetEmbed.js'
@@ -204,11 +204,8 @@ export function embedMarkupsFor(tables: SliceTables, documentId: string): {
     if (box !== undefined && box.width > 0 && box.height > 0 && fpp !== undefined) {
       if (raw.kind === 'area') {
         const own = rings.map((ring) => inPoints(ring, raw.page_id))
-        const region = folded.length === 0
-          ? own
-          // The outline less its own holes AND the folded cutouts, as one
-          // subtraction: a union of the own rings would fill the holes back in.
-          : subtractRings([own[0]!], [...own.slice(1), ...folded.map((c) => inPoints(c.rings[0]!, raw.page_id))])
+        // The outline less its own cuts and any folded cutouts (cuts.ts).
+        const region = cutAreas([own], folded.map((c) => inPoints(c.rings[0]!, raw.page_id)))
         quantity = squarePointsToSquareFeet(regionArea(region), fpp)
       } else if (raw.kind === 'polyline') {
         quantity = polylineLength([...rings[0]!], box.width, box.height) * fpp

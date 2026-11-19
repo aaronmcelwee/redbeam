@@ -45,6 +45,7 @@ import {
   PDFRef, PDFStream, PDFString, decodePDFRawStream,
   type PDFContext, type PDFPage,
 } from 'pdf-lib'
+import { areaRegion } from '@redbeam/domain'
 import { appendIncrementalUpdate, newRefsSince, reserveExistingNumbers } from './pdfIncremental.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, regionAt, shapeForKind,
@@ -664,8 +665,14 @@ function buildAnnot(
   const isCutout = markup.kind === 'cutout'
   const measured = feetPerPoint !== undefined && !isCutout && shape !== 'circle'
   const fill = shape === 'polyline' ? null : color
+  // Drawn as measured: the outline less its cuts, so a cut across the edge
+  // is a notch rather than a ring filled outside it. /Vertices and /Cutouts
+  // keep the outline and the cuts as drawn, which is how Revu keeps them.
+  const drawn = holes.length === 0
+    ? [pts]
+    : areaRegion([ring, ...(markup.cutouts ?? [])]).map((r) => r.map((p) => toUserSpace(p, box, rotation)))
   const ap = ctx.register(ctx.flateStream(
-    appearanceOps(pts, color, lineWidth, shape, holes),
+    appearanceOps(drawn[0] ?? pts, color, lineWidth, shape, drawn.slice(1)),
     {
       Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: rect,
       Resources: ctx.obj({

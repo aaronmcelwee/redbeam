@@ -16,13 +16,12 @@
  *
  * PDFium has no call that reads an arbitrary array, so the viewer only flags
  * which annotations carry the key (`PageAnnotation.hasCutouts`) and the rings
- * are read here, with pdf-lib, from the file's bytes, and subtracted from the
- * outline so the converted markup is ONE area with holes (`areaWithCutouts`).
+ * are read here, with pdf-lib, from the file's bytes, and kept on the area as
+ * its cuts, so the converted markup is ONE area with its openings (`areaWithCutouts`).
  */
 
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString } from 'pdf-lib'
 import type { PageAnnotation, PageBox } from '@redbeam/viewer'
-import { subtractRings } from '@redbeam/domain'
 
 export interface Point {
   x: number
@@ -128,13 +127,11 @@ export function cutoutsFor(a: PageAnnotation, found: readonly RawCutouts[]): Poi
 
 /**
  * The rings of one REDBEAM area made from a Bluebeam outline and its cutouts:
- * the outline with every opening subtracted, as Revu measures it. An opening
- * wholly inside becomes a hole ring; one across the edge a notch in the
- * outline (Revu clips those to the boundary too); overlapping openings are
- * taken out once. The result is a valid ring set, so the domain's even-odd
- * `regionArea` measures it net. With no openings the outline comes back as is.
+ * the outline, then every opening as drawn. That is how REDBEAM keeps a cut
+ * (packages/domain/src/cuts.ts) and how Revu keeps it, so the area measures
+ * net (`areaRegion`), each opening stays one cutout to select or delete, and
+ * it goes back to Bluebeam as the same /Cutouts.
  */
 export function areaWithCutouts(outline: readonly Point[], openings: readonly (readonly Point[])[]): Point[][] {
-  if (openings.length === 0) return [outline.map((p) => ({ ...p }))]
-  return subtractRings([outline.map((p) => ({ ...p }))], openings.map((r) => r.map((p) => ({ ...p }))))
+  return [outline, ...openings.filter((r) => r.length >= 3)].map((r) => r.map((p) => ({ ...p })))
 }

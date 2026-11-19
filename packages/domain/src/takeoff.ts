@@ -22,6 +22,7 @@ import { resolveScaleForRings, type ScaleRegion } from './scaleRegion.js'
 import { perimeterTrimPieces, ringToPoints, type Calibration, type Markup, type Scope } from './scope.js'
 import { polylineLength, type Point, type Polygon, type Region } from './geometry.js'
 import { ringsOverlap, subtractRings } from './clip.js'
+import { areaRegion } from './cuts.js'
 import {
   areaCornerPoint, directionGroupKey, pointInOrOnRegion, resolvePatternDirection, type PageSize,
   type AreaCorner, type NormalizedDirection,
@@ -427,12 +428,14 @@ function groupRegions(
      */
     const key = `${m.pageId}|${directionGroupKey(resolution, m.id)}`
 
-    const rings = m.rings.map((ring) => ringToPoints(ring, pageCal))
+    // The outline less its own cuts (cuts.ts), as nested rings.
+    const own = areaRegion(m.rings)
+    const rings = own.map((ring) => ringToPoints(ring, pageCal))
     const placed = areaOrigins?.get(m.id)
-    const start = placed !== undefined && pointInOrOnRegion(placed, m.rings)
+    const start = placed !== undefined && pointInOrOnRegion(placed, own)
       ? placed
       : defaultCorner !== null
-        ? areaCornerPoint(m.rings, defaultCorner, { width: pageCal.pageWidth, height: pageCal.pageHeight })
+        ? areaCornerPoint(own, defaultCorner, { width: pageCal.pageWidth, height: pageCal.pageHeight })
         : null
     const origin = start !== null
       ? { x: start.x * pageCal.pageWidth, y: start.y * pageCal.pageHeight }

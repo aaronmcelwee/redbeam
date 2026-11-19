@@ -4,7 +4,7 @@
  * Works in SCREEN space so tolerances are constant in pixels regardless of
  * zoom — the same reason snapping works in screen space.
  */
-import { distanceToSegment, nearestEdge, pointInPolygon, type Markup } from '@redbeam/domain'
+import { areaRegion, distanceToSegment, nearestEdge, pointInPolygon, type Markup } from '@redbeam/domain'
 import type { Viewport, PageAnnotation } from '@redbeam/viewer'
 import { normalizedToScreen } from './draw.js'
 
@@ -70,10 +70,10 @@ export function hitTest(
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
     if (m.kind !== 'area' && m.kind !== 'cutout' && m.kind !== 'shape') continue
-    // Even-odd over every ring, so a click in an area's hole is not a click
-    // on the area: the hole is the sheet.
+    // Even-odd over the area as cut (cuts.ts), so a click in a cut is not a
+    // click on the area: the cut is the sheet, or the cutout drawn over it.
     let inside = false
-    for (const r of m.kind === 'area' ? m.rings : m.rings.slice(0, 1)) {
+    for (const r of m.kind === 'area' ? (m.rings.length > 1 ? areaRegion(m.rings) : m.rings) : m.rings.slice(0, 1)) {
       if (pointInPolygon(p, toScreenRing(r, view, pageW, pageH))) inside = !inside
     }
     if (inside) return { markupId: m.id, part: 'inside', index: -1 }
@@ -133,8 +133,8 @@ function drawOne(
   if (ring.length >= 2) {
     ctx.beginPath()
     const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape'
-    const outlined = markup.kind === 'area'
-      ? [ring, ...markup.rings.slice(1).map((r) => toScreenRing(r, view, pageW, pageH))]
+    const outlined = markup.kind === 'area' && markup.rings.length > 1
+      ? areaRegion(markup.rings).map((r) => toScreenRing(r, view, pageW, pageH))
       : [ring]
     for (const r of outlined) {
       r.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))

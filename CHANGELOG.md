@@ -5,13 +5,30 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.34 — 2026-11-19
+## 0.3.35 — 2026-11-19
 
 ### Finishing a shape is quicker, and saves write only what changed
 
 - **Finishing a shape is quicker.** Pressing Enter to finish an area, line or count used to search the takeoff three times and rebuild the panel's number formats on every redraw. It now searches once and reuses them: about 15–25% less work per finished shape on a large takeoff.
 - **Saves write only the new bytes.** Each save into the PDF used to rewrite the whole 50–80 MB set on disk, which OneDrive then uploaded again. REDBEAM now adds only the takeoff update to the end of the file (usually a few kilobytes), after checking the file is still the one it last saved. If anything else changed it, the whole file is written as before.
 - **Pan and zoom were measured** on an 80 MB set with the CPU slowed four times and stay at 60 frames a second, so they are unchanged.
+
+## 0.3.34 — 2026-11-19
+
+### Cutouts are part of the area they cut
+
+- **The cutter cuts the area itself.** A cutout is no longer a separate
+  markup: it cuts every area it crosses, and each area measures and draws as
+  its outline less its cuts.
+- **One cutout, however many areas it crosses.** Click it on the sheet or pick
+  it in the markups list. Delete it and every area it cut is whole again;
+  drag it and the cut moves in each of them.
+- **Cutouts move with their area.** Moving an area takes its cuts along. If a
+  cutout spans two areas and you move one, each keeps its own cut.
+- **The same in Bluebeam.** Each area is saved as one Revu area with its
+  cutouts and the net quantity, and the cuts come back as one cutout.
+- Cutouts drawn as separate markups in earlier versions are folded into the
+  areas they open when the drawing is opened. Ctrl+Z puts them back.
 
 ## 0.3.33 — 2026-11-19
 

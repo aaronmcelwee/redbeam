@@ -115,3 +115,28 @@ export function subtractRings(material: readonly Polygon[], openings: readonly P
   if (clips.length === 0) return material.filter((r) => r.length >= 3).map((r) => [...r])
   return fromMulti(clipper.difference(clipper.union(subject), clips))
 }
+
+/**
+ * The material of a set of AREAS, each an outline with its own cuts, less
+ * further `openings`.
+ *
+ * An area's rings are `[outline, ...cuts]`: the cutter writes the cut ring as
+ * drawn, unclipped, so it may cross the outline or overlap another cut. Each
+ * area is its outline with its cuts subtracted; the areas are then unioned
+ * and the openings taken out, all as polygons, so a hole of one area is never
+ * filled back in by treating it as material.
+ */
+export function cutAreas(areas: ReadonlyArray<readonly Polygon[]>, openings: readonly Polygon[] = []): Region {
+  const pieces: ClipMulti[] = []
+  for (const rings of areas) {
+    const outline = rings[0]
+    if (outline === undefined || outline.length < 3) continue
+    const cuts = toMulti(rings.slice(1))
+    pieces.push(cuts.length === 0 ? [[toClipRing(outline)]] : clipper.difference([toClipRing(outline)], cuts))
+  }
+  if (pieces.length === 0) return []
+  let material: ClipMulti = pieces.length === 1 ? pieces[0]! : clipper.union(pieces[0]!, ...pieces.slice(1))
+  const clips = toMulti(openings)
+  if (clips.length > 0) material = clipper.difference(material, clips)
+  return fromMulti(material)
+}

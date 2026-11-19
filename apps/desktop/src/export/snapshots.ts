@@ -12,6 +12,7 @@
  * markups — so the composition can be checked without a project.
  */
 import { openHeadlessDocument, type HeadlessDocument } from '../project/headlessDocument.js'
+import { areaRegion } from '@redbeam/domain'
 
 export interface SnapshotMarkup {
   scopeId: string | null
@@ -138,7 +139,7 @@ export function drawTakeoff(
     ctx.beginPath()
     // An area's further rings are its holes: traced with it and filled
     // even-odd, so the opening shows the sheet.
-    for (const r of m.kind === 'area' ? m.rings : [ring]) {
+    for (const r of m.kind === 'area' ? areaRegion(m.rings) : [ring]) {
       r.forEach((p, i) => { const s = at(p); if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y) })
       if (m.kind === 'area' || m.kind === 'cutout') ctx.closePath()
     }

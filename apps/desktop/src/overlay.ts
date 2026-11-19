@@ -1,5 +1,5 @@
 /** Project domain markups into viewer overlay primitives. */
-import type { Markup, Scope } from '@redbeam/domain'
+import { areaRegion, type Markup, type Scope } from '@redbeam/domain'
 import type { OverlaySet } from '@redbeam/viewer'
 
 const FALLBACK = '#8a929c'
@@ -10,7 +10,10 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
 
   for (const m of markups) {
     const color = (m.scopeId ? colorOf.get(m.scopeId) : undefined) ?? FALLBACK
-    const ring = m.rings[0]
+    // An area is its outline less its cuts (cuts.ts): drawn as that shape,
+    // so a cut across the edge is a notch and not a ring drawn outside it.
+    const region = m.kind === 'area' && m.rings.length > 1 ? areaRegion(m.rings) : m.rings
+    const ring = region[0]
     if (!ring || ring.length === 0) continue
 
     if (m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape') {
@@ -20,8 +23,8 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
       set.polygons.push({
         poly: ring.map((p) => [p.x, p.y] as [number, number]),
         // An area's further rings are its holes: drawn as openings in its fill.
-        ...(m.kind === 'area' && m.rings.length > 1
-          ? { holes: m.rings.slice(1).map((r) => r.map((p) => [p.x, p.y] as [number, number])) }
+        ...(m.kind === 'area' && region.length > 1
+          ? { holes: region.slice(1).map((r) => r.map((p) => [p.x, p.y] as [number, number])) }
           : {}),
         fill: color,
         stroke: color,

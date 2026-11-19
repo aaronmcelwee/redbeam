@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib'
 import type { PageAnnotation } from '@redbeam/viewer'
-import { regionArea } from '@redbeam/domain'
+import { areaRegion, regionArea } from '@redbeam/domain'
 import { areaWithCutouts, cutoutRingsOf, cutoutsFor, normalizeRing, readPdfCutouts } from './pdfCutouts.js'
 
 /** A one-page PDF whose /Annots hold what Revu writes for an area with cutouts. */
@@ -80,16 +80,17 @@ describe('Bluebeam area cutouts', () => {
       .toEqual([{ x: 0.5, y: 0.5 }])
   })
 
-  it('makes ONE area whose rings are the outline less its openings', () => {
+  it('makes ONE area: the outline, then each opening as a cut', () => {
     // A Revu-saved area from the Scottsdale set (p21): 801.29 sf gross, one
     // cutout, Bluebeam shows 353.1 sf. Here as a plain rectangle pair.
     const outline = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 0, y: 50 }]
     const inside = [{ x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 30 }, { x: 10, y: 30 }]
     const across = [{ x: 90, y: 20 }, { x: 120, y: 20 }, { x: 120, y: 40 }, { x: 90, y: 40 }]
     const rings = areaWithCutouts(outline, [inside, across])
-    // The inside opening is a hole ring; the one across the edge a notch.
-    expect(rings).toHaveLength(2)
-    expect(regionArea(rings)).toBeCloseTo(5000 - 400 - 200, 6)
+    // The outline and both openings as drawn: the one across the edge is
+    // clipped when the area is measured, as Revu measures it.
+    expect(rings).toEqual([outline, inside, across])
+    expect(regionArea(areaRegion(rings))).toBeCloseTo(5000 - 400 - 200, 6)
     expect(areaWithCutouts(outline, [])).toEqual([outline])
   })
 
@@ -97,6 +98,6 @@ describe('Bluebeam area cutouts', () => {
     const outline = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }]
     const a = [{ x: 10, y: 10 }, { x: 40, y: 10 }, { x: 40, y: 40 }, { x: 10, y: 40 }]
     const b = [{ x: 30, y: 30 }, { x: 60, y: 30 }, { x: 60, y: 60 }, { x: 30, y: 60 }]
-    expect(regionArea(areaWithCutouts(outline, [a, b]))).toBeCloseTo(10000 - 900 - 900 + 100, 6)
+    expect(regionArea(areaRegion(areaWithCutouts(outline, [a, b])))).toBeCloseTo(10000 - 900 - 900 + 100, 6)
   })
 })
