@@ -64,6 +64,7 @@ import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
 import { newScope, SCOPE_PALETTE } from './shell/scopeFactory.js'
 import { SheetIndex } from './shell/SheetIndex.js'
 import { useClampedPopover } from './shell/popover.js'
+import { pageStepForKey, steppedPage, toolForKey } from './shell/sheetKeys.js'
 import type { SheetScope } from './shell/sheets.js'
 import { StatusToast } from './shell/StatusToast.js'
 import { PerfReadout } from './shell/PerfReadout.js'
@@ -1630,6 +1631,13 @@ export default function Workspace({
     setSelectedIds([]); selectedRef.current = []
   }, [pageIndex])
 
+  /** Step one sheet either way, for the window's key listener (#30). */
+  const stepPageRef = useRef<(step: -1 | 1) => void>(() => {})
+  stepPageRef.current = (step) => {
+    const next = steppedPage(pageIndex, pageCount, step)
+    if (next !== null) goToPage(next)
+  }
+
   // Resolve the active document to something the worker can fetch.
   //
   // Project PDFs live outside the web root, so the core hands back raw bytes
@@ -2924,17 +2932,19 @@ export default function Workspace({
       }
       else if (e.key === 'F5') { e.preventDefault(); void refreshFiles() }
       else if (dialogOpenRef.current) { /* a dialog owns the keyboard */ }
-      else if (e.key === 'v') { setTool('select') }
-      else if (e.key === 'h') { setTool('pan') }
-      else if (e.key === 'a') { setTool('area') }
-      else if (e.key === 'l') { setTool('polyline') }
-      else if (e.key === 'c') { setTool('count') }
-      else if (e.key === 'x') { setTool('cutout') }
-      else if (e.key === 's' && !mod) { setTool('shape') }
-      else if (e.key === 'k') { setTool('calibrate') }
-      // Shift-K: the other way to set a scale — a box on the sheet rather than
-      // a measured line, for the page that carries more than one.
-      else if (e.key === 'K') { setTool('scale-region') }
+      else {
+        // Left/Right and PgUp/PgDn step the sheets; not mid-trace, where a
+        // page change would strand the points (#30).
+        const step = pageStepForKey(e.key, e)
+        if (step !== null) {
+          if (d.points.length === 0) { e.preventDefault(); stepPageRef.current(step) }
+          return
+        }
+        // Bare letters only: see toolForKey (#29). Shift-K is the scale
+        // region — the other way to set a scale, for a page with several.
+        const next = toolForKey(e.key, e)
+        if (next !== null) setTool(next)
+      }
     }
     const onKeyUp = (e: KeyboardEvent) => {
       shiftRef.current = e.shiftKey

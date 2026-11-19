@@ -231,13 +231,12 @@ describe('the dock', () => {
 
   /**
    * Pan is not a takeoff tool; it produces no markup and no quantity. It
-   * leads the work surface as a read tool (board 1, 2026-09-18), and the
-   * read tools are marked for the Minimum tier, which folds the ones not in
-   * hand into the overflow.
+   * leads the work surface as a read tool (board 1, 2026-09-18). Pan and
+   * Select stay at every width (#31); only Dimension folds when not in hand.
    */
   it('keeps Pan out of the takeoff tools, among the read tools', () => {
     expect(tools).not.toContain("'pan'")
-    expect(src).toContain("READ_TOOLS.map((t) => toolButton(t, 'read'))")
+    expect(src).toContain("READ_TOOLS.map((t) => toolButton(t, t.id === 'dimension' ? 'read' : undefined))")
   })
 
   /** A dimension is read off the sheet, not taken off into a quantity. */

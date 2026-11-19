@@ -233,9 +233,9 @@ export function ToolPill({
 
   /*
    * A tool button: the glyph, Filled when in hand, and a label the Spacious
-   * tier shows. `collapse` names the tier that hides it; the read tools and
-   * the takeoff tools are never hidden — only the ones not in hand fold at
-   * Minimum, which the stylesheet decides from `aria-pressed`.
+   * tier shows. `collapse` names the tier that hides it. Pan, Select and the
+   * takeoff tools are never hidden; Dimension folds at Compact when it is not
+   * in hand, which the stylesheet decides from `aria-pressed`.
    */
   const toolButton = (t: { id: Tool | ReadTool; label: string; icon: Icon; title?: string }, collapse?: string) => (
     <button
@@ -271,7 +271,13 @@ export function ToolPill({
      * end of the row from the tool about to make one.
      */
     <div className="dockgroup dockwork" role="toolbar" aria-label="Read the sheet and take off">
-      {READ_TOOLS.map((t) => toolButton(t, 'read'))}
+      {/*
+        Pan and Select never fold: they are how you get around the sheet and
+        how you pick a markup, and below 900px they vanished whenever the
+        other one was in hand, with no way back except the H and V keys (#31).
+        Dimension still folds there when it is not in hand.
+      */}
+      {READ_TOOLS.map((t) => toolButton(t, t.id === 'dimension' ? 'read' : undefined))}
       <span className="dockrule" aria-hidden="true" />
 
       <div ref={scopeRef} className="dockscopewrap" style={{ position: 'relative' }}>
