@@ -126,6 +126,24 @@ describe('desktop bridge', () => {
     })
   }
 
+  it('sends only the update to project_append_document, with the length and hash it must find', async () => {
+    const b = bridge({ project_append_document: { outcome: 'written', fingerprint: 'cd' } })
+    const tail = new Uint8Array([10, 37, 37, 69, 79, 70])
+
+    const out = await b.appendDocument('C:\\Jobs', 'A-101.pdf', tail, 'cafe', 83395075)
+
+    expect(out).toEqual({ outcome: 'written', fingerprint: 'cd' })
+    const call = calls[0]!
+    expect(call.cmd).toBe('project_append_document')
+    expect(call.args).toBe(tail)
+    expect(call.options?.headers).toEqual({
+      'x-redbeam-path': encodeURIComponent('C:\\Jobs'),
+      'x-redbeam-relative-path': 'A-101.pdf',
+      'x-redbeam-expected-sha256': 'cafe',
+      'x-redbeam-expected-length': '83395075',
+    })
+  })
+
   it('sends a drawing to project_write_document as raw bytes, not a JSON number array', async () => {
     const b = bridge({ project_write_document: { outcome: 'written', fingerprint: 'ab' } })
     const bytes = new Uint8Array([37, 80, 68, 70])

@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.34 — 2026-11-19
+
+### Finishing a shape is quicker, and saves write only what changed
+
+- **Finishing a shape is quicker.** Pressing Enter to finish an area, line or count used to search the takeoff three times and rebuild the panel's number formats on every redraw. It now searches once and reuses them: about 15–25% less work per finished shape on a large takeoff.
+- **Saves write only the new bytes.** Each save into the PDF used to rewrite the whole 50–80 MB set on disk, which OneDrive then uploaded again. REDBEAM now adds only the takeoff update to the end of the file (usually a few kilobytes), after checking the file is still the one it last saved. If anything else changed it, the whole file is written as before.
+- **Pan and zoom were measured** on an 80 MB set with the CPU slowed four times and stay at 60 frames a second, so they are unchanged.
+
 ## 0.3.33 — 2026-11-19
 
 ### Takeoffs no longer stall while the PDF saves

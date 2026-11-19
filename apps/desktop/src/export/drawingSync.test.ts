@@ -7,6 +7,7 @@ import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/
 import { forgetKeptDrawings, keptDrawingFile, projectDrawingFile, sha256Hex } from './drawingSync.js'
 import { embedDrawing, type SheetEmbedder } from './drawingEmbed.js'
 import { embedSheet, readSheetEmbed } from './sheetEmbed.js'
+import { startsWith } from './appendCheck.js'
 import type { DocumentWrite } from '../project/bridge.js'
 
 describe('project drawing file', () => {
@@ -49,6 +50,14 @@ function disk(initial: Uint8Array) {
       if (await sha256Hex(d.bytes) !== expected) return { outcome: 'changed' }
       d.bytes = b.slice(); d.writes++
       return { outcome: 'written', fingerprint: await sha256Hex(b) }
+    },
+    appended: 0,
+    appendDocument: async (_p: string, _r: string, tail: Uint8Array, expected: string, length: number): Promise<DocumentWrite> => {
+      if (d.bytes.length !== length || await sha256Hex(d.bytes) !== expected) return { outcome: 'changed' }
+      const next = new Uint8Array(length + tail.length)
+      next.set(d.bytes); next.set(tail, length)
+      d.bytes = next; d.writes++; d.appended += tail.length
+      return { outcome: 'written', fingerprint: await sha256Hex(next) }
     },
   }
   return d
@@ -127,5 +136,31 @@ describe('a drawing kept between saves', () => {
     expect((await embedDrawing(opts(file, moving))).kind).toBe('written')
     expect(d.reads).toBe(1)
     expect((await readSheetEmbed(d.bytes)).redbeamAnnots).toHaveLength(2)
+  })
+
+  it('writes only the update when the embedder vouches that the new file starts with the old one', async () => {
+    const d = disk(await pdf())
+    const file = keptDrawingFile(d, '/job', 'A-101.pdf')
+    const appending: SheetEmbedder = async (source, input) => {
+      const result = await embedSheet(source, input)
+      return { result, source, ...(result.bytes !== null && startsWith(result.bytes, source) ? { appendsAt: source.length } : {}) }
+    }
+    await draw()
+    expect((await embedDrawing(opts(file, appending))).kind).toBe('written')
+    const size = d.bytes.length
+    await draw()
+    expect((await embedDrawing(opts(file, appending))).kind).toBe('written')
+    // Only the updates crossed over, never the drawing itself.
+    expect(d.appended).toBe(d.bytes.length - (await pdf()).length)
+    expect(d.bytes.length).toBeGreaterThan(size)
+    expect((await readSheetEmbed(d.bytes)).redbeamAnnots).toHaveLength(2)
+    // Changed underneath: the append is refused, and the save starts again from the disk.
+    const theirs = await PDFDocument.load(d.bytes)
+    theirs.setTitle('saved in Bluebeam')
+    d.bytes = await theirs.save()
+    await draw()
+    expect((await embedDrawing(opts(file, appending))).kind).toBe('written')
+    expect((await PDFDocument.load(d.bytes)).getTitle()).toBe('saved in Bluebeam')
+    expect((await readSheetEmbed(d.bytes)).redbeamAnnots).toHaveLength(3)
   })
 })

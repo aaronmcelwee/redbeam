@@ -241,6 +241,11 @@ export interface WorkspaceProps {
  * not a lookup. Module scope rather than a hook because it depends on nothing
  * and every hook that needed it had to list it as a dependency.
  */
+/** `a.localeCompare(b)`, without building a collator on every call. */
+const collate = new Intl.Collator().compare
+/** One decimal, as `toLocaleString` would, with one formatter for every row. */
+const one = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format
+
 function pageIndexOf(pageId: string): number | null {
   const m = /-p(\d+)$/.exec(pageId)
   return m === null ? null : Number(m[1])
@@ -1450,33 +1455,39 @@ export default function Workspace({
         : {}),
     })
     const docId = docIdRef.current
-    // Two queries rather than one filtered in the client: the page query is on
-    // the hot path — it runs after every single markup edit — and making it
-    // scan the document would put the cost of the sheet index on every stroke.
-    const [pageRows, docRows, cals] = await Promise.all([
-      listMarkups(db, { pageId: pageIdFor(docId, pageIndexRef.current) }),
-      listMarkups(db, { documentId: docId }),
-      listCalibrations(db, docId),
-    ])
-    setMarkups(pageRows.map(toMarkup))
-    setDocMarkups(docRows.map(toMarkup))
-    setDocCalibrations(new Map([...cals].map(([id, c]) => [id, c.feetPerPdfPoint])))
-    // And the project's, which is what the totals are made of. Page boxes come
-    // from the STORE rather than the viewer: the viewer only knows the open
-    // document's, and normalized geometry means nothing without its own box.
-    const [allRows, allCals, allBoxes] = await Promise.all([
+    const pageId = pageIdFor(docId, pageIndexRef.current)
+    /*
+     * One read of the markups, and one render.
+     *
+     * This ran after every edit (each finished shape, each move) and read the
+     * markups three times (the page's, the document's, the project's), setting
+     * state between the reads, so React rendered the whole workspace three
+     * times per stroke: about a hundred milliseconds of a laptop's time on a
+     * sheet with a hundred markups. The page's and the document's are the
+     * project's, filtered, in the same order. Page boxes come from the STORE
+     * rather than the viewer: the viewer only knows the open document's, and
+     * normalized geometry means nothing without its own box.
+     */
+    const [allRows, cals, allCals, allBoxes] = await Promise.all([
       listMarkups(db, {}),
+      listCalibrations(db, docId),
       listAllCalibrations(db),
       listPageBoxes(db),
     ])
-    setProjectMarkups(allRows.map(toMarkup))
-    setProjectCalibrations(allCals)
-    setProjectPageBoxes(allBoxes)
     // Regions resolve BEFORE the page scale, so a sync that loaded the
     // calibrations without them would measure a details sheet at its page
     // number for one render and then correct itself — a total that moves on
-    // its own is worse than one that is late.
+    // its own is worse than one that is late. Loaded before any state is set,
+    // so everything below lands in the same render.
     await reloadRegions(db)
+    const all = allRows.map(toMarkup)
+    const doc = all.filter((m) => m.documentId === docId)
+    setMarkups(doc.filter((m) => m.pageId === pageId))
+    setDocMarkups(doc)
+    setDocCalibrations(new Map([...cals].map(([id, c]) => [id, c.feetPerPdfPoint])))
+    setProjectMarkups(all)
+    setProjectCalibrations(allCals)
+    setProjectPageBoxes(allBoxes)
   }, [reloadRegions])
 
   /*
@@ -5971,15 +5982,22 @@ export default function Workspace({
      * also says which area it sits in, by that area's name: the bounding box
      * of the area that contains the cutout's centre, on the same sheet.
      */
-    const mine = projectMarkups
+    // Keys worked out once per markup, not once per comparison: the sort ran
+    // localeCompare and a page lookup a few thousand times on every edit.
+    const keyed = projectMarkups
       .filter((m) => m.scopeId === shown)
-      .sort((a, b) => {
-        const da = a.documentId === activeDocId ? 0 : 1, db = b.documentId === activeDocId ? 0 : 1
-        return da - db
-          || (docNameOf.get(a.documentId) ?? '').localeCompare(docNameOf.get(b.documentId) ?? '')
-          || (pageIndexOf(a.pageId) ?? 0) - (pageIndexOf(b.pageId) ?? 0)
-          || a.id.localeCompare(b.id)
-      })
+      .map((m) => ({
+        m,
+        here: m.documentId === activeDocId ? 0 : 1,
+        doc: docNameOf.get(m.documentId) ?? '',
+        page: pageIndexOf(m.pageId) ?? 0,
+      }))
+    const mine = keyed
+      .sort((a, b) => a.here - b.here
+        || (a.m.documentId === b.m.documentId ? 0 : collate(a.doc, b.doc))
+        || a.page - b.page
+        || collate(a.m.id, b.m.id))
+      .map((k) => k.m)
     const nameOfMarkup = new Map<string, string>()
     const perKind = new Map<string, number>()
     for (const m of mine) {
@@ -6010,7 +6028,6 @@ export default function Workspace({
       let measure = '—'
       if (size !== undefined && fpp !== undefined) {
         const c: Calibration = { feetPerPoint: fpp, pageWidth: size.width, pageHeight: size.height }
-        const one = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
         if (m.kind === 'area') measure = `${one(areaSquareFeet([m], c))} SF`
         // A cutout is subtracted material; showing it unsigned reads as though
         // it added that much. Its OWN removal, clipped to the areas around
@@ -6656,7 +6673,13 @@ export default function Workspace({
    * Pages, Projects) and narrowed by its prefixes; `scope-action` in a row's
    * keywords lets `@` list what can be done TO a scope beside the scopes.
    */
+  /*
+   * Built only while the palette is open. It reads nearly everything in the
+   * workspace, so as an always-on memo it was rebuilt on every edit, for a
+   * list nobody was looking at.
+   */
   const commands = useMemo((): Command[] => {
+    if (!paletteOpen) return []
     const activeDoc = documents.find((d) => d.id === activeDocId)
     const openRound = estimates.find((e) => e.id === openEstimateId)
     const shown = scopes.find((s) => s.id === shownScopeId)
@@ -7764,6 +7787,7 @@ export default function Workspace({
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, projectMarkups,
     light, openAnotherFile, saveOpenFile, importScopesFromPdf, startFromPdf, saveCopyOfFile,
+    paletteOpen,
   ])
 
   return (

@@ -8,6 +8,7 @@
  * The bytes travel both ways as transfers, so nothing 80 MB is copied.
  */
 import { embedSheet, type EmbedInput } from './sheetEmbed.js'
+import { startsWith } from './appendCheck.js'
 
 interface Request { id: number, source: Uint8Array, input: EmbedInput }
 
@@ -21,9 +22,12 @@ scope.onmessage = (e) => {
   void (async () => {
     try {
       const result = await embedSheet(source, input)
+      // Checked here, off the window's thread: only then may the save write
+      // just the tail.
+      const appendsAt = result.bytes !== null && startsWith(result.bytes, source) ? source.length : undefined
       const transfer: Transferable[] = [source.buffer]
       if (result.bytes !== null && result.bytes.buffer !== source.buffer) transfer.push(result.bytes.buffer)
-      scope.postMessage({ id, ok: true, result, source }, transfer)
+      scope.postMessage({ id, ok: true, result, source, appendsAt }, transfer)
     } catch (err) {
       scope.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err), source }, [source.buffer])
     }

@@ -127,6 +127,13 @@ export interface ProjectBridge {
    * Rejects in browser mode.
    */
   writeDocument(projectPath: string, relativePath: string, bytes: Uint8Array, expectedSha256: string): Promise<DocumentWrite>
+  /**
+   * Add `tail` to the end of a drawing, only if it is still `expectedLength`
+   * bytes with SHA-256 `expectedSha256`. For an incremental update, which only
+   * ever adds to the file: the rest of it is not written again. Rejects in
+   * browser mode.
+   */
+  appendDocument(projectPath: string, relativePath: string, tail: Uint8Array, expectedSha256: string, expectedLength: number): Promise<DocumentWrite>
 }
 
 /** See `ProjectBridge.findOldProject`. */
@@ -502,6 +509,18 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
           'x-redbeam-path': encodeURIComponent(projectPath),
           'x-redbeam-relative-path': encodeURIComponent(relativePath),
           'x-redbeam-expected-sha256': expectedSha256,
+        },
+      })
+    },
+
+    async appendDocument(projectPath, relativePath, tail, expectedSha256, expectedLength): Promise<DocumentWrite> {
+      if (!desktop) throw new Error(BROWSER_NO_READ)
+      return invoke<DocumentWrite>('project_append_document', tail, {
+        headers: {
+          'x-redbeam-path': encodeURIComponent(projectPath),
+          'x-redbeam-relative-path': encodeURIComponent(relativePath),
+          'x-redbeam-expected-sha256': expectedSha256,
+          'x-redbeam-expected-length': String(expectedLength),
         },
       })
     },
