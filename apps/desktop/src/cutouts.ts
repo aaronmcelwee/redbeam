@@ -1,32 +1,29 @@
 /**
- * Cutouts on the canvas: one selectable cutout over the cuts it made.
+ * Cutouts: a one-shot cut into each markup the cutter crosses.
  *
- * A cut is part of the area it cuts (packages/domain/src/cuts.ts): an area's
- * rings are `[outline, ...cuts]`. A cutout drawn across two areas is the same
- * ring in both. For the estimator it is still ONE cutout (Aaron, 2026-11-19:
- * "I should be able to select that one cutout and delete it and have it
- * reverse those boolean edits"), so the canvas and the markups list show a
- * cutout markup made from the cuts: the same ring on the same sheet is one
- * cutout, however many areas it is in.
+ * Aaron, 2026-11-19: "I want it to act as a Boolean operation on each Markup
+ * and then disappear, so that I have to delete Boolean value per markup if it
+ * covers multiple markups." So the cutter is not an object. Drawing one cuts
+ * every area it crosses, each area keeping its own copy trimmed to its edge
+ * (packages/domain/src/cuts.ts: an area's rings are `[outline, ...cuts]`),
+ * and nothing ties the copies together afterwards. Moving an area moves its
+ * own holes and nothing else.
  *
- * Those cutouts are not rows in redbeam.db or the PDF. Their id is
- * `cut:<first area id>:<ring index>`, stable while the cut is dragged, and
- * every write goes to the areas: deleting a cutout removes its ring from each
- * of them, dragging it moves the ring in each of them.
- *
- * Moving an area moves its cuts with it, because they are its rings. A cutout
- * across two areas, one of which is then moved, becomes two cutouts: each
- * area keeps its own cut where it now is.
+ * To remove one area's hole, it still has to be pointed at: each cut ring is
+ * offered to the canvas and the markups list as a `cutout` markup with id
+ * `cut:<area id>:<ring index>`. It is not drawn (the area's shape already
+ * shows the hole) but it can be clicked, dragged or deleted, and every write
+ * goes to that one area. These are never rows in redbeam.db or the PDF.
  */
 
 import {
-  areaRegion, cutChanges, regionArea, ringsOverlap, sameRing,
+  areaRegion, clipRingToRings, cutChanges, regionArea, ringsOverlap,
   type Markup, type Polygon, type Region,
 } from '@redbeam/domain'
 
 export const CUT_PREFIX = 'cut:'
 
-/** True for the id of a cutout made from area cuts. */
+/** True for the id of a hole offered as a cutout. */
 export const isCutId = (id: string): boolean => id.startsWith(CUT_PREFIX)
 
 /** One area's geometry before and after, for an undoable edit. */
@@ -36,108 +33,102 @@ export interface GeometryEdit {
   after: Region
 }
 
-const copy = (rings: readonly Polygon[]): Region => rings.map((r) => r.map((p) => ({ ...p })))
+const copy = (rings: ReadonlyArray<ReadonlyArray<{ x: number, y: number }>>): Region =>
+  rings.map((r) => r.map((p) => ({ x: p.x, y: p.y })))
 
 const realOnly = <M extends Markup>(markups: readonly M[]): M[] => markups.filter((m) => !isCutId(m.id))
 
-/**
- * The cutouts these areas' cuts make: one per distinct ring per sheet, each
- * a `cutout` markup in the scope of the first area it cuts.
- */
+/** The area and ring index a cutout id names, or null. */
+export function cutTarget(id: string): { areaId: string, index: number } | null {
+  if (!isCutId(id)) return null
+  const at = id.lastIndexOf(':')
+  const index = Number(id.slice(at + 1))
+  if (at <= CUT_PREFIX.length - 1 || !Number.isInteger(index) || index < 1) return null
+  return { areaId: id.slice(CUT_PREFIX.length, at), index }
+}
+
+/** Each hole of each area, as a cutout of that area alone. */
 export function cutoutsOf(markups: readonly Markup[]): Markup[] {
   const out: Markup[] = []
-  const areas = realOnly(markups).filter((m) => m.kind === 'area' && m.rings.length > 1)
-  for (const a of areas) {
+  for (const a of realOnly(markups)) {
+    if (a.kind !== 'area') continue
     for (let i = 1; i < a.rings.length; i++) {
-      const ring = a.rings[i]!
-      if (ring.length < 3) continue
-      if (out.some((c) => c.pageId === a.pageId && sameRing(c.rings[0]!, ring))) continue
+      if (a.rings[i]!.length < 3) continue
       out.push({
         id: `${CUT_PREFIX}${a.id}:${i}`,
         scopeId: a.scopeId, documentId: a.documentId, pageId: a.pageId,
-        kind: 'cutout', rings: [ring.map((p) => ({ ...p }))],
+        kind: 'cutout', rings: [copy([a.rings[i]!])[0]!],
       })
     }
   }
   return out
 }
 
-/** The real markups with their cutouts after them, drawn and hit on top. */
+/** The real markups with their holes after them, hit on top. */
 export function withCutouts<M extends Markup>(markups: readonly M[]): Array<M | Markup> {
   const real = realOnly(markups)
   return [...real, ...cutoutsOf(real)]
 }
 
-/** The areas, and the ring index in each, that hold this cut ring. */
-export function cutHolders(markups: readonly Markup[], pageId: string, ring: Polygon): Array<{ area: Markup, index: number }> {
-  const out: Array<{ area: Markup, index: number }> = []
-  for (const m of realOnly(markups)) {
-    if (m.kind !== 'area' || m.pageId !== pageId) continue
-    for (let i = 1; i < m.rings.length; i++) {
-      if (sameRing(m.rings[i]!, ring)) { out.push({ area: m, index: i }); break }
-    }
-  }
-  return out
+/** The area a cutout id belongs to, if it is in `markups`. */
+export function cutOwner(markups: readonly Markup[], id: string): Markup | undefined {
+  const t = cutTarget(id)
+  return t === null ? undefined : markups.find((m) => m.id === t.areaId && m.kind === 'area')
 }
 
 /**
- * The cutter: cut `ring` out of every area on the sheet it changes. An area
- * it misses is left alone, and so is one it would swallow whole.
+ * The cutter: every area on the sheet that `ring` changes gets the part of
+ * it inside its outline as a hole or notch of its own. An area the cut misses
+ * is left alone, and so is one it would swallow whole.
  */
 export function cutEdits(markups: readonly Markup[], pageId: string, ring: Polygon): GeometryEdit[] {
   const out: GeometryEdit[] = []
   for (const m of realOnly(markups)) {
     if (m.kind !== 'area' || m.pageId !== pageId) continue
     if (!cutChanges(m.rings, ring)) continue
-    out.push({ id: m.id, before: copy(m.rings), after: [...copy(m.rings), ring.map((p) => ({ ...p }))] })
+    const pieces = clipRingToRings(ring, [m.rings[0]!])
+    if (pieces.length === 0) continue
+    out.push({ id: m.id, before: copy(m.rings), after: [...copy(m.rings), ...copy(pieces)] })
   }
   return out
 }
 
-/** Delete a cutout: its ring comes out of every area that holds it. */
-export function uncutEdits(markups: readonly Markup[], cut: Markup, skip: ReadonlySet<string> = new Set()): GeometryEdit[] {
-  const ring = cut.rings[0]
-  if (ring === undefined) return []
-  return cutHolders(markups, cut.pageId, ring)
-    .filter(({ area }) => !skip.has(area.id))
-    .map(({ area, index }) => ({
-      id: area.id,
-      before: copy(area.rings),
-      after: copy(area.rings.filter((_, i) => i !== index)),
-    }))
+/** Remove one hole from its own area. */
+export function uncutEdits(markups: readonly Markup[], cutId: string): GeometryEdit[] {
+  const t = cutTarget(cutId)
+  const area = cutOwner(markups, cutId)
+  if (t === null || area === undefined || t.index >= area.rings.length) return []
+  return [{ id: area.id, before: copy(area.rings), after: copy(area.rings.filter((_, i) => i !== t.index)) }]
 }
 
-/**
- * A cutout reshaped or dragged from `before` to `after`. The live geometry
- * already carries `after` (see `previewCut`); the edit for each area puts
- * `before` back for the undo.
- */
-export function recutEdits(markups: readonly Markup[], cut: Markup, before: Polygon, after: Polygon): GeometryEdit[] {
-  return cutHolders(markups, cut.pageId, after).map(({ area, index }) => ({
+/** A hole reshaped or dragged from `before` to `after`, in its own area. */
+export function recutEdits(markups: readonly Markup[], cutId: string, before: Polygon, after: Polygon): GeometryEdit[] {
+  const t = cutTarget(cutId)
+  const area = cutOwner(markups, cutId)
+  if (t === null || area === undefined || t.index >= area.rings.length) return []
+  return [{
     id: area.id,
-    before: copy(area.rings.map((r, i) => (i === index ? before : r))),
-    after: copy(area.rings.map((r, i) => (i === index ? after : r))),
-  }))
+    before: copy(area.rings.map((r, i) => (i === t.index ? before : r))),
+    after: copy(area.rings.map((r, i) => (i === t.index ? after : r))),
+  }]
 }
 
-/** A live, unsaved cutout ring: the cutout and every cut it stands for move together. */
+/** A live, unsaved hole: the cutout and its area's ring move together. */
 export function previewCut<M extends Markup>(markups: readonly M[], cutId: string, ring: Polygon): M[] {
-  const cut = markups.find((m) => m.id === cutId)
-  const was = cut?.rings[0]
-  if (cut === undefined || was === undefined) return [...markups]
+  const t = cutTarget(cutId)
+  if (t === null) return [...markups]
   return markups.map((m) => {
     if (m.id === cutId) return { ...m, rings: [ring] }
-    if (m.kind !== 'area' || m.pageId !== cut.pageId || isCutId(m.id)) return m
-    const i = m.rings.findIndex((r, n) => n > 0 && sameRing(r, was))
-    return i < 0 ? m : { ...m, rings: m.rings.map((r, n) => (n === i ? ring : r)) }
+    if (m.id !== t.areaId || m.kind !== 'area') return m
+    return { ...m, rings: m.rings.map((r, n) => (n === t.index ? ring : r)) }
   })
 }
 
 /**
- * Separate `cutout` markups, as REDBEAM drew them before cuts were part of
- * the area, folded into the areas they open: same sheet, same scope,
- * overlapping, the rule they were measured by. A cutout that opens nothing
- * is left as it is.
+ * Separate `cutout` markups, as REDBEAM drew them before cutting was a
+ * boolean on the area, cut into the areas they open (same sheet, same scope,
+ * overlapping: the rule they were measured by) and then dropped. A cutout
+ * that opens nothing is left as it is.
  */
 export function foldCutouts(markups: readonly Markup[]): { edits: GeometryEdit[], folded: Markup[] } {
   const real = realOnly(markups)
@@ -154,10 +145,10 @@ export function foldCutouts(markups: readonly Markup[]): { edits: GeometryEdit[]
       const cur = now.get(a.id)!
       const outline = cur[0]
       if (outline === undefined) continue
-      const opens = rings.filter((r) => ringsOverlap(r, outline))
-      if (opens.length === 0) continue
+      const pieces = rings.filter((r) => ringsOverlap(r, outline)).flatMap((r) => clipRingToRings(r, [outline]))
+      if (pieces.length === 0) continue
       if (!before.has(a.id)) before.set(a.id, copy(cur))
-      now.set(a.id, [...cur, ...copy(opens)])
+      now.set(a.id, [...cur, ...copy(pieces)])
       used = true
     }
     if (used) folded.push(c)
@@ -166,22 +157,40 @@ export function foldCutouts(markups: readonly Markup[]): { edits: GeometryEdit[]
   return { edits, folded }
 }
 
-/**
- * What one cutout takes out, in the units of `toPoints` squared: the areas
- * holding it, measured with and without it.
- */
+/** What one hole takes out of its area, in the units of `toPoints` squared. */
 export function cutRemoves(
   markups: readonly Markup[],
-  cut: Markup,
+  cutId: string,
   toPoints: (ring: Polygon, pageId: string) => Polygon,
 ): number {
-  const ring = cut.rings[0]
-  if (ring === undefined) return 0
-  let total = 0
-  for (const { area, index } of cutHolders(markups, cut.pageId, ring)) {
-    const pts = area.rings.map((r) => toPoints(r, area.pageId))
-    const without = pts.filter((_, i) => i !== index)
-    total += regionArea(areaRegion(without)) - regionArea(areaRegion(pts))
+  const t = cutTarget(cutId)
+  const area = cutOwner(markups, cutId)
+  if (t === null || area === undefined) return 0
+  const pts = area.rings.map((r) => toPoints(r, area.pageId))
+  return regionArea(areaRegion(pts.filter((_, i) => i !== t.index))) - regionArea(areaRegion(pts))
+}
+
+/**
+ * Remove several holes at once: one edit per area, every chosen ring out
+ * together so the indices of the others do not shift under them. Areas in
+ * `skip` (being deleted in the same gesture) are left out.
+ */
+export function uncutAllEdits(markups: readonly Markup[], cutIds: readonly string[], skip: ReadonlySet<string> = new Set()): GeometryEdit[] {
+  const byArea = new Map<string, Set<number>>()
+  for (const id of cutIds) {
+    const t = cutTarget(id)
+    if (t === null || skip.has(t.areaId)) continue
+    const set = byArea.get(t.areaId) ?? new Set<number>()
+    set.add(t.index)
+    byArea.set(t.areaId, set)
   }
-  return total
+  const out: GeometryEdit[] = []
+  for (const [areaId, gone] of byArea) {
+    const area = realOnly(markups).find((m) => m.id === areaId && m.kind === 'area')
+    if (area === undefined) continue
+    const after = area.rings.filter((_, i) => !gone.has(i))
+    if (after.length === area.rings.length) continue
+    out.push({ id: area.id, before: copy(area.rings), after: copy(after) })
+  }
+  return out
 }

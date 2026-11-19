@@ -764,7 +764,7 @@ describe('a Light file another app saved without REDBEAM\u2019s private data', (
 })
 
 describe('cuts that are part of the area', () => {
-  it('go to Bluebeam as each area\'s /Cutouts, measured net, and come back as one cutout', async () => {
+  it('go to Bluebeam as each area\'s /Cutouts, measured net, and come back with each area', async () => {
     const { db, docId } = await freshDb()
     await seedTakeoff(db, docId)
     const across = sq(0.25, 0.25, 0.35, 0.3)
@@ -785,8 +785,9 @@ describe('cuts that are part of the area', () => {
     const back: Markup[] = reading.redbeamAnnots.map((a) => ({
       id: a.markupId!, scopeId: 's1', documentId: docId, pageId: `${docId}-p0`, kind: 'area', rings: a.rings,
     }))
+    // Each area brings its own hole back, independent of the other's.
     const cutouts = cutoutsOf(back)
-    expect(cutouts).toHaveLength(1)
+    expect(cutouts).toHaveLength(2)
     expect(cutouts[0]!.rings[0]![0]!.x).toBeCloseTo(0.25, 4)
   })
 })
