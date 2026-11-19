@@ -98,8 +98,9 @@ import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
 import {
-  embedDrawing, embedStatus, ensureFileRound, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
-  migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice,
+  embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
+  type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
@@ -222,7 +223,12 @@ export interface WorkspaceProps {
    * Hand the window what to finish before it closes, or null for nothing.
    * Light mode registers saving the open drawing into its PDF.
    */
-  onBeforeClose?: (fn: (() => Promise<void>) | null) => void
+  /**
+   * What must happen before this window closes. The function saves, and
+   * resolves false when the window should stay open (it has then asked the
+   * person, and calls `leave` itself if they choose to go).
+   */
+  onBeforeClose?: (fn: ((leave: () => void) => Promise<boolean>) | null) => void
 }
 
 /**
@@ -4439,12 +4445,27 @@ export default function Workspace({
   const embedChainRef = useRef(new Map<string, Promise<void>>())
   /** Drawings whose last automatic save was refused, so it is said once, not every few seconds. */
   const autoEmbedComplainedRef = useRef(new Set<string>())
-  const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<void> => {
+  /**
+   * Light: whether each file's own takeoff reached this window. Saving waits
+   * for 'loaded' and never happens for 'blocked', because a save from a store
+   * the file's takeoff is not in would write that emptiness over it.
+   */
+  const fileLoadRef = useRef(new Map<string, FileLoad>())
+  const [loadBlock, setLoadBlock] = useState<string | null>(null)
+  const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<EmbedOutcome> => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === docId)
-    if (!db || !doc || !projectBridge.desktop) return Promise.resolve()
+    if (!db || !doc || !projectBridge.desktop) return Promise.resolve({ kind: 'nothing-to-embed' })
     const name = doc.displayName || doc.relativePath
-    const run = async () => {
+    const run = async (): Promise<EmbedOutcome> => {
+      if (light) {
+        const load = fileLoadRef.current.get(docId)
+        if (load === undefined || load.state === 'blocked') {
+          const held: EmbedOutcome = { kind: 'held', reason: load === undefined ? null : load.reason }
+          if (opts.quiet !== true && held.reason !== null) setStatus(held.reason)
+          return held
+        }
+      }
       const out = await embedDrawing({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
         file: projectDrawingFile(projectBridge, projectPath, doc.relativePath),
@@ -4459,17 +4480,20 @@ export default function Workspace({
         if (!refused) {
           autoEmbedComplainedRef.current.delete(docId)
           if (out.kind === 'written' && out.editedElsewhere.length > 0 && text !== null) setStatus(text)
-          return
+          return out
         }
-        if (autoEmbedComplainedRef.current.has(docId)) return
+        if (autoEmbedComplainedRef.current.has(docId)) return out
         autoEmbedComplainedRef.current.add(docId)
       } else if (out.kind !== 'busy' && out.kind !== 'failed') {
         autoEmbedComplainedRef.current.delete(docId)
       }
       if (text !== null) setStatus(text)
+      return out
     }
-    const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(run, run)
-    embedChainRef.current.set(docId, next)
+    const guarded = (): Promise<EmbedOutcome> => run().catch((err: unknown): EmbedOutcome => (
+      { kind: 'failed', message: err instanceof Error ? err.message : String(err) }))
+    const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(guarded, guarded)
+    embedChainRef.current.set(docId, next.then(() => undefined))
     return next
   }, [documents, projectPath, setStatus, light])
 
@@ -4544,10 +4568,30 @@ export default function Workspace({
     if (prev !== null && prev !== activeDocId) void saveTakeoffIntoDrawing(prev)
   }, [activeDocId, saveTakeoffIntoDrawing])
 
-  const closeProjectSavingTakeoff = useCallback(() => {
+  /**
+   * Light: leaving a file whose takeoff could not be saved into it.
+   *
+   * The store is in memory, so leaving IS losing whatever the PDF does not
+   * hold. A refused save (the PDF open in Bluebeam, mid-sync, read-only) used
+   * to be followed by the leave anyway. Now the leave waits for an answer.
+   */
+  const [unsavedAsk, setUnsavedAsk] = useState<{ why: string, leave: () => void } | null>(null)
+  /** Save the open file, then say whether it is safe to leave it. Pro: always, redbeam.db has it. */
+  const saveBeforeLeaving = useCallback(async (leave: () => void): Promise<boolean> => {
     const id = leftDocRef.current
-    void (id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)).finally(() => onCloseProject())
-  }, [onCloseProject, saveTakeoffIntoDrawing])
+    if (id === null) return true
+    const out = await saveTakeoffIntoDrawing(id)
+    if (!light) return true
+    const lost = unsavedReason(out, undoRef.current?.state.depth ?? 0)
+    if (lost === null) return true
+    setUnsavedAsk({ why: lost, leave })
+    return false
+  }, [light, saveTakeoffIntoDrawing])
+  const leaveSaving = useCallback((leave: () => void) => {
+    void saveBeforeLeaving(leave).then((ok) => { if (ok) leave() }, leave)
+  }, [saveBeforeLeaving])
+
+  const closeProjectSavingTakeoff = useCallback(() => leaveSaving(onCloseProject), [leaveSaving, onCloseProject])
 
   /**
    * Opening a drawing reads what it carries. A takeoff embedded elsewhere comes
@@ -4563,11 +4607,34 @@ export default function Workspace({
     embedCheckedRef.current.add(doc.id)
     void (async () => {
       try {
-        const reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
-        if (reading.slice === null && !reading.privateDataLost) return
         const name = doc.displayName || doc.relativePath
+        let reading: Awaited<ReturnType<typeof readSheetEmbed>>
+        try {
+          reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
+        } catch (err) {
+          if (light && firstLook) {
+            const reason = `REDBEAM could not read what ${name} carries (${err instanceof Error ? err.message : String(err)}), so nothing will be saved into it.`
+            fileLoadRef.current.set(doc.id, { state: 'blocked', reason })
+            setLoadBlock(reason)
+          }
+          return
+        }
+        if (reading.slice === null && !reading.privateDataLost && !reading.sliceTooNew) {
+          // A PDF with nothing of REDBEAM's in it: there is nothing to wait for.
+          if (light && firstLook) fileLoadRef.current.set(doc.id, { state: 'loaded' })
+          return
+        }
         if (firstLook) {
-          let imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+          let imported: Awaited<ReturnType<typeof importSlice>>
+          try {
+            imported = reading.slice === null ? null : await importSlice(db, doc.id, reading.slice)
+          } catch (err) {
+            if (!light) throw err
+            const reason = `The takeoff inside ${name} could not be loaded (${err instanceof Error ? err.message : String(err)}). Nothing will be saved into it, so it stays as it is. Close and reopen the file to try again.`
+            fileLoadRef.current.set(doc.id, { state: 'blocked', reason })
+            setLoadBlock(reason)
+            return
+          }
           /*
            * A project that already has this drawing's takeoff still takes the
            * PDF's when the PDF's is newer: someone in Light mode (or another
@@ -4577,12 +4644,19 @@ export default function Workspace({
             imported = await takeNewerSlice(db, doc.id, reading.slice)
             if (imported !== null) saveRef.current?.()
           }
-          if (light) await linkFileRound()
+          if (light) {
+            // Decided before anything else can throw: an undecided file is never saved.
+            const verdict = fileLoadVerdict(reading, imported, name)
+            fileLoadRef.current.set(doc.id, verdict)
+            setLoadBlock(verdict.state === 'blocked' ? verdict.reason : null)
+            await linkFileRound()
+          }
           if (imported !== null && (imported.markups > 0 || imported.scopes > 0)) {
             await syncMarkups()
             await refreshScopes()
           }
-          const text = openingStatus(reading, imported, name)
+          // A blocked Light file says so in the warning bar; redbeam.db is not where its markups are.
+          const text = light && fileLoadRef.current.get(doc.id)?.state === 'blocked' ? null : openingStatus(reading, imported, name)
           if (text !== null) setStatus(text)
         }
         /*
@@ -4650,9 +4724,8 @@ export default function Workspace({
   const openAnotherFile = useCallback(() => {
     const go = quickView?.onOpenAnother
     if (go === undefined) return
-    const id = leftDocRef.current
-    void (id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)).finally(go)
-  }, [quickView, saveTakeoffIntoDrawing])
+    leaveSaving(go)
+  }, [quickView, leaveSaving])
   const saveOpenFile = useCallback(() => {
     const id = leftDocRef.current
     if (id === null) return
@@ -4664,12 +4737,9 @@ export default function Workspace({
   }, [saveTakeoffIntoDrawing, setStatus])
   useEffect(() => {
     if (!light || onBeforeClose === undefined) return
-    onBeforeClose(() => {
-      const id = leftDocRef.current
-      return id === null ? Promise.resolve() : saveTakeoffIntoDrawing(id)
-    })
+    onBeforeClose(saveBeforeLeaving)
     return () => onBeforeClose(null)
-  }, [light, onBeforeClose, saveTakeoffIntoDrawing])
+  }, [light, onBeforeClose, saveBeforeLeaving])
   useEffect(() => {
     if (!light) return
     const onKey = (e: KeyboardEvent) => {
@@ -6087,6 +6157,8 @@ export default function Workspace({
      * instead, with everything else that says a number cannot be trusted —
      * the dock carries controls only.
      */
+    /* Light: this file is not being saved into, and why. Said first after quick view. */
+    if (loadBlock !== null) out.unshift(loadBlock)
     if (toolWarning !== null) out.push(toolWarning)
     /*
      * A cutout subtracts only from an area of ITS OWN scope on the same sheet
@@ -6101,7 +6173,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock])
 
   // ------------------------------------------------------------ view math --
 
@@ -8121,6 +8193,27 @@ export default function Workspace({
             {...(activeDoc === null ? {} : { captureView })}
             initial={report.initial}
           />
+        )}
+
+        {unsavedAsk !== null && (
+          <div className="nesting" role="presentation">
+            <div className="nesting-card" role="dialog" aria-labelledby="unsaved-title">
+              <h2 id="unsaved-title">This takeoff is not saved in the PDF</h2>
+              <p>{unsavedAsk.why}</p>
+              <p>If the PDF is open in Bluebeam or another app, close it there and try again.</p>
+              <div className="nesting-actions">
+                <button
+                  type="button" className="st-btn"
+                  onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leaveSaving(leave) }}
+                >Try again</button>
+                <button
+                  type="button" className="st-btn danger"
+                  onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leave() }}
+                >Leave without saving</button>
+                <button type="button" className="st-btn subtle" onClick={() => setUnsavedAsk(null)}>Keep working</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {asideAsk && (

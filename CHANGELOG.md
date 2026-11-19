@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.22 — 2026-11-19
+
+### A Light takeoff is not lost on the way into its PDF
+
+- **Saving waits for the PDF's own takeoff.** A file opens empty for a moment while its takeoff is read. A save in that moment, or after a read that failed, could write that emptiness over the takeoff. REDBEAM now saves into a PDF only once everything it carried is in the window.
+- **A file REDBEAM cannot fully read is left alone.** A PDF saved by a newer REDBEAM, or by another app that dropped REDBEAM's takeoff detail, opens with a warning and is not saved into, so what it holds stays as it is.
+- **A refused save no longer closes the file.** If the PDF is open in Bluebeam or still syncing, closing the file, opening another or closing the window now asks: try again, leave without saving, or keep working.
+- **Every way of closing saves first.** Alt+F4, the taskbar, Windows shutting down and installing or restarting for an update used to skip the save that the window's own X button made.
+- **Opening a PDF no longer rewrites it.** Reopening a file and paging through it counted as a change, so the whole takeoff was appended to the PDF again each time. A file is now written only when the takeoff changes.
+
 ## 0.3.21 — 2026-11-19
 
 ### Takeoffs work in Light mode

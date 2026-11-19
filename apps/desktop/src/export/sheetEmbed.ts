@@ -356,12 +356,16 @@ function streamText(stream: unknown): string | null {
   }
 }
 
-function parseSlice(text: string | null): SheetSlice | null {
+/** A slice this build cannot read because a newer REDBEAM wrote it. */
+const TOO_NEW = 'too-new' as const
+
+export function parseSlice(text: string | null): SheetSlice | typeof TOO_NEW | null {
   if (text === null) return null
   try {
     const v = JSON.parse(text) as Partial<SheetSlice>
     if (v.format !== SLICE_FORMAT || typeof v.documentId !== 'string') return null
-    if (typeof v.version !== 'number' || v.version > SLICE_VERSION) return null
+    if (typeof v.version !== 'number') return null
+    if (v.version > SLICE_VERSION) return TOO_NEW
     if (v.tables === null || typeof v.tables !== 'object') return null
     return { annots: {}, contentHash: '', ...v } as SheetSlice
   } catch {
@@ -369,7 +373,7 @@ function parseSlice(text: string | null): SheetSlice | null {
   }
 }
 
-function sliceFromPieceInfo(holder: PDFDict): SheetSlice | null {
+function sliceFromPieceInfo(holder: PDFDict): SheetSlice | typeof TOO_NEW | null {
   const pi = holder.lookup(PDFName.of('PieceInfo'))
   if (!(pi instanceof PDFDict)) return null
   const ours = pi.lookup(PDFName.of(KEY))
@@ -414,6 +418,11 @@ export interface SheetEmbedReading {
    * shows are still there, the scope detail is not.
    */
   privateDataLost: boolean
+  /**
+   * The file carries a slice written by a newer REDBEAM than this one. It is
+   * not read, because reading part of it and saving would drop the rest.
+   */
+  sliceTooNew: boolean
 }
 
 const NOT_MARKUP = new Set(['Link', 'Popup', 'Widget'])
@@ -439,7 +448,9 @@ function subtypeOf(a: PDFDict): string {
 }
 
 function readDoc(doc: PDFDocument): SheetEmbedReading {
-  let slice = sliceFromPieceInfo(doc.catalog)
+  const fromCatalog = sliceFromPieceInfo(doc.catalog)
+  let sliceTooNew = fromCatalog === TOO_NEW
+  let slice = fromCatalog === TOO_NEW ? null : fromCatalog
   let source: SheetEmbedReading['source'] = slice === null ? null : 'catalog'
   const redbeamAnnots: RedbeamAnnot[] = []
   let foreignAnnots = 0
@@ -458,7 +469,8 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
       const markupId = own instanceof PDFDict ? textOf(own, 'MarkupId') || null : null
       if (slice === null && own instanceof PDFDict) {
         const s = parseSlice(streamText(own.lookup(PDFName.of('Slice'))))
-        if (s !== null) { slice = s; source = 'annotation' }
+        if (s === TOO_NEW) sliceTooNew = true
+        else if (s !== null) { slice = s; source = 'annotation' }
       }
       redbeamAnnots.push({
         pageIndex,
@@ -486,6 +498,8 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     redbeamAnnots,
     foreignAnnots,
     privateDataLost: slice === null && redbeamAnnots.length > 0,
+    // An older copy that still reads does not make the newer one safe to drop.
+    sliceTooNew,
   }
 }
 
@@ -637,6 +651,36 @@ function writePageScale(
   return true
 }
 
+/** Bookkeeping columns that differ between two stores holding the same takeoff. */
+const BOOKKEEPING = new Set(['created_at', 'updated_at', 'text_indexed_at', 'native_text_available'])
+
+/**
+ * The slice as far as "has the takeoff changed?" is concerned.
+ *
+ * A Light file's store is built fresh every time the PDF is opened, so its
+ * document and page rows carry that moment's timestamps, and it gains a page
+ * row for every sheet that is looked at or indexed. Hashing those made every
+ * opened file differ from itself: merely opening a PDF and paging through it
+ * rewrote the file, and each rewrite appends a full copy of the takeoff. So
+ * the document and page rows are compared without their bookkeeping, and only
+ * the pages something was drawn or scaled on count.
+ */
+export function hashableTables(tables: SliceTables): SliceTables {
+  const used = new Set<string>()
+  for (const table of ['markups', 'calibrations', 'scale_regions', 'layout_components']) {
+    for (const row of tables[table] ?? []) if (typeof row.page_id === 'string') used.add(row.page_id)
+  }
+  const plain = (row: Record<string, unknown>) =>
+    Object.fromEntries(Object.entries(row).filter(([k]) => !BOOKKEEPING.has(k)))
+  const out: SliceTables = { ...tables }
+  if (tables.documents !== undefined) out.documents = tables.documents.map(plain)
+  if (tables.pages !== undefined) {
+    out.pages = tables.pages.filter((p) => used.has(String(p.id))).map(plain)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+  }
+  return out
+}
+
 /**
  * Embed a sheet's takeoff in its PDF.
  *
@@ -652,7 +696,7 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
   const prev = before.slice
 
   const contentHash = hashHex(stableStringify({
-    tables: input.tables,
+    tables: hashableTables(input.tables),
     markups: input.markups,
     scales: [...input.pageScales.entries()],
     regions: [...(input.pageRegions?.entries() ?? [])],

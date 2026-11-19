@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ProjectStartScreen, useProject, type RecentProject } from './project/index.js'
 import { NestingChoice } from './project/NestingChoice.js'
-import { getWindowRole, isTauri, openProjectWindow } from './tauri/window.js'
+import { closeThisWindow, getWindowRole, guardWindowClose, isTauri, openProjectWindow } from './tauri/window.js'
 import { useWindowControls } from './tauri/useWindowControls.js'
 import Workspace from './Workspace.js'
 import { WindowControls } from './shell/Shell.js'
@@ -22,6 +22,7 @@ import { ErrorBoundary } from './ErrorBoundary.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { visibleRecents } from './project/recents.js'
 import { UpdateOffer } from './update/UpdateOffer.js'
+import { setBeforeQuit } from './update/session.js'
 import { readMode, writeMode, type AppMode } from './light.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 
@@ -59,8 +60,44 @@ export default function App() {
    */
   const win = useWindowControls()
   /** What the open workspace must finish before this window closes (Light: save into the PDF). */
-  const beforeCloseRef = useRef<(() => Promise<void>) | null>(null)
-  const registerBeforeClose = useCallback((fn: (() => Promise<void>) | null) => { beforeCloseRef.current = fn }, [])
+  const beforeCloseRef = useRef<((leave: () => void) => Promise<boolean>) | null>(null)
+  /** The listener that holds the window open while a file needs saving first. */
+  const closeGuardRef = useRef<Promise<() => Promise<void>> | null>(null)
+  const closeAskingRef = useRef(false)
+  /** Close for real: stop holding the window, then close it. */
+  const closeNow = useCallback(() => {
+    const guard = closeGuardRef.current
+    closeGuardRef.current = null
+    void (guard === null ? Promise.resolve() : guard.then((stop) => stop()))
+      .catch(() => undefined)
+      .then(() => closeThisWindow())
+  }, [])
+  /**
+   * Every close goes through here: the X button, Alt+F4, the taskbar,
+   * Windows shutting down. Light saves into the PDF first, and stays open
+   * (asking) when that save is refused.
+   */
+  const requestClose = useCallback(() => {
+    const before = beforeCloseRef.current
+    if (before === null) { closeNow(); return }
+    if (closeAskingRef.current) return
+    closeAskingRef.current = true
+    void before(closeNow)
+      .then((ok) => { if (ok) closeNow() }, closeNow)
+      .finally(() => { closeAskingRef.current = false })
+  }, [closeNow])
+  const registerBeforeClose = useCallback((fn: ((leave: () => void) => Promise<boolean>) | null) => {
+    beforeCloseRef.current = fn
+    // An update that installs or restarts ends the app without closing the window.
+    setBeforeQuit(fn)
+    if (fn !== null && closeGuardRef.current === null) {
+      closeGuardRef.current = guardWindowClose(requestClose)
+    } else if (fn === null && closeGuardRef.current !== null) {
+      const guard = closeGuardRef.current
+      closeGuardRef.current = null
+      void guard.then((stop) => stop())
+    }
+  }, [requestClose])
   useEffect(() => {
     document.documentElement.toggleAttribute('data-frameless', win.frameless)
   }, [win.frameless])
@@ -310,7 +347,7 @@ export default function App() {
         onMinimize={win.minimize}
         onToggleMaximize={win.toggleMaximize}
         // Light keeps its takeoff only in the PDF: save it before the window goes.
-        onClose={() => { void (beforeCloseRef.current?.() ?? Promise.resolve()).finally(win.close) }}
+        onClose={requestClose}
       />
       )
     : null

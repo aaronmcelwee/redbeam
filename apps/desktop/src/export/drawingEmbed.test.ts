@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import {
-  embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
-  migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice,
+  embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
   type DrawingFile,
 } from './drawingEmbed.js'
-import { readSheetEmbed } from './sheetEmbed.js'
+import { parseSlice, readSheetEmbed, SLICE_FORMAT, SLICE_VERSION, type SheetEmbedReading } from './sheetEmbed.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(here, '..', '..', '..', '..', 'packages', 'store', 'migrations')
@@ -460,5 +460,75 @@ describe('a project opening a drawing changed in Light mode', () => {
     const slice = { ...(await readSheetEmbed(file.bytes)).slice!, writtenAt: '2000-01-01T00:00:00.000Z' }
     slice.tables = { ...slice.tables, markups: [] }
     expect(await takeNewerSlice(pro.db, pro.docId, slice)).toBeNull()
+  })
+})
+
+describe('a Light file is saved into only once its own takeoff is in the window', () => {
+  const reading = (over: Partial<SheetEmbedReading> = {}): SheetEmbedReading => ({
+    slice: null, source: null, redbeamAnnots: [], foreignAnnots: 0, privateDataLost: false, sliceTooNew: false, ...over,
+  })
+
+  it('round-trips everything a person made, and may then be saved', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const read = await readSheetEmbed(file.bytes)
+
+    const next = await freshDb()
+    const imported = await importSlice(next.db, next.docId, read.slice!)
+    expect(imported?.skipped).toBeUndefined()
+    expect(fileLoadVerdict(read, imported, 'A-101')).toEqual({ state: 'loaded' })
+    for (const table of ['scopes', 'markups', 'calibrations']) {
+      const was = await db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)
+      const now = await next.db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)
+      expect(now[0]!.n, table).toBe(was[0]!.n)
+    }
+    // Saving the reopened file changes nothing: the PDF already says exactly this.
+    const again = await embedDrawing({
+      db: next.db, documentId: next.docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true,
+    })
+    // Looking at more sheets adds page rows; that is not a change to the takeoff either.
+    await next.db.run(`INSERT INTO pages(id,document_id,page_number,width_pdf_points,height_pdf_points,rotation,created_at,updated_at)
+      VALUES(?,?,7,100,100,0,?,?)`, [`${next.docId}-p7`, next.docId, NOW, NOW])
+    expect(again.kind).toBe('unchanged')
+    expect(file.writes).toBe(1)
+  })
+
+  it('is not saved into when part of its takeoff could not be loaded', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const read = await readSheetEmbed(file.bytes)
+    // A column this build has never heard of, as a newer build's row would carry.
+    const slice = { ...read.slice!, tables: { ...read.slice!.tables,
+      markups: (read.slice!.tables.markups ?? []).map((r) => ({ ...r, column_from_the_future: 1 })) } }
+
+    const next = await freshDb()
+    const imported = await importSlice(next.db, next.docId, slice)
+    expect(imported?.skipped).toBe(slice.tables.markups.length)
+    const verdict = fileLoadVerdict({ ...read, slice }, imported, 'A-101')
+    expect(verdict.state).toBe('blocked')
+  })
+
+  it('is not saved into when a newer REDBEAM wrote it, or another app dropped the takeoff detail', () => {
+    expect(parseSlice(JSON.stringify({ format: SLICE_FORMAT, version: SLICE_VERSION + 1, documentId: 'd', tables: {} }))).toBe('too-new')
+    const newer = fileLoadVerdict(reading({ sliceTooNew: true }), null, 'A-101')
+    expect(newer.state).toBe('blocked')
+    expect(newer.state === 'blocked' && newer.reason).toContain('newer REDBEAM')
+    expect(fileLoadVerdict(reading({ privateDataLost: true }), null, 'A-101').state).toBe('blocked')
+    // A PDF with nothing of ours in it has nothing to wait for.
+    expect(fileLoadVerdict(reading(), null, 'A-101')).toEqual({ state: 'loaded' })
+  })
+
+  it('asks before leaving only when leaving would lose something', () => {
+    expect(unsavedReason({ kind: 'written', editedElsewhere: [], foreignKept: 0 }, 3)).toBeNull()
+    expect(unsavedReason({ kind: 'unchanged' }, 3)).toBeNull()
+    expect(unsavedReason({ kind: 'busy' }, 0)).toContain('open in another app')
+    expect(unsavedReason({ kind: 'failed', message: 'access denied' }, 0)).toContain('access denied')
+    // Held back with nothing drawn here: the file is as it was found.
+    expect(unsavedReason({ kind: 'held', reason: null }, 0)).toBeNull()
+    expect(unsavedReason({ kind: 'held', reason: 'why' }, 2)).toBe('why')
   })
 })
