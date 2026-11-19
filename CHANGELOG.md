@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.28 — 2026-11-19
+
+### REDBEAM is a PDF viewer that does takeoffs
+
+- **Pro mode is parked.** REDBEAM now always opens PDFs and keeps each takeoff inside its file. The Light and Pro switch is gone from the start screen and from Settings. Nothing was removed from the app, and Pro will return once the PDF workflow is settled.
+- **Coming from a project?** Open a PDF from the project's folder. Its takeoff moves from the project into the PDF as it opens, and the other PDFs are offered in one go (0.3.26).
+
 ## 0.3.27 — 2026-11-19
 
 ### Smooth pan and zoom again

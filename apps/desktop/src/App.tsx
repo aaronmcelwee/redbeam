@@ -23,7 +23,7 @@ import { SettingsStore, browserStorage } from './settings/store.js'
 import { visibleRecents } from './project/recents.js'
 import { UpdateOffer } from './update/UpdateOffer.js'
 import { setBeforeQuit } from './update/session.js'
-import { readMode, writeMode, type AppMode } from './light.js'
+import { PRO_AVAILABLE, readMode, writeMode, type AppMode } from './light.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 
 export default function App() {
@@ -263,7 +263,9 @@ export default function App() {
   const dropPath = useCallback((path: string) => {
     if (/\.pdf$/i.test(path)) { void project.locateFile(path).then((pick) => { if (pick !== null) showDrawing(pick) }); return }
     if (readMode() === 'light') {
-      setQuickNote('Light mode opens PDFs. To open a project folder, switch to Pro at the bottom of this screen.')
+      setQuickNote(PRO_AVAILABLE
+        ? 'Light mode opens PDFs. To open a project folder, switch to Pro at the bottom of this screen.'
+        : 'REDBEAM opens PDFs. Open a drawing from that folder instead; if the folder was a REDBEAM project, its takeoff moves into the PDFs as they are opened.')
       return
     }
     void project.open(path, { create: false })
@@ -410,7 +412,7 @@ export default function App() {
     {nestingDialog}
     <ProjectStartScreen
       mode={mode}
-      onModeChange={changeMode}
+      {...(PRO_AVAILABLE ? { onModeChange: changeMode } : {})}
       recents={light ? files : shownRecents}
       onOpenPath={(path, options) => project.open(path, options)}
       onOpenRecent={light
