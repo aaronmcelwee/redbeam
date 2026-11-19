@@ -175,6 +175,15 @@ describe('desktop bridge', () => {
     expect(calls.map((c) => c.cmd)).not.toContain('project_open')
   })
 
+  it('finds an older project above a PDF\'s folder, and none when the core reports none', async () => {
+    const b = bridge({ project_old_data: { root: 'C:\\Jobs\\260415', prefix: 'Drawings/Arch/' } })
+    expect(await b.findOldProject('C:\\Jobs\\260415\\Drawings\\Arch')).toEqual({ root: 'C:\\Jobs\\260415', prefix: 'Drawings/Arch/' })
+    expect(calls[0]).toMatchObject({ cmd: 'project_old_data' })
+    expect(await bridge({ project_old_data: null }).findOldProject('C:\\Jobs\\Other')).toBeNull()
+    await b.supersedeOldProject('C:\\Jobs\\260415')
+    expect(calls.at(-1)).toMatchObject({ cmd: 'project_supersede_data', args: { path: 'C:\\Jobs\\260415' } })
+  })
+
   it('refuses an empty path without an IPC round trip', async () => {
     const b = bridge({})
     await expect(b.openProject('   ')).rejects.toThrow(/no project folder/)

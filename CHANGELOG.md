@@ -5,6 +5,19 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.26 — 2026-11-19
+
+### An older project's takeoff moves into its PDFs
+
+REDBEAM now keeps a takeoff inside its PDF. A folder that was once a REDBEAM project still has its takeoff in a `redbeam.db` file beside the drawings, where a PDF opened on its own could not see it.
+
+- **The PDF you open takes its takeoff with it.** When a PDF is opened from a folder (or a subfolder) of an older project, the scopes, markups and scales that project held for it are written into the PDF first, then the PDF opens with them.
+- **The other PDFs are offered once.** If the project holds takeoff for other PDFs too, a note says how many and *Move them now* moves them all in one go. A PDF that is open in Bluebeam is skipped and tried again next time.
+- **A PDF that is already ahead is left alone.** If a PDF's own takeoff was changed after the project last touched it, the PDF is the record and nothing is written over it.
+- **Nothing is deleted.** Once every PDF has its takeoff, `redbeam.db` is moved into `.redbeam/superseded-…` in the same folder and is not looked at again. Until then it stays where it is.
+- **Rounds become part of the scope name.** A project with more than one bidding round in use had scopes with the same name in each. In the PDF they arrive as "ACT-1 Ceiling (Bid 2)", so they can be told apart. A project with one round keeps its names as they are.
+- **Scopes set up but never drawn in are kept.** They travel in the first PDF that is moved, which is the one being opened when it belongs to the project.
+
 ## 0.3.24 — 2026-11-19
 
 ### A Light takeoff is not lost on the way into its PDF

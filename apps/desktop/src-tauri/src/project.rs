@@ -1325,6 +1325,66 @@ pub async fn project_remove_data(
     project_forget_recent(app, path).await
 }
 
+/// An older project's database, as seen from the folder of a PDF opened on its own.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OldProject {
+    /// The folder holding `redbeam.db`.
+    pub root: String,
+    /// The PDF's folder relative to `root`, forward-slashed with a trailing
+    /// slash, or empty when they are the same folder. Prefixed to a file name
+    /// it gives that file's `documents.relative_path`.
+    pub prefix: String,
+}
+
+/// The outermost of `folder` and its ancestors that carries a `redbeam.db`.
+///
+/// Outermost for the reason [`outermost_project_root`] gives: nested
+/// databases resolve to the one the project windows actually used.
+pub fn find_old_project(folder: &Path) -> Option<(PathBuf, String)> {
+    let mut found: Option<PathBuf> = None;
+    for ancestor in folder.ancestors() {
+        if ancestor.join(crate::store::db::DB_FILE_NAME).is_file() {
+            found = Some(ancestor.to_path_buf());
+        }
+    }
+    let root = found?;
+    let prefix = normalized_relative_path(&root, folder)
+        .map(|p| format!("{p}/"))
+        .unwrap_or_default();
+    Some((root, prefix))
+}
+
+/// Is there an older project's database at or above this folder? Opens nothing.
+///
+/// A PDF opened on its own keeps its takeoff inside itself. A folder that was
+/// once a project still has the takeoff in `redbeam.db`, and the frontend
+/// moves it into the PDFs once (Aaron, 2026-11-19: "the PDF becomes the only
+/// truth").
+#[tauri::command]
+pub async fn project_old_data(path: String) -> Result<Option<OldProject>, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let folder = canonical_project_root(Path::new(trimmed));
+    Ok(find_old_project(&folder).map(|(root, prefix)| OldProject {
+        root: root.display().to_string(),
+        prefix,
+    }))
+}
+
+/// Set aside a database whose takeoff has been moved into the PDFs.
+///
+/// MOVED into `.redbeam/superseded-<stamp>/`, never deleted. Returns how many
+/// files moved. The caller closes its connection first; on Windows an open
+/// database cannot be renamed, and then this fails and is tried again later.
+#[tauri::command]
+pub async fn project_supersede_data(path: String) -> Result<usize, String> {
+    let root = canonical_project_root(Path::new(&path));
+    set_aside_project_data_as(&root, "superseded")
+}
+
 /// Show a project folder in the system's file manager.
 #[tauri::command]
 pub async fn project_reveal(path: String) -> Result<(), String> {
@@ -1348,6 +1408,12 @@ pub async fn project_reveal(path: String) -> Result<(), String> {
 /// Move `redbeam.db` and its journals under `.redbeam/removed-<stamp>/`.
 /// Returns how many files moved; zero when the folder holds no database.
 pub fn set_aside_project_data(root: &Path) -> Result<usize, String> {
+    set_aside_project_data_as(root, "removed")
+}
+
+/// The same move, into `.redbeam/<label>-<stamp>/`. `superseded` is the label
+/// for a database whose takeoff now lives inside the PDFs.
+pub fn set_aside_project_data_as(root: &Path, label: &str) -> Result<usize, String> {
     let entries = fs::read_dir(root).map_err(|e| format!("{}: {e}", root.display()))?;
     let database: Vec<PathBuf> = entries
         .flatten()
@@ -1362,7 +1428,7 @@ pub fn set_aside_project_data(root: &Path) -> Result<usize, String> {
         return Ok(0);
     }
     let stamp = now_iso().replace(':', "-");
-    let aside = root.join(INTERNAL_DIR).join(format!("removed-{stamp}"));
+    let aside = root.join(INTERNAL_DIR).join(format!("{label}-{stamp}"));
     fs::create_dir_all(&aside).map_err(|e| format!("{}: {e}", aside.display()))?;
     let mut moved = 0;
     for from in database {
@@ -2120,6 +2186,26 @@ mod tests {
         let scan = scan_project(&dir, &[]).unwrap();
         assert_eq!(scan.files.len(), 1);
         assert_eq!(set_aside_project_data(&dir).unwrap(), 0);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_old_project_is_found_from_a_pdf_folder_and_superseded_by_name() {
+        let dir = temp_dir("old-project");
+        write_file(&dir, "redbeam.db", b"db");
+        write_file(&dir, "Drawings/Arch/a.pdf", b"pdf");
+        let (root, prefix) = find_old_project(&dir.join("Drawings").join("Arch")).unwrap();
+        assert_eq!(root, dir);
+        assert_eq!(prefix, "Drawings/Arch/");
+        let (root, prefix) = find_old_project(&dir).unwrap();
+        assert_eq!(root, dir);
+        assert_eq!(prefix, "");
+
+        assert_eq!(set_aside_project_data_as(&dir, "superseded").unwrap(), 1);
+        let aside = fs::read_dir(dir.join(INTERNAL_DIR)).unwrap().flatten().next().unwrap().path();
+        assert!(aside.file_name().unwrap().to_string_lossy().starts_with("superseded-"));
+        assert!(aside.join("redbeam.db").exists());
+        assert!(find_old_project(&dir.join("Drawings").join("Arch")).is_none());
         fs::remove_dir_all(&dir).ok();
     }
 
