@@ -6,7 +6,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import {
   copyName, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice, importTakeoffFromSlice, takeoffImportStatus,
-  migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
+  migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, rebuildFromAnnots, rebuiltStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
   type DrawingFile,
 } from './drawingEmbed.js'
 import { parseSlice, readSheetEmbed, sliceStamp, SLICE_FORMAT, SLICE_VERSION, type SheetEmbedReading } from './sheetEmbed.js'
@@ -563,7 +563,7 @@ describe('a project opening a drawing changed in Light mode', () => {
 
 describe('a Light file is saved into only once its own takeoff is in the window', () => {
   const reading = (over: Partial<SheetEmbedReading> = {}): SheetEmbedReading => ({
-    slice: null, source: null, redbeamAnnots: [], foreignAnnots: 0, privateDataLost: false, sliceTooNew: false, ...over,
+    slice: null, source: null, redbeamAnnots: [], sheets: [], foreignAnnots: 0, privateDataLost: false, sliceTooNew: false, ...over,
   })
 
   it('round-trips everything a person made, and may then be saved', async () => {
@@ -650,5 +650,113 @@ describe('a Light file is saved into only once its own takeoff is in the window'
     })).toBe(copy)
     expect(copyName('Round 2/A-101.PDF')).toBe('A-101 (takeoff).pdf')
     expect(copyName('C:\\jobs\\plan')).toBe('plan (takeoff).pdf')
+  })
+})
+
+describe('a Light file another app saved without REDBEAM\u2019s private data', () => {
+  /** What a re-save that keeps annotations and drops unknown data leaves behind. */
+  async function stripPrivate(bytes: Uint8Array): Promise<Uint8Array> {
+    const d = await PDFDocument.load(bytes, { updateMetadata: false })
+    d.catalog.delete(PDFName.of('PieceInfo'))
+    for (const page of d.getPages()) {
+      const arr = page.node.lookup(PDFName.of('Annots'))
+      if (!(arr instanceof PDFArray)) continue
+      for (let i = 0; i < arr.size(); i++) {
+        const a = arr.lookup(i)
+        if (a instanceof PDFDict) a.delete(PDFName.of('REDBEAM'))
+      }
+    }
+    return d.save()
+  }
+
+  async function seedMixed(db: SqlJsDriver, docId: string): Promise<void> {
+    await seedTakeoff(db, docId)
+    const page = `${docId}-p0`
+    await db.run(`INSERT INTO scopes(id,label,scope_type,color,specifications_json,created_at,updated_at)
+      VALUES('s2','Wall base','linear','#d1492f','{}',?,?)`, [NOW, NOW])
+    await db.run(`INSERT INTO scopes(id,label,scope_type,color,specifications_json,created_at,updated_at)
+      VALUES('s3','Diffusers','count','#2fd17f','{}',?,?)`, [NOW, NOW])
+    const add = (id: string, scope: string, kind: string, rings: unknown) => db.run(
+      `INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+       VALUES(?,?,?,?,?,?,'user',?,?)`, [id, docId, page, scope, kind, JSON.stringify(rings), NOW, NOW])
+    await add('m2', 's1', 'area', [sq(0.5, 0.5, 0.9, 0.9), sq(0.6, 0.6, 0.7, 0.7)])
+    await add('m3', 's1', 'cutout', [sq(0.02, 0.02, 0.05, 0.05)])
+    await add('m4', 's2', 'polyline', [[{ x: 0.1, y: 0.8 }, { x: 0.4, y: 0.8 }, { x: 0.4, y: 0.9 }]])
+    await add('m5', 's3', 'count', [[{ x: 0.25, y: 0.6 }]])
+  }
+
+  const shape = (rows: Array<{ kind: string, label: string | null, geometry_json: string }>) => rows
+    .map((r) => `${r.kind}|${r.label ?? ''}|${JSON.stringify((JSON.parse(r.geometry_json) as Array<Array<{ x: number, y: number }>>)
+      .map((ring) => ring.map((p) => [Math.round(p.x * 1e4), Math.round(p.y * 1e4)])))}`).sort()
+  const takeoff = (db: SqlJsDriver) => db.all<{ kind: string, label: string | null, geometry_json: string }>(
+    `SELECT m.kind, s.label, m.geometry_json FROM markups m LEFT JOIN scopes s ON s.id = m.scope_id WHERE m.deleted_at IS NULL`)
+
+  it('gets its takeoff back from the markups, and its detail back on the next save', async () => {
+    const { db, docId } = await freshDb()
+    await seedMixed(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    file.bytes = await stripPrivate(file.bytes)
+
+    const reading = await readSheetEmbed(file.bytes)
+    expect(reading.privateDataLost).toBe(true)
+    expect(reading.redbeamAnnots).toHaveLength(5)
+
+    const next = await freshDb()
+    await next.db.run('DELETE FROM pages')
+    const rebuilt = await rebuildFromAnnots(next.db, next.docId, reading)
+    expect(rebuilt).toEqual({ markups: 5, scopes: 3, unscaled: 0 })
+    expect(fileLoadVerdict(reading, null, 'A-101', rebuilt)).toEqual({ state: 'loaded' })
+    expect(rebuiltStatus(rebuilt!, 'A-101')).toContain('rebuilt 5 markups in 3 scopes')
+    expect(shape(await takeoff(next.db))).toEqual(shape(await takeoff(db)))
+
+    const scopes = await next.db.all<{ label: string, scope_type: string, color: string }>('SELECT label, scope_type, color FROM scopes ORDER BY label')
+    expect(scopes).toEqual([
+      { label: 'ACT-1 Ceiling', scope_type: 'area', color: '#2f7fd1' },
+      { label: 'Diffusers', scope_type: 'count', color: '#2fd17f' },
+      { label: 'Wall base', scope_type: 'linear', color: '#d1492f' },
+    ])
+    const cal = await next.db.all<{ f: number }>('SELECT feet_per_pdf_point AS f FROM calibrations')
+    expect(cal).toHaveLength(1)
+    expect(cal[0]!.f).toBeCloseTo(8 / 72, 9)
+    const pages = await next.db.all<{ w: number, h: number }>('SELECT width_pdf_points AS w, height_pdf_points AS h FROM pages')
+    expect(pages).toEqual([{ w: 2592, h: 1728 }])
+
+    // Saving replaces the orphaned annotations one for one and carries the slice again.
+    const saved = await embedDrawing({
+      db: next.db, documentId: next.docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true,
+    })
+    expect(saved.kind).toBe('written')
+    const after = await readSheetEmbed(file.bytes)
+    expect(after.privateDataLost).toBe(false)
+    expect(after.redbeamAnnots).toHaveLength(5)
+    expect(after.slice?.tables.markups).toHaveLength(5)
+  })
+
+  it('stays blocked when one of its markups cannot be read back, and when it has no scale says so', async () => {
+    const { db, docId } = await freshDb()
+    await seedMixed(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const stripped = await stripPrivate(file.bytes)
+
+    // The other app also threw the sheet's viewports away: the shapes come back, the scale does not.
+    const noScale = await PDFDocument.load(stripped, { updateMetadata: false })
+    noScale.getPages()[0]!.node.delete(PDFName.of('VP'))
+    const bare = await freshDb()
+    const unscaled = await rebuildFromAnnots(bare.db, bare.docId, await readSheetEmbed(await noScale.save()))
+    expect(unscaled).toEqual({ markups: 5, scopes: 3, unscaled: 1 })
+    expect(rebuiltStatus(unscaled!, 'A-101')).toContain('1 sheet has lost its scale')
+
+    // One annotation turned into something REDBEAM does not write: nothing is rebuilt.
+    const odd = await PDFDocument.load(stripped, { updateMetadata: false })
+    const arr = odd.getPages()[0]!.node.lookup(PDFName.of('Annots')) as PDFArray
+    ;(arr.lookup(0) as PDFDict).set(PDFName.of('Subtype'), PDFName.of('Ink'))
+    const reading = await readSheetEmbed(await odd.save())
+    const next = await freshDb()
+    const rebuilt = await rebuildFromAnnots(next.db, next.docId, reading)
+    expect(rebuilt).toBeNull()
+    expect((await next.db.all<{ n: number }>('SELECT COUNT(*) AS n FROM markups'))[0]!.n).toBe(0)
+    expect(fileLoadVerdict(reading, null, 'A-101', rebuilt).state).toBe('blocked')
   })
 })

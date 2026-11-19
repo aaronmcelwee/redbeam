@@ -14,6 +14,15 @@ SmartScreen will ask once.
 - **It waits for a pause.** The save into the PDF now waits until you stop clicking for a couple of seconds (and never holds a change for more than 30 seconds), instead of rewriting the set in a OneDrive folder between two clicks of a polygon.
 - **Placing a point is cheaper.** Each click of an area or line no longer redraws the whole window, only the sheet.
 
+## 0.3.32 — 2026-11-19
+
+### A takeoff survives an app that drops REDBEAM's data
+
+- **The takeoff is rebuilt from its markups.** Some apps keep the markups REDBEAM drew in a PDF and throw away the hidden data that said what they were. That file used to open with no takeoff and could only be saved as a copy. REDBEAM now reads its own markups back: each area with its cutouts, each run, each count, the scope it belongs to by name and colour, and each sheet's scale.
+- **The next save puts the detail back** into the PDF, so the file is whole again.
+- **What cannot come back is said.** Product details entered on a scope were only in the dropped data, so they need entering again, and a sheet whose scale the other app also removed needs its scale set again. A note in the warning bar says which applies.
+- If even one markup cannot be read back, nothing is rebuilt and the file opens as before: untouched, with Save a copy.
+
 ## 0.3.31 — 2026-11-19
 
 ### The Takeoff panel follows where you are with a scope
