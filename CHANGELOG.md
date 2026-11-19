@@ -16,6 +16,12 @@ SmartScreen will ask once.
 - **Every way of closing saves first.** Alt+F4, the taskbar, Windows shutting down and installing or restarting for an update used to skip the save that the window's own X button made.
 - **Opening a PDF no longer rewrites it.** Reopening a file and paging through it counted as a change, so the whole takeoff was appended to the PDF again each time. A file is now written only when the takeoff changes.
 
+## 0.3.23 — 2026-11-19
+
+### Light mode: panel tabs in the title bar
+
+- **The sidebar's tabs moved up.** In Light mode, Contents, Thumbnails and Search now sit in the title bar, in the spot to the right of the app logo where the project switcher used to be. The file's name was there before, but its tab already says it, so the sheet list starts one row higher. Pro mode is unchanged.
+
 ## 0.3.22 — 2026-11-19
 
 ### Sidebars stay put

@@ -43,7 +43,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { PieceResult, ScaleRegion, Scope, ScopePieces } from '@redbeam/domain'
 import { LIKE_CONSEQUENCES, type SearchHit, type SearchReport } from '@redbeam/store'
 import {
-  DocumentTabStrip, FileList, Sidebar, TitleBar, WindowControls,
+  DocumentTabStrip, FileList, Sidebar, SidebarTabs, TitleBar, WindowControls,
   type PanelFolder, type RailPanel,
 } from './Shell.js'
 import type { ScopePage } from './RightWorkspace.js'
@@ -306,6 +306,9 @@ export function ShellHarness() {
   const show = params.get('show') as Show | null
   const moment: Moment = params.get('state') as Moment
   const statusText = params.get('status')
+  // `&light=1`: Light mode's chrome — panel tabs in the title bar, no Files tab.
+  const light = params.get('light') !== null
+  const lightPanels: readonly RailPanel[] = ['contents', 'thumbnails', 'search']
 
   const [rail, setRail] = useState<RailPanel | null>(() => {
     const want = params.get('rail') ?? (params.get('show') === 'search' ? 'search' : null)
@@ -453,6 +456,18 @@ export function ShellHarness() {
       />
       <TitleBar
         projectName="Turkish Airlines Lounge"
+        fileMode={light}
+        {...(light ? {
+          fileCell: (
+            <SidebarTabs
+              inTitle
+              active={rail}
+              panels={lightPanels}
+              indexing={moment === 'indexing' ? INDEXING : null}
+              onSelect={(p) => setRail((cur) => (cur === p ? null : p))}
+            />
+          ),
+        } : {})}
         appMenu={{
           onOpenProject: () => {},
           onOpenDrawing: () => setRail('files'),
@@ -490,6 +505,7 @@ export function ShellHarness() {
 
       <Sidebar
         active={rail}
+        {...(light ? { panels: lightPanels, tabsInTitle: true } : {})}
         notes={moment === 'note'
           ? { files: 'The folder scan accounted for 412 fewer documents than the catalog, so documents were not reconciled. Existing takeoffs are untouched.' }
           : {}}
