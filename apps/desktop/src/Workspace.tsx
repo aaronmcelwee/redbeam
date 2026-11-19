@@ -89,6 +89,7 @@ import {
 import { buildAnchorGrid, nearestAnchor, type AnchorGrid } from './snapAnchors.js'
 import { normalizedToScreen } from './draw.js'
 import { useStageSize, sizeCanvas } from './useStageSize.js'
+import { embedWhenQuiet } from './autoEmbed.js'
 import { PerfRegistry, type Stats, type Budget } from './perf.js'
 import { isTextEntry, survivesTextEntry } from './keys.js'
 import { readSession, writeSession } from './session.js'
@@ -105,7 +106,8 @@ import {
 import {
   drawingsToTransfer, oldDrawingAt, undrawnPending, transferComplete, transferOffer, transferOldProject, transferStatus, type TransferResult,
 } from './export/oldProject.js'
-import { projectDrawingFile } from './export/drawingSync.js'
+import { keptDrawingFile, projectDrawingFile } from './export/drawingSync.js'
+import { embedInWorker } from './export/embedInWorker.js'
 import { sheetSizes, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
@@ -163,8 +165,6 @@ const FALLBACK_DOC = { id: 'doc-sample', relativePath: 'sample.pdf', displayName
 
 /** How long after the last change a scope's numbers are saved. */
 const AUTO_SAVE_MS = 1500
-/** How long after the last change the open drawing's takeoff is written into its PDF. */
-const AUTO_EMBED_MS = 5000
 /** Local midnight, as the ISO time runs are stamped in: where "today's save" begins. */
 function startOfToday(now = new Date()): string {
   const d = new Date(now)
@@ -3464,8 +3464,10 @@ export default function Workspace({
     // no third point to place.
     if ((tool === 'calibrate' || tool === 'direction' || tool === 'scale-region') && d.points.length >= 2) return
 
+    // Nothing the window renders reads the draft: the canvas paints it, so a
+    // vertex asks for a paint, not a render of the whole workspace (that cost
+    // 40-60 ms a click on a laptop with a takeoff open).
     draftRef.current = { ...d, points: [...d.points, p] }
-    forceRender((n) => n + 1)
     if (tool === 'count'
         || ((tool === 'calibrate' || tool === 'direction' || tool === 'scale-region')
           && draftRef.current.points.length === 2)) {
@@ -4471,7 +4473,10 @@ export default function Workspace({
       }
       const out = await embedDrawing({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
-        file: projectDrawingFile(projectBridge, projectPath, doc.relativePath),
+        // Kept between saves and built off this thread: an auto-save must not
+        // re-read, re-hash and re-parse an 80 MB set on the window's thread.
+        file: keptDrawingFile(projectBridge, projectPath, doc.relativePath),
+        embed: embedInWorker,
         // Light: the file's scopes are all of the store's, drawn on or not.
         allScopes: light,
       })
@@ -6214,12 +6219,26 @@ export default function Workspace({
    * without anyone leaving the drawing or closing the project. Unchanged
    * takeoffs are not rewritten (embedDrawing compares first), and the write
    * goes through the same per-drawing queue as every other save.
+   *
+   * It waits for a pause in the work too (`embedWhenQuiet`): writing an 80 MB
+   * set back to a synced folder is not something to do between two clicks of
+   * a polygon, and a takeoff is a run of changes a few seconds apart.
    */
+  const lastInputRef = useRef(0)
+  useEffect(() => {
+    const seen = () => { lastInputRef.current = performance.now() }
+    const opts = { capture: true, passive: true } as const
+    const kinds = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
+    for (const k of kinds) window.addEventListener(k, seen, opts)
+    return () => { for (const k of kinds) window.removeEventListener(k, seen, opts) }
+  }, [])
   useEffect(() => {
     const docId = activeDocId
     if (docId === null || !projectBridge.desktop || (quickView !== undefined && !light) || identity.role === 'context') return
-    const t = setTimeout(() => { void saveTakeoffIntoDrawing(docId, { quiet: true }) }, AUTO_EMBED_MS)
-    return () => clearTimeout(t)
+    return embedWhenQuiet(
+      () => { void saveTakeoffIntoDrawing(docId, { quiet: true }) },
+      () => performance.now() - lastInputRef.current,
+    )
   }, [activeDocId, markups, scopes, committed, cal, quickView, light, identity.role, saveTakeoffIntoDrawing])
 
   const activeEntry = pieces.find((p) => p.scope.id === shownScopeId)

@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.31 — 2026-11-19
+
+### Takeoffs no longer stall while the PDF saves
+
+- **Saving happens in the background.** A few seconds after each change, REDBEAM writes the takeoff into the PDF. On a 50–80 MB drawing set that froze the window for a quarter to half a second each time, in the middle of drawing. The PDF is now built on a background thread, so the sheet keeps responding while it saves.
+- **The drawing is not read back from disk on every save.** REDBEAM keeps the copy it last saved instead of re-reading and re-checking the whole set each time. A file that changed on disk meanwhile (Bluebeam, OneDrive) is still noticed before anything is written, and the save then starts again from the file as it is now.
+- **It waits for a pause.** The save into the PDF now waits until you stop clicking for a couple of seconds (and never holds a change for more than 30 seconds), instead of rewriting the set in a OneDrive folder between two clicks of a polygon.
+- **Placing a point is cheaper.** Each click of an area or line no longer redraws the whole window, only the sheet.
+
 ## 0.3.29 — 2026-11-19
 
 ### Start a PDF from another PDF's takeoff

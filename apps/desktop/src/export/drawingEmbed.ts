@@ -14,7 +14,7 @@ import type { SqlDriver } from '@redbeam/store'
 import { pageNumberFrom } from '@redbeam/store'
 import { polylineLength, regionArea, ringsOverlap, squarePointsToSquareFeet, subtractRings } from '@redbeam/domain'
 import {
-  embedSheet, hash53, readSheetEmbed, type EmbedMarkup, type SheetEmbedReading, type SheetSlice, type SliceTables,
+  embedSheet, hash53, readSheetEmbed, type EmbedInput, type EmbedMarkup, type EmbedResult, type SheetEmbedReading, type SheetSlice, type SliceTables,
 } from './sheetEmbed.js'
 import type { WritableScaleRegion } from './pdfMarkup.js'
 
@@ -294,7 +294,28 @@ export interface DrawingFile {
    * Resolves false when somebody (Bluebeam, OneDrive) changed it in between.
    */
   write: (bytes: Uint8Array, expectedVersion: string) => Promise<boolean>
+  /**
+   * Hands back bytes `read` gave out that were not written (the takeoff was
+   * already in the file), so a file that keeps its last version in memory
+   * can keep it. Optional.
+   */
+  keep?: (bytes: Uint8Array, version: string) => void
+  /**
+   * True when the last `read` came from memory rather than the disk. A write
+   * refused after such a read is tried once more from a fresh read: the file
+   * may simply have been saved by something else since.
+   */
+  fromMemory?: () => boolean
 }
+
+/**
+ * Builds the PDF with the takeoff in it. `embedSheet` by default; the app
+ * passes one that runs in a worker, which may take ownership of `source`
+ * and so hands it (or a copy) back.
+ */
+export type SheetEmbedder = (source: Uint8Array, input: EmbedInput) => Promise<{ result: EmbedResult, source: Uint8Array }>
+
+const embedHere: SheetEmbedder = async (source, input) => ({ result: await embedSheet(source, input), source })
 
 export type EmbedOutcome =
   /** Light: not attempted, because the file's own takeoff is not (yet) in the window. */
@@ -312,7 +333,14 @@ export type EmbedOutcome =
  * left alone: writing an empty slice into every sheet somebody merely opened
  * would touch hundreds of synced files for nothing.
  */
-export async function embedDrawing(opts: {
+export async function embedDrawing(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
+  const first = await embedDrawingOnce(opts)
+  // A write refused after a read from memory: read the disk and try once more.
+  if (first.kind === 'busy' && opts.file.fromMemory?.() === true) return embedDrawingOnce(opts)
+  return first
+}
+
+export interface EmbedDrawingOptions {
   db: SqlDriver
   documentId: string
   relativePath: string
@@ -321,7 +349,11 @@ export async function embedDrawing(opts: {
   file: DrawingFile
   /** Light mode: the file carries every live scope, drawn on or not. */
   allScopes?: boolean
-}): Promise<EmbedOutcome> {
+  /** Where the PDF is built; in this thread when left out. */
+  embed?: SheetEmbedder
+}
+
+async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
   const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
 
@@ -336,9 +368,12 @@ export async function embedDrawing(opts: {
     if (markups.length === 0 && (tables.scopes ?? []).length === 0) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
-      if (before.slice === null && before.redbeamAnnots.length === 0) return { kind: 'nothing-to-embed' }
+      if (before.slice === null && before.redbeamAnnots.length === 0) {
+        opts.file.keep?.(current.bytes, current.version)
+        return { kind: 'nothing-to-embed' }
+      }
     }
-    const result = await embedSheet(current.bytes, {
+    const { result, source } = await (opts.embed ?? embedHere)(current.bytes, {
       documentId: opts.documentId,
       relativePath: opts.relativePath,
       displayName: opts.displayName,
@@ -348,7 +383,10 @@ export async function embedDrawing(opts: {
       pageScales,
       pageRegions,
     })
-    if (result.bytes === null) return { kind: 'unchanged' }
+    if (result.bytes === null) {
+      opts.file.keep?.(source, current.version)
+      return { kind: 'unchanged' }
+    }
     const ok = await opts.file.write(result.bytes, current.version)
     if (!ok) return { kind: 'busy' }
     return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept }
