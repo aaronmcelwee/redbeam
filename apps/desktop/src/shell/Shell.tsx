@@ -177,9 +177,16 @@ export function WindowControls({
 // ------------------------------------------------------------- title bar --
 
 export function TitleBar({
-  projectName, appMenu, projectMenu, children, workOpen, onToggleWork, fileMode = false,
+  projectName, appMenu, projectMenu, children, workOpen, onToggleWork, fileMode = false, fileCell,
 }: {
   projectName: string
+  /**
+   * Light mode: what fills the cell the project switcher used to occupy. The
+   * sidebar's panel tabs go here (Aaron, 2026-11-19: "move this menu bar up
+   * into the place previously occupied by the project dropdown") — the file's
+   * name is already on its tab, so a label repeating it was a wasted row.
+   */
+  fileCell?: ReactNode
   /**
    * Light mode: the window is one PDF, not a project. The cell names the file
    * and is not a control — there is no project to switch to (Aaron,
@@ -258,7 +265,7 @@ export function TitleBar({
       </div>
 
       <div className="projectcell" ref={projRef}>
-        {fileMode ? (
+        {fileMode && fileCell !== undefined ? fileCell : fileMode ? (
           <span className="projectpick filelabel" title={projectName}>
             <Glyph icon={FileText} role="inline" />
             <span className="projectname">{projectName}</span>
@@ -719,14 +726,11 @@ const TABS: Array<{ id: RailPanel; label: string; icon: Icon }> = [
  * Search sits apart, at the end. It is a verb among three nouns, and keeping
  * the three document views adjacent is what makes the strip scannable.
  */
-export function Sidebar({
-  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children, documentOpen = true, panels,
-}: {
+export interface SidebarTabsProps {
   /** The navigation tabs to show, when not all of them. Light has no Files: the window is one file. */
-  panels?: readonly RailPanel[]
+  panels?: readonly RailPanel[] | undefined
   active: RailPanel | null
   onSelect: (p: RailPanel) => void
-  onSettings: () => void
   /**
    * Whether a drawing is open. Contents and Thumbnails are views OF a
    * drawing, so with none open they are greyed rather than opening on an
@@ -745,17 +749,16 @@ export function Sidebar({
    * panel you are not looking at is still found; the text goes in the tooltip.
    */
   notes?: Partial<Record<RailPanel, string>>
-  /**
-   * The panel's own title, when it is not simply the tab's name.
-   *
-   * Usually redundant — the tab beside it already says "Contents" — so a head
-   * row appears ONLY when the panel has been taken over by something else, as
-   * the sheet index is when a page range is waiting for its scale.
-   */
-  title?: string | undefined
-  actions?: ReactNode
-  children?: ReactNode
-}) {
+}
+
+/**
+ * The panel tabs on their own. The sidebar draws them as its header; Light
+ * mode draws them in the title bar instead, in the cell the project switcher
+ * used to hold, and tells the sidebar to leave them out (`tabsInTitle`).
+ */
+export function SidebarTabs({
+  active, onSelect, notes = {}, indexing = null, documentOpen = true, panels, inTitle = false,
+}: SidebarTabsProps & { inTitle?: boolean }) {
   const tab = (id: RailPanel, label: string, icon: Icon) => {
     const busy = id === 'search' && indexing !== null && indexing.total > 0
     const fraction = busy ? Math.min(1, indexing.done / indexing.total) : 0
@@ -797,17 +800,53 @@ export function Sidebar({
     )
   }
 
+  return (
+    <nav
+      className={`sidetabs${inTitle ? ' intitle' : ''}`}
+      aria-label="Panels"
+      {...(inTitle ? { 'data-tauri-drag-region': true } : {})}
+    >
+      {TABS.filter((t) => panels === undefined || panels.includes(t.id)).map((t) => tab(t.id, t.label, t.icon))}
+      <span className="grow" {...(inTitle ? { 'data-tauri-drag-region': true } : {})} />
+      {tab('search', 'Search', SearchText)}
+    </nav>
+  )
+}
+
+export function Sidebar({
+  active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children, documentOpen = true, panels,
+  tabsInTitle = false,
+}: SidebarTabsProps & {
+  onSettings: () => void
+  /** Light mode: the tabs are drawn in the title bar (see `SidebarTabs`), not here. */
+  tabsInTitle?: boolean
+  /**
+   * The panel's own title, when it is not simply the tab's name.
+   *
+   * Usually redundant — the tab beside it already says "Contents" — so a head
+   * row appears ONLY when the panel has been taken over by something else, as
+   * the sheet index is when a page range is waiting for its scale.
+   */
+  title?: string | undefined
+  actions?: ReactNode
+  children?: ReactNode
+}) {
   const activeLabel = TABS.find((t) => t.id === active)?.label
     ?? (active === 'search' ? 'Search' : undefined)
   const head = title !== undefined && title !== activeLabel ? title : null
 
   return (
     <aside className="side">
-      <nav className="sidetabs" aria-label="Panels">
-        {TABS.filter((t) => panels === undefined || panels.includes(t.id)).map((t) => tab(t.id, t.label, t.icon))}
-        <span className="grow" />
-        {tab('search', 'Search', SearchText)}
-      </nav>
+      {!tabsInTitle && (
+        <SidebarTabs
+          active={active}
+          onSelect={onSelect}
+          notes={notes}
+          indexing={indexing}
+          documentOpen={documentOpen}
+          panels={panels}
+        />
+      )}
 
       {head !== null && (
         <div className="panehead">

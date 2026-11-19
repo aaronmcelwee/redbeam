@@ -36,7 +36,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
-import { openDatabase, openMemory, debounceSave, type DbBackend } from './db.js'
+import { openDatabase, openMemory, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
 import {
   resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
 } from './markupBatch.js'
@@ -57,7 +57,7 @@ import { SEED_SCOPES } from './seed.js'
 import { PageStrip } from './pages/PageStrip.js'
 import './shell/shell.css'
 import {
-  DocumentTabStrip, FileList, Sidebar, TitleBar,
+  DocumentTabStrip, FileList, Sidebar, SidebarTabs, TitleBar,
   type PanelFile, type ProjectMenuEntry, type RailPanel, type ShellTab,
 } from './shell/Shell.js'
 import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
@@ -1276,7 +1276,7 @@ export default function Workspace({
       saveRef.current = debounceSave(opened.save)
       setBackend(opened.backend)
       setStatus(`${opened.backend === 'tauri' ? 'desktop store' : 'browser store'} · ${opened.location}`)
-      undoRef.current = new UndoStack(opened.driver)
+      undoRef.current = new UndoStack(opened.driver, 100, undoOptionsFor(opened.backend, projectPath))
 
       let existing = await listScopes(opened.driver)
       /*
@@ -7493,6 +7493,19 @@ export default function Workspace({
       <TitleBar
         projectName={projectName}
         fileMode={light}
+        {...(light ? {
+          fileCell: (
+            <SidebarTabs
+              inTitle
+              active={railPanel}
+              panels={LIGHT_PANELS}
+              documentOpen={activeDocId !== null}
+              notes={ingestNote !== null ? { files: ingestNote } : {}}
+              indexing={indexing}
+              onSelect={(p) => setRailPanel((cur) => (cur === p ? null : p))}
+            />
+          ),
+        } : {})}
         appMenu={light
           ? {
               ...(quickView?.onOpenAnother !== undefined ? { onOpenFile: openAnotherFile } : {}),
@@ -7553,7 +7566,7 @@ export default function Workspace({
 
       <Sidebar
         active={railPanel}
-        {...(light ? { panels: LIGHT_PANELS } : {})}
+        {...(light ? { panels: LIGHT_PANELS, tabsInTitle: true } : {})}
         documentOpen={activeDocId !== null}
         /*
           The scan's own verdict — reconciliation refused, folder unreadable,

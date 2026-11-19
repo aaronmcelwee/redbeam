@@ -5,11 +5,31 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.21 — 2026-11-19
+## 0.3.25 — 2026-11-19
 
 ### Smooth pan and zoom again
 
 - **No more freezes after a change.** Since 0.3.17 the takeoff is saved into the PDF a few seconds after every change. That save handed the whole PDF to the save step as a list of numbers, one per byte, so an 80 MB drawing set froze the window for several seconds each time and left pan and zoom stuttering afterwards. The PDF now goes across as plain bytes and the save takes a fraction of a second. It mattered most in Light mode, where the open PDF is often a full drawing set.
+
+## 0.3.23 — 2026-11-19
+
+### Light mode: panel tabs in the title bar
+
+- **The sidebar's tabs moved up.** In Light mode, Contents, Thumbnails and Search now sit in the title bar, in the spot to the right of the app logo where the project switcher used to be. The file's name was there before, but its tab already says it, so the sheet list starts one row higher. Pro mode is unchanged.
+
+## 0.3.22 — 2026-11-19
+
+### Sidebars stay put
+
+- **No more bounce or scrolling past the end.** Scrolling the sheet list, the Takeoff panel, Settings, the command palette or any menu now stops dead at the top and bottom instead of rubber-banding, and the leftover scroll no longer carries on into the window behind it. A sideways trackpad swipe no longer tries to go "back" either. This is the same in Light and Pro.
+- **No sideways scrolling in the panels.** A row a little too wide for its panel used to let the whole panel slide left and right. Panels now only scroll up and down; long names are cut off with "…" as before.
+
+## 0.3.21 — 2026-11-19
+
+### Takeoffs work in Light mode
+
+- **Drawing an area no longer fails.** In Light mode, finishing an area, line, count or shape showed "could not create area: no project database is open". The takeoff was being sent to the project database, which Light never opens; it now stays with the PDF the way Light intends. Undo, redo, calibrating and deleting markups had the same fault and are fixed with it.
+- **Undo stays in its own project.** With two Pro projects open in separate windows, Ctrl+Z in one could act on whichever project was opened last. Undo now always names the project it belongs to.
 
 ## 0.3.20 — 2026-11-19
 

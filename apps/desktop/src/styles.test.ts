@@ -111,3 +111,40 @@ describe('the modal layer', () => {
     }
   })
 })
+
+/**
+ * No sidebar or panel scrolls past its ends, or sideways.
+ *
+ * Aaron: "Fix horizontal/vertical overscroll on all sidebars." Two separate
+ * causes, so two checks. A vertical list that only says `overflow-y: auto`
+ * silently gets `overflow-x: auto` too — CSS will not leave the other axis
+ * `visible` — so one row a pixel too wide gave the whole pane a sideways
+ * scroll. And the rubber-band and scroll chaining at either end are the
+ * webview's defaults until `overscroll-behavior` says otherwise.
+ */
+describe('panel scrolling', () => {
+  const sheets = [
+    './styles.css',
+    './shell/shell.css',
+    './palette/palette.css',
+    './settings/settings.css',
+    './report/report.css',
+    './ads/primitives.css',
+  ]
+
+  it('turns off overscroll on every element', () => {
+    const css = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8')
+    expect(css).toMatch(/html, body, \*, \*::before, \*::after \{ overscroll-behavior: none \}/)
+  })
+
+  it('pins the sideways axis of every vertical scroller', () => {
+    for (const sheet of sheets) {
+      const css = readFileSync(fileURLToPath(new URL(sheet, import.meta.url)), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const rule of css.match(/[^{}]*\{[^{}]*\}/g) ?? []) {
+        if (!/overflow-y:\s*auto/.test(rule)) continue
+        expect(rule, `${sheet}: a vertical scroller without overflow-x`).toMatch(/overflow-x:\s*hidden/)
+      }
+    }
+  })
+})
