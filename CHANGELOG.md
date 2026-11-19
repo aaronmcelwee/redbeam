@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.30 — 2026-11-19
+
+### Two people's takeoffs no longer overwrite each other
+
+- **A takeoff saved by someone else is not replaced.** If a PDF is open in two REDBEAM windows, or a synced copy comes in from a colleague, and the other side saves its takeoff first, REDBEAM used to save yours straight over theirs. It now notices the PDF carries a takeoff it has not seen and does not write.
+- **You choose what happens to yours.** Ctrl+S, closing the file and closing the window all ask: save yours as a copy, or leave without saving and reopen the PDF to see theirs. A window that only looked at the file is not asked anything.
+- Markups added in Bluebeam are not affected: they were already kept, and still are.
+
 ## 0.3.29 — 2026-11-19
 
 ### Start a PDF from another PDF's takeoff
