@@ -98,7 +98,7 @@ import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
 import {
-  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice,
   migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
   type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
@@ -106,7 +106,7 @@ import {
   drawingsToTransfer, oldDrawingAt, undrawnPending, transferComplete, transferOffer, transferOldProject, transferStatus, type TransferResult,
 } from './export/oldProject.js'
 import { projectDrawingFile } from './export/drawingSync.js'
-import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
+import { sheetSizes, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
 import {
@@ -4817,6 +4817,42 @@ export default function Workspace({
     }
   }, [linkFileRound, refreshScopes, setStatus])
 
+  /**
+   * Light mode: start this file from another PDF's takeoff, markups included.
+   *
+   * Aaron, 2026-11-19: "copying markups and scope information from one set to
+   * another in Light mode is, in essence, copying an old estimate to a new
+   * estimate in Pro mode." A markup lands on the sheet with the same number
+   * when that sheet is the same size here; the rest are counted and left.
+   */
+  const startFromPdf = useCallback(async () => {
+    const db = dbRef.current
+    const doc = documents.find((d) => d.id === activeDocId)
+    if (!db || !doc) return
+    const pick = await projectBridge.pickFile()
+    if (pick.path === null) {
+      if (!pick.supported && pick.reason !== null) setStatus(pick.reason)
+      return
+    }
+    const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
+    const folder = pick.path.slice(0, cut)
+    const name = pick.path.slice(cut + 1)
+    try {
+      const reading = await readSheetEmbed(await projectBridge.readDocument(folder, name))
+      if (reading.slice === null) { setStatus(`${name} carries no REDBEAM takeoff`); return }
+      const sizes = await sheetSizes(await projectBridge.readDocument(projectPath, doc.relativePath))
+      const result = await importTakeoffFromSlice(db, doc.id, reading.slice, sizes)
+      await linkFileRound()
+      await refreshScopes()
+      await syncMarkups()
+      saveRef.current?.()
+      setWorkOpen(true)
+      setStatus(takeoffImportStatus(result, name))
+    } catch (err) {
+      setStatus(`could not copy the takeoff from ${name}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }, [documents, activeDocId, projectPath, linkFileRound, refreshScopes, syncMarkups, setStatus])
+
   /** Light mode: save now, then hand the window to another PDF. */
   const openAnotherFile = useCallback(() => {
     const go = quickView?.onOpenAnother
@@ -7654,6 +7690,12 @@ export default function Workspace({
         run: () => void saveCopyOfFile(),
       },
       {
+        id: 'light-start-from', kind: 'command', title: 'Start from another PDF\u2019s takeoff…',
+        detail: 'Its scopes and its markups, placed on the matching sheets',
+        keywords: ['copy', 'import', 'takeoff', 'markups', 'scopes', 'revision', 'round', 'bid', 'previous', 'estimate'],
+        ...stuck(activeDocId === null ? 'no drawing open' : undefined), run: () => void startFromPdf(),
+      },
+      {
         id: 'light-import-scopes', kind: 'command', title: 'Import scopes from another PDF…',
         detail: 'Last round’s scopes, without its markups',
         keywords: ['scopes', 'import', 'round', 'bid', 'copy', 'previous'], run: () => void importScopesFromPdf(),
@@ -7674,7 +7716,7 @@ export default function Workspace({
     hidePdfMarkups, hidePdfMarkup, runSearch, goToHit, page.width, page.height,
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, projectMarkups,
-    light, openAnotherFile, saveOpenFile, importScopesFromPdf, saveCopyOfFile,
+    light, openAnotherFile, saveOpenFile, importScopesFromPdf, startFromPdf, saveCopyOfFile,
   ])
 
   return (

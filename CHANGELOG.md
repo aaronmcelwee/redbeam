@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.29 — 2026-11-19
+## 0.3.30 — 2026-11-19
 
 ### The Takeoff panel follows where you are with a scope
 
@@ -14,6 +14,16 @@ SmartScreen will ask once.
 - **Setup first, then markups.** A new scope opens with Setup. While you take off, and once you're done, Markups comes first and Setup folds to a one-line summary. Open or fold either one at any time.
 - **Product is the first Setup field.** It used to be a small dropdown under the scope name.
 - **Take off shows when it's on** for the scope you're looking at.
+
+## 0.3.29 — 2026-11-19
+
+### Start a PDF from another PDF's takeoff
+
+- **Copy a takeoff from one drawing set to the next.** *Start from another PDF's takeoff…* in the command palette (Ctrl+K) brings another PDF's scopes and its markups into the file you have open. It is how last round's takeoff becomes this round's starting point.
+- **Markups land on the matching sheets.** A markup goes to the sheet with the same number, when that sheet is the same size in both PDFs. Its scale comes with it where the open file has none for that sheet.
+- **Nothing is guessed.** Markups whose sheet is missing, or was reissued at another size, are left behind and counted in the status line, so you know what to redraw.
+- **Safe to repeat.** A scope the file already has by name is reused, and a markup that is already there is not added twice. The other PDF is only read.
+- *Import scopes from another PDF…* is still there for bringing scopes without their markups.
 
 ## 0.3.28 — 2026-11-19
 
