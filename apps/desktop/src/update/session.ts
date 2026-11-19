@@ -75,6 +75,14 @@ export function startAutomaticUpdateChecks(): void {
   window.addEventListener('focus', () => { void maybeCheck('focus') })
 }
 
+/** What has to finish before the app may quit for an update; false keeps it running. */
+let beforeQuit: ((leave: () => void) => Promise<boolean>) | null = null
+
+/** Set by the window that holds unsaved work (a Light file). Null when there is none. */
+export function setBeforeQuit(fn: ((leave: () => void) => Promise<boolean>) | null): void {
+  beforeQuit = fn
+}
+
 /**
  * The button on the update row.
  *
@@ -82,7 +90,17 @@ export function startAutomaticUpdateChecks(): void {
  * `restart` relaunches into what was just staged. None of these run from
  * the timer above.
  */
-export async function performUpdateAction(action: 'check' | 'install' | 'restart'): Promise<void> {
+export async function performUpdateAction(action: 'check' | 'install' | 'restart', saved = false): Promise<void> {
+  /*
+   * Installing and restarting both end this process without the window ever
+   * being asked to close, so an open Light file is saved into its PDF here
+   * first. A refused save leaves the update where it was and asks.
+   */
+  if (action !== 'check' && !saved && beforeQuit !== null) {
+    let ok = true
+    try { ok = await beforeQuit(() => { void performUpdateAction(action, true) }) } catch { ok = true }
+    if (!ok) return
+  }
   if (action === 'restart') {
     const { relaunch } = await import('@tauri-apps/plugin-process')
     await relaunch()
