@@ -9,7 +9,7 @@ import {
   migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
   type DrawingFile,
 } from './drawingEmbed.js'
-import { parseSlice, readSheetEmbed, SLICE_FORMAT, SLICE_VERSION, type SheetEmbedReading } from './sheetEmbed.js'
+import { parseSlice, readSheetEmbed, sliceStamp, SLICE_FORMAT, SLICE_VERSION, type SheetEmbedReading } from './sheetEmbed.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(here, '..', '..', '..', '..', 'packages', 'store', 'migrations')
@@ -448,6 +448,50 @@ describe('light mode files', () => {
     expect(again).toMatchObject({ added: [], skipped: ['ACT-1 Ceiling'], markups: 0, already: 2 })
     expect((await target.db.all('SELECT id FROM markups')).length).toBe(2)
     expect(takeoffImportStatus(again, 'A-101.pdf')).toBe('nothing new in A-101.pdf, 2 markups were already here')
+  })
+
+  it('does not save over a takeoff someone else saved into the PDF since this window read it', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    const mine = { db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true }
+    // This window opened a PDF with no takeoff, and saved its own: it now knows what the file carries.
+    const first = await embedDrawing({ ...mine, expectStamp: null })
+    expect(first.kind).toBe('written')
+    const seen = first.kind === 'written' ? first.stamp! : null
+    expect(seen).toBe(sliceStamp((await readSheetEmbed(file.bytes)).slice))
+
+    // A second window, opened on the same PDF, draws another area and saves.
+    const other = await freshDb('A-101.pdf')
+    await importSlice(other.db, other.docId, (await readSheetEmbed(file.bytes)).slice!)
+    await other.db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+      VALUES('theirs',?,?,'s1','area',?,'user',?,?)`, [other.docId, `${other.docId}-p0`, JSON.stringify([sq(0.6, 0.6, 0.7, 0.7)]), NOW, NOW])
+    expect((await embedDrawing({ db: other.db, documentId: other.docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })).kind).toBe('written')
+    const theirs = file.bytes
+
+    // This window changes its own takeoff and saves: theirs is in the way, so nothing is written.
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'm1'`, [JSON.stringify([sq(0.1, 0.2, 0.4, 0.4)])])
+    const out = await embedDrawing({ ...mine, expectStamp: seen })
+    expect(out.kind).toBe('elsewhere')
+    expect(file.bytes).toBe(theirs)
+    expect(unsavedReason(out, 1)).toMatch(/Someone else saved a different takeoff/)
+    expect(unsavedReason(out, 0)).toBeNull()
+    expect(embedStatus(out, 'A-101')).toMatch(/someone else saved/)
+
+    // Without the check (a project window, whose database is the record) the old behaviour stands.
+    expect((await embedDrawing(mine)).kind).toBe('written')
+  })
+
+  it('still saves when the takeoff in the file is the one this window last saw, or says the same thing', async () => {
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    const mine = { db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true }
+    const first = await embedDrawing({ ...mine, expectStamp: null })
+    const seen = first.kind === 'written' ? first.stamp! : null
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'm1'`, [JSON.stringify([sq(0.1, 0.2, 0.4, 0.4)])])
+    const second = await embedDrawing({ ...mine, expectStamp: seen })
+    expect(second.kind).toBe('written')
+    // A stale stamp, but the file already says exactly what this window holds: nothing to fight over.
+    expect((await embedDrawing({ ...mine, expectStamp: seen })).kind).toBe('unchanged')
   })
 
   it('leaves behind markups whose sheet is missing or another size, and says how many', async () => {

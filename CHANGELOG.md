@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.30 — 2026-11-19
+## 0.3.31 — 2026-11-19
 
 ### The Takeoff panel follows where you are with a scope
 
@@ -14,6 +14,14 @@ SmartScreen will ask once.
 - **Setup first, then markups.** A new scope opens with Setup. While you take off, and once you're done, Markups comes first and Setup folds to a one-line summary. Open or fold either one at any time.
 - **Product is the first Setup field.** It used to be a small dropdown under the scope name.
 - **Take off shows when it's on** for the scope you're looking at.
+
+## 0.3.30 — 2026-11-19
+
+### Two people's takeoffs no longer overwrite each other
+
+- **A takeoff saved by someone else is not replaced.** If a PDF is open in two REDBEAM windows, or a synced copy comes in from a colleague, and the other side saves its takeoff first, REDBEAM used to save yours straight over theirs. It now notices the PDF carries a takeoff it has not seen and does not write.
+- **You choose what happens to yours.** Ctrl+S, closing the file and closing the window all ask: save yours as a copy, or leave without saving and reopen the PDF to see theirs. A window that only looked at the file is not asked anything.
+- Markups added in Bluebeam are not affected: they were already kept, and still are.
 
 ## 0.3.29 — 2026-11-19
 

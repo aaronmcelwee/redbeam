@@ -120,6 +120,13 @@ export interface EmbedInput {
   markups: readonly EmbedMarkup[]
   pageScales: ReadonlyMap<number, number>
   pageRegions?: ReadonlyMap<number, readonly WritableScaleRegion[]>
+  /**
+   * The takeoff this writer last saw in the file (`sliceStamp`), or null for
+   * none. When the file now carries a different one that also differs from
+   * what is being written, somebody else saved a takeoff in between, and
+   * nothing is written: the result says `conflict`. Left out, no check.
+   */
+  expectStamp?: string | null
   /** For tests; defaults to the clock. */
   now?: () => Date
 }
@@ -131,6 +138,15 @@ export interface EmbedResult {
   editedElsewhere: string[]
   /** Annotations from other apps that were kept. */
   foreignKept: number
+  /** `sliceStamp` of the takeoff the file carries after this call. */
+  stamp: string | null
+  /** Another writer's takeoff is in the file; see `EmbedInput.expectStamp`. */
+  conflict?: true
+}
+
+/** Names one save of a takeoff: no two saves share it, even of the same content. */
+export function sliceStamp(slice: Pick<SheetSlice, 'writtenAt' | 'contentHash'> | null): string | null {
+  return slice === null ? null : `${slice.writtenAt}|${slice.contentHash}`
 }
 
 // ------------------------------------------------------------- hashing --
@@ -719,7 +735,13 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
   }
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0
     && prev.documentId === input.documentId) {
-    return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots }
+    return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }
+  }
+  // Someone else saved a different takeoff into this file since this writer
+  // last looked. Writing now would replace theirs with ours, unseen.
+  if (input.expectStamp !== undefined && prev !== null && sliceStamp(prev) !== input.expectStamp
+    && prev.contentHash !== contentHash) {
+    return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev), conflict: true }
   }
 
   const when = pdfDate(input.now?.() ?? new Date())
@@ -859,6 +881,7 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     bytes: appendIncrementalUpdate(source, doc, changed),
     editedElsewhere,
     foreignKept: before.foreignAnnots,
+    stamp: sliceStamp(slice),
   }
 }
 
