@@ -308,6 +308,8 @@ export function ShellHarness() {
   const statusText = params.get('status')
   // `&light=1`: Light mode's chrome — panel tabs in the title bar, no Files tab.
   const light = params.get('light') !== null
+  // `&stage=setup|takeoff`: the scope pane as a new scope, or while drawing. Review otherwise.
+  const stage = params.get('stage')
   const lightPanels: readonly RailPanel[] = ['contents', 'thumbnails', 'search']
 
   const [rail, setRail] = useState<RailPanel | null>(() => {
@@ -365,7 +367,12 @@ export function ShellHarness() {
   const pendingText = moment === 'scanning'
     ? 'Reading the project folder…'
     : moment === 'opening' ? 'Opening the drawing…' : null
-  const scopes = empty || moment === 'noscopes' ? [] : SCOPES
+  const scopes = empty || moment === 'noscopes'
+    ? []
+    : stage === 'setup'
+      // A scope just added: the product chosen, its size not yet.
+      ? [{ ...SCOPES[0]!, specifications: { productType: 'panels' } }, ...SCOPES.slice(1)]
+      : SCOPES
   const estimates = empty ? [] : moment === 'noscopes'
     ? [{ id: 'e3', name: '260903 - Tender', scopeCount: 0, markupCount: 0 }]
     : ESTIMATES
@@ -668,12 +675,12 @@ export function ShellHarness() {
           : id === 'c-bf-02'
             ? { rows: [{ itemKey: 'length_lf', label: 'Length', unit: 'LF', quantity: 412.5 }], committedAt: null, changed: 0 }
             : { rows: [], committedAt: null, changed: 0 })}
-        rows={[
+        rows={stage === 'setup' ? [] : [
           { itemKey: 'area_sf', label: 'Area', unit: 'SF', quantity: 19968 },
           { itemKey: 'perimeter_lf', label: 'Perimeter', unit: 'LF', quantity: 412.5 },
         ]}
-        pieces={PANEL_PIECES}
-        markups={[
+        {...(stage === 'setup' ? {} : { pieces: PANEL_PIECES })}
+        markups={stage === 'setup' ? [] : [
           { id: '1', kind: 'area', name: 'Area 1', page: 5, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '1,204.3 SF' },
           { id: '2', kind: 'area', name: 'Area 2', page: 6, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '2,411.8 SF' },
           { id: '3', kind: 'cutout', name: 'Cutout 1', parentName: 'Area 2', page: 6, documentId: 'doc-a101', documentName: 'A-101 FLOOR PLAN.pdf', inOpenDocument: true, measure: '−87.2 SF' },
@@ -689,6 +696,7 @@ export function ShellHarness() {
         onRestoreScope={() => {}}
         onSaveScope={() => {}}
         onTakeOff={() => setTakeoff(true)}
+        takingOff={takeoff || stage === 'takeoff'}
         warnings={params.get('warnings') === null ? [] : [
           'Sheet AE6-01-02 has no scale, so 2 markups on it contribute nothing.',
           'C-BF-02 has no pattern direction.',

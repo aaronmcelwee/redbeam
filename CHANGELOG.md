@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.31 — 2026-11-19
+
+### The Takeoff panel follows where you are with a scope
+
+- **A summary card on top.** Area, perimeter (or length, or count) and the parts list now sit together in one card at the top of the scope, always open.
+- **Copy for your estimate.** The card's Copy button puts the summary on the clipboard as a two-column table, item on the left and number on the right, ready to paste into Excel.
+- **Setup first, then markups.** A new scope opens with Setup. While you take off, and once you're done, Markups comes first and Setup folds to a one-line summary. Open or fold either one at any time.
+- **Product is the first Setup field.** It used to be a small dropdown under the scope name.
+- **Take off shows when it's on** for the scope you're looking at.
+
 ## 0.3.30 — 2026-11-19
 
 ### Two people's takeoffs no longer overwrite each other
