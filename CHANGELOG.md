@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.38 — 2026-11-19
+
+### A new app icon: a glass prism
+
+- **REDBEAM has its own icon.** A clear glass prism turns a white beam into a red one, rendered in Blender with Cycles. It replaces the placeholder orange in the taskbar, Start menu, installer and window title.
+- **Sharp at every size.** The taskbar and title-bar sizes (16 to 44 px) use a closer, simpler render with thicker beams, so the prism still reads as a prism at 16 px.
+
 ## 0.3.37 — 2026-11-19
 
 ### Every panel follows Windows 11's own rules
