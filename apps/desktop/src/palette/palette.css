@@ -118,7 +118,7 @@
 .pp-refusal > svg { color: var(--rb-bad); flex: none; }
 
 /* ----------------------------------------------------------------- list -- */
-.pp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 6px; scrollbar-gutter: stable; }
+.pp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 6px; scrollbar-gutter: stable; }
 .pp-group {
   display: flex; align-items: center; gap: 10px;
   height: 26px; padding: 8px 14px 0;
