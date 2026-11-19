@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib'
 import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import {
-  copyName, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice,
+  copyName, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice, importTakeoffFromSlice, takeoffImportStatus,
   migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
   type DrawingFile,
 } from './drawingEmbed.js'
@@ -412,6 +412,60 @@ describe('light mode files', () => {
     expect(await target.db.all('SELECT id FROM markups')).toEqual([])
     expect(scopeImportStatus(result, 'A-101 round 1.pdf')).toBe('1 scope imported from A-101 round 1.pdf, 1 already here by name')
     expect(scopeImportStatus({ added: [], skipped: [] }, 'x.pdf')).toBe('x.pdf carries no REDBEAM scopes')
+  })
+
+  it('starts a file from another PDF\'s takeoff: scopes and markups, on the sheets that match', async () => {
+    await seedTakeoff(db, docId)
+    // A second sheet in the old set, with its own area.
+    await db.run(`INSERT INTO pages(id,document_id,page_number,width_pdf_points,height_pdf_points,created_at,updated_at)
+      VALUES(?,?,1,2592,1728,?,?)`, [`${docId}-p1`, docId, NOW, NOW])
+    await db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+      VALUES('m2',?,?,'s1','area',?,'user',?,?)`, [docId, `${docId}-p1`, JSON.stringify([sq(0.5, 0.5, 0.6, 0.6)]), NOW, NOW])
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const slice = (await readSheetEmbed(file.bytes)).slice!
+
+    // The new set: sheet 1 is the same size and not visited yet, so it has no row here.
+    const target = await freshDb('Rev B/A-101.pdf')
+    const sizes = [{ width: 2592, height: 1728 }, { width: 2592, height: 1728 }]
+    const result = await importTakeoffFromSlice(target.db, target.docId, slice, sizes)
+    expect(result).toMatchObject({ added: ['ACT-1 Ceiling'], markups: 2, sheets: 2, already: 0, unplaced: 0 })
+    const rows = await target.db.all<{ id: string, page_id: string, scope_id: string }>('SELECT id, page_id, scope_id FROM markups ORDER BY page_id')
+    expect(rows.map((r) => r.page_id)).toEqual([`${target.docId}-p0`, `${target.docId}-p1`])
+    // New ids throughout: the two files never share a row.
+    expect(rows.map((r) => r.id)).not.toContain('m1')
+    const scope = await target.db.all<{ id: string }>('SELECT id FROM scopes')
+    expect(scope[0]!.id).not.toBe('s1')
+    expect(rows.every((r) => r.scope_id === scope[0]!.id)).toBe(true)
+    // The sheet's scale came too, so the copy measures what the original did.
+    const tables = await sliceTables(target.db, target.docId, { allScopes: true })
+    const { markups } = embedMarkupsFor(tables, target.docId)
+    expect(markups.find((m) => m.pageIndex === 0)!.quantity).toBeCloseTo(57.6 * 38.4, 1)
+    expect(takeoffImportStatus(result, 'A-101.pdf')).toBe('2 markups on 2 sheets copied from A-101.pdf, 1 scope added')
+
+    // Doing it again adds nothing.
+    const again = await importTakeoffFromSlice(target.db, target.docId, slice, sizes)
+    expect(again).toMatchObject({ added: [], skipped: ['ACT-1 Ceiling'], markups: 0, already: 2 })
+    expect((await target.db.all('SELECT id FROM markups')).length).toBe(2)
+    expect(takeoffImportStatus(again, 'A-101.pdf')).toBe('nothing new in A-101.pdf, 2 markups were already here')
+  })
+
+  it('leaves behind markups whose sheet is missing or another size, and says how many', async () => {
+    await seedTakeoff(db, docId)
+    await db.run(`INSERT INTO pages(id,document_id,page_number,width_pdf_points,height_pdf_points,created_at,updated_at)
+      VALUES(?,?,1,2592,1728,?,?)`, [`${docId}-p1`, docId, NOW, NOW])
+    await db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,origin,created_at,updated_at)
+      VALUES('m2',?,?,'s1','area',?,'user',?,?)`, [docId, `${docId}-p1`, JSON.stringify([sq(0.5, 0.5, 0.6, 0.6)]), NOW, NOW])
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const slice = (await readSheetEmbed(file.bytes)).slice!
+
+    // Sheet 1 was reissued on a smaller sheet.
+    const target = await freshDb('Rev B/A-101.pdf')
+    const result = await importTakeoffFromSlice(target.db, target.docId, slice, [{ width: 2592, height: 1728 }, { width: 1224, height: 792 }])
+    expect(result).toMatchObject({ markups: 1, sheets: 1, unplaced: 1 })
+    expect(takeoffImportStatus(result, 'A-101.pdf')).toMatch(/1 markup on 1 sheet copied.*1 markup was left behind: its sheet is missing or a different size/)
+    expect(takeoffImportStatus({ added: [], skipped: [], markups: 0, sheets: 0, already: 0, unplaced: 0 }, 'x.pdf')).toBe('x.pdf carries no REDBEAM takeoff')
   })
 })
 

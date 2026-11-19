@@ -861,3 +861,20 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     foreignKept: before.foreignAnnots,
   }
 }
+
+/**
+ * Each sheet's visible size in PDF points, by zero-based sheet number. For
+ * matching one PDF's sheets against another's without opening every page in
+ * the viewer. A sheet that cannot be measured is null.
+ */
+export async function sheetSizes(bytes: Uint8Array): Promise<Array<{ width: number, height: number } | null>> {
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false, throwOnInvalidObject: false })
+  return doc.getPages().map((p) => {
+    try {
+      const box = p.getCropBox()
+      return box.width > 0 && box.height > 0 ? { width: box.width, height: box.height } : null
+    } catch {
+      return null
+    }
+  })
+}

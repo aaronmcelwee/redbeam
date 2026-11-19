@@ -748,6 +748,167 @@ export async function importScopesFromSlice(db: SqlDriver, slice: SheetSlice): P
   return out
 }
 
+export interface TakeoffImport extends ScopeImport {
+  /** Markups copied onto this file's sheets. */
+  markups: number
+  /** How many sheets they landed on. */
+  sheets: number
+  /** Markups already here, exactly as they are in the other PDF. */
+  already: number
+  /** Markups whose sheet this file does not have at the same size. */
+  unplaced: number
+}
+
+/** A sheet's size in PDF points, by zero-based sheet number. Null where it is not known. */
+export type SheetSizes = ReadonlyArray<{ width: number, height: number } | null>
+
+const sameSheet = (a: { width: number, height: number }, w: number, h: number): boolean =>
+  (Math.abs(a.width - w) <= 1 && Math.abs(a.height - h) <= 1) || (Math.abs(a.width - h) <= 1 && Math.abs(a.height - w) <= 1)
+
+/**
+ * Start this file from another PDF's takeoff: its scopes AND its markups.
+ *
+ * Aaron, 2026-11-19: "copying markups and scope information from one set to
+ * another in Light mode is, in essence, copying an old estimate to a new
+ * estimate in Pro mode." A revised drawing set arrives as a new PDF; the
+ * takeoff drawn on the last one is the starting point for this one.
+ *
+ * A markup goes to the sheet with the same number, and only when that sheet is
+ * the same size here as it was there: markups are stored as fractions of the
+ * sheet, so on a sheet of another size they would land somewhere else and
+ * measure wrong. Those are counted, not guessed at. A sheet's scale comes
+ * across where this file has none for it. Everything copied gets a new id, so
+ * the two files never share a row; a scope this file already has by name is
+ * used rather than duplicated, and a markup already here is not added twice.
+ */
+export async function importTakeoffFromSlice(
+  db: SqlDriver,
+  documentId: string,
+  slice: SheetSlice,
+  sheets: SheetSizes,
+): Promise<TakeoffImport> {
+  const out: TakeoffImport = { added: [], skipped: [], markups: 0, sheets: 0, already: 0, unplaced: 0 }
+  const now = new Date().toISOString()
+  await db.exec('BEGIN')
+  try {
+    // Scopes: a new row each, or the one this file already has by that name.
+    const have = await db.all<{ id: string, label: string }>('SELECT id, label FROM scopes WHERE archived_at IS NULL')
+    const byName = new Map(have.map((r) => [r.label.trim().toLowerCase(), r.id]))
+    const scopeFor = new Map<string, string>()
+    for (const raw of slice.tables.scopes ?? []) {
+      if (raw.archived_at !== null && raw.archived_at !== undefined) continue
+      const label = String(raw.label ?? '').trim()
+      if (label === '') continue
+      const here = byName.get(label.toLowerCase())
+      if (here !== undefined) { scopeFor.set(String(raw.id), here); out.skipped.push(label); continue }
+      const id = `sc-${crypto.randomUUID()}`
+      await db.run(
+        `INSERT INTO scopes(id, label, scope_type, color, specifications_json, archived_at, created_at, updated_at)
+         VALUES(?,?,?,?,?,NULL,?,?)`,
+        [id, label, String(raw.scope_type ?? 'area'), String(raw.color ?? '#888888'),
+          typeof raw.specifications_json === 'string' ? raw.specifications_json : '{}', now, now])
+      byName.set(label.toLowerCase(), id)
+      scopeFor.set(String(raw.id), id)
+      out.added.push(label)
+    }
+
+    // Sheets: the other PDF's page id -> this file's, where the sheet matches.
+    const mine = await db.all<{ id: string, page_number: number, w: number | null, h: number | null }>(
+      'SELECT id, page_number, width_pdf_points AS w, height_pdf_points AS h FROM pages WHERE document_id = ?', [documentId])
+    const mineByNumber = new Map(mine.map((p) => [Number(p.page_number), p]))
+    const pageFor = new Map<string, string>()
+    for (const raw of slice.tables.pages ?? []) {
+      const n = Number(raw.page_number)
+      const w = Number(raw.width_pdf_points)
+      const h = Number(raw.height_pdf_points)
+      if (!Number.isInteger(n) || !(w > 0) || !(h > 0)) continue
+      const row = mineByNumber.get(n)
+      if (row !== undefined) {
+        if (row.w !== null && row.h !== null && sameSheet({ width: row.w, height: row.h }, w, h)) pageFor.set(String(raw.id), row.id)
+        continue
+      }
+      const size = sheets[n]
+      if (size === null || size === undefined || !sameSheet(size, w, h)) continue
+      // Not visited in this window yet. Same sheet, so the box the other file measured is this one's.
+      const id = `${documentId}-p${n}`
+      await db.run(
+        `INSERT OR IGNORE INTO pages(id, document_id, page_number, width_pdf_points, height_pdf_points, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?)`, [id, documentId, n, w, h, now, now])
+      pageFor.set(String(raw.id), id)
+    }
+
+    // Scales, where this file has none for the sheet.
+    for (const raw of slice.tables.calibrations ?? []) {
+      const pageId = pageFor.get(String(raw.page_id))
+      if (pageId === undefined) continue
+      await db.run(
+        `INSERT OR IGNORE INTO calibrations(id, document_id, page_id, feet_per_pdf_point, source, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?)`,
+        [`cal-${crypto.randomUUID()}`, documentId, pageId, Number(raw.feet_per_pdf_point), String(raw.source ?? 'manual'), now, now])
+    }
+    const regioned = new Set((await db.all<{ page_id: string }>(
+      'SELECT DISTINCT page_id FROM scale_regions WHERE document_id = ?', [documentId])).map((r) => r.page_id))
+    for (const raw of slice.tables.scale_regions ?? []) {
+      const pageId = pageFor.get(String(raw.page_id))
+      if (pageId === undefined || regioned.has(pageId)) continue
+      await db.run(
+        `INSERT INTO scale_regions(id, document_id, page_id, label, x0, y0, x1, y1, feet_per_pdf_point, source, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [`sr-${crypto.randomUUID()}`, documentId, pageId, String(raw.label ?? ''), Number(raw.x0), Number(raw.y0), Number(raw.x1), Number(raw.y1),
+          Number(raw.feet_per_pdf_point), String(raw.source ?? 'manual'), now, now])
+    }
+
+    // Markups.
+    const existing = await db.all<{ page_id: string, scope_id: string | null, kind: string, geometry_json: string }>(
+      'SELECT page_id, scope_id, kind, geometry_json FROM markups WHERE document_id = ? AND deleted_at IS NULL', [documentId])
+    const key = (pageId: string, scopeId: string | null, kind: string, geometry: string) => `${pageId}|${scopeId ?? ''}|${kind}|${geometry}`
+    const here = new Set(existing.map((m) => key(m.page_id, m.scope_id, m.kind, m.geometry_json)))
+    const landed = new Set<string>()
+    for (const raw of slice.tables.markups ?? []) {
+      if (raw.deleted_at !== null && raw.deleted_at !== undefined) continue
+      const pageId = pageFor.get(String(raw.page_id))
+      if (pageId === undefined) { out.unplaced++; continue }
+      const scopeId = raw.scope_id === null || raw.scope_id === undefined ? null : scopeFor.get(String(raw.scope_id)) ?? null
+      const kind = String(raw.kind)
+      const geometry = String(raw.geometry_json)
+      const k = key(pageId, scopeId, kind, geometry)
+      if (here.has(k)) { out.already++; continue }
+      await db.run(
+        `INSERT INTO markups(id, document_id, page_id, scope_id, kind, geometry_json, style_json, content_json, origin, review_state, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [crypto.randomUUID(), documentId, pageId, scopeId, kind, geometry,
+          typeof raw.style_json === 'string' ? raw.style_json : '{}', typeof raw.content_json === 'string' ? raw.content_json : '{}',
+          String(raw.origin ?? 'user'), String(raw.review_state ?? 'accepted'), now, now])
+      here.add(k)
+      landed.add(pageId)
+      out.markups++
+    }
+    out.sheets = landed.size
+    await db.exec('COMMIT')
+  } catch (err) {
+    await db.exec('ROLLBACK')
+    throw err
+  }
+  return out
+}
+
+/** What to say after starting a file from another PDF's takeoff. */
+export function takeoffImportStatus(result: TakeoffImport, from: string): string {
+  const scopes = result.added.length + result.skipped.length
+  if (scopes === 0 && result.markups + result.already + result.unplaced === 0) return `${from} carries no REDBEAM takeoff`
+  const parts: string[] = []
+  if (result.markups > 0) {
+    parts.push(`${result.markups} markup${result.markups === 1 ? '' : 's'} on ${result.sheets} sheet${result.sheets === 1 ? '' : 's'} copied from ${from}`)
+  }
+  if (result.added.length > 0) parts.push(`${result.added.length} scope${result.added.length === 1 ? '' : 's'} added`)
+  if (result.markups === 0 && result.added.length === 0) parts.push(`nothing new in ${from}`)
+  if (result.already > 0) parts.push(`${result.already} markup${result.already === 1 ? ' was' : 's were'} already here`)
+  if (result.unplaced > 0) {
+    parts.push(`${result.unplaced} markup${result.unplaced === 1 ? ' was' : 's were'} left behind: ${result.unplaced === 1 ? 'its sheet is' : 'their sheets are'} missing or a different size in this PDF`)
+  }
+  return parts.join(', ')
+}
+
 /** What to say after importing scopes from another PDF. */
 export function scopeImportStatus(result: ScopeImport, from: string): string {
   if (result.added.length === 0 && result.skipped.length === 0) return `${from} carries no REDBEAM scopes`
