@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.20 — 2026-11-19
+
+### Keyboard and toolbar fixes
+
+- **No more crosshair out of nowhere.** Pressing Ctrl+K to open the command palette also armed the Calibrate tool behind it, so the sheet showed a crosshair nobody chose. Ctrl+L, Ctrl+H and Ctrl+X did the same to other tools. Tool letters now only work on their own, without Ctrl, Alt or the Windows key (#29).
+- **Arrow keys change sheets.** Left and Right step to the previous and next sheet, and so do PgUp and PgDn, which the ⋯ menu already listed but never did anything (#30).
+- **Pan and Select stay on the toolbar.** On a narrow window one of them used to disappear whenever the other was in use. Both now show at every width (#31).
+
 ## 0.3.19 — 2026-11-18
 
 ### Light mode shows only what a single PDF needs
