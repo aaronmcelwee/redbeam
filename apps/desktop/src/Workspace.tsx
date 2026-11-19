@@ -8634,6 +8634,7 @@ export default function Workspace({
         onToggleLayout={setLayoutOn}
         {...(commitState !== undefined ? { commit: commitState } : {})}
         onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool(firstToolFor(id)) }}
+        takingOff={takeoff && openScopeId !== null && activeScope === openScopeId}
         onExportEstimate={openEstimateExport}
         {...(exportDraft !== null
           ? {

@@ -14,6 +14,16 @@ SmartScreen will ask once.
 - **What cannot come back is said.** Product details entered on a scope were only in the dropped data, so they need entering again, and a sheet whose scale the other app also removed needs its scale set again. A note in the warning bar says which applies.
 - If even one markup cannot be read back, nothing is rebuilt and the file opens as before: untouched, with Save a copy.
 
+## 0.3.31 — 2026-11-19
+
+### The Takeoff panel follows where you are with a scope
+
+- **A summary card on top.** Area, perimeter (or length, or count) and the parts list now sit together in one card at the top of the scope, always open.
+- **Copy for your estimate.** The card's Copy button puts the summary on the clipboard as a two-column table, item on the left and number on the right, ready to paste into Excel.
+- **Setup first, then markups.** A new scope opens with Setup. While you take off, and once you're done, Markups comes first and Setup folds to a one-line summary. Open or fold either one at any time.
+- **Product is the first Setup field.** It used to be a small dropdown under the scope name.
+- **Take off shows when it's on** for the scope you're looking at.
+
 ## 0.3.30 — 2026-11-19
 
 ### Two people's takeoffs no longer overwrite each other
