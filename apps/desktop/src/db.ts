@@ -18,6 +18,7 @@ import {
   isTauriAvailable,
   type MigrateResult,
   type SqlDriver,
+  type UndoMode,
 } from '@redbeam/store'
 
 const DB_NAME = 'redbeam'
@@ -31,6 +32,20 @@ const migrationSql = import.meta.glob('../../../packages/store/migrations/*.sql'
 }) as Record<string, string>
 
 export type DbBackend = 'tauri' | 'sqljs'
+
+/**
+ * Where an undo stack over this database keeps its history.
+ *
+ * The core's undo performs the write itself, against the project database
+ * the core holds open. A database that lives in this page (Light mode's
+ * in-memory one, or the browser build's) is not one the core holds, so its
+ * stack must stay in memory too. Left on 'auto', a Light window under Tauri
+ * sent every takeoff to the core, which refused it with "no project database
+ * is open" (Aaron, 2026-11-19).
+ */
+export function undoModeFor(backend: DbBackend): UndoMode {
+  return backend === 'tauri' ? 'core' : 'memory'
+}
 
 export interface OpenedDb {
   driver: SqlDriver
