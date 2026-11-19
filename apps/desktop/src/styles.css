@@ -165,7 +165,7 @@ body {
 }
 .grow { flex: 1; overflow: hidden; text-overflow: ellipsis }
 .muted { color: var(--ink-3); white-space: normal }
-.mono { font-family: ui-monospace, monospace; font-size: 11px }
+.mono { font-family: ui-monospace, monospace; font-size: var(--rb-caption) }
 .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none }
 
 /* A section caption: Fluent's Caption size in ink-3, not a mono all-caps
@@ -188,22 +188,22 @@ h4 {
 
 /* ---- page strip ---- */
 .pagestrip { background: var(--surface-bar); border-bottom: 1px solid var(--rule); flex: none }
-.pagenav { display: flex; gap: 6px; align-items: center; padding: 5px 10px; font-size: 12px }
+.pagenav { display: flex; gap: 6px; align-items: center; padding: 5px 10px; font-size: var(--rb-caption) }
 .pagenav button {
   background: var(--raised); color: var(--ink-2); border: 1px solid var(--rule-strong);
-  border-radius: var(--r-md); padding: 1px 9px; font: inherit; font-size: 14px; line-height: 1.4; cursor: pointer;
+  border-radius: var(--r-md); padding: 1px 9px; font: inherit; font-size: var(--rb-body); line-height: 1.4; cursor: pointer;
 }
 .pagenav button:hover:not(:disabled) { background: var(--hover-2) }
 .pagenav button:disabled { opacity: .35; cursor: default }
 .pagenav input {
   background: var(--input); color: var(--ink); border: 1px solid var(--rule-strong);
-  border-radius: var(--r-md); padding: 2px 5px; font: inherit; font-size: 12px; text-align: center;
+  border-radius: var(--r-md); padding: 2px 5px; font: inherit; font-size: var(--rb-caption); text-align: center;
 }
 .thumbs { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 0 10px 8px; scrollbar-width: thin }
 .thumb {
   flex: none; background: none; border: 1px solid var(--rule-strong); border-radius: var(--r-sm);
   padding: 3px; cursor: pointer; display: grid; gap: 2px; justify-items: center;
-  color: var(--ink-3); font: inherit; font-size: 10px;
+  color: var(--ink-3); font: inherit; font-size: var(--rb-caption);
 }
 .thumb:hover { border-color: var(--ink-4) }
 /* The current sheet, in the same red the sheet index and the rail use for it. */
@@ -237,10 +237,10 @@ h4 {
 
 
 
-.field { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px }
+.field { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: var(--rb-caption) }
 .field > span:first-child { width: 66px; flex: 0 0 66px; color: var(--ink-3) }
 .field input, .field select { flex: 1; min-width: 0; background: var(--input-deep); color: var(--ink);
-  border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: 3px 5px; font: inherit; font-size: 12px }
+  border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: 3px 5px; font: inherit; font-size: var(--rb-caption) }
 .palette { display: flex; flex-wrap: wrap; gap: 4px }
 /* A colour chip is a target as well as a swatch: 16px square is smaller than
    the pointer that has to hit it. The swatch keeps its size, drawn inside a
@@ -250,12 +250,12 @@ h4 {
 .chip.on { border-color: var(--ink) }
 
 .measure { display: grid; grid-template-columns: 66px 1fr 52px; gap: 6px; align-items: center;
-  padding: 3px 10px; font-size: 12px }
+  padding: 3px 10px; font-size: var(--rb-caption) }
 
 .measure .req { color: var(--warn); font-style: normal; margin-left: 2px }
 .measure input, .measure select { background: var(--input-deep); color: var(--ink);
   border: 1px solid var(--rule-strong); border-radius: var(--r-sm); padding: 3px 5px;
-  font: inherit; font-size: 12px; min-width: 0 }
+  font: inherit; font-size: var(--rb-caption); min-width: 0 }
 
 .measure.bad input { border-color: var(--danger) }
 
@@ -335,7 +335,7 @@ h4 {
  * footer. The whole window is a drop target.
  */
 /* No position here: `.startscreen` is fixed to the window, and a `relative` on this later rule cut the screen off at its content. */
-.st { font-size: 13px; line-height: 18px; color: var(--rb-ink); }
+.st { font-size: var(--rb-body); line-height: 20px; color: var(--rb-ink); }
 .st.dropping { box-shadow: inset 0 0 0 2px var(--rb-accent); }
 .st-body {
   grid-row: 2;
@@ -352,50 +352,50 @@ h4 {
 .st-head { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
 /* The app mark: the one place red is spent (theme.test.ts, "the red budget"). */
 .st-mark {
-  width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center;
-  color: var(--rb-ink); font: 700 15px var(--ads-sans);
+  width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center;
+  color: var(--rb-ink); font: 600 var(--rb-body) var(--ads-sans);
   background: var(--rb-red);
 }
-.st-title { margin: 0; font-size: 24px; line-height: 28px; font-weight: 600; }
-.st-tag { margin: 0; color: var(--rb-ink-3); font-size: 12px; }
-.st-notice { margin: 0 0 var(--ads-sp-3); color: var(--rb-ink-3); font-size: 12px; }
-.st-error { display: flex; align-items: center; gap: var(--ads-sp-2); margin: 0 0 var(--ads-sp-3); padding: var(--ads-sp-2) var(--ads-sp-3); border-radius: 4px; background: var(--rb-bad-bg); font-size: 12px; }
+.st-title { margin: 0; font-size: var(--rb-title); line-height: 36px; font-weight: 600; }
+.st-tag { margin: 0; color: var(--rb-ink-3); font-size: var(--rb-caption); }
+.st-notice { margin: 0 0 var(--ads-sp-3); color: var(--rb-ink-3); font-size: var(--rb-caption); }
+.st-error { display: flex; align-items: center; gap: var(--ads-sp-2); margin: 0 0 var(--ads-sp-3); padding: var(--ads-sp-2) var(--ads-sp-3); border-radius: 4px; background: var(--rb-bad-bg); font-size: var(--rb-caption); }
 .st-error > svg { color: var(--rb-bad); flex: none; }
-.st-sec { margin: 0 0 10px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--rb-ink-3); }
+.st-sec { margin: 0 0 10px; font-size: var(--rb-caption); line-height: 16px; font-weight: 600; color: var(--rb-ink-3); }
 .st-find {
   display: flex; align-items: center; gap: var(--ads-sp-2);
   height: 32px; padding: 0 10px; margin-bottom: var(--ads-sp-2);
   border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-3);
 }
 .st-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); }
-.st-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: 13px var(--ads-sans); }
+.st-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: var(--rb-body) var(--ads-sans); }
 .st-find > input:focus { outline: 0; }
 .st-find > input::placeholder { color: var(--rb-ink-4); }
 .st-keys { display: inline-flex; gap: 4px; }
 .st-keys kbd, .st-card kbd {
   display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px;
-  border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-2); font: 11px var(--ads-sans);
+  border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-2); font: var(--rb-caption) var(--ads-sans);
 }
 .st-list { display: flex; flex-direction: column; }
-.st-empty { padding: var(--ads-sp-3) var(--ads-sp-2); color: var(--rb-ink-3); font-size: 12px; }
+.st-empty { padding: var(--ads-sp-3) var(--ads-sp-2); color: var(--rb-ink-3); font-size: var(--rb-caption); }
 .st-row {
   display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 24px; gap: 12px; align-items: center;
-  height: 56px; padding: 0 10px 0 6px; border-radius: 6px; cursor: pointer;
+  height: 56px; padding: 0 10px 0 6px; border-radius: 4px; cursor: pointer;
 }
 .st-row:hover, .st-row.armed { background: var(--rb-raised); }
 .st-row.renaming, .st-row.confirming { grid-template-columns: 36px minmax(0, 1fr) auto auto; cursor: default; }
 .st-row.confirming { height: auto; min-height: 56px; padding-block: var(--ads-sp-2); }
 .st-row.busy { opacity: .7; }
-.st-ico { width: 36px; height: 36px; border-radius: 6px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink-2); }
+.st-ico { width: 36px; height: 36px; border-radius: 4px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink-2); }
 .st-row.armed .st-ico { background: var(--rb-hover); color: var(--rb-ink); }
 .st-row.missing .st-name { color: var(--rb-ink-3); }
 .st-row.missing .st-ico { color: var(--rb-ink-4); }
 .st-rowtext { min-width: 0; display: flex; flex-direction: column; }
 .st-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.st-path { font: 11px var(--ads-mono); color: var(--rb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-path { font: var(--rb-caption) var(--rb-figures); color: var(--rb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-row.confirming .st-path { font-family: var(--ads-sans); white-space: normal; }
-.st-when { font-size: 11px; color: var(--rb-ink-3); white-space: nowrap; }
-.st-link { border: 0; background: transparent; padding: 0; color: var(--rb-accent); font: 11px var(--ads-sans); cursor: pointer; white-space: nowrap; }
+.st-when { font-size: var(--rb-caption); color: var(--rb-ink-3); white-space: nowrap; }
+.st-link { border: 0; background: transparent; padding: 0; color: var(--rb-accent); font: var(--rb-caption) var(--ads-sans); cursor: pointer; white-space: nowrap; }
 .st-link:hover { text-decoration: underline; }
 .st-pin { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-4); cursor: pointer; opacity: 0; }
 .st-row:hover .st-pin, .st-row.armed .st-pin, .st-pin.on { opacity: 1; }
@@ -410,18 +410,18 @@ h4 {
 .nesting-card {
   width: min(440px, calc(100vw - 48px)); padding: 20px; border-radius: 8px;
   background: var(--rb-panel); color: var(--rb-ink); border: 1px solid var(--rb-line);
-  box-shadow: 0 16px 48px color-mix(in srgb, black 35%, transparent);
+  box-shadow: var(--rb-shadow-dialog);
 }
-.nesting-card h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
-.nesting-card p { margin: 0 0 16px; color: var(--rb-ink-2); font-size: 13px; line-height: 1.4; }
+.nesting-card h2 { margin: 0 0 8px; font-size: var(--rb-subtitle); font-weight: 600; }
+.nesting-card p { margin: 0 0 16px; color: var(--rb-ink-2); font-size: var(--rb-body); line-height: 1.4; }
 .nesting-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .nesting-actions .st-btn { height: 32px; }
-.st-rename { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); color: var(--rb-ink); font: 600 13px var(--ads-sans); }
+.st-rename { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); color: var(--rb-ink); font: 600 var(--rb-body) var(--ads-sans); }
 .st-rename:focus { outline: 0; }
-.st-btn { height: 28px; padding: 0 10px; border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink); font: 12px var(--ads-sans); cursor: pointer; white-space: nowrap; }
+.st-btn { height: 28px; padding: 0 10px; border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink); font: var(--rb-caption) var(--ads-sans); cursor: pointer; white-space: nowrap; }
 .st-btn.subtle { border-color: transparent; background: transparent; color: var(--rb-ink-2); }
 .st-btn.danger { color: var(--rb-bad); }
-.st-count { padding: 10px 8px; color: var(--rb-ink-4); font-size: 11px; }
+.st-count { padding: 10px 8px; color: var(--rb-ink-4); font-size: var(--rb-caption); }
 /* The ways in, as cards. */
 .st-card {
   display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; width: 100%;
@@ -436,23 +436,22 @@ h4 {
 .st-cardico { width: 40px; height: 40px; border-radius: 8px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink); }
 .st-card.primary .st-cardico { background: rgba(0, 0, 0, .14); color: var(--rb-accent-ink); }
 .st-cardtext { min-width: 0; display: flex; flex-direction: column; }
-.st-cardtitle { font-size: 13px; font-weight: 600; }
-.st-carddesc { font-size: 11px; line-height: 14px; color: var(--rb-ink-3); }
+.st-cardtitle { font-size: var(--rb-body); font-weight: 600; }
+.st-carddesc { font-size: var(--rb-caption); line-height: 16px; color: var(--rb-ink-3); }
 .st-card.primary .st-carddesc { color: rgba(0, 0, 0, .65); }
 .st-card kbd { background: transparent; border-color: rgba(255, 255, 255, .25); }
 .st-card.primary kbd { border-color: rgba(0, 0, 0, .35); color: var(--rb-accent-ink); }
 .st-pathcard { margin: 0 0 10px; padding: 14px 16px; border: 1px solid var(--rb-line); border-radius: 8px; background: var(--rb-panel); }
 .st-pathcard h4 { margin: 0 0 var(--ads-sp-2); }
-.st-drop { margin-top: 6px; padding: 22px; border: 1px dashed var(--rb-line-2); border-radius: 8px; color: var(--rb-ink-3); font-size: 12px; text-align: center; }
+.st-drop { margin-top: 6px; padding: 22px; border: 1px dashed var(--rb-line-2); border-radius: 8px; color: var(--rb-ink-3); font-size: var(--rb-caption); text-align: center; }
 .st-drop b { color: var(--rb-ink-2); }
 .st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }
-.st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-4); font-size: 11px; }
+.st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-4); font-size: var(--rb-caption); }
 /* Light / Pro, bottom right: a choice made once, so small and out of the way. */
-.st-mode { margin-left: auto; display: inline-flex; border: 1px solid var(--rb-line-2); border-radius: 6px; overflow: hidden; }
-.st-modebtn { appearance: none; border: 0; background: transparent; color: var(--rb-ink-3); font: inherit; font-size: 11px; padding: 3px 12px; cursor: pointer; }
+.st-mode { margin-left: auto; display: inline-flex; border: 1px solid var(--rb-line-2); border-radius: 4px; overflow: hidden; }
+.st-modebtn { appearance: none; border: 0; background: transparent; color: var(--rb-ink-3); font: inherit; font-size: var(--rb-caption); padding: 3px 12px; cursor: pointer; }
 .st-modebtn + .st-modebtn { border-left: 1px solid var(--rb-line-2); }
 .st-modebtn.on { background: var(--rb-accent); color: var(--rb-accent-ink); }
-.st-modebtn:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -2px; }
 /* Compound, so it outranks shell.css's bare .dockmenu whatever order the
  * bundler loads the sheets in; and `bottom: auto`, or the dock menu's
  * `bottom` and this menu's inline `top` squeeze it to a sliver. */
@@ -472,7 +471,7 @@ h4 {
 
 /* Where the crash report went (TH.8). Selectable, because the next thing
    somebody does with a path is copy it. */
-.crashsaved { font-size: 12px; color: var(--ink-3); margin-top: 8px }
+.crashsaved { font-size: var(--rb-caption); color: var(--ink-3); margin-top: 8px }
 
 
 
@@ -517,7 +516,7 @@ h4 {
   mask: radial-gradient(circle, transparent 10px, #000 11px);
   transition: background .3s }
 .sidetabprogress {
-  margin-left: var(--ads-sp-2); font-family: var(--ads-mono); font-size: 11px;
+  margin-left: var(--ads-sp-2); font-family: var(--rb-figures); font-size: var(--rb-caption);
   color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap }
 .sidetab.indexing.on::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
@@ -534,9 +533,9 @@ h4 {
    pane, which is where the next click goes. */
 .stageempty { position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; pointer-events: none }
-.stageempty > div { max-width: 360px; text-align: center; color: var(--ink-3); font-size: 13px;
+.stageempty > div { max-width: 360px; text-align: center; color: var(--ink-3); font-size: var(--rb-body);
   line-height: 1.5 }
-.stageempty strong { display: block; color: var(--ink-2); font-size: 15px; margin-bottom: 4px }
+.stageempty strong { display: block; color: var(--ink-2); font-size: var(--rb-body); margin-bottom: 4px }
 
 /* ---- file tree ----
    Folders at every depth, the way the drawings sit on disk. Depth is a CSS
@@ -568,4 +567,4 @@ h4 {
 .scopemenurow { align-items: center }
 .scopemenutext { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 1px }
 .scopemenulabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.scopemenusub { font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.scopemenusub { font-size: var(--rb-caption); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

@@ -236,6 +236,32 @@
   --rb-pad-row:   12px;   /* row inline padding */
 
   /*
+   * The Windows 11 type ramp, by name (WinUI TextBlock styles). Every font
+   * size in the app is one of these; anything else is a defect.
+   */
+  --rb-caption:    12px;  --rb-caption-lh:  16px;   /* CaptionTextBlockStyle */
+  --rb-body:       14px;  --rb-body-lh:     20px;   /* Body / Body Strong (600) */
+  --rb-body-lg:    18px;  --rb-body-lg-lh:  24px;   /* BodyLargeTextBlockStyle */
+  --rb-subtitle:   20px;  --rb-subtitle-lh: 28px;   /* SubtitleTextBlockStyle, 600 */
+  --rb-title:      28px;  --rb-title-lh:    36px;   /* TitleTextBlockStyle, 600 */
+  /*
+   * Figures were Cascadia Mono, which no Windows app sets quantities in.
+   * Segoe UI Variable with tabular digits keeps the column aligned and the
+   * figure in the same voice as its label. Code-like text (paths in a
+   * crash report) keeps the mono face under `--rb-code`.
+   */
+  --rb-figures:    "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --rb-code:       "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  /*
+   * Elevation: Fluent's shadow ramp, dark theme. A flyout is Shadow16, a
+   * dialog or the palette Shadow64; a card has no shadow, only its stroke.
+   */
+  --rb-shadow-flyout: 0 8px 16px rgba(0, 0, 0, .26);
+  --rb-shadow-dialog: 0 32px 64px rgba(0, 0, 0, .37), 0 2px 21px rgba(0, 0, 0, .37);
+  --rb-shadow-tooltip: 0 4px 8px rgba(0, 0, 0, .26);
+
+  /*
    * Motion: Fluent's own durations and curves. `fast` is a hover, a fold,
    * a chevron; `base` is a surface arriving — a menu, a toast. Decelerate
    * for things that appear, standard for things that move between two
@@ -351,12 +377,35 @@
    * 900px screen, which on a 110-sheet index is the difference between
    * scanning and scrolling.
    */
-  --ads-text-2xs: 10px;  --ads-leading-2xs: 12px;
-  --ads-text-xs:  11px;  --ads-leading-xs:  14px;
-  --ads-text-sm:  12px;  --ads-leading-sm:  16px;
-  --ads-text-base:13px;  --ads-leading-base:18px;
-  --ads-text-lg:  15px;  --ads-leading-lg:  20px;
-  --ads-text-xl:  18px;  --ads-leading-xl:  24px;
+  /*
+   * WinUI 3 consistency pass (Aaron, 2026-11-19): the ramp is Windows' own.
+   * Caption 12/16 is the smallest text Windows sets, so the old 10 and 11
+   * steps fold into it; dense rows stay dense by keeping Caption, not by
+   * going below it. 13 and 15 were between Windows' steps and are gone.
+   */
+  --ads-text-2xs: 12px;  --ads-leading-2xs: 16px;   /* Caption */
+  --ads-text-xs:  12px;  --ads-leading-xs:  16px;   /* Caption */
+  --ads-text-sm:  12px;  --ads-leading-sm:  16px;   /* Caption: dense rows and compact controls */
+  --ads-text-base:14px;  --ads-leading-base:20px;   /* Body */
+  --ads-text-lg:  18px;  --ads-leading-lg:  24px;   /* Body Large */
+  --ads-text-xl:  20px;  --ads-leading-xl:  28px;   /* Subtitle */
+
+  /* Figures are the text face with tabular digits, as Windows sets them. */
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The focus visual, once, for every surface: Fluent's 2px outer ring in
+ * FocusStrokeColorOuter and 1px inner in FocusStrokeColorInner. tokens.css
+ * draws the design system's blue link ring here; start, settings and the
+ * palette sit outside `.shellapp` and were still showing it. A text field
+ * is left out: WinUI marks a focused TextBox with its accent underline, and
+ * every field here draws one.
+ */
+.ads :focus-visible:not(input):not(textarea) {
+  outline: 2px solid var(--rb-focus-outer);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px var(--rb-focus-inner);
 }
 
 /*
