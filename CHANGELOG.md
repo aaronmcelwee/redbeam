@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.23 — 2026-11-19
+
+### Light mode: panel tabs in the title bar
+
+- **The sidebar's tabs moved up.** In Light mode, Contents, Thumbnails and Search now sit in the title bar, in the spot to the right of the app logo where the project switcher used to be. The file's name was there before, but its tab already says it, so the sheet list starts one row higher. Pro mode is unchanged.
+
 ## 0.3.22 — 2026-11-19
 
 ### Sidebars stay put

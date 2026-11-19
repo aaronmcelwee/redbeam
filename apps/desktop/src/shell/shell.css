@@ -403,7 +403,7 @@
 .sidesettings > span { font-size: var(--rb-text-body); }
 
 /* Icons only when collapsed. */
-.shellapp[data-pane="closed"] .sidetabs { flex-direction: column; }
+.shellapp[data-pane="closed"] .side .sidetabs { flex-direction: column; }
 .shellapp[data-pane="closed"] .sidetablabel,
 .shellapp[data-pane="closed"] .sidesettings > span { display: none; }
 .shellapp[data-pane="closed"] .sidetab { padding-inline: 0; justify-content: center; }
@@ -1647,6 +1647,22 @@
 .shellapp[data-pane="closed"] .projectcell { flex: none; max-width: 280px; }
 .shellapp[data-pane="closed"] .projectpick { width: auto; }
 .shellapp[data-pane="closed"] .titlemain { flex: 1 1 auto; }
+
+/*
+ * Light mode: the sidebar's panel tabs sit in the cell the project switcher
+ * used to hold, so the panel under them starts at the top of the drawing
+ * (Aaron, 2026-11-19). The strip spans the sidebar's width — Search still
+ * sits at its far edge — and its empty middle drags the window like the rest
+ * of the bar. Collapsed, it is the three icons, content-sized.
+ */
+.projectcell > .sidetabs.intitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: 0;
+  padding-inline: var(--ads-sp-1);
+}
+.shellapp[data-pane="closed"] .projectcell > .sidetabs.intitle { flex: none; }
+.shellapp[data-pane="closed"] .projectcell > .sidetabs.intitle .grow { display: none; }
 
 /*
  * A menu that hangs DOWN from the title bar.
