@@ -11,7 +11,8 @@
  */
 
 import { regionArea, regionEdgeLengths, regionPerimeter, polylineLength, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
-import { clipRingToRings, ringsOverlap, subtractRings } from './clip.js'
+import { clipRingToRings, cutAreas, ringsOverlap } from './clip.js'
+import { areaRegion } from './cuts.js'
 import { unitToFeet } from './units.js'
 
 export type ScopeType = 'area' | 'linear' | 'count'
@@ -99,17 +100,25 @@ export function ringToPoints(ring: Point[], cal: Calibration): Point[] {
  * groups first. Passing mixed pages here treats two sheets as one plane.
  */
 export function effectiveAreaRings(markups: Markup[], cal: Calibration): Region {
-  const areaRings: Region = []
+  const areas: Region[] = []
   const cutRings: Region = []
+  let cut = false
   for (const m of markups) {
-    if (m.kind === 'area') for (const r of m.rings) areaRings.push(ringToPoints(r, cal))
-    else if (m.kind === 'cutout') for (const r of m.rings) cutRings.push(ringToPoints(r, cal))
+    if (m.kind === 'area') {
+      const rings = m.rings.filter((r) => r.length >= 3).map((r) => ringToPoints(r, cal))
+      if (rings.length === 0) continue
+      if (rings.length > 1) cut = true
+      areas.push(rings)
+    } else if (m.kind === 'cutout') for (const r of m.rings) cutRings.push(ringToPoints(r, cal))
   }
-  if (areaRings.length === 0) return []
+  if (areas.length === 0) return []
 
-  const applicable = cutRings.filter((c) => areaRings.some((a) => ringsOverlap(c, a)))
-  if (applicable.length === 0) return areaRings
-  return subtractRings(areaRings, applicable)
+  const outlines = areas.map((a) => a[0]!)
+  const applicable = cutRings.filter((c) => outlines.some((a) => ringsOverlap(c, a)))
+  // Plain outlines and nothing to take out: exactly as drawn.
+  if (applicable.length === 0 && !cut) return outlines
+  // Each area less its own cuts (cuts.ts), then the old separate cutouts.
+  return cutAreas(areas, applicable)
 }
 
 /** Area rings of `markups` on the cutout's page and in its scope, in points. */
@@ -117,7 +126,10 @@ function areasAround(cutout: Markup, markups: readonly Markup[], cal: Calibratio
   const out: Polygon[] = []
   for (const m of markups) {
     if (m.kind !== 'area' || m.pageId !== cutout.pageId || m.scopeId !== cutout.scopeId) continue
-    for (const r of m.rings) out.push(ringToPoints(r, cal))
+    // The outline only: clipping unions what it is given, so the area's own
+    // cuts passed as rings would count as material.
+    const outline = m.rings[0]
+    if (outline !== undefined && outline.length >= 3) out.push(ringToPoints(outline, cal))
   }
   return out
 }
@@ -193,7 +205,7 @@ export function perimeterFeet(markups: Markup[], cal: Calibration): number {
   const rings: Region = []
   for (const m of markups) {
     if (m.kind !== 'area') continue
-    for (const ring of m.rings) rings.push(ringToPoints(ring, cal))
+    for (const ring of areaRegion(m.rings)) rings.push(ringToPoints(ring, cal))
   }
   return regionPerimeter(rings) * cal.feetPerPoint
 }
@@ -210,7 +222,7 @@ export function perimeterTrimPieces(markups: Markup[], cal: Calibration, trimLen
   const rings: Region = []
   for (const m of markups) {
     if (m.kind !== 'area') continue
-    for (const ring of m.rings) rings.push(ringToPoints(ring, cal))
+    for (const ring of areaRegion(m.rings)) rings.push(ringToPoints(ring, cal))
   }
   return trimPiecesForEdges(regionEdgeLengths(rings).map((d) => d * cal.feetPerPoint), trimLengthFeet)
 }
