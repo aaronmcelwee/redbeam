@@ -10,6 +10,7 @@ SmartScreen will ask once.
 ### Takeoffs work in Light mode
 
 - **Drawing an area no longer fails.** In Light mode, finishing an area, line, count or shape showed "could not create area: no project database is open". The takeoff was being sent to the project database, which Light never opens; it now stays with the PDF the way Light intends. Undo, redo, calibrating and deleting markups had the same fault and are fixed with it.
+- **Undo stays in its own project.** With two Pro projects open in separate windows, Ctrl+Z in one could act on whichever project was opened last. Undo now always names the project it belongs to.
 
 ## 0.3.20 — 2026-11-19
 
