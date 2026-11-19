@@ -98,6 +98,16 @@ async function openTauri(projectPath: string): Promise<OpenedDb> {
   }
 }
 
+/**
+ * An older project's database on disk, opened to move its takeoff into the
+ * PDFs (export/oldProject.ts). Named for what it opens rather than chosen by
+ * looking at the environment: only the desktop has such a file, and the
+ * caller has already been told where it is by the core.
+ */
+export function openOldProjectDatabase(root: string): Promise<OpenedDb> {
+  return openTauri(root)
+}
+
 // ------------------------------------------------------------------ sql.js --
 
 function idb(): Promise<IDBDatabase> {

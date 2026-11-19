@@ -36,7 +36,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
-import { openDatabase, openMemory, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
+import { openDatabase, openMemory, openOldProjectDatabase, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
 import {
   resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
 } from './markupBatch.js'
@@ -102,6 +102,9 @@ import {
   migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
   type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
+import {
+  drawingsToTransfer, oldDrawingAt, undrawnPending, transferComplete, transferOffer, transferOldProject, transferStatus, type TransferResult,
+} from './export/oldProject.js'
 import { projectDrawingFile } from './export/drawingSync.js'
 import { isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
@@ -4620,6 +4623,70 @@ export default function Workspace({
   const closeProjectSavingTakeoff = useCallback(() => leaveSaving(onCloseProject), [leaveSaving, onCloseProject])
 
   /**
+   * Light: an older project in this folder still holds takeoff that belongs
+   * inside the PDFs.
+   *
+   * Aaron, 2026-11-19: "the PDF becomes the only truth. If you open a file
+   * with an adjacent DB file, transfer the DB file once to the PDF, and then
+   * mark the DB file as superseded", and for the other PDFs it covers, "offer
+   * to do so as a one-time event." So the PDF being opened takes its own
+   * takeoff straight away, before it is read into this window, and the rest
+   * are offered in the warning bar. Once nothing is left the database is set
+   * aside under .redbeam, never deleted.
+   */
+  const [oldOffer, setOldOffer] = useState<number | null>(null)
+  const oldBusyRef = useRef(false)
+  const transferFromOldProject = useCallback(async (which: 'opened' | 'rest', openedName: string | null): Promise<void> => {
+    if (!projectBridge.desktop || oldBusyRef.current) return
+    oldBusyRef.current = true
+    try {
+      const found = await projectBridge.findOldProject(projectPath)
+      if (found === null) { setOldOffer(null); return }
+      const old = await openOldProjectDatabase(found.root)
+      let result: TransferResult
+      let remaining: number
+      let others: number
+      try {
+        const todo = await drawingsToTransfer(old.driver)
+        const openedPath = openedName === null ? null : `${found.prefix}${openedName}`.toLowerCase()
+        let opened = todo.find((d) => d.relativePath.toLowerCase() === openedPath)
+        // Scopes set up and never drawn in have no PDF of their own: this one takes them.
+        if (opened === undefined && which === 'opened' && openedPath !== null && (await undrawnPending(old.driver)).length > 0) {
+          opened = await oldDrawingAt(old.driver, openedPath)
+        }
+        result = await transferOldProject({
+          old: old.driver,
+          /*
+           * The open PDF is only ever written before this window reads it. If
+           * it could not take its takeoff then, it waits for the next open:
+           * written now, this window's next save would put its own, older
+           * picture of the file back over it.
+           */
+          drawings: which === 'rest' ? todo.filter((d) => d !== opened) : opened === undefined ? [] : [opened],
+          appVersion: APP_VERSION,
+          fileFor: (d) => projectDrawingFile(projectBridge, found.root, d.relativePath),
+        })
+        const left = await drawingsToTransfer(old.driver)
+        // Undrawn scopes with no PDF to ride in do not hold the database back once every drawing is done.
+        remaining = left.length
+        others = left.filter((d) => d.relativePath.toLowerCase() !== openedPath).length
+      } finally {
+        await old.close().catch(() => undefined)
+      }
+      let setAside = false
+      if (transferComplete(result, remaining)) {
+        // A database that will not move (still open in another window) is tried again next time.
+        try { await projectBridge.supersedeOldProject(found.root); setAside = true } catch { /* kept where it is */ }
+      }
+      setOldOffer(others > 0 ? others : null)
+      const text = transferStatus(result, setAside)
+      if (text !== null) setStatus(text)
+    } finally {
+      oldBusyRef.current = false
+    }
+  }, [projectPath, setStatus])
+
+  /**
    * Opening a drawing reads what it carries. A takeoff embedded elsewhere comes
    * into a project that has nothing on that drawing yet; redbeam.db stays the
    * record otherwise. Each drawing is read once per session.
@@ -4634,6 +4701,10 @@ export default function Workspace({
     void (async () => {
       try {
         const name = doc.displayName || doc.relativePath
+        if (light && firstLook) {
+          // Before the file is read: what an older project holds for it goes into it first.
+          try { await transferFromOldProject('opened', doc.relativePath) } catch { /* the PDF opens as it is */ }
+        }
         let reading: Awaited<ReturnType<typeof readSheetEmbed>>
         try {
           reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
@@ -4711,7 +4782,7 @@ export default function Workspace({
         // A drawing that cannot be read here is the viewer's to report.
       }
     })()
-  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound])
+  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound, transferFromOldProject])
 
   /**
    * Light mode: bring last round's scopes in from its PDF.
@@ -6190,6 +6261,20 @@ export default function Workspace({
      */
     /* Light: this file is not being saved into, and why. Said first after quick view. */
     if (loadBlock !== null) out.unshift({ text: loadBlock, action: { label: 'Save a copy…', run: () => void saveCopyOfFile() } })
+    if (light && oldOffer !== null) {
+      out.push({
+        text: transferOffer(oldOffer),
+        action: {
+          label: oldOffer === 1 ? 'Move it now' : 'Move them now',
+          run: () => {
+            setStatus('moving the older project\u2019s takeoff into its PDFs\u2026')
+            void transferFromOldProject('rest', documents.find((d) => d.id === activeDocId)?.relativePath ?? null).catch((err: unknown) => {
+              setStatus(`could not move the older project\u2019s takeoff: ${err instanceof Error ? err.message : String(err)}`)
+            })
+          },
+        },
+      })
+    }
     if (toolWarning !== null) out.push(toolWarning)
     /*
      * A cutout subtracts only from an area of ITS OWN scope on the same sheet
@@ -6204,7 +6289,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, saveCopyOfFile])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents])
 
   // ------------------------------------------------------------ view math --
 
