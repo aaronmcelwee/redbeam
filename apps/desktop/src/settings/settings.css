@@ -23,8 +23,8 @@
   display: flex;
   background: var(--rb-panel);
   color: var(--rb-ink);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: var(--rb-body);
+  line-height: 20px;
 }
 .prefs .grow { flex: 1 1 auto; min-width: 0; }
 
@@ -52,7 +52,7 @@
   height: 48px;
   margin-bottom: var(--ads-sp-2);
 }
-.prefs-title { margin: 0; font-size: 22px; line-height: 28px; font-weight: 600; }
+.prefs-title { margin: 0; font-size: var(--rb-title); line-height: 36px; font-weight: 600; }
 .prefs-find {
   display: flex;
   align-items: center;
@@ -68,12 +68,12 @@
 }
 .prefs-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); }
 .prefs-find > svg { flex: none; }
-.prefs-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: 13px var(--ads-sans); }
+.prefs-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: var(--rb-body) var(--ads-sans); }
 .prefs-find > input:focus { outline: 0; }
 .prefs-find > input::placeholder { color: var(--rb-ink-4); }
 .prefs-resetall {
   border: 0; background: transparent; padding: 0 var(--ads-sp-1);
-  color: var(--rb-ink-3); font: 12px var(--ads-sans); cursor: pointer; white-space: nowrap;
+  color: var(--rb-ink-3); font: var(--rb-caption) var(--ads-sans); cursor: pointer; white-space: nowrap;
 }
 .prefs-resetall > b { color: var(--rb-ink-2); font-weight: 400; }
 .prefs-resetall:hover { color: var(--rb-accent); }
@@ -89,7 +89,7 @@
 .prefs-runtitle {
   display: flex; align-items: center; gap: var(--ads-sp-2);
   margin: 0 0 var(--ads-sp-2);
-  font-size: 13px; line-height: 18px; font-weight: 600; color: var(--rb-ink);
+  font-size: var(--rb-body); line-height: 20px; font-weight: 600; color: var(--rb-ink);
 }
 .prefs-runtitle > svg { color: var(--rb-ink-3); }
 .prefs-version { color: var(--rb-ink-3); font-weight: 400; margin-left: var(--ads-sp-1); }
@@ -115,8 +115,8 @@
 }
 .prefs-row + .prefs-row, .prefs-card + .prefs-card, .prefs-row + .prefs-card { border-top: 1px solid var(--rb-line); }
 .prefs-rowtext { min-width: 0; display: flex; flex-direction: column; cursor: default; }
-.prefs-label { color: var(--rb-ink); font-size: 13px; }
-.prefs-desc { font-size: 12px; line-height: 16px; color: var(--rb-ink-3); }
+.prefs-label { color: var(--rb-ink); font-size: var(--rb-body); }
+.prefs-desc { font-size: var(--rb-caption); line-height: 16px; color: var(--rb-ink-3); }
 /* The family: children on the lower fill, with a connector. */
 .prefs-row.child { padding-left: 48px; background: var(--rb-raised); }
 .prefs-row.child::before {
@@ -132,7 +132,7 @@
 .prefs-row.flash { animation: prefs-flash 1.8s var(--rb-ease-standard); }
 @keyframes prefs-flash { 0%, 60% { background: var(--rb-hover); } 100% { background: transparent; } }
 .prefs-ctl { display: flex; align-items: center; gap: var(--ads-sp-3); flex: none; }
-.prefs-onoff { min-width: 24px; text-align: right; font-size: 12px; color: var(--rb-ink-2); }
+.prefs-onoff { min-width: 24px; text-align: right; font-size: var(--rb-caption); color: var(--rb-ink-2); }
 .prefs-default {
   display: grid; place-items: center; width: 28px; height: 28px;
   border: 0; border-radius: 4px; background: transparent; color: var(--rb-accent); cursor: pointer;
@@ -164,9 +164,9 @@
 .prefs-num, .prefs-select {
   height: 32px; padding: 0 var(--ads-sp-3);
   border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px;
-  background: var(--rb-raised); color: var(--rb-ink); font: 13px var(--ads-sans);
+  background: var(--rb-raised); color: var(--rb-ink); font: var(--rb-body) var(--ads-sans);
 }
-.prefs-num { width: 96px; font-family: var(--ads-mono); font-variant-numeric: tabular-nums; }
+.prefs-num { width: 96px; font-family: var(--rb-figures); font-variant-numeric: tabular-nums; }
 .prefs-select { min-width: 150px; }
 .prefs-select > option { background: var(--rb-panel); color: var(--rb-ink); }
 .prefs-num:focus, .prefs-select:focus { outline: 0; background: var(--rb-canvas); border-bottom: 2px solid var(--rb-accent); }
@@ -175,7 +175,7 @@
 .prefs-infobar {
   display: flex; align-items: center; gap: var(--ads-sp-2);
   min-height: 32px; margin-top: var(--ads-sp-3); padding: var(--ads-sp-1) var(--ads-sp-3);
-  border-radius: 4px; font-size: 12px; line-height: 16px;
+  border-radius: 4px; font-size: var(--rb-caption); line-height: 16px;
 }
 .prefs-infobar.caution { background: var(--rb-warn-bg); }
 .prefs-infobar.caution > svg { color: var(--rb-warn); flex: none; }
@@ -195,13 +195,13 @@
 .prefs-cardicon { display: none; }
 .prefs-cardtext { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .prefs-cardtitle { color: var(--rb-ink); }
-.prefs-cardnote { font-size: 12px; line-height: 16px; color: var(--rb-ink-3); }
+.prefs-cardnote { font-size: var(--rb-caption); line-height: 16px; color: var(--rb-ink-3); }
 .prefs-cardnote.selectable, .prefs-reportmsg.selectable { user-select: text; }
 .prefs-swatch { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--rb-line-2); }
 .prefs-card .act {
   height: 32px; padding: 0 var(--ads-sp-3); flex: none;
   border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink);
-  font: 13px var(--ads-sans); cursor: pointer; white-space: nowrap;
+  font: var(--rb-body) var(--ads-sans); cursor: pointer; white-space: nowrap;
 }
 .prefs-card .act:hover { background: var(--rb-hover); }
 .prefs-card .act:disabled { color: var(--rb-ink-dim); cursor: default; }
@@ -218,11 +218,11 @@
   border: 1px solid var(--rb-surface-stroke);
   border-radius: var(--ads-radius-l);
   background: var(--rb-flyout);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+  box-shadow: var(--rb-shadow-flyout);
   pointer-events: auto;
 }
 .update-offer .prefs-card { background: transparent; }
-.prefs-reports { display: flex; flex-direction: column; gap: var(--ads-sp-1); margin-top: var(--ads-sp-1); font-size: 12px; line-height: 16px; }
+.prefs-reports { display: flex; flex-direction: column; gap: var(--ads-sp-1); margin-top: var(--ads-sp-1); font-size: var(--rb-caption); line-height: 16px; }
 .prefs-reportkind { color: var(--rb-ink); font-weight: 600; }
 .prefs-reportwhen { color: var(--rb-ink-3); margin-left: var(--ads-sp-1); }
 .prefs-reportmsg { color: var(--rb-ink-2); }
@@ -234,7 +234,7 @@
   height: 28px; padding: 0 var(--ads-sp-2);
   border: 1px solid var(--rb-line-2); border-radius: 4px;
   background: var(--rb-raised); color: var(--rb-ink-2);
-  font: 12px var(--ads-sans); cursor: pointer; white-space: nowrap;
+  font: var(--rb-caption) var(--ads-sans); cursor: pointer; white-space: nowrap;
 }
 .prefs-report:hover { background: var(--rb-hover); color: var(--rb-ink); }
 .prefs-report > svg { color: var(--rb-accent); }

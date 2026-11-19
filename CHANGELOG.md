@@ -5,6 +5,17 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.37 — 2026-11-19
+
+### Every panel follows Windows 11's own rules
+
+- **One type ramp, Windows' own.** Text is now only Caption 12, Body 14, Body Large 18, Subtitle 20 or Title 28. There were 19 different sizes, down to 10px; dense lists stay dense at Caption 12 rather than going smaller.
+- **Quantities in the system face.** Figures were set in a monospace font; they are now Segoe UI Variable with even-width digits, so columns still line up and a number reads in the same voice as its label.
+- **Corners, shadows and focus match Windows.** 4px corners on controls and 8px on cards and flyouts (there were 13 different radii), Fluent's flyout and dialog shadows, and the white-and-black focus ring everywhere, including the start screen, Settings and the palette.
+- **The Takeoff panel, tidied.** Markup icons no longer run into their names; markup rows are a true 24px; the toggle is Windows' 40 × 20; By sheet / By kind uses the SelectorBar's small pill; InfoBars use Fluent's severity icons; section heads are Body Strong.
+- **The breadcrumb keeps the scope visible.** A long set name used to push the scope off the end, cut mid-word. The path now shortens with an ellipsis and the current item stays whole.
+- No uppercase or letter-spaced labels remain; group headings are sentence case.
+
 ## 0.3.36 — 2026-11-19
 
 ### The cutter is a one-shot cut into each markup

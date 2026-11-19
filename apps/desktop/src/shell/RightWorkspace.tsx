@@ -57,7 +57,7 @@ import {
 import {
   Area, Check, ChevronDown, ChevronRight, Count, Crosshair, Cutout, Ellipsis, FileText, Glyph, Highlighter,
   Plus, Polyline, Round, Ruler, Pentagon, TriangleAlert, Copy, Trash2, RotateCcw, Archive, Pencil,
-  DocumentPdf, X,
+  DocumentPdf, X, Info, Commit,
 } from './icons.js'
 import { entriesForRound } from '../bom/bomRows.js'
 import { clickMarkupRow } from './markupSelection.js'
@@ -441,7 +441,7 @@ function InfoBar({ tone, children, action, onDismiss }: {
 }) {
   return (
     <div className={`es-ib ${tone}`} role="status">
-      <span className="es-ibic" aria-hidden="true">{tone === 'warn' ? '!' : tone === 'good' ? '✓' : 'i'}</span>
+      <Glyph className="es-ibic" icon={tone === 'warn' ? TriangleAlert : tone === 'good' ? Commit : Info} role="inline" filled />
       <span className="es-ibtext">{children}</span>
       {action !== undefined && action !== null && (
         <button className="es-btn tiny" disabled={action.disabled === true} onClick={action.run}>{action.label}</button>
@@ -1358,7 +1358,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
                 ? (m.inOpenDocument ? `Go to ${sheetLabel(m.page)}` : `Open ${m.documentName}, page ${m.page + 1}`) + (canSelect ? ' · Ctrl or Shift to select several' : '')
                 : `Not in the layout: ${m.layoutNote}`}
             >
-              <Glyph icon={MARKUP_ICON[m.kind] ?? Pentagon} role="small" />
+              <Glyph icon={MARKUP_ICON[m.kind] ?? Pentagon} role="inline" />
               <span className="es-mkname">
                 {m.name}
                 {m.parentName !== undefined && <span className="es-mkin"> in {m.parentName}</span>}

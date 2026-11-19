@@ -185,21 +185,23 @@ export const MoreCircle = family('MoreCircle', 16, 20, 24)
 /* ---------------------------------------------------------------- roles -- */
 
 /**
- * The icon roles: six sizes, all on the layout's own module. 12 for chevrons,
- * 14 for list rows, 16 for headers, buttons and the dock, 18 for the rail, 24
- * for empty states, 8 for a dot. An in-between size is a defect, not a nudge.
+ * The icon roles, on the sizes Fluent UI System Icons are drawn for: 12 for
+ * chevrons, 16 for list rows, headers, buttons and the dock, 20 for the rail,
+ * 24 for empty states, 8 for a dot. 14 and 18 were scaled-down 16s and 20s,
+ * soft at the edges (WinUI 3 pass, 2026-11-19). An in-between size is a
+ * defect, not a nudge.
  */
 export const SIZE = {
   /** Pill dots, 8px. */
   micro: { size: 8 },
   /** Chevrons, carets, close crosses, 12px. */
   small: { size: 12 },
-  /** Dense list rows, 14px. */
-  row: { size: 14 },
+  /** Dense list rows, 16px — WinUI's list icon size. */
+  row: { size: 16 },
   /** Headers, buttons, inputs, the dock, 16px. */
   inline: { size: 16 },
-  /** The rail, 18px — the one glyph big enough to hit without reading. */
-  card: { size: 18 },
+  /** The rail, 20px — NavigationView's icon size. */
+  card: { size: 20 },
   /** Empty states, 24px. */
   empty: { size: 24 },
 } as const

@@ -234,3 +234,21 @@ touched entries here; recorded so the register stays true:
   paths, tree rows, menus, tabs and estimate rows with an ellipsis.
 - **Exports** go through a native Save As; the round menu and the palette's
   Save report both report where the file went.
+
+## Pass 9 — WinUI 3 consistency (2026-11-19)
+
+Aaron: "do a complete end to end WinUI 3 consistency pass … without compromising
+on specifically designed density." Closed in 0.3.37:
+
+| # | Gap | Fix |
+|---|-----|-----|
+| P9-1 | 19 font sizes (10, 10.5, 11, 11.5, 12, 13, 14, 15, 16, 17, 22, 24 …) | Windows' ramp only, named in `redbeam.css` (`--rb-caption` … `--rb-title`); dense rows keep Caption 12 |
+| P9-2 | Figures in Cascadia Mono | `--rb-figures` (Segoe UI Variable) with tabular digits on the root |
+| P9-3 | 13 corner radii | 4 controls, 8 cards/flyouts/dialogs, 50% dots and pills |
+| P9-4 | Seven ad-hoc shadows | `--rb-shadow-flyout` / `--rb-shadow-dialog` (Fluent Shadow16 / Shadow64) |
+| P9-5 | Focus ring was the design system's blue outside `.shellapp` | One double ring on `.ads`; text fields keep their accent underline |
+| P9-6 | Uppercase, tracked kickers in the palette, project switcher, start screen | Sentence case |
+| P9-7 | 500 and 700 weights | 400 and 600 only |
+| P9-8 | Takeoff panel: 30 × 16 toggle, 23px markup rows, 12px icon column under a 16px glyph, full-width SelectorBar rule, text-glyph InfoBar icons | 40 × 20, 24px, 16px column, 16 × 3 pill, Fluent filled icons |
+| P9-9 | Breadcrumb ancestors could not shrink, so the current scope was clipped | Ancestors ellipse, current item stays whole |
+| P9-10 | Icon roles 14 and 18 were scaled-down Fluent assets | Rows 16, rail 20 |

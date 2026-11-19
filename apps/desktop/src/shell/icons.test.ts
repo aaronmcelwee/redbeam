@@ -26,10 +26,10 @@ describe('the icon vocabulary', () => {
     expect(src).not.toContain('lucide')
   })
 
-  /** 12 chevrons, 14 rows, 16 controls, 18 rail, 24 empty state. 8 is a dot. */
+  /** Fluent's drawn sizes only: 12 chevrons, 16 rows and controls, 20 rail, 24 empty state. 8 is a dot. */
   it('offers no size off the layout module', () => {
     const sizes = Object.values(SIZE).map((s) => s.size).sort((a, b) => a - b)
-    expect(sizes).toEqual([8, 12, 14, 16, 18, 24])
+    expect(sizes).toEqual([8, 12, 16, 16, 20, 24])
   })
 })
 
