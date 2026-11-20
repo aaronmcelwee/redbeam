@@ -1,7 +1,9 @@
 mod accent;
+mod ai_apps;
 mod backdrop;
 mod bridge;
 mod crash;
+pub mod mcp;
 mod open_with;
 mod project;
 mod store;
@@ -33,6 +35,10 @@ fn start_minimized() -> bool {
 /// it is something you turn on to drive the app, not something every launch
 /// carries.
 fn bridge_enabled() -> bool {
+    // Switched on in Settings > Claude and ChatGPT, remembered on disk.
+    if ai_apps::enabled_on_disk() {
+        return true;
+    }
     std::env::var("REDBEAM_BRIDGE")
         .map(|v| {
             let v = v.trim().to_ascii_lowercase();
@@ -123,6 +129,10 @@ pub fn run() {
             open_with::launch_open,
             open_with::pdf_handler_status,
             open_with::pdf_handler_choose,
+            ai_apps::ai_apps_status,
+            ai_apps::ai_apps_set_enabled,
+            ai_apps::ai_apps_install,
+            ai_apps::ai_apps_remove,
         ])
         .setup(|app| {
             /*
@@ -174,6 +184,8 @@ pub fn run() {
             // connection leaves the newest writes in redbeam.db-wal.
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
+                // So an AI app finds no stale port and starts REDBEAM afresh.
+                bridge::stop();
                 app.state::<store::StoreState>().close_all();
             }
         });

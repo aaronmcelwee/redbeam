@@ -31,6 +31,7 @@ import { UpdateRow } from '../update/UpdateRow.js'
 import { accentReport } from '../accent.js'
 import { DiagnosticsRow } from '../update/DiagnosticsRow.js'
 import { DefaultViewerRow } from './DefaultViewerRow.js'
+import { AiAppsRun } from './AiAppsRun.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
@@ -187,6 +188,8 @@ export function SettingsPanel({ store, onClose, initialSettingId, onReportBug, h
               </div>
             </section>
           ))}
+
+          {(q === '' || ['claude', 'chatgpt', 'ai', 'mcp', 'codex'].some((w) => w.startsWith(q))) && <AiAppsRun />}
 
           {q === '' && <AboutRun {...(onReportBug === undefined ? {} : { onReportBug })} />}
         </div>

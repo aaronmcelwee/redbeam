@@ -37,6 +37,7 @@ pub fn dispatch(app: &AppHandle, method: &str, params: &Value) -> Result<Value, 
         "project_summary" => project_summary(app),
         "execute_query" => execute_query(app, params),
         "open_project" => open_project(app, params),
+        "open_file" => open_file(app, params),
         // UI round trips. Separated from the store-backed methods above
         // because these are the only ones a wedged or window-less app can
         // fail, and a caller deserves to know which kind it is asking for.
@@ -55,7 +56,7 @@ fn capabilities() -> Value {
         "methods": [
             "ping", "get_capabilities", "get_state", "list_documents", "list_pages",
             "list_scopes", "list_markups", "get_calibration", "project_summary",
-            "execute_query", "open_project",
+            "execute_query", "open_project", "open_file",
             "get_ui_state", "screenshot", "invoke_ui_action",
         ],
         // Named so a client does not have to discover the gap by trying.
@@ -292,6 +293,40 @@ fn open_project(app: &AppHandle, params: &Value) -> Result<Value, String> {
         "accepted": true,
         "path": path,
         "note": "poll get_state until projectOpen is true",
+    }))
+}
+
+/// Open a PDF the way Explorer does (open_with::route): forward in the
+/// window already showing it, into an empty window, or in a new one. This is
+/// how an agent starts work in Light, where a window is one PDF.
+fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
+    let path = str_param(params, "path").ok_or("open_file needs `path`")?;
+    let p = std::path::Path::new(path.trim());
+    if !p.is_file() {
+        return Err(format!("no such file: {path}"));
+    }
+    let is_pdf = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err(format!("not a PDF: {path}"));
+    }
+    let path = p.display().to_string();
+    let app = app.clone();
+    let routed = path.clone();
+    // Off this thread and off the main one: building a window on the main
+    // thread deadlocks on Windows (open_with.rs).
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = crate::open_with::route(&app, routed).await {
+            eprintln!("bridge open_file failed: {e}");
+        }
+    });
+    Ok(json!({
+        "accepted": true,
+        "path": path,
+        "note": "poll get_ui_state until activeDocumentId is set and pageCount > 0",
     }))
 }
 

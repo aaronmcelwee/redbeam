@@ -84,12 +84,65 @@ pub fn discovery_path() -> PathBuf {
     std::env::temp_dir().join(DISCOVERY_FILE)
 }
 
+/// The listener's port and token, once it has started.
+///
+/// The bridge can now be switched on and off from Settings (Claude and
+/// ChatGPT), not only by REDBEAM_BRIDGE at launch. A listener thread cannot
+/// be stopped cleanly, so switching off keeps the socket and refuses every
+/// call instead, and removes the discovery file so nothing finds it. Switching
+/// back on reuses the same port and token.
+static LISTENING: std::sync::OnceLock<(u16, String)> = std::sync::OnceLock::new();
+
+/// Whether calls are answered. False while switched off in Settings.
+static ACCEPTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Is the bridge answering calls right now?
+pub fn accepting() -> bool {
+    ACCEPTING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Stop answering and take the discovery file away (Settings switched off,
+/// or the app is exiting). Only removes a file this process wrote, so a
+/// second copy started for a test cannot pull the rug from the first.
+pub fn stop() {
+    ACCEPTING.store(false, std::sync::atomic::Ordering::SeqCst);
+    if LISTENING.get().is_none() {
+        return;
+    }
+    let ours = std::fs::read_to_string(discovery_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.get("pid").and_then(|p| p.as_u64()))
+        == Some(u64::from(std::process::id()));
+    if ours {
+        clear_discovery();
+    }
+}
+
 /// Start the bridge, or return why it could not start.
 ///
 /// A failure here must never take the app down with it: the bridge is
 /// automation, and an estimator with a takeoff open does not care that a debug
 /// socket could not bind. Callers log and continue.
 pub fn start(app: AppHandle) -> Result<Discovery, String> {
+    if let Some((port, token)) = LISTENING.get() {
+        // Switched back on: same socket, same token, file written again.
+        write_discovery(&Discovery {
+            protocol_version: PROTOCOL_VERSION,
+            port: *port,
+            token: token.clone(),
+            pid: std::process::id(),
+            project_path: String::new(),
+        })?;
+        ACCEPTING.store(true, std::sync::atomic::Ordering::SeqCst);
+        return Ok(Discovery {
+            protocol_version: PROTOCOL_VERSION,
+            port: *port,
+            token: String::new(),
+            pid: std::process::id(),
+            project_path: String::new(),
+        });
+    }
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
         .map_err(|e| format!("bridge could not bind loopback: {e}"))?;
     let port = listener
@@ -106,6 +159,8 @@ pub fn start(app: AppHandle) -> Result<Discovery, String> {
         project_path: String::new(),
     };
     write_discovery(&discovery)?;
+    let _ = LISTENING.set((port, token.clone()));
+    ACCEPTING.store(true, std::sync::atomic::Ordering::SeqCst);
 
     std::thread::Builder::new()
         .name("redbeam-bridge".into())
@@ -148,6 +203,9 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
             if !token_matches(&req.token, token) {
                 // Say nothing about what was wrong with it.
                 json!({ "id": req.id, "ok": false, "error": "unauthorized" })
+            } else if !accepting() {
+                json!({ "id": req.id, "ok": false, "error":
+                    "AI control is off. Turn on Settings > Claude and ChatGPT > Let AI apps use REDBEAM." })
             } else {
                 match methods::dispatch(app, &req.method, &req.params) {
                     Ok(result) => json!({ "id": req.id, "ok": true, "result": result }),
