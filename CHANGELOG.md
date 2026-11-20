@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.40 — 2026-11-20
+
+### A redrawn icon, and the same icon everywhere
+
+- **A crisper icon.** The prism is now drawn rather than rendered: a faceted white crystal on a graphite tile, with white light going in and a red beam fanning out. It has soft gradients and gentle depth, in the style of a modern Mac app icon, and it stays clear in the taskbar at 16 px.
+- **One icon throughout the app.** The title bar, the start screen, the command palette, Settings › About and the browser tab all show the icon. The red "RB" squares are gone.
+- **A branded installer.** The installer shows the icon in its header and sidebar.
+
 ## 0.3.39 — 2026-11-20
 
 ### REDBEAM can be your PDF viewer

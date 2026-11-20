@@ -8,7 +8,7 @@
  * that second row costs the axis there is least of. One row won.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import mark from './mark.png'
+import { AppMark } from '../brand/AppMark.js'
 import {
   Bookmark, ChevronDown, Ellipsis, ExternalLink, FileText, Files, Folder, FolderOpen, Glyph,
   Grid2x2, Home, ListTree, PanelRight, Rename,   Search, SearchText, Settings2, WindowNew, X, Plus, ExternalLink as PopOut,
@@ -245,7 +245,7 @@ export function TitleBar({
           aria-label="Application menu"
           onClick={() => setAppOpen((v) => !v)}
           disabled={appMenu === undefined}
-        ><img className="brandmark" src={mark} alt="" draggable={false} /></button>
+        ><AppMark size={20} className="brandmark" /></button>
         {appOpen && appMenu !== undefined && (
           <div className="titlemenu" role="menu" aria-label="Application">
             {item('Open project…', <Glyph icon={Folder} role="row" />, appMenu.onOpenProject, 'Ctrl+O')}

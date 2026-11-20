@@ -41,6 +41,7 @@ import { pushRecent, readRecent } from './recent.js'
 import './palette.css'
 import { useReturnFocus } from '../returnFocus.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
+import { AppMark } from '../brand/AppMark.js'
 
 /** The type tag on the right of a row: the noun the rest of the app uses. */
 const KIND_LABEL: Record<CommandKind, string> = {
@@ -563,7 +564,7 @@ export function CommandPalette({
 
         {/* The keys, stated once at the foot, for the state the palette is in. */}
         <div className="pp-foot" aria-hidden="true">
-          <span className="pp-brand"><span className="pp-mark">RB</span>{count !== null ? `${count} result${count === 1 ? '' : 's'}` : (context ?? 'REDBEAM')}</span>
+          <span className="pp-brand"><AppMark size={16} />{count !== null ? `${count} result${count === 1 ? '' : 's'}` : (context ?? 'REDBEAM')}</span>
           <span className="grow" />
           {step?.kind === 'text'
             ? <><span className="pp-key">{enterLabel} <kbd>↵</kbd></span><span className="pp-key">Back <kbd>⌫</kbd></span></>

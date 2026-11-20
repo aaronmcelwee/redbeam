@@ -34,8 +34,9 @@ import { DefaultViewerRow } from './DefaultViewerRow.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
-import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Info, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
+import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
 import './settings.css'
+import { AppMark } from '../brand/AppMark.js'
 
 interface Props {
   store: SettingsStore
@@ -342,7 +343,7 @@ function AccentRow() {
 function AboutRun({ onReportBug }: { onReportBug?: () => void }) {
   return (
     <section className="prefs-run prefs-about" aria-label="About REDBEAM">
-      <h3 className="prefs-runtitle"><Glyph icon={Info} role="row" /> About REDBEAM <span className="prefs-version">{APP_VERSION}</span></h3>
+      <h3 className="prefs-runtitle"><AppMark size={16} /> About REDBEAM <span className="prefs-version">{APP_VERSION}</span></h3>
       <div className="prefs-group">
         {onReportBug !== undefined && (
           <button type="button" className="prefs-card prefs-reportcard" onClick={onReportBug}>

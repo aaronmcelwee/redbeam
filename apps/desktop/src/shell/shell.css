@@ -2996,7 +2996,6 @@ html[data-backdrop="tabbed"] .prefs {
 
 /* The title-bar mark is the app icon itself: the orange on dark glass. */
 .brand:has(.brandmark) { background: transparent; padding: 0; }
-.brandmark { display: block; width: 20px; height: 20px; border-radius: 4px; }
 
 /* =========================================================================
  * THE ESTIMATES SIDEBAR, to the board Aaron approved on 2026-09-18

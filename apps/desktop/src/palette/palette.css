@@ -177,9 +177,4 @@
 }
 .pp-brand { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--rb-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The app mark: the one place red is spent (theme.test.ts, "the red budget"). */
-.pp-mark {
-  flex: none; width: 16px; height: 16px; border-radius: 4px;
-  display: grid; place-items: center; color: var(--rb-ink); font: 700 9px var(--ads-sans);
-  background: var(--rb-red);
-}
 .pp-key { display: flex; align-items: center; gap: 5px; color: var(--rb-ink-2); white-space: nowrap; }
