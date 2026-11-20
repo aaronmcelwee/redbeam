@@ -155,6 +155,17 @@ fn open_or_focus(
     })
 }
 
+/// A window that opens one PDF, the way a drop on the start screen does —
+/// for a file opened from Explorer while every window is busy.
+pub(crate) fn open_view_window(
+    app: &AppHandle,
+    label: &str,
+    path: &str,
+) -> Result<OpenedWindow, tauri::Error> {
+    let url = format!("index.html?role=main&view={}", encode_query_value(path));
+    open_or_focus(app, &sanitize_label(label), &url, "REDBEAM")
+}
+
 /// Open (or focus) a window showing a project.
 /// Honour REDBEAM_START_MINIMIZED for windows created after startup too.
 ///

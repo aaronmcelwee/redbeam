@@ -5,13 +5,22 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.39 — 2026-11-20
+## 0.3.40 — 2026-11-20
 
 ### A redrawn icon, and the same icon everywhere
 
 - **A crisper icon.** The prism is now drawn rather than rendered: a faceted white crystal on a graphite tile, with white light going in and a red beam fanning out. It has soft gradients and gentle depth, in the style of a modern Mac app icon, and it stays clear in the taskbar at 16 px.
 - **One icon throughout the app.** The title bar, the start screen, the command palette, Settings › About and the browser tab all show the icon. The red "RB" squares are gone.
 - **A branded installer.** The installer shows the icon in its header and sidebar.
+
+## 0.3.39 — 2026-11-20
+
+### REDBEAM can be your PDF viewer
+
+- **In Open with.** The installer registers REDBEAM for PDFs, so right-clicking a drawing in Explorer offers *Open with › REDBEAM*, and Windows lists it in Settings › Apps › Default apps. Bluebeam (or whatever opens PDFs now) stays the default until you choose otherwise.
+- **Make it the default.** Windows makes you choose the default yourself, so REDBEAM takes you there: *Make default…* on the start screen, or Settings › About › Default PDF viewer, opens Default apps on REDBEAM's page. Settings says when REDBEAM is the default. *Not now* hides the start-screen offer for good.
+- **One REDBEAM.** Opening a PDF while REDBEAM is running opens it in the running app instead of starting a second copy: the window already showing that file comes forward, a window on the start screen opens it, and otherwise it gets a new window.
+- Uninstalling removes the registration; an update keeps it, so a default you chose is not reset.
 
 ## 0.3.38 — 2026-11-19
 

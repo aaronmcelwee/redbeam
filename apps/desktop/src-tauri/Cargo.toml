@@ -1,6 +1,6 @@
 [package]
 name = "redbeam"
-version = "0.3.39"
+version = "0.3.40"
 description = "REDBEAM — construction quantity takeoff"
 authors = ["REDBEAM"]
 edition = "2021"
@@ -50,6 +50,9 @@ tauri-plugin-updater = { version = "2.11.0", default-features = false, features 
   "native-tls", "system-proxy", "zip",
 ] }
 tauri-plugin-process = "2.3.1"
+# One REDBEAM per person: opening a PDF from Explorer while the app is
+# running hands the file to the running copy (open_with.rs).
+tauri-plugin-single-instance = "2"
 
 # The user's accent colour, read from their own Windows theme (see accent.rs).
 # Microsoft's own crate, and already in the tree via tauri — pinning the same

@@ -66,6 +66,12 @@ export interface ProjectStartScreenProps {
   mode?: 'light' | 'pro'
   /** Switch between Light and Pro. Absent, no switch is drawn. */
   onModeChange?: (mode: 'light' | 'pro') => void
+  /**
+   * Offer to make REDBEAM the default PDF viewer. Present only when the
+   * installer registered it, it is not the default yet, and the person has
+   * not said "Not now".
+   */
+  defaultViewerOffer?: { onChoose: () => void; onDismiss: () => void }
 }
 
 /** Pinned jobs, by path — this estimator's, on this machine. */
@@ -107,6 +113,7 @@ export function ProjectStartScreen({
   now,
   mode = 'pro',
   onModeChange,
+  defaultViewerOffer,
 }: ProjectStartScreenProps) {
   const light = mode === 'light'
   const [query, setQuery] = useState('')
@@ -357,6 +364,19 @@ export function ProjectStartScreen({
               </span>
               <kbd>Ctrl O</kbd>
             </button>
+          )}
+          {defaultViewerOffer !== undefined && (
+            <div className="st-card st-offer" role="group" aria-label="Default PDF viewer">
+              <span className="st-cardico"><Glyph icon={DocumentPdf} role="empty" /></span>
+              <span className="st-cardtext">
+                <span className="st-cardtitle">Open PDFs in REDBEAM</span>
+                <span className="st-carddesc">Make REDBEAM the default PDF viewer, so a double-clicked drawing opens here. Windows asks you to pick it in Default apps.</span>
+                <span className="st-offeracts">
+                  <button type="button" className="st-btn" onClick={defaultViewerOffer.onChoose}>Make default…</button>
+                  <button type="button" className="st-btn subtle" onClick={defaultViewerOffer.onDismiss}>Not now</button>
+                </span>
+              </span>
+            </div>
           )}
           {!light && onBrowse !== undefined && (
             <button

@@ -2,6 +2,7 @@ mod accent;
 mod backdrop;
 mod bridge;
 mod crash;
+mod open_with;
 mod project;
 mod store;
 mod undo;
@@ -42,7 +43,20 @@ fn bridge_enabled() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A PDF double-clicked in Explorer, or chosen in Open with, arrives as
+    // the first argument (open_with.rs).
+    let launched_with = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| open_with::pdf_from_args(std::env::args(), &cwd));
     tauri::Builder::default()
+        // FIRST, as the plugin requires: a second REDBEAM.exe hands its
+        // arguments to this process and exits, so opening a PDF while the
+        // app is running opens it here instead of starting a second copy
+        // with its own windows and its own connections.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            open_with::on_second_launch(app, argv, cwd);
+        }))
+        .manage(open_with::LaunchState::new(launched_with))
         // One SQLite connection for the whole process. Windows are views over
         // it — a per-window connection would reintroduce exactly the divergence
         // this design exists to prevent.
@@ -104,6 +118,11 @@ pub fn run() {
             crash::crash_dir,
             backdrop::backdrop_active,
             accent::system_accent,
+            open_with::launch_take_file,
+            open_with::launch_showing,
+            open_with::launch_open,
+            open_with::pdf_handler_status,
+            open_with::pdf_handler_choose,
         ])
         .setup(|app| {
             /*

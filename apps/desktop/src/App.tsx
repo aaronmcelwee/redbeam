@@ -25,6 +25,10 @@ import { UpdateOffer } from './update/UpdateOffer.js'
 import { setBeforeQuit } from './update/session.js'
 import { PRO_AVAILABLE, readMode, writeMode, type AppMode } from './light.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
+import {
+  choosePdfHandler, defaultOfferDismissed, dismissDefaultOffer, onOpenFile, openElsewhere,
+  reportShowing, takeLaunchFile, usePdfHandlerStatus,
+} from './tauri/openWith.js'
 
 export default function App() {
   const identity = useMemo(() => getWindowRole(), [])
@@ -303,11 +307,51 @@ export default function App() {
   const viewedFromUrl = useRef(false)
   useEffect(() => {
     if (viewedFromUrl.current || !project.desktop) return
-    const wanted = new URLSearchParams(location.search).get('view')
-    if (wanted === null || wanted === '') return
     viewedFromUrl.current = true
-    dropPath(wanted)
-  }, [project.desktop, dropPath])
+    const wanted = new URLSearchParams(location.search).get('view')
+    if (wanted !== null && wanted !== '') { dropPath(wanted); return }
+    // Started by double-clicking a PDF, or by Open with: the first window
+    // opens it (open_with.rs keeps the path until asked).
+    if (identity.role === 'main' && identity.projectId === null) {
+      void takeLaunchFile().then((path) => { if (path !== null) dropPath(path) })
+    }
+  }, [project.desktop, dropPath, identity])
+
+  /*
+   * A PDF opened from Explorer while REDBEAM is running. The app sends it
+   * here only while this window says it is on the start screen; if a file
+   * opened in the meantime, it goes back to be opened in another window.
+   */
+  const idle = openPath === null && quick === null && identity.projectId === null
+  const showingRef = useRef({ idle, file: quick?.file ?? null })
+  showingRef.current = { idle, file: quick?.file ?? null }
+  useEffect(() => {
+    if (identity.role === 'context') return
+    void reportShowing(idle, quick?.file ?? null)
+  }, [idle, quick, identity.role])
+  useEffect(() => {
+    if (identity.role === 'context') return
+    let stop: (() => void) | undefined
+    let cancelled = false
+    void onOpenFile((path) => {
+      const now = showingRef.current
+      if (now.idle) { dropPath(path); return }
+      // Say what is really here first: the app marked this window as taken
+      // by the new file when it sent it.
+      void reportShowing(now.idle, now.file).then(() => openElsewhere(path))
+    }).then((un) => { if (cancelled) un(); else stop = un })
+    return () => { cancelled = true; stop?.() }
+  }, [dropPath, identity.role])
+
+  /* Offer to become the default PDF viewer, once the installer has registered REDBEAM. */
+  const handler = usePdfHandlerStatus()
+  const [offerDismissed, setOfferDismissed] = useState(() => defaultOfferDismissed())
+  const defaultViewerOffer = handler.registered && !handler.isDefault && !offerDismissed
+    ? {
+        onChoose: () => { void choosePdfHandler().catch((e: unknown) => setQuickNote(String(e))) },
+        onDismiss: () => { dismissDefaultOffer(); setOfferDismissed(true) },
+      }
+    : undefined
 
   /** A recent job that moved: pick where it went, open it there, and forget the stale entry. */
   const locateRecent = useCallback((recent: RecentProject) => {
@@ -413,6 +457,7 @@ export default function App() {
     <ProjectStartScreen
       mode={mode}
       {...(PRO_AVAILABLE ? { onModeChange: changeMode } : {})}
+      {...(defaultViewerOffer !== undefined ? { defaultViewerOffer } : {})}
       recents={light ? files : shownRecents}
       onOpenPath={(path, options) => project.open(path, options)}
       onOpenRecent={light
