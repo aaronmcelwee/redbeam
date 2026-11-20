@@ -443,6 +443,9 @@ h4 {
 .st-card.primary kbd { border-color: rgba(0, 0, 0, .35); color: var(--rb-accent-ink); }
 .st-pathcard { margin: 0 0 10px; padding: 14px 16px; border: 1px solid var(--rb-line); border-radius: 8px; background: var(--rb-panel); }
 .st-pathcard h4 { margin: 0 0 var(--ads-sp-2); }
+.st-offer { cursor: default; }
+.st-offer:hover { background: var(--rb-panel); }
+.st-offeracts { display: flex; gap: var(--ads-sp-2); margin-top: var(--ads-sp-2); }
 .st-drop { margin-top: 6px; padding: 22px; border: 1px dashed var(--rb-line-2); border-radius: 8px; color: var(--rb-ink-3); font-size: var(--rb-caption); text-align: center; }
 .st-drop b { color: var(--rb-ink-2); }
 .st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }

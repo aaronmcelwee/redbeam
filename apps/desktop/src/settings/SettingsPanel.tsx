@@ -30,6 +30,7 @@ import { useReturnFocus } from '../returnFocus.js'
 import { UpdateRow } from '../update/UpdateRow.js'
 import { accentReport } from '../accent.js'
 import { DiagnosticsRow } from '../update/DiagnosticsRow.js'
+import { DefaultViewerRow } from './DefaultViewerRow.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
@@ -357,6 +358,7 @@ function AboutRun({ onReportBug }: { onReportBug?: () => void }) {
           </button>
         )}
         <UpdateRow desktop={isTauri()} />
+        <DefaultViewerRow />
         <DiagnosticsRow desktop={isTauri()} />
         <AccentRow />
         <div className="prefs-card">
