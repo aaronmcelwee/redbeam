@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.42 — 2026-11-20
+
+### See what's new after an update
+
+- **What's new opens after an update.** The first time REDBEAM starts on a new version, it shows what changed. If you skipped a few updates, it lists every release since the one you last saw, newest first.
+- **Find it again any time.** Settings › About › *What's new*, or type "what's new" in the command prompt.
+- A new install starts quietly; the notes appear from the next update on.
+
 ## 0.3.41 — 2026-11-20
 
 ### Let Claude and ChatGPT use REDBEAM

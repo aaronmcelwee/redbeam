@@ -35,7 +35,8 @@ import { AiAppsRun } from './AiAppsRun.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
-import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Reset, Search, TriangleAlert, X } from '../shell/icons.js'
+import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Reset, Search, Sparkles, TriangleAlert, X } from '../shell/icons.js'
+import { openWhatsNew } from '../whatsnew/open.js'
 import './settings.css'
 import { AppMark } from '../brand/AppMark.js'
 
@@ -361,6 +362,14 @@ function AboutRun({ onReportBug }: { onReportBug?: () => void }) {
             <Glyph icon={ChevronRight} role="small" />
           </button>
         )}
+        <button type="button" className="prefs-card prefs-reportcard" onClick={openWhatsNew}>
+          <span className="prefs-cardicon accent"><Glyph icon={Sparkles} role="card" /></span>
+          <span className="prefs-cardtext">
+            <span className="prefs-cardtitle">What’s new</span>
+            <span className="prefs-cardnote">The changes in this version and the ones before it.</span>
+          </span>
+          <Glyph icon={ChevronRight} role="small" />
+        </button>
         <UpdateRow desktop={isTauri()} />
         <DefaultViewerRow />
         <DiagnosticsRow desktop={isTauri()} />

@@ -129,6 +129,7 @@ describe('panel scrolling', () => {
     './palette/palette.css',
     './settings/settings.css',
     './report/report.css',
+    './whatsnew/whatsnew.css',
     './ads/primitives.css',
   ]
 

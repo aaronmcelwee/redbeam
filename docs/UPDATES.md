@@ -21,8 +21,26 @@ the release workflow.
    - `apps/desktop/src-tauri/Cargo.toml` (`[package]`)
    - `apps/desktop/package.json`
    - `package.json`
-2. Commit and push that bump.
-3. Tag the commit with an **annotated** tag and push the tag. The tag is `v` plus the version, for example `v0.3.2`. The tag message is the change notes the installed app shows and the body of the GitHub Release. A lightweight tag, or an annotated tag whose message is empty, fails the job before a release is opened and before anything is uploaded.
+2. Add the release to the top of `CHANGELOG.md` in the same commit. This entry
+   is what the person reads in **What's new**, which opens by itself on the
+   first launch after an update and lists every release since the one they
+   last saw (`apps/desktop/src/whatsnew/`). Write it for the people using the
+   app, not for developers:
+
+   ```markdown
+   ## 0.3.42 — 2026-11-20
+
+   ### One headline saying what the person gets
+
+   - **A short lead.** What changed and what they do differently now.
+   ```
+
+   Only `##` (version and date), `###` (headline), `- ` points (indented
+   lines continue a point), paragraphs, `**bold**`, `*italic*` and `` `code` ``
+   are rendered. A test fails when the version in `tauri.conf.json` has no
+   entry.
+3. Commit and push that bump.
+4. Tag the commit with an **annotated** tag and push the tag. The tag is `v` plus the version, for example `v0.3.2`. The tag message is the change notes the installed app shows and the body of the GitHub Release. A lightweight tag, or an annotated tag whose message is empty, fails the job before a release is opened and before anything is uploaded.
 
 ```powershell
 git tag -a v0.3.2 -m "What changed."

@@ -22,6 +22,7 @@ import { ErrorBoundary } from './ErrorBoundary.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { visibleRecents } from './project/recents.js'
 import { UpdateOffer } from './update/UpdateOffer.js'
+import { WhatsNewHost } from './whatsnew/WhatsNew.js'
 import { setBeforeQuit } from './update/session.js'
 import { PRO_AVAILABLE, readMode, writeMode, type AppMode } from './light.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
@@ -446,6 +447,7 @@ export default function App() {
           />
         </ErrorBoundary>
         <UpdateOffer desktop={isTauri()} />
+        <WhatsNewHost auto={identity.role !== 'context'} />
       </>
     )
   }
@@ -498,6 +500,7 @@ export default function App() {
       }
     />
     <UpdateOffer desktop={isTauri()} />
+    <WhatsNewHost auto={identity.role !== 'context'} />
     </>
   )
 }
