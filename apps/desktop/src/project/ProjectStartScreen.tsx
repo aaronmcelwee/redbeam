@@ -29,6 +29,7 @@ import {
 } from '../shell/icons.js'
 import { isTauri } from '../tauri/window.js'
 import { APP_VERSION } from '../update/updates.js'
+import { AppMark } from '../brand/AppMark.js'
 
 export interface ProjectStartScreenProps {
   recents: RecentProject[]
@@ -220,7 +221,7 @@ export function ProjectStartScreen({
       <div className="st-body">
         <div className="st-left">
           <header className="st-head">
-            <div className="st-mark" aria-hidden="true">RB</div>
+            <AppMark size={40} />
             <div>
               <h1 className="st-title">REDBEAM</h1>
               <p className="st-tag">Quantity takeoff from construction drawings</p>
