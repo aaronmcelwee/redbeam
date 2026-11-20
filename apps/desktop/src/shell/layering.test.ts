@@ -447,9 +447,9 @@ describe('the layout preview', () => {
  */
 describe('the scope roll-up', () => {
   const effect = (() => {
-    const at = workspace.indexOf('// Recompute quantities whenever markups or calibration change.')
-    expect(at, 'the quantities effect has moved').toBeGreaterThan(-1)
-    return workspace.slice(at, workspace.indexOf('setPieces(', at))
+    const at = workspace.indexOf('const takeoffTotals = useMemo(')
+    expect(at, 'the quantities roll-up has moved').toBeGreaterThan(-1)
+    return workspace.slice(at, workspace.indexOf('const pieces = scopes.map(', at))
   })()
 
   it('totals the project, not the open document', () => {
@@ -481,7 +481,7 @@ describe('the scope roll-up', () => {
   })
 
   it('gives the piece calculation the project too', () => {
-    const at = workspace.indexOf('setPieces(scopes.map(')
+    const at = workspace.indexOf('const pieces = scopes.map(')
     expect(at, 'the pieces roll-up is gone').toBeGreaterThan(-1)
     const pieces = workspace.slice(at, at + 900)
     expect(pieces).toContain('calculatePieces(s, projectMarkups, fallbackCal,')
@@ -502,10 +502,11 @@ describe('the scope roll-up', () => {
   it('does not empty the round because the open sheet has no scale', () => {
     // Comments stripped: the explanation of the old bug quotes it verbatim.
     const code = workspace.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-    const from = code.indexOf('useEffect(() => {', code.indexOf('bucketByScale(') - 2000)
-    const effect = code.slice(from, code.indexOf('setQuantities(scopes.map('))
-    expect(effect.length, 'could not isolate the roll-up effect').toBeGreaterThan(0)
-    expect(effect).not.toContain('setQuantities([]); return')
+    const from = code.indexOf('const takeoffTotals = useMemo(')
+    const effect = code.slice(from, code.indexOf('const quantities = scopes.map(', from))
+    expect(from, 'could not find the roll-up').toBeGreaterThan(-1)
+    expect(effect.length, 'could not isolate the roll-up').toBeGreaterThan(0)
+    expect(effect).not.toMatch(/return \{ quantities: \[\]/)
     expect(effect).not.toMatch(/if \(!cal\)/)
   })
 })

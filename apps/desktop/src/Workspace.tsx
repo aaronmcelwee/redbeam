@@ -90,7 +90,7 @@ import { buildAnchorGrid, nearestAnchor, type AnchorGrid } from './snapAnchors.j
 import { normalizedToScreen } from './draw.js'
 import { useStageSize, sizeCanvas } from './useStageSize.js'
 import { embedWhenQuiet } from './autoEmbed.js'
-import { PerfRegistry, type Stats, type Budget } from './perf.js'
+import { PerfRegistry } from './perf.js'
 import { isTextEntry, survivesTextEntry } from './keys.js'
 import { readSession, writeSession } from './session.js'
 import { calculationFor, deltaBetween, type QuantityDelta } from './commit.js'
@@ -260,6 +260,47 @@ function pageIndexOf(pageId: string): number | null {
  * Cutouts that subtract from nothing: no area of the same scope on the same
  * page overlaps them, the rule `effectiveAreaRings` applies.
  */
+interface EstimateLoad { rounds: EstimateListItem[]; scopeIds: string[]; files: EstimateFile[] }
+
+/** The project's bidding rounds and, for the open one, its scopes and drawings. */
+async function loadEstimates(db: SqlDriver, openId: string | null): Promise<EstimateLoad> {
+  const [rounds, scopeIds, files] = await Promise.all([
+    listEstimates(db),
+    openId === null ? Promise.resolve([] as string[]) : listEstimateScopeIds(db, openId),
+    openId === null ? Promise.resolve([] as EstimateFile[]) : estimateDocuments(db, openId),
+  ])
+  return {
+    rounds: rounds.map((e) => ({
+      id: e.id, name: e.name, scopeCount: e.scopeCount, markupCount: e.markupCount, scopeIds: e.scopeIds,
+    })),
+    scopeIds,
+    files,
+  }
+}
+
+function sameStrings(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i])
+}
+
+/** The project's scale regions, grouped by page. */
+async function loadRegions(db: SqlDriver): Promise<Map<string, ScaleRegion[]>> {
+  const rows = await listAllScaleRegions(db)
+  const byPage = new Map<string, ScaleRegion[]>()
+  for (const r of rows) {
+    const region: ScaleRegion = {
+      id: r.id,
+      pageId: r.pageId,
+      label: r.label,
+      feetPerPoint: r.feetPerPdfPoint,
+      rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
+    }
+    const list = byPage.get(r.pageId)
+    if (list) list.push(region)
+    else byPage.set(r.pageId, [region])
+  }
+  return byPage
+}
+
 function strayCutouts(markups: readonly Markup[]): number {
   let n = 0
   for (const c of markups) {
@@ -548,11 +589,9 @@ export default function Workspace({
   const [markups, setMarkups] = useState<Markup[]>([])
   const markupsRef = useRef<Markup[]>([])
   const [cal, setCal] = useState<Calibration | null>(null)
-  const [quantities, setQuantities] = useState<Array<{ scope: Scope; rows: QuantityResult[] }>>([])
   /** Latest value, for the commit path. See the note on `pageIndexRef`. */
   const quantitiesRef = useRef<Array<{ scope: Scope; rows: QuantityResult[] }>>([])
   /** Orderable piece counts per scope. Separate from measurements — see takeoff.ts. */
-  const [pieces, setPieces] = useState<Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>>([])
   // paint() is a stable callback; state alone would give it last render's data.
   const piecesRef = useRef<Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>>([])
   const activeScopeRef = useRef<string | null>(null)
@@ -568,7 +607,6 @@ export default function Workspace({
    * measurement part of what it measured.
    */
   const perfRef = useRef(new PerfRegistry())
-  const [perf, setPerf] = useState<Array<{ budget: Budget; stats: Stats }>>([])
   const [, forceRender] = useState(0)
   const [pendingCal, setPendingCal] = useState<number | null>(null)
   // Read by the palette and the find drawer, which are opened from stable
@@ -674,21 +712,7 @@ export default function Workspace({
   const [projectRegions, setProjectRegions] = useState<Map<string, ScaleRegion[]>>(new Map())
 
   const reloadRegions = useCallback(async (db: SqlDriver) => {
-    const rows = await listAllScaleRegions(db)
-    const byPage = new Map<string, ScaleRegion[]>()
-    for (const r of rows) {
-      const region: ScaleRegion = {
-        id: r.id,
-        pageId: r.pageId,
-        label: r.label,
-        feetPerPoint: r.feetPerPdfPoint,
-        rect: { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1 },
-      }
-      const list = byPage.get(r.pageId)
-      if (list) list.push(region)
-      else byPage.set(r.pageId, [region])
-    }
-    setProjectRegions(byPage)
+    setProjectRegions(await loadRegions(db))
   }, [])
   const [projectPageBoxes, setProjectPageBoxes] = useState<
     Map<string, { width: number; height: number }>
@@ -1443,9 +1467,27 @@ export default function Workspace({
    * because zero markups is a legitimate reason to have no pieces. Draw one
    * shape and everything appeared; relaunch and it was gone again.
    */
-  const syncMarkups = useCallback(async () => {
+  /**
+   * Land a loaded estimate list, and the open round's scopes and drawings, in
+   * ONE render. These were set either side of a second query, so the list and
+   * the round arrived as two whole-window renders.
+   */
+  const applyEstimates = useCallback((e: EstimateLoad) => {
+    setEstimates(e.rounds)
+    setEstimatesLoaded(true)
+    // The same ids keep the same array, so nothing keyed on it renders again.
+    setEstimateScopeIds((cur) => sameStrings(cur, e.scopeIds) ? cur : e.scopeIds)
+    setEstimateScopesLoaded(true)
+    setEstimateFiles(e.files)
+  }, [])
+
+  /**
+   * `alongside` runs right after the markups are set, in the same synchronous
+   * block, so whatever it sets lands in the SAME render rather than the next.
+   */
+  const syncMarkups = useCallback(async (alongside?: () => void) => {
     const db = dbRef.current
-    if (!db) return
+    if (!db) { alongside?.(); return }
     const toMarkup = (r: {
       id: string; scopeId: string | null; documentId: string; pageId: string; kind: string
       rings: Array<Array<{ x: number; y: number }>>
@@ -1480,18 +1522,31 @@ export default function Workspace({
      * rather than the viewer: the viewer only knows the open document's, and
      * normalized geometry means nothing without its own box.
      */
-    const [allRows, cals, allCals, allBoxes] = await Promise.all([
+    /*
+     * Everything a finished shape changes, read FIRST and set together, so
+     * the edit is one render of the window rather than one per read.
+     *
+     * Finishing a shape used to render the whole workspace six times: the
+     * undo state, then the scale regions (set between two awaits), then the
+     * markups, then the estimate list and the open round (an effect on the
+     * markup count, itself set either side of a query), then the quantities
+     * (an effect deriving state). About 40 ms of a slow laptop's time, for
+     * one press of Enter. The regions, the markups and the round now land in
+     * one render, and the quantities are derived in it (see `takeoffTotals`).
+     *
+     * Regions still resolve BEFORE anything is shown, so a details sheet is
+     * never measured at its page number for one render and then corrected.
+     */
+    const [allRows, cals, allCals, allBoxes, regions, rounds] = await Promise.all([
       listMarkups(db, {}),
       listCalibrations(db, docId),
       listAllCalibrations(db),
       listPageBoxes(db),
+      loadRegions(db),
+      loadEstimates(db, openEstimateIdRef.current),
     ])
-    // Regions resolve BEFORE the page scale, so a sync that loaded the
-    // calibrations without them would measure a details sheet at its page
-    // number for one render and then correct itself — a total that moves on
-    // its own is worse than one that is late. Loaded before any state is set,
-    // so everything below lands in the same render.
-    await reloadRegions(db)
+    setProjectRegions(regions)
+    applyEstimates(rounds)
     const all = allRows.map(toMarkup)
     const doc = all.filter((m) => m.documentId === docId)
     // The cuts in this sheet's areas, as cutouts to select (cutouts.ts).
@@ -1501,7 +1556,8 @@ export default function Workspace({
     setProjectMarkups(all)
     setProjectCalibrations(allCals)
     setProjectPageBoxes(allBoxes)
-  }, [reloadRegions])
+    alongside?.()
+  }, [applyEstimates])
 
   /*
    * The project's markups, calibrations and boxes are loaded by `syncMarkups`,
@@ -2002,8 +2058,18 @@ export default function Workspace({
     requestPaint()
   }, [markups, scopes, requestPaint])
 
-  // Recompute quantities whenever markups or calibration change.
-  useEffect(() => {
+  /*
+   * Quantities and pieces, DERIVED in the render that changed their inputs.
+   *
+   * This was an effect that set state, so every edit rendered the whole
+   * window twice: once with the new markups and the old totals, then again
+   * with the totals. The second render was pure overhead (and for one frame
+   * the totals disagreed with the sheet).
+   */
+  const takeoffTotals = useMemo((): {
+    quantities: Array<{ scope: Scope; rows: QuantityResult[] }>
+    pieces: Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>
+  } => {
     /*
      * NOT GATED ON THE OPEN SHEET'S SCALE.
      *
@@ -2057,7 +2123,7 @@ export default function Workspace({
       projectRegions,
       (pageId) => projectCalibrations.get(pageId) ?? null,
     )
-    setQuantities(scopes.map((s) => {
+    const quantities = scopes.map((s) => {
       /*
        * A scope with nothing drawn has NO rows, not a row reading 0.
        *
@@ -2086,7 +2152,7 @@ export default function Workspace({
         }
       }
       return { scope: s, rows: [...totals.values()] }
-    }))
+    })
 
     /*
      * Pieces are rolled up across the WHOLE DOCUMENT, each page at its own
@@ -2132,7 +2198,7 @@ export default function Workspace({
      */
     const first = calibrations.values().next()
     const fallbackCal: Calibration | null = cal ?? (first.done ? null : first.value)
-    if (fallbackCal === null) { setPieces([]); return }
+    if (fallbackCal === null) return { quantities, pieces: [] }
     const pageSize = { width: fallbackCal.pageWidth, height: fallbackCal.pageHeight }
 
     /*
@@ -2145,7 +2211,7 @@ export default function Workspace({
     const withCuts = (scope: Scope, result: PieceResult) =>
       devices.length === 0 ? { scope, result } : { scope, result, factoryCut: factoryCutPieces(result, devices) }
 
-    setPieces(scopes.map((s) => withCuts(s,
+    const pieces = scopes.map((s) => withCuts(s,
       calculatePieces(s, projectMarkups, fallbackCal, {
         scopeDirection: scopeDefaultDirectionFrom(s.specifications),
         // AREA beats PAGE beats SCOPE. See `directionFrom` in the domain.
@@ -2163,8 +2229,10 @@ export default function Workspace({
         // disagreeing confidently.
         scaleRegions: projectRegions,
       }),
-    )))
+    ))
+    return { quantities, pieces }
   }, [projectMarkups, projectCalibrations, projectPageBoxes, projectRegions, scopes, cal, prefs])
+  const { quantities, pieces } = takeoffTotals
 
   useEffect(() => { piecesRef.current = pieces }, [pieces])
 
@@ -2367,23 +2435,8 @@ export default function Workspace({
   const refreshEstimates = useCallback(async (openId?: string | null) => {
     const db = dbRef.current
     if (!db) return
-    const rounds = await listEstimates(db)
-    setEstimates(rounds.map((e) => ({
-      id: e.id, name: e.name, scopeCount: e.scopeCount, markupCount: e.markupCount, scopeIds: e.scopeIds,
-    })))
-    setEstimatesLoaded(true)
-    const id = openId === undefined ? openEstimateIdRef.current : openId
-    if (id === null) {
-      setEstimateScopeIds([]); setEstimateFiles([]); setEstimateScopesLoaded(true); return
-    }
-    const [ids, files] = await Promise.all([
-      listEstimateScopeIds(db, id),
-      estimateDocuments(db, id),
-    ])
-    setEstimateScopeIds(ids)
-    setEstimateScopesLoaded(true)
-    setEstimateFiles(files)
-  }, [])
+    applyEstimates(await loadEstimates(db, openId === undefined ? openEstimateIdRef.current : openId))
+  }, [applyEstimates])
 
   const createEstimate = useCallback(async (name: string) => {
     const db = dbRef.current
@@ -2407,7 +2460,9 @@ export default function Workspace({
   useEffect(() => {
     if (backend === null) return
     void refreshEstimates(openEstimateIdRef.current)
-  }, [backend, refreshEstimates, scopes.length, markups.length])
+    // Not on the markup count: every markup change comes through
+    // `syncMarkups`, which reloads the round in the same render.
+  }, [backend, refreshEstimates, scopes.length])
 
   /*
    * Once. This re-ran whenever `openEstimateId` went back to null, so the
@@ -2444,8 +2499,14 @@ export default function Workspace({
       await syncMarkups()
       return false
     }
-    setUndoState(u.state)
-    await syncMarkups()
+    // WITH the resync, not before it: set first, the undo state was a whole
+    // render of its own ahead of the markups it describes.
+    let undoShown = false
+    try {
+      await syncMarkups(() => { undoShown = true; setUndoState(u.state) })
+    } finally {
+      if (!undoShown) setUndoState(u.state)
+    }
     saveRef.current()
     // Tell the other windows on this project. No-op outside Tauri.
     void broadcastChange('markups', identity.projectId ?? 'default')
@@ -2464,12 +2525,15 @@ export default function Workspace({
       return
     }
     if (!cmd) return
-    setUndoState(u.state)
-    setSelectedIds([]); selectedRef.current = []
-    await syncMarkups()
+    selectedRef.current = []
+    // Read first, then set with the markups: one render for the undo, not three.
     const c = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
-    setCal(c ? { feetPerPoint: c.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
-    setStatus(`undid ${cmd.label}`)
+    await syncMarkups(() => {
+      setUndoState(u.state)
+      setSelectedIds([])
+      setCal(c ? { feetPerPoint: c.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
+      setStatus(`undid ${cmd.label}`)
+    })
     saveRef.current()
   }, [syncMarkups, page.width, page.height])
 
@@ -2483,11 +2547,12 @@ export default function Workspace({
       return
     }
     if (!cmd) return
-    setUndoState(u.state)
-    await syncMarkups()
     const c = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
-    setCal(c ? { feetPerPoint: c.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
-    setStatus(`redid ${cmd.label}`)
+    await syncMarkups(() => {
+      setUndoState(u.state)
+      setCal(c ? { feetPerPoint: c.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
+      setStatus(`redid ${cmd.label}`)
+    })
     saveRef.current()
   }, [syncMarkups, page.width, page.height])
 
@@ -4122,18 +4187,8 @@ export default function Workspace({
     return scopeToolWarning(scope, kind)
   }, [tool, scopes, activeScope])
 
-  /**
-   * Sample the meters for display.
-   *
-   * 500ms rather than per frame: the numbers are rolling percentiles over a
-   * 240-sample window, so they do not change meaningfully faster than this,
-   * and a re-render per frame is exactly the cost this module exists to stop
-   * paying.
-   */
-  useEffect(() => {
-    const id = setInterval(() => setPerf(perfRef.current.all()), 500)
-    return () => clearInterval(id)
-  }, [])
+  // The meters are sampled by PerfReadout itself, not into this component's
+  // state: see the note there.
 
   // ------------------------------------------------------------- scopes ----
 
@@ -8159,7 +8214,7 @@ export default function Workspace({
         {workOpen && <ColumnGrip side="right" onDrag={(x) => setWorkW(clampWork(window.innerWidth - x))} onReset={() => setWorkW(SIDEBAR_DEFAULT)} />}
         <StatusToast text={statusEntry.text} at={statusEntry.at} />
         {/* The setting promised a readout; this is the readout. */}
-        {prefs['performance.showBudgets'] === true && <PerfReadout perf={perf} />}
+        {prefs['performance.showBudgets'] === true && <PerfReadout registry={perfRef.current} />}
         {activeDocId === null && scan === 'done' && (
           <div className="stageempty" role="status">
             <div>

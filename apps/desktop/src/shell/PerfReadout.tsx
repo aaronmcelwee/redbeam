@@ -11,11 +11,26 @@
  * hitch entirely: what people feel is the occasional 90ms stall inside an
  * otherwise fine average.
  */
-import { useState } from 'react'
-import { summarize, verdict, type Budget, type Stats } from '../perf.js'
+import { useEffect, useState } from 'react'
+import { summarize, verdict, type PerfRegistry } from '../perf.js'
 
-export function PerfReadout({ perf }: { perf: Array<{ budget: Budget; stats: Stats }> }) {
+/**
+ * Samples the meters itself, every 500ms.
+ *
+ * The workspace used to sample them into its OWN state, so the whole window
+ * re-rendered twice a second, all day, even with the readout switched off,
+ * and a tick landing on a keypress made that keypress slower. Only this chip
+ * shows the numbers, so only this chip renders when they change. 500ms rather
+ * than per frame: the numbers are rolling percentiles over a 240-sample
+ * window and do not change meaningfully faster than this.
+ */
+export function PerfReadout({ registry }: { registry: PerfRegistry }) {
   const [open, setOpen] = useState(false)
+  const [perf, setPerf] = useState(() => registry.all())
+  useEffect(() => {
+    const id = setInterval(() => setPerf(registry.all()), 500)
+    return () => clearInterval(id)
+  }, [registry])
   const frame = perf.find((p) => p.budget.key === 'frame')
   const tone = frame !== undefined && frame.stats.window > 0 ? verdict(frame.stats) : 'idle'
 

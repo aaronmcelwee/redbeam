@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.43 — 2026-11-20
+
+### Finishing a shape is faster
+
+- **Enter takes about a third of the work it did.** Finishing an area, run or count used to redraw the whole window six times in a row. It now redraws once, with the new shape, its quantities and the estimate totals all arriving together. On the 80 MB Scottsdale set with the processor slowed to a slow laptop's pace, the work behind each Enter fell from about 66 ms to about 25 ms, and the shape and totals appear about 20 ms sooner.
+- **Undo and redo got the same treatment**, one redraw instead of three.
+- **No more background redraws.** The window was quietly redrawing itself twice a second for a performance readout that is normally hidden. It now redraws only when something changes.
+
 ## 0.3.42 — 2026-11-20
 
 ### See what's new after an update
