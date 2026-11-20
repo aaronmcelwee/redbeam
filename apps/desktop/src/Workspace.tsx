@@ -134,12 +134,13 @@ import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { ReportDialog } from './report/ReportDialog.js'
+import { openWhatsNew } from './whatsnew/open.js'
 import {
   EMPTY_DRAFT, REPORT_KINDS, SUMMARY_MAX, buildPayload, captureStage, gatherContext, sendReport, whereLine,
   type ReportDraft, type ReportKind,
 } from './report/report.js'
 import { APP_VERSION } from './update/updates.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Bug } from './shell/icons.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
@@ -7287,6 +7288,12 @@ export default function Workspace({
       },
       { id: 'settings', kind: 'command', title: 'Settings', detail: 'Application preferences', keywords: ['preferences', 'options'], run: openSettings },
       reportCommand,
+      {
+        id: 'whats-new', kind: 'command', title: 'What’s new', icon: Sparkles,
+        detail: `The changes in REDBEAM ${APP_VERSION} and the releases before it`,
+        keywords: ['release notes', 'changelog', 'changes', 'update', 'version', 'new', 'features'],
+        run: openWhatsNew,
+      },
       {
         id: 'report-bug-form', kind: 'command', title: 'Report a bug with a picture…', icon: Bug,
         detail: 'The full form: details, a capture of the drawing, or a pasted screenshot',

@@ -1,0 +1,106 @@
+/*
+ * What's new. WinUI's ContentDialog: a smoke scrim, one 8px card with the
+ * dialog shadow, a Subtitle title, a scrolling body and a command band at the
+ * foot with the accent button on the right. Above Settings (250) so About can
+ * open it; below the bug report (260).
+ */
+.wn {
+  position: fixed;
+  inset: 0;
+  z-index: 255;
+  display: grid;
+  place-items: center;
+  padding: var(--ads-sp-6);
+  background: rgba(0, 0, 0, .38);
+  animation: wn-in var(--rb-motion-base) var(--rb-ease-decel);
+}
+
+.wn-card {
+  width: min(548px, 100%);
+  max-height: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: 8px;
+  background: var(--rb-flyout) var(--rb-noise);
+  backdrop-filter: var(--rb-acrylic-blur);
+  box-shadow: var(--rb-shadow-dialog);
+  color: var(--rb-ink);
+  font: var(--rb-body)/20px var(--ads-sans);
+  overflow: hidden;
+  animation: wn-rise var(--rb-motion-base) var(--rb-ease-decel);
+}
+@keyframes wn-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+@keyframes wn-in { from { opacity: 0; } }
+
+.wn-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px 24px 12px;
+}
+.wn-mark {
+  display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; border-radius: 8px;
+  background: color-mix(in srgb, var(--rb-accent) 18%, transparent);
+  color: var(--rb-accent);
+}
+.wn-headtext { flex: 1 1 auto; min-width: 0; }
+.wn-headtext h2 { margin: 0; font-size: var(--rb-subtitle); line-height: 28px; font-weight: 600; }
+.wn-headtext p { margin: 2px 0 0; color: var(--rb-ink-3); font-size: var(--rb-caption); line-height: 16px; }
+.wn-x {
+  display: grid; place-items: center; flex: none;
+  width: 28px; height: 28px; margin: -2px -6px 0 0;
+  border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-3); cursor: pointer;
+}
+.wn-x:hover { background: var(--rb-hover); color: var(--rb-ink); }
+
+.wn-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 24px 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  outline: none;
+}
+.wn-empty { margin: 0; color: var(--rb-ink-3); }
+
+.wn-release + .wn-release {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rb-line);
+}
+.wn-version {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--rb-ink-3);
+  font-size: var(--rb-caption);
+  line-height: 16px;
+}
+.wn-vnum { font-family: var(--rb-figures); font-weight: 600; color: var(--rb-ink-2); }
+.wn-release h3 { margin: 4px 0 6px; font-size: var(--rb-body); line-height: 20px; font-weight: 600; }
+.wn-release h3 ~ h3 { margin-top: 12px; }
+.wn-release p { margin: 0 0 6px; color: var(--rb-ink-2); }
+.wn-release ul { margin: 0; padding: 0 0 0 18px; color: var(--rb-ink-2); }
+.wn-release li { margin: 0 0 6px; }
+.wn-release li::marker { color: var(--rb-ink-4); }
+.wn-release strong { color: var(--rb-ink); font-weight: 600; }
+.wn-release code { font-family: var(--rb-code); font-size: var(--rb-caption); }
+
+.wn-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 24px;
+  border-top: 1px solid var(--rb-line);
+  background: color-mix(in srgb, var(--rb-canvas) 35%, transparent);
+}
+.wn-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 32px; min-width: 120px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: 4px;
+  font: var(--rb-body) var(--ads-sans); white-space: nowrap; cursor: pointer;
+}
+.wn-btn.primary { background: var(--rb-accent); color: var(--rb-accent-ink); font-weight: 600; }
+.wn-btn.primary:hover { background: var(--rb-accent-2); }
