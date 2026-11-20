@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.41 — 2026-11-20
+
+### Let Claude and ChatGPT use REDBEAM
+
+- **One click to add.** Settings › Claude and ChatGPT has *Add to Claude* and *Add to ChatGPT*. REDBEAM is its own connector (an MCP server), so there is nothing else to install: the button adds REDBEAM to the Claude desktop app (and to Claude Code, if you use it) or to the ChatGPT desktop app (Settings › MCP servers, shared with Codex). Restart Claude or ChatGPT afterwards. *Remove* takes it out again and leaves everything else in their settings alone.
+- **What they can do.** Open a PDF, look at the sheet, read scopes and quantities, set the scale, create scopes and draw takeoff, and export, all in the window you are looking at. Their changes go on the undo stack like yours and are saved into the PDF the same way.
+- **You stay in charge.** *Let AI apps use REDBEAM* switches it on and off, and nothing can connect while it is off. If REDBEAM is closed when Claude or ChatGPT asks for it, it opens.
+- ChatGPT on the web cannot reach apps on your computer; use the ChatGPT desktop app.
+
 ## 0.3.40 — 2026-11-20
 
 ### A redrawn icon, and the same icon everywhere
