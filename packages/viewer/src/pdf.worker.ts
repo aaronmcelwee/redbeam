@@ -36,6 +36,7 @@ import {
 } from './outline.js'
 import { extractPageText, type PageBox, type TextBackend } from './text.js'
 import { extractPageAnnotations, type AnnotBackend, type AnnotPoint } from './annots.js'
+import { rotateFlatPoints, rotateNormBox, rotateNormPoint, wrapTurns } from './rotation.js'
 import { createPdfiumLinkBackend, extractPageLinks, type PageLink, type PdfiumLinkLike } from './links.js'
 import {
   INDEX_KEY, PRIORITY_INDEX, tileExtent,
@@ -148,6 +149,17 @@ function readAllPageSizes(count: number): PageInfo[] {
     pool!.closeAll()
   }
   return out
+}
+
+/**
+ * The page's clockwise quarter turns as displayed (/Rotate). Text, paths,
+ * links and annotations come back from PDFium in the unrotated page space,
+ * and are turned by this before they leave the worker, so they line up with
+ * the rendered sheet and with everything stored against it.
+ */
+function turnsOf(handle: number): 0 | 1 | 2 | 3 {
+  const r = typeof pdfium?.FPDFPage_GetRotation === 'function' ? pdfium.FPDFPage_GetRotation(handle) as number : 0
+  return wrapTurns(Number.isFinite(r) ? r : 0)
 }
 
 // ------------------------------------------------------------------ render --
@@ -515,6 +527,8 @@ async function run(job: Job) {
     // the scheduler's drain loop down with it and stall every queued tile.
     try {
       const pt = extractPageText(textBackend(), entry.handle, job.page)
+      const turns = turnsOf(entry.handle)
+      if (turns !== 0) pt.runs = pt.runs.map((r) => rotateNormBox(r, turns))
       post({
         type: 'text',
         key: job.key,
@@ -544,7 +558,14 @@ async function run(job: Job) {
     // As text: a failure is reported on the annots message, so only the
     // waiting request is rejected and the drain loop keeps going.
     try {
-      const annotations = extractPageAnnotations(annotBackend(), entry.handle, job.page)
+      const turns = turnsOf(entry.handle)
+      const annotations = extractPageAnnotations(annotBackend(), entry.handle, job.page).map((a) => turns === 0 ? a : ({
+        ...a,
+        rect: rotateNormBox(a.rect, turns),
+        vertices: a.vertices.map((p) => rotateNormPoint(p, turns)),
+        ink: a.ink.map((stroke) => stroke.map((p) => rotateNormPoint(p, turns))),
+        turns,
+      }))
       // Links ride the same message: a failure to read them costs the links,
       // never the annotations the Select tool is waiting for.
       let links: PageLink[] = []
@@ -552,7 +573,7 @@ async function run(job: Job) {
         links = extractPageLinks(
           createPdfiumLinkBackend(pdfium as unknown as PdfiumLinkLike, doc!, () => readPageBox(entry.handle)),
           entry.handle, pageSizes.length,
-        )
+        ).map((l) => (turns === 0 ? l : { ...l, rect: rotateNormBox(l.rect, turns) }))
       } catch { links = [] }
       post({ type: 'annots', key: job.key, page: job.page, annotations, links, ms: now() - t0 })
     } catch (err) {
@@ -566,12 +587,16 @@ async function run(job: Job) {
     // the request that was waiting is rejected, rather than throwing and taking
     // the scheduler's drain loop — and every queued tile — down with it.
     try {
+      // The clip arrives in displayed coordinates; extraction works unrotated.
+      const turns = turnsOf(entry.handle)
+      const clip = job.clip === undefined ? undefined : rotateNormBox(job.clip, 4 - turns)
       const g = extractPageGeometry(geometryBackend(), entry.handle, job.page, {
-        ...(job.clip !== undefined ? { clip: job.clip } : {}),
+        ...(clip !== undefined ? { clip } : {}),
         ...(job.minLengthPoints !== undefined ? { minLengthPoints: job.minLengthPoints } : {}),
         ...(job.curveSteps !== undefined ? { curveSteps: job.curveSteps } : {}),
         ...(job.maxSegments !== undefined ? { maxSegments: job.maxSegments } : {}),
       })
+      if (turns !== 0) rotateFlatPoints(g.segments, turns)
       post(
         {
           type: 'geometry',
@@ -580,7 +605,7 @@ async function run(job: Job) {
           segments: g.segments,
           segmentCount: g.segmentCount,
           box: g.box,
-          clip: g.clip,
+          clip: turns === 0 ? g.clip : rotateNormBox(g.clip, turns),
           pageObjects: g.pageObjects,
           pathObjects: g.pathObjects,
           truncated: g.truncated,
@@ -639,7 +664,21 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         // request does not pay for it, and report the authoritative box.
         const entry = pool!.acquire(m.index)
         pageSizes[m.index] = { width: entry.width, height: entry.height }
-        post({ type: 'page', index: m.index, width: entry.width, height: entry.height })
+        post({ type: 'page', index: m.index, width: entry.width, height: entry.height, rotation: turnsOf(entry.handle) * 90 })
+        break
+      }
+
+      case 'rotate': {
+        await booted
+        // The page dictionary's /Rotate, in this worker's copy of the PDF only:
+        // the file on disk is written by the app's save. Reopened so its size
+        // and every later render, text and path read see the new turn.
+        const entry = pool!.acquire(m.page)
+        pdfium.FPDFPage_SetRotation(entry.handle, wrapTurns(m.rotation / 90))
+        pool!.drop(m.page)
+        const fresh = pool!.acquire(m.page)
+        pageSizes[m.page] = { width: fresh.width, height: fresh.height }
+        post({ type: 'rotated', page: m.page, width: fresh.width, height: fresh.height, rotation: turnsOf(fresh.handle) * 90 })
         break
       }
 

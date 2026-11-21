@@ -42,7 +42,7 @@
  */
 import {
   PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream,
-  PDFRef, PDFStream, PDFString, decodePDFRawStream,
+  PDFRef, PDFStream, PDFString, decodePDFRawStream, degrees,
   type PDFContext, type PDFPage,
 } from 'pdf-lib'
 import { areaRegion } from '@redbeam/domain'
@@ -121,6 +121,12 @@ export interface EmbedInput {
   markups: readonly EmbedMarkup[]
   pageScales: ReadonlyMap<number, number>
   pageRegions?: ReadonlyMap<number, readonly WritableScaleRegion[]>
+  /**
+   * Sheets turned in REDBEAM: page index to /Rotate in degrees. Written onto
+   * the page before its annotations, which are placed through the page's
+   * rotation, so Bluebeam opens the sheet turned with the takeoff on it.
+   */
+  pageRotations?: ReadonlyMap<number, number>
   /**
    * The takeoff this writer last saw in the file (`sliceStamp`), or null for
    * none. When the file now carries a different one that also differs from
@@ -800,6 +806,22 @@ export function hashableTables(tables: SliceTables): SliceTables {
   return out
 }
 
+/** The pages whose /Rotate differs from what REDBEAM shows them at. */
+export function rotationsToWrite(
+  pages: readonly PDFPage[], wanted: ReadonlyMap<number, number> | undefined,
+): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  if (wanted === undefined) return out
+  for (const [i, deg] of wanted) {
+    const page = pages[i]
+    if (page === undefined || !Number.isFinite(deg)) continue
+    const angle = ((Math.round(deg / 90) * 90) % 360 + 360) % 360
+    const have = ((page.getRotation().angle % 360) + 360) % 360
+    if (angle !== have) out.push([i, angle])
+  }
+  return out
+}
+
 /**
  * Embed a sheet's takeoff in its PDF.
  *
@@ -836,8 +858,9 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     if (recorded.rev !== undefined && now?.rev !== undefined && now.rev !== recorded.rev) continue
     editedNms.add(a.nm)
   }
+  const turned = rotationsToWrite(doc.getPages(), input.pageRotations)
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0
-    && prev.documentId === input.documentId) {
+    && prev.documentId === input.documentId && turned.length === 0) {
     return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }
   }
   // Someone else saved a different takeoff into this file since this writer
@@ -883,7 +906,12 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     changed.push(page.ref)
   })
 
-  // 2. Scales, then this save's annotations.
+  // 2. Rotation, then scales, then this save's annotations: all three are
+  //    placed through the page's rotation, so it has to be the new one.
+  for (const [i, angle] of turned) {
+    pages[i]!.setRotation(degrees(angle))
+    changed.push(pages[i]!.ref)
+  }
   const scaledPages = new Set<number>()
   for (let i = 0; i < pages.length; i++) {
     const regions = input.pageRegions?.get(i) ?? []

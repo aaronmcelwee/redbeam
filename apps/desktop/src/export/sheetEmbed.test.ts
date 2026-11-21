@@ -237,3 +237,30 @@ describe('a save after the drawing has been through Bluebeam', () => {
     expect(str(vp.lookup(0, PDFDict), 'Name')).toBe('Detail 3')
   })
 })
+
+describe('a sheet turned in REDBEAM', () => {
+  it('writes /Rotate onto the page and places the takeoff through it', async () => {
+    const turned = { ...input(), pageRotations: new Map([[0, 90]]) }
+    const { bytes } = await embedSheet(await blank(false), turned)
+    expect(bytes).not.toBeNull()
+    const doc = await PDFDocument.load(bytes!)
+    expect(doc.getPages()[0]!.getRotation().angle).toBe(90)
+    expect(doc.getPages()[1]!.getRotation().angle).toBe(0)
+    // Read back through the page's rotation, the area is where it was drawn.
+    const back = await readSheetEmbed(bytes!)
+    const ring = back.redbeamAnnots.find((a) => a.markupId === 'm1')!.rings[0]!
+    for (const p of area('m1').rings[0]!) {
+      expect(ring.some((q) => Math.abs(q.x - p.x) < 1e-3 && Math.abs(q.y - p.y) < 1e-3)).toBe(true)
+    }
+  })
+
+  it('writes again when only the rotation changed, and not once it matches', async () => {
+    const first = await embedSheet(await blank(false), input())
+    const same = await embedSheet(first.bytes!, input())
+    expect(same.bytes).toBeNull()
+    const turned = await embedSheet(first.bytes!, { ...input(), pageRotations: new Map([[0, 270]]) })
+    expect(turned.bytes).not.toBeNull()
+    const again = await embedSheet(turned.bytes!, { ...input(), pageRotations: new Map([[0, 270]]) })
+    expect(again.bytes).toBeNull()
+  })
+})

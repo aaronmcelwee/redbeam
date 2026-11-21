@@ -21,7 +21,7 @@
  */
 
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString } from 'pdf-lib'
-import type { PageAnnotation, PageBox } from '@redbeam/viewer'
+import { rotateNormPoint, type PageAnnotation, type PageBox } from '@redbeam/viewer'
 
 export interface Point {
   x: number
@@ -122,7 +122,11 @@ export function cutoutsFor(a: PageAnnotation, found: readonly RawCutouts[]): Poi
     hit = found.find((f) => f.name === a.name)
   }
   if (hit === undefined) return []
-  return hit.rings.map((r) => normalizeRing(r, a.pageBox)).filter((r) => r.length >= 3)
+  // Its vertices came back turned with the page's /Rotate; the holes must too.
+  const turns = a.turns ?? 0
+  return hit.rings
+    .map((r) => normalizeRing(r, a.pageBox).map((p) => (turns === 0 ? p : rotateNormPoint(p, turns))))
+    .filter((r) => r.length >= 3)
 }
 
 /**

@@ -97,6 +97,13 @@ export interface PageAnnotation {
    * means (the cutouts) is normalized against this same box.
    */
   pageBox: PageBox
+  /**
+   * Clockwise quarter turns of the page as displayed (its /Rotate). Every
+   * normalized value here is already turned; raw page-space geometry read
+   * from the file by other means is normalized against `pageBox` and then
+   * turned by this many.
+   */
+  turns?: number
 }
 
 /** FPDF_ANNOT_* as PDFium numbers them (fpdf_annot.h). */

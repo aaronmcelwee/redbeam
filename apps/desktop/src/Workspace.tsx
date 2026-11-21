@@ -22,7 +22,7 @@ import {
   listEstimates, createEstimate as createEstimateRow, listEstimateScopeIds,
   estimateDocuments, addScopeToEstimate,
   upsertScope, setScopeArchived, type SqlDriver,
-  pageIdFor, searchProjectText, indexPageText, textIndexCoverage,
+  pageIdFor, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
   type DocumentRow, type SearchHit, type NormBox,
   UndoStack, createMarkup as cmdCreate, removeMarkup as cmdRemove,
   editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
@@ -4729,6 +4729,14 @@ export default function Workspace({
    * copy from someone else) does not replace it; see `EmbedInput.expectStamp`.
    */
   const seenStampRef = useRef(new Map<string, string | null>())
+  /**
+   * Sheets turned in this window, per document: page index to degrees. Handed
+   * to every save of that drawing, which writes /Rotate onto the page so the
+   * PDF opens turned in Bluebeam as well as here.
+   */
+  const pageRotationsRef = useRef(new Map<string, Map<number, number>>())
+  const [rotationTick, setRotationTick] = useState(0)
+
   const [loadBlock, setLoadBlock] = useState<string | null>(null)
   /** Light: this file's takeoff was rebuilt from its markups, and what that could not bring back. */
   const [rebuiltNote, setRebuiltNote] = useState<string | null>(null)
@@ -4754,6 +4762,7 @@ export default function Workspace({
         embed: embedInWorker,
         // Light: the file's scopes are all of the store's, drawn on or not.
         allScopes: light,
+        ...(pageRotationsRef.current.has(docId) ? { pageRotations: pageRotationsRef.current.get(docId)! } : {}),
         ...(light && seenStampRef.current.has(docId) ? { expectStamp: seenStampRef.current.get(docId) ?? null } : {}),
       })
       if ((out.kind === 'written' || out.kind === 'unchanged') && out.stamp !== undefined) seenStampRef.current.set(docId, out.stamp)
@@ -4878,6 +4887,7 @@ export default function Workspace({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
         read: () => projectBridge.readDocument(projectPath, doc.relativePath),
         allScopes: light,
+        ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
       })
       const out = await saveFile(bytes, {
         name: copyName(doc.relativePath), type: 'application/pdf', filter: { name: 'PDF drawing', extensions: ['pdf'] },
@@ -6584,7 +6594,7 @@ export default function Workspace({
       () => { void saveTakeoffIntoDrawing(docId, { quiet: true }) },
       () => performance.now() - lastInputRef.current,
     )
-  }, [activeDocId, markups, scopes, committed, cal, quickView, light, identity.role, saveTakeoffIntoDrawing])
+  }, [activeDocId, markups, scopes, committed, cal, rotationTick, quickView, light, identity.role, saveTakeoffIntoDrawing])
 
   const activeEntry = pieces.find((p) => p.scope.id === shownScopeId)
   const activePieces = activeEntry?.result
@@ -6865,6 +6875,38 @@ export default function Workspace({
       void openWebLink(uri).then((ok) => setStatus(ok ? `opened ${uri}` : `could not open ${uri}`))
     }
   }, [goToPage, setStatus, sheetLabelFor])
+
+  /**
+   * Turn the open sheet a quarter turn, clockwise (+1) or counterclockwise (-1).
+   *
+   * Everything drawn on it turns with it (rotatePageData), so a takeoff stays
+   * on what it was drawn over and every quantity stays what it was. The undo
+   * history goes: an earlier shape put back would land in the old orientation.
+   */
+  const rotateSheet = useCallback(async (delta: 1 | -1) => {
+    const v = viewerRef.current, db = dbRef.current
+    const docId = activeDocId
+    if (!v || !db || docId === null || page.width === 0) return
+    const index = pageIndexRef.current
+    const target = (((v.getPageRotation(index) + delta * 90) % 360) + 360) % 360
+    try {
+      await rotatePageData(db, pageIdFor(docId, pageIndexRef.current), delta === 1 ? 1 : 3)
+      const u = undoRef.current
+      if (u) { await u.clear(); setUndoState(u.state) }
+      const forDoc = pageRotationsRef.current.get(docId) ?? new Map<number, number>()
+      forDoc.set(index, target)
+      pageRotationsRef.current.set(docId, forDoc)
+      setFitMode('page')
+      await v.rotatePage(index, target)
+      await syncMarkups()
+      await refreshScopes()
+      setRotationTick((n) => n + 1)
+      requestPaint()
+      setStatus(`turned ${sheetLabelFor(index)} ${delta === 1 ? 'clockwise' : 'counterclockwise'} · the takeoff turned with it · undo starts again from here`)
+    } catch (err) {
+      setStatus(`could not turn the sheet: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }, [activeDocId, page.width, syncMarkups, refreshScopes, requestPaint, setStatus, sheetLabelFor])
 
   // The window's listeners are bound once; these refs hand them the latest.
   const armZoomBoxRef = useRef(armZoomBox); armZoomBoxRef.current = armZoomBox
@@ -7530,6 +7572,8 @@ export default function Workspace({
         id: 'history-forward', kind: 'command', title: 'Forward', shortcut: 'Alt+Right', keywords: ['next view', 'history'],
         ...stuck(historyRef.current.canGoForward() ? undefined : 'nothing to go forward to'), stay: true, run: () => stepHistory(1),
       },
+      { id: 'rotate-cw', kind: 'command', title: 'Rotate sheet clockwise', keywords: ['rotate', 'turn', 'orientation', 'landscape', 'portrait'], ...stuck(noSheet), run: () => { void rotateSheet(1) } },
+      { id: 'rotate-ccw', kind: 'command', title: 'Rotate sheet counterclockwise', keywords: ['rotate', 'turn', 'orientation', 'landscape', 'portrait'], ...stuck(noSheet), run: () => { void rotateSheet(-1) } },
       { id: 'select-text', kind: 'command', title: 'Select text', shortcut: 'T', keywords: ['copy text', 'text', 'clipboard'], ...stuck(noSheet), run: () => setTool('text') },
       ...[50, 100, 200, 400].map((pct): Command => ({
         id: `zoom-${pct}`, kind: 'command', title: `Zoom to ${pct}%`, keywords: ['zoom', 'actual size'],
@@ -9004,6 +9048,7 @@ export default function Workspace({
               zoom={viewRef.current.zoom}
               onZoom={setZoom}
               onZoomBox={armZoomBox}
+              onRotate={(d) => { void rotateSheet(d) }}
               onFitPage={() => applyFit('page')}
               onFitWidth={() => applyFit('width')}
             />
