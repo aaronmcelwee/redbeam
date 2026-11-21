@@ -15,6 +15,7 @@ import type { NormClip } from './geometry.js'
 import type { DocumentIndex } from './outline.js'
 import type { PageText } from './text.js'
 import type { PageAnnotation } from './annots.js'
+import type { PageLink } from './links.js'
 import { TileCache } from './tileCache.js'
 import {
   PRIORITY_PREFETCH,
@@ -172,6 +173,7 @@ export class Viewer {
   private statsWaiters: Array<(s: WorkerStats) => void> = []
   private texts = new Map<number, PageText>()
   private annots = new Map<number, PageAnnotation[]>()
+  private links = new Map<number, PageLink[]>()
   private annotWaiters = new Map<string, Array<{ resolve: (a: PageAnnotation[]) => void; reject: (e: Error) => void }>>()
   private textWaiters = new Map<string, Array<{ resolve: (t: PageText) => void; reject: (e: Error) => void }>>()
   /**
@@ -344,6 +346,7 @@ export class Viewer {
         for (const w of waiters) w.reject(new Error(m.error))
       } else {
         this.annots.set(m.page, m.annotations)
+        this.links.set(m.page, m.links ?? [])
         for (const w of waiters) w.resolve(m.annotations)
       }
     } else if (m.type === 'index') {
@@ -688,6 +691,14 @@ export class Viewer {
       this.annotWaiters.set(key, [{ resolve, reject }])
       this.send({ type: 'annots', key, page: index, priority })
     })
+  }
+
+  /**
+   * The page's hyperlinks, once its annotations have been read (they arrive
+   * in the same message). Empty until then, and for a page with none.
+   */
+  getLinks(index: number): readonly PageLink[] {
+    return this.links.get(index) ?? []
   }
 
   // ----------------------------------------------------------------- index --

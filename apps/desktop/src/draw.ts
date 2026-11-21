@@ -27,6 +27,9 @@ export type Tool =
   // takeoff: it reaches no scope and no quantity, which is why it carries no
   // scope id and is drawn on the annotation layer rather than the overlay.
   | 'calibrate' | 'direction' | 'scale-region' | 'dimension'
+  // `text` selects the sheet's own words with a box, for Ctrl+C. It reads the
+  // drawing and leaves nothing on it.
+  | 'text'
 
 export interface DraftState {
   tool: Tool

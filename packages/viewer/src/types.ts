@@ -2,6 +2,7 @@ import type { NormClip } from './geometry.js'
 import type { OutlineNode, OutlineShape } from './outline.js'
 import type { PageBox, TextRun } from './text.js'
 import type { PageAnnotation } from './annots.js'
+import type { PageLink } from './links.js'
 
 export interface PageInfo {
   /** Page box width in PDF points. */
@@ -338,6 +339,8 @@ export type WorkerResponse =
       key: string
       page: number
       annotations: PageAnnotation[]
+      /** The page's hyperlinks, read in the same pass. See links.ts. */
+      links?: PageLink[]
       ms: number
       error?: string
     }

@@ -5,7 +5,7 @@
 
 export type ToolKey =
   | 'select' | 'pan' | 'area' | 'polyline' | 'count' | 'cutout' | 'shape'
-  | 'calibrate' | 'scale-region'
+  | 'calibrate' | 'scale-region' | 'text'
 
 export interface KeyMods {
   ctrlKey: boolean
@@ -15,7 +15,7 @@ export interface KeyMods {
 
 const TOOL_KEYS: Record<string, ToolKey> = {
   v: 'select', h: 'pan', a: 'area', l: 'polyline', c: 'count', x: 'cutout',
-  s: 'shape', k: 'calibrate', K: 'scale-region',
+  s: 'shape', k: 'calibrate', K: 'scale-region', t: 'text',
 }
 
 /**

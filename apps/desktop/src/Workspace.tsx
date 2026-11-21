@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Viewer, clampViewport, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation } from '@redbeam/viewer'
+import { Viewer, clampViewport, linkAt, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation, type PageLink } from '@redbeam/viewer'
 import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
   calibrationFromReference, calculateScopeQuantities, parseNumberOrFraction, parseLengthInput, isLengthUnit,
@@ -92,6 +92,9 @@ import { useStageSize, sizeCanvas } from './useStageSize.js'
 import { embedWhenQuiet } from './autoEmbed.js'
 import { PerfRegistry } from './perf.js'
 import { isTextEntry, survivesTextEntry } from './keys.js'
+import { historyStepForButton, historyStepForKey, ViewHistory, zoomToBox, type ScreenBox, type ViewPlace } from './viewNav.js'
+import { wordsAsText, wordsInBox, type PickedWord } from './textSelect.js'
+import { openWebLink } from './tauri/openWith.js'
 import { readSession, writeSession } from './session.js'
 import { calculationFor, deltaBetween, type QuantityDelta } from './commit.js'
 import { projectCommands } from './palette/projects.js'
@@ -907,6 +910,23 @@ export default function Workspace({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const selectedRef = useRef<string[]>([])
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  /**
+   * Zoom to a box (Z): armed for one drag, then back to whatever tool was in
+   * hand. A box rather than a tool because it is a glance, not a mode: you
+   * zoom into the corner you need and carry on drawing.
+   */
+  const zoomBoxArmedRef = useRef(false)
+  const [zoomBoxArmed, setZoomBoxArmed] = useState(false)
+  const zoomBoxRef = useRef<ScreenBox | null>(null)
+  /** The Text tool's box while it is dragged, and the words it picked. */
+  const textBoxRef = useRef<ScreenBox | null>(null)
+  const textPickRef = useRef<{ page: number; words: PickedWord[] } | null>(null)
+  /** A press on one of the PDF's links, followed if it is released in place. */
+  const linkDownRef = useRef<{ x: number; y: number; link: PageLink } | null>(null)
+  /** Sheets visited, for Back and Forward (Alt+Left, Alt+Right). */
+  const historyRef = useRef(new ViewHistory())
+  /** Where a Back or Forward is going, applied once that sheet has loaded. */
+  const historyNavRef = useRef<ViewPlace | null>(null)
   /** What a Shift/Ctrl marquee adds to: the selection as it stood when it began. */
   const marqueeBaseRef = useRef<string[]>([])
   /*
@@ -1239,6 +1259,19 @@ export default function Workspace({
         drawAnnotationSelection(oc, annotsRef.current.filter((a) => chosen.has(a.index)), viewRef.current, page.width, page.height)
       }
       drawMarquee(oc, marqueeRef.current)
+      drawMarquee(oc, zoomBoxRef.current)
+      drawMarquee(oc, textBoxRef.current)
+      const pick = textPickRef.current
+      if (pick !== null && pick.page === pageIndexRef.current && pick.words.length > 0) {
+        oc.save()
+        oc.fillStyle = 'rgba(0, 120, 215, 0.28)'
+        for (const w of pick.words) {
+          const a = normalizedToScreen(w.x0, w.y0, viewRef.current, page.width, page.height)
+          const b = normalizedToScreen(w.x1, w.y1, viewRef.current, page.width, page.height)
+          oc.fillRect(a.x, a.y, b.x - a.x, b.y - a.y)
+        }
+        oc.restore()
+      }
       drawDraft(oc, draftRef.current, viewRef.current, page.width, page.height)
       drawSnapIndicator(oc, snapRef.current)
     }
@@ -1938,6 +1971,11 @@ export default function Workspace({
     // the worker to hold several documents — page handles are already pooled
     // per document, and two documents' pools would contend for the same bound.
     const worker = new PdfWorker()
+    // Back and Forward are within one document; a new one starts clean.
+    historyRef.current.clear()
+    historyNavRef.current = null
+    textPickRef.current = null
+    let shownPage: number | null = null
     const viewer = new Viewer(rasterRef.current, overlayRef.current, worker, {
       tileSize: 512,
       overlay: { strokeScale: strokeScaleFor },
@@ -2004,6 +2042,14 @@ export default function Workspace({
           next[info.index] = { width: info.width, height: info.height }
           return next
         })
+        // Leaving a sheet records where you were on it, for Back (Alt+Left).
+        // A Back or Forward in progress records nothing of its own.
+        if (shownPage !== null && shownPage !== info.index && historyNavRef.current === null) {
+          const cur = viewRef.current
+          historyRef.current.leave({ page: shownPage, zoom: cur.zoom, ox: cur.ox, oy: cur.oy })
+        }
+        shownPage = info.index
+        if (historyNavRef.current !== null && historyNavRef.current.page === info.index) setFitMode(null)
         setPageIndex((prev) => {
           // A different sheet is framed fresh rather than inheriting the last
           // one's scroll; a re-report of the same page keeps the user's view.
@@ -2996,7 +3042,7 @@ export default function Workspace({
       // Ctrl+, is the settings shortcut on every platform the Qt build shipped
       // to, and the Qt shell forwards it from a Context Window to its owner.
       if (mod && e.key === ',') { e.preventDefault(); settingsOpen ? setSettingsOpen(false) : openSettings(); return }
-      if (mod && (e.key === 'c' || e.key === 'C')) { e.preventDefault(); copySelection(); return }
+      if (mod && (e.key === 'c' || e.key === 'C')) { e.preventDefault(); if (!copyPickedTextRef.current()) copySelection(); return }
       if (mod && (e.key === 'v' || e.key === 'V')) { e.preventDefault(); void pasteClipboard(); return }
       if (mod && (e.key === 'd' || e.key === 'D') && selectedRef.current.length > 0) {
         e.preventDefault(); void duplicateMarkups(selectedRef.current); return
@@ -3036,6 +3082,8 @@ export default function Workspace({
          */
         if (pendingCalRef.current !== null) { cancelCalibration(); return }
         if (pendingRegionRef.current !== null) { cancelRegion(); return }
+        if (zoomBoxArmedRef.current) { disarmZoomBoxRef.current(); zoomBoxRef.current = null; requestPaint(); return }
+        if (textPickRef.current !== null) { textPickRef.current = null; requestPaint(); return }
         // The markup menu closed only on a click on its scrim; Escape, the
         // key every menu closes on, left it standing over the sheet.
         setMarkupMenu(null)
@@ -3078,6 +3126,16 @@ export default function Workspace({
       else {
         // Left/Right and PgUp/PgDn step the sheets; not mid-trace, where a
         // page change would strand the points (#30).
+        const back = historyStepForKey(e.key, e)
+        if (back !== null) {
+          e.preventDefault()
+          if (d.points.length === 0) stepHistoryRef.current(back)
+          return
+        }
+        if ((e.key === 'z' || e.key === 'Z') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          if (d.points.length === 0) armZoomBoxRef.current()
+          return
+        }
         const step = pageStepForKey(e.key, e)
         if (step !== null) {
           if (d.points.length === 0) { e.preventDefault(); stepPageRef.current(step) }
@@ -3134,6 +3192,8 @@ export default function Workspace({
   // sheet, and whether the scale tool is in hand (regions dim when it is not).
   regionsRef.current = projectRegions
   toolRef.current = tool
+  // Words picked with the Text tool stay highlighted only while it is in hand.
+  useEffect(() => { if (tool !== 'text' && textPickRef.current !== null) { textPickRef.current = null; requestPaint() } }, [tool, requestPaint])
   // A rail pane is deliberately NOT in this list, and neither is anything in
   // the estimates panel: they sit beside the drawing rather than over it, so
   // the drawing's shortcuts still belong to the user. What IS in it is every
@@ -3416,7 +3476,20 @@ export default function Workspace({
      * the sheet as a side effect of cancelling, so a right-click both abandoned
      * the shape and added a point to the next one.
      */
+    const hb = e.pointerType === 'mouse' ? historyStepForButton(e.button) : null
+    if (hb !== null) { e.preventDefault(); stepHistoryRef.current(hb); return }
     if (e.pointerType === 'mouse' && e.button !== 0) return
+    if (zoomBoxArmedRef.current || toolRef.current === 'text') {
+      const r0 = e.currentTarget.getBoundingClientRect()
+      const hx = e.clientX - r0.left, hy = e.clientY - r0.top
+      const box = { x0: hx, y0: hy, x1: hx, y1: hy }
+      if (zoomBoxArmedRef.current) zoomBoxRef.current = box
+      else { textBoxRef.current = box; textPickRef.current = null }
+      try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* see the pan */ }
+      e.preventDefault()
+      requestPaint()
+      return
+    }
     /*
      * A gesture waiting for its answer owns the sheet. The calibration line
      * and the region box stay drawn while the dock asks what they mean, and
@@ -3554,6 +3627,14 @@ export default function Workspace({
         }
       }
 
+      // A press on one of the PDF's links is followed if it is let go in place
+      // (see onPointerUp); a drag from it still pans or draws a marquee.
+      {
+        const lk = !(e.shiftKey || e.ctrlKey || e.metaKey) && viewerRef.current !== null
+          ? linkAt(viewerRef.current.getLinks(pageIndexRef.current), screenToNormalized(hx, hy, viewRef.current, page.width, page.height))
+          : null
+        linkDownRef.current = lk !== null ? { x: hx, y: hy, link: lk } : null
+      }
       // Empty space: the Select tool, or Shift in Pan, starts a marquee;
       // otherwise pan and clear. A marquee with Shift or Ctrl ADDS to the
       // selection, the way a Shift-click does: it cleared it here first, so
@@ -3661,6 +3742,14 @@ export default function Workspace({
     const v = viewerRef.current
     if (!v) return
     const rect = e.currentTarget.getBoundingClientRect()
+
+    const box = zoomBoxRef.current ?? textBoxRef.current
+    if (box !== null) {
+      box.x1 = e.clientX - rect.left
+      box.y1 = e.clientY - rect.top
+      requestPaint()
+      return
+    }
 
     /*
      * Auto-pan while a gesture is live and the pointer is within EDGE px of
@@ -3810,6 +3899,8 @@ export default function Workspace({
         ?? (tool === 'select' && annotsRef.current.length > 0
           && annotationAt(screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height), annotsRef.current) !== null
           ? 'pointer' : null)
+        ?? (linkAt(v.getLinks(pageIndexRef.current), screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height)) !== null
+          ? 'pointer' : null)
       if (cursor !== hoverCursorRef.current) { hoverCursorRef.current = cursor; setHoverCursor(cursor) }
       const d = dragRef.current
       if (!d) { requestPaint(); return }
@@ -3863,6 +3954,33 @@ export default function Workspace({
       return
     }
     dragRef.current = null
+
+    const zb = zoomBoxRef.current
+    if (zb !== null) {
+      zoomBoxRef.current = null
+      finishZoomBoxRef.current(zb)
+      requestPaint()
+      return
+    }
+    const tb = textBoxRef.current
+    if (tb !== null) {
+      textBoxRef.current = null
+      finishTextBoxRef.current(tb)
+      requestPaint()
+      return
+    }
+    const ld = linkDownRef.current
+    linkDownRef.current = null
+    if (ld !== null && e !== undefined) {
+      const r0 = e.currentTarget.getBoundingClientRect()
+      const ux = e.clientX - r0.left, uy = e.clientY - r0.top
+      if (Math.abs(ux - ld.x) <= 4 && Math.abs(uy - ld.y) <= 4) {
+        marqueeRef.current = null
+        followLinkRef.current(ld.link)
+        requestPaint()
+        return
+      }
+    }
 
     const rc = rectRef.current
     if (rc) {
@@ -5236,7 +5354,7 @@ export default function Workspace({
            */
           const known: Tool[] = [
             'pan', 'select', 'area', 'cutout', 'polyline', 'count', 'shape',
-            'calibrate', 'direction', 'scale-region', 'dimension',
+            'calibrate', 'direction', 'scale-region', 'dimension', 'text',
           ]
           if (!known.includes(next as Tool)) return { error: `unknown tool: ${next}` }
           setTool(next as Tool)
@@ -6650,6 +6768,122 @@ export default function Workspace({
     setFitMode(mode)
   }, [fitPage, fitWidth])
 
+  // ------------------------------------------------ zoom box, back, links --
+
+  /** Put a view on screen: leaves fit, asks for its tiles, repaints. */
+  const showView = useCallback((next: Viewport) => {
+    const v = viewerRef.current
+    if (!v) return
+    setFitMode(null)
+    viewRef.current = clampViewport(next, v.pageInfo)
+    v.requestVisible(viewRef.current)
+    forceRender((n) => n + 1)
+    requestPaint()
+  }, [requestPaint])
+
+  const armZoomBox = useCallback(() => {
+    if (page.width === 0) return
+    zoomBoxArmedRef.current = true
+    setZoomBoxArmed(true)
+    setStatus('drag a box to zoom to it · click to zoom in · Esc cancels')
+  }, [page.width, setStatus])
+  const disarmZoomBox = useCallback(() => {
+    zoomBoxArmedRef.current = false
+    setZoomBoxArmed(false)
+  }, [])
+  const finishZoomBox = useCallback((box: ScreenBox) => {
+    disarmZoomBox()
+    const next = zoomToBox(viewRef.current, box, stage, MAX_ZOOM)
+    if (next !== null) showView(next)
+    // A click, not a drag: zoom in on the point, the way a zoom tool does.
+    else showView(zoomAbout(viewRef.current, Math.min(MAX_ZOOM, viewRef.current.zoom * 2), box.x1, box.y1))
+  }, [disarmZoomBox, showView, stage])
+
+  const finishTextBox = useCallback((box: ScreenBox) => {
+    const v = viewerRef.current
+    if (!v || page.width === 0) return
+    const at = pageIndexRef.current
+    const a = screenToNormalized(box.x0, box.y0, viewRef.current, page.width, page.height)
+    const b = screenToNormalized(box.x1, box.y1, viewRef.current, page.width, page.height)
+    const nbox = { x0: a.x, y0: a.y, x1: b.x, y1: b.y }
+    const pickFrom = (t: { text: string; runs: Parameters<typeof wordsInBox>[1]; scanned: boolean }) => {
+      if (pageIndexRef.current !== at) return
+      const words = wordsInBox(t.text, t.runs, nbox)
+      textPickRef.current = words.length > 0 ? { page: at, words } : null
+      setStatus(words.length > 0
+        ? `${words.length} word${words.length === 1 ? '' : 's'} selected · Ctrl+C copies`
+        : t.scanned ? 'this sheet is a scan with no text to select' : 'no text in that box')
+      requestPaint()
+    }
+    const have = v.getText(at)
+    if (have !== undefined) pickFrom(have)
+    else void v.requestText(at, { priority: 0 }).then(pickFrom).catch(() => setStatus('could not read the text on this sheet'))
+  }, [page.width, page.height, requestPaint, setStatus])
+
+  /** Ctrl+C with words picked by the Text tool. False when there are none. */
+  const copyPickedText = useCallback((): boolean => {
+    const pick = textPickRef.current
+    if (pick === null || pick.page !== pageIndexRef.current || pick.words.length === 0) return false
+    const text = wordsAsText(pick.words)
+    void navigator.clipboard.writeText(text)
+      .then(() => setStatus(`copied ${pick.words.length} word${pick.words.length === 1 ? '' : 's'}`))
+      .catch(() => setStatus('could not copy to the clipboard'))
+    return true
+  }, [setStatus])
+
+  /** Back (-1) or Forward (+1) through the sheets visited. */
+  const stepHistory = useCallback((step: -1 | 1) => {
+    const v = viewerRef.current
+    if (!v) return
+    const cur = viewRef.current
+    const here = { page: pageIndexRef.current, zoom: cur.zoom, ox: cur.ox, oy: cur.oy }
+    const to = step < 0 ? historyRef.current.goBack(here) : historyRef.current.goForward(here)
+    if (to === null) { setStatus(step < 0 ? 'nothing to go back to' : 'nothing to go forward to'); return }
+    if (to.page === here.page) { showView({ ...cur, zoom: to.zoom, ox: to.ox, oy: to.oy }); return }
+    historyNavRef.current = to
+    v.loadPage(to.page)
+    setSelectedIds([]); selectedRef.current = []
+  }, [setStatus, showView])
+
+  // A Back or Forward lands: frame the sheet as it was left, once it has loaded.
+  useEffect(() => {
+    const to = historyNavRef.current
+    if (to === null || to.page !== pageIndex) return
+    historyNavRef.current = null
+    showView({ ...viewRef.current, zoom: to.zoom, ox: to.ox, oy: to.oy })
+  }, [pageIndex, page.width, page.height, showView])
+
+  /** Follow one of the PDF's own links: to its sheet, or out to the browser. */
+  const followLink = useCallback((link: PageLink) => {
+    if (link.page !== undefined) {
+      if (link.page !== pageIndexRef.current) goToPage(link.page)
+      setStatus(`went to ${sheetLabelFor(link.page)} · Alt+Left goes back`)
+      return
+    }
+    if (link.uri !== undefined) {
+      const uri = link.uri
+      void openWebLink(uri).then((ok) => setStatus(ok ? `opened ${uri}` : `could not open ${uri}`))
+    }
+  }, [goToPage, setStatus, sheetLabelFor])
+
+  // The window's listeners are bound once; these refs hand them the latest.
+  const armZoomBoxRef = useRef(armZoomBox); armZoomBoxRef.current = armZoomBox
+  const disarmZoomBoxRef = useRef(disarmZoomBox); disarmZoomBoxRef.current = disarmZoomBox
+  const finishZoomBoxRef = useRef(finishZoomBox); finishZoomBoxRef.current = finishZoomBox
+  const finishTextBoxRef = useRef(finishTextBox); finishTextBoxRef.current = finishTextBox
+  const copyPickedTextRef = useRef(copyPickedText); copyPickedTextRef.current = copyPickedText
+  const stepHistoryRef = useRef(stepHistory); stepHistoryRef.current = stepHistory
+  const followLinkRef = useRef(followLink); followLinkRef.current = followLink
+
+  // The mouse's Back and Forward buttons would otherwise take the webview
+  // itself back a page. The press is handled on the stage; this only stops
+  // the browser's own navigation on release.
+  useEffect(() => {
+    const stop = (e: MouseEvent) => { if (e.button === 3 || e.button === 4) e.preventDefault() }
+    window.addEventListener('mouseup', stop)
+    return () => window.removeEventListener('mouseup', stop)
+  }, [])
+
   /**
    * Re-apply the fit whenever the thing being fitted changes.
    *
@@ -7287,6 +7521,16 @@ export default function Workspace({
       /* ---- the view ---- */
       { id: 'fit-page', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], ...stuck(noSheet), run: () => applyFit('page') },
       { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], ...stuck(noSheet), run: () => applyFit('width') },
+      { id: 'zoom-box', kind: 'command', title: 'Zoom to a box', shortcut: 'Z', keywords: ['zoom', 'marquee', 'window', 'area'], ...stuck(noSheet), run: () => armZoomBox() },
+      {
+        id: 'history-back', kind: 'command', title: 'Back', shortcut: 'Alt+Left', keywords: ['previous view', 'return', 'history', 'last sheet'],
+        ...stuck(historyRef.current.canGoBack() ? undefined : 'nothing to go back to'), stay: true, run: () => stepHistory(-1),
+      },
+      {
+        id: 'history-forward', kind: 'command', title: 'Forward', shortcut: 'Alt+Right', keywords: ['next view', 'history'],
+        ...stuck(historyRef.current.canGoForward() ? undefined : 'nothing to go forward to'), stay: true, run: () => stepHistory(1),
+      },
+      { id: 'select-text', kind: 'command', title: 'Select text', shortcut: 'T', keywords: ['copy text', 'text', 'clipboard'], ...stuck(noSheet), run: () => setTool('text') },
       ...[50, 100, 200, 400].map((pct): Command => ({
         id: `zoom-${pct}`, kind: 'command', title: `Zoom to ${pct}%`, keywords: ['zoom', 'actual size'],
         whenTyped: true, ...stuck(noSheet), run: () => setZoom(pct / 100),
@@ -8228,7 +8472,7 @@ export default function Workspace({
         <div
           ref={stageRef}
           className="stage"
-          style={{ cursor: hoverCursor ?? (tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair') }}
+          style={{ cursor: zoomBoxArmed ? 'zoom-in' : tool === 'text' ? 'text' : hoverCursor ?? (tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair') }}
           onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -8759,6 +9003,7 @@ export default function Workspace({
                 : {})}
               zoom={viewRef.current.zoom}
               onZoom={setZoom}
+              onZoomBox={armZoomBox}
               onFitPage={() => applyFit('page')}
               onFitWidth={() => applyFit('width')}
             />

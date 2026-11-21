@@ -38,7 +38,7 @@ import { PRODUCT_TYPE_LABEL, readProductType } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
-  StretchHorizontal,
+  StretchHorizontal, Type,
 } from './icons.js'
 import type { Icon } from './icons.js'
 import { useClampedPopover } from './popover.js'
@@ -75,13 +75,14 @@ const TOOLS: Array<{ id: Tool; label: string; icon: Icon }> = [
  * `'dimension'` is typed loosely here on purpose: the workspace is gaining the
  * tool in its own `Tool` union, and this row must not have to wait for it.
  */
-export type ReadTool = 'pan' | 'select' | 'dimension'
+export type ReadTool = 'pan' | 'select' | 'dimension' | 'text'
 const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
   { id: 'pan', label: 'Pan', title: 'Move the sheet (H)', icon: Hand },
   // Marquee selection existed as Shift+drag in Pan and nobody found it.
   // Kenneth, 2026-09-10: "I need a select tool for marquee selections".
   { id: 'select', label: 'Select', title: 'Select markups: click one, or drag a box around several (V)', icon: Cursor },
   { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: Ruler },
+  { id: 'text', label: 'Text', title: 'Select text: drag a box around it, then Ctrl+C (T)', icon: Type },
 ]
 
 /**
@@ -557,11 +558,13 @@ export interface DocumentPillProps {
   onZoom: (z: number) => void
   onFitPage: () => void
   onFitWidth: () => void
+  /** Arm a one-drag zoom to a box (Z). Absent hides the item. */
+  onZoomBox?: () => void
 }
 
 export function DocumentPill({
   page, pageCount, onPage, feetPerPoint, onPreset, onCalibrate, onDrawRegion, onApplyToAll,
-  regions, regionCount: countOnly = 0, calibration, pendingRegion, zoom, onZoom, onFitPage, onFitWidth,
+  regions, regionCount: countOnly = 0, calibration, pendingRegion, zoom, onZoom, onFitPage, onFitWidth, onZoomBox,
 }: DocumentPillProps) {
   const [scaleOpen, setScaleOpen] = useState(false)
   const [allScales, setAllScales] = useState(false)
@@ -655,6 +658,13 @@ export function DocumentPill({
               <span className="grow">Fit width</span>
               <span className="hint">Ctrl+1</span>
             </button>
+            {onZoomBox !== undefined && (
+              <button className="menuitem" role="menuitem" onClick={() => { setViewOpen(false); onZoomBox() }}>
+                <Glyph icon={Crop} role="inline" />
+                <span className="grow">Zoom to a box</span>
+                <span className="hint">Z</span>
+              </button>
+            )}
             {/* The steppers, once the Compact tier has taken them off the surface. */}
             <div className="menusep" data-from="compact" />
             <button className="menuitem" role="menuitem" data-from="compact" onClick={() => { onZoom(zoom * 1.25); setViewOpen(false) }}>
