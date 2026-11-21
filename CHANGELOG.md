@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.46 — 2026-11-21
+
+### Print
+
+- **Print this sheet with *Ctrl+P*.** It opens the Windows print dialog, where you pick the printer, paper size and fit.
+- **Print every sheet, or a range.** In the command prompt (*Ctrl+K*), "Print all sheets" prints the whole set and "Print sheets…" takes sheet numbers like *1-5, 8*, numbered as in the sheet list.
+- **What prints is the PDF with your takeoff on it,** the same file "Save a copy" makes. Linework stays sharp at any paper size, and a sheet you turned prints turned.
+
+
 ## 0.3.45 — 2026-11-21
 
 ### Turn a sheet

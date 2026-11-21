@@ -90,6 +90,7 @@ import { buildAnchorGrid, nearestAnchor, type AnchorGrid } from './snapAnchors.j
 import { normalizedToScreen } from './draw.js'
 import { useStageSize, sizeCanvas } from './useStageSize.js'
 import { embedWhenQuiet } from './autoEmbed.js'
+import { parsePageRange, printPdf, printedWhat, sheetsPdf } from './print.js'
 import { PerfRegistry } from './perf.js'
 import { isTextEntry, survivesTextEntry } from './keys.js'
 import { historyStepForButton, historyStepForKey, ViewHistory, zoomToBox, type ScreenBox, type ViewPlace } from './viewNav.js'
@@ -6908,6 +6909,31 @@ export default function Workspace({
     }
   }, [activeDocId, page.width, syncMarkups, refreshScopes, requestPaint, setStatus, sheetLabelFor])
 
+  /**
+   * Print sheets of the open drawing: the PDF with this window's takeoff in
+   * it, cut down to `indices`, through the system print dialog (print.ts).
+   */
+  const printSheets = useCallback(async (indices: readonly number[]) => {
+    const db = dbRef.current
+    const doc = documents.find((d) => d.id === activeDocId)
+    if (!db || !doc || indices.length === 0) return
+    const what = printedWhat(indices, pageCount, sheetLabelFor)
+    setStatus(`getting ${what} ready to print…`)
+    try {
+      const whole = await embedCopy({
+        db, documentId: doc.id, relativePath: doc.relativePath, displayName: doc.displayName || doc.relativePath,
+        appVersion: APP_VERSION,
+        read: () => projectBridge.readDocument(projectPath, doc.relativePath),
+        allScopes: light,
+        ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+      })
+      await printPdf(await sheetsPdf(whole, indices))
+      setStatus(`printing ${what}`)
+    } catch (err) {
+      setStatus(`could not print: ${err instanceof Error ? err.message : String(err)} · Save a copy and print it from your PDF viewer`)
+    }
+  }, [documents, activeDocId, pageCount, sheetLabelFor, setStatus, projectPath, light])
+
   // The window's listeners are bound once; these refs hand them the latest.
   const armZoomBoxRef = useRef(armZoomBox); armZoomBoxRef.current = armZoomBox
   const disarmZoomBoxRef = useRef(disarmZoomBox); disarmZoomBoxRef.current = disarmZoomBox
@@ -6916,6 +6942,7 @@ export default function Workspace({
   const copyPickedTextRef = useRef(copyPickedText); copyPickedTextRef.current = copyPickedText
   const stepHistoryRef = useRef(stepHistory); stepHistoryRef.current = stepHistory
   const followLinkRef = useRef(followLink); followLinkRef.current = followLink
+  const printSheetsRef = useRef(printSheets); printSheetsRef.current = printSheets
 
   // The mouse's Back and Forward buttons would otherwise take the webview
   // itself back a page. The press is handled on the stage; this only stops
@@ -6979,6 +7006,7 @@ export default function Workspace({
         if (e.key === 'T' || e.key === 't') { e.preventDefault(); const id = closedTabsRef.current.pop(); if (id !== undefined) openDocument(id) }
         return
       }
+      if (e.key === 'p' || e.key === 'P') { e.preventDefault(); if (pageIndexRef.current >= 0) void printSheetsRef.current([pageIndexRef.current]) ; return }
       if (e.key === '0') { e.preventDefault(); applyFit('page') }
       if (e.key === '1') { e.preventDefault(); applyFit('width') }
       // The design package removes the permanent menu bar on the explicit
@@ -8235,6 +8263,27 @@ export default function Workspace({
         detail: 'The PDF with its scopes and markups, saved wherever you choose',
         keywords: ['save', 'copy', 'as', 'export', 'file'], ...stuck(activeDocId === null ? 'no drawing open' : undefined),
         run: () => void saveCopyOfFile(),
+      },
+      {
+        id: 'print-sheet', kind: 'command', title: 'Print this sheet', shortcut: 'Ctrl+P',
+        detail: 'With the takeoff on it', keywords: ['print', 'plot', 'paper'], ...stuck(noSheet),
+        run: () => { void printSheets([pageIndex]) },
+      },
+      {
+        id: 'print-all', kind: 'command', title: 'Print all sheets', detail: `${pageCount} sheets, with the takeoff`,
+        keywords: ['print', 'plot', 'paper', 'set'], ...stuck(noSheet),
+        run: () => { void printSheets(Array.from({ length: pageCount }, (_, i) => i)) },
+      },
+      {
+        id: 'print-range', kind: 'command', title: 'Print sheets…', detail: 'A range, like 1-5, 8',
+        keywords: ['print', 'plot', 'paper', 'range', 'pages'], ...stuck(noSheet),
+        step: {
+          kind: 'text', label: 'Print sheets', placeholder: `1-${pageCount}, or 3, 7-9`,
+          initial: String(pageIndex + 1), rule: `sheets 1 to ${pageCount}`,
+          validate: (t) => { const r = parsePageRange(t, pageCount); return typeof r === 'string' ? r : null },
+          describe: (t) => { const r = parsePageRange(t, pageCount); return typeof r === 'string' ? 'Print' : `Print ${printedWhat(r, pageCount, sheetLabelFor)}` },
+          run: (t) => { const r = parsePageRange(t, pageCount); if (typeof r !== 'string') void printSheets(r) },
+        },
       },
       {
         id: 'light-start-from', kind: 'command', title: 'Start from another PDF\u2019s takeoff…',
