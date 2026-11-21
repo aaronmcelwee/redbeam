@@ -277,9 +277,51 @@ pub fn pdf_handler_choose() -> Result<(), String> {
     }
 }
 
+/// Whether a PDF's link may be handed to Windows to open: a web or mail
+/// address only. Anything else (file:, javascript:, a program path) is a
+/// link a drawing has no business launching.
+pub fn is_openable_link(url: &str) -> bool {
+    let u = url.trim();
+    let lower = u.to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("http://") || lower.starts_with("mailto:"))
+        && !u.chars().any(|c| c.is_control() || c == '"')
+}
+
+/// Open a web or mail link from a PDF in the person's default browser or mail
+/// app. Refuses anything that is not one (see `is_openable_link`).
+#[tauri::command]
+pub fn open_web_link(url: String) -> Result<(), String> {
+    if !is_openable_link(&url) {
+        return Err("only web and mail links can be opened".to_string());
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(url.trim())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("could not open the link: {e}"))
+    }
+    #[cfg(not(windows))]
+    {
+        Err("opening links is only wired on Windows".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opens_only_web_and_mail_links() {
+        assert!(is_openable_link("https://example.com/spec.pdf"));
+        assert!(is_openable_link("HTTP://example.com"));
+        assert!(is_openable_link("mailto:someone@example.com"));
+        assert!(!is_openable_link("file:///C:/Windows/System32/calc.exe"));
+        assert!(!is_openable_link("javascript:alert(1)"));
+        assert!(!is_openable_link("C:\\Windows\\notepad.exe"));
+        assert!(!is_openable_link("https://example.com/\" & calc"));
+    }
 
     fn temp_pdf(name: &str) -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir().join(format!("redbeam-open-with-{}-{name}", std::process::id()));

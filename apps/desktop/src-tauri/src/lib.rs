@@ -129,6 +129,7 @@ pub fn run() {
             open_with::launch_open,
             open_with::pdf_handler_status,
             open_with::pdf_handler_choose,
+            open_with::open_web_link,
             ai_apps::ai_apps_status,
             ai_apps::ai_apps_set_enabled,
             ai_apps::ai_apps_install,

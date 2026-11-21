@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.44 — 2026-11-21
+
+### Getting around a drawing set like any PDF viewer
+
+- **Links in the PDF work.** Many sets have their detail bubbles and sheet numbers linked to their sheets. Clicking one now goes to that sheet; the pointer turns into a hand over a link. Web links in the PDF open in your browser.
+- **Back and Forward.** After jumping to another sheet, *Alt+Left* takes you back to where you were, at the same zoom and spot, and *Alt+Right* goes forward again. The Back and Forward buttons on a mouse do the same, and both are in the command prompt.
+- **Zoom to a box.** Press *Z* and drag a box around the part of the sheet you want to see; it fills the window. Click instead of dragging to zoom in on that spot. It is also in the zoom menu, and *Esc* cancels it.
+- **Select and copy text.** The new *Text* tool (*T*) selects the words inside a box you drag. *Ctrl+C* copies them line by line, ready to paste into an email or an RFI. A scanned sheet has no text to select, and REDBEAM says so.
+
+
 ## 0.3.43 — 2026-11-20
 
 ### Finishing a shape is faster

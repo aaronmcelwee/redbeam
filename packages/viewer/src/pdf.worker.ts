@@ -36,6 +36,7 @@ import {
 } from './outline.js'
 import { extractPageText, type PageBox, type TextBackend } from './text.js'
 import { extractPageAnnotations, type AnnotBackend, type AnnotPoint } from './annots.js'
+import { createPdfiumLinkBackend, extractPageLinks, type PageLink, type PdfiumLinkLike } from './links.js'
 import {
   INDEX_KEY, PRIORITY_INDEX, tileExtent,
   type PageInfo, type WorkerRequest, type WorkerResponse,
@@ -544,7 +545,16 @@ async function run(job: Job) {
     // waiting request is rejected and the drain loop keeps going.
     try {
       const annotations = extractPageAnnotations(annotBackend(), entry.handle, job.page)
-      post({ type: 'annots', key: job.key, page: job.page, annotations, ms: now() - t0 })
+      // Links ride the same message: a failure to read them costs the links,
+      // never the annotations the Select tool is waiting for.
+      let links: PageLink[] = []
+      try {
+        links = extractPageLinks(
+          createPdfiumLinkBackend(pdfium as unknown as PdfiumLinkLike, doc!, () => readPageBox(entry.handle)),
+          entry.handle, pageSizes.length,
+        )
+      } catch { links = [] }
+      post({ type: 'annots', key: job.key, page: job.page, annotations, links, ms: now() - t0 })
     } catch (err) {
       post({
         type: 'annots', key: job.key, page: job.page, annotations: [], ms: now() - t0,

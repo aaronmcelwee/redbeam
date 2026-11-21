@@ -70,6 +70,15 @@ export async function choosePdfHandler(): Promise<void> {
   await invoke('pdf_handler_choose')
 }
 
+/** Open a PDF's web or mail link in the default browser. False when it could not. */
+export async function openWebLink(url: string): Promise<boolean> {
+  if (!/^(https?:|mailto:)/i.test(url.trim())) return false
+  if (!isTauri()) {
+    try { return window.open(url, '_blank', 'noopener') !== null } catch { return false }
+  }
+  try { await invoke('open_web_link', { url }); return true } catch { return false }
+}
+
 /** "Not now" on the start screen's offer, remembered on this machine. */
 const DISMISS_KEY = 'redbeam.default-viewer-offer-dismissed'
 export function defaultOfferDismissed(): boolean {
