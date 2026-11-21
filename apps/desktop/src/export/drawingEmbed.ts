@@ -363,6 +363,8 @@ export interface EmbedDrawingOptions {
   embed?: SheetEmbedder
   /** Light mode: the takeoff this window last saw in the file; see `EmbedInput.expectStamp`. */
   expectStamp?: string | null
+  /** Sheets turned in REDBEAM, page index to degrees; see `EmbedInput.pageRotations`. */
+  pageRotations?: ReadonlyMap<number, number>
 }
 
 async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
@@ -377,7 +379,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
   }
 
   try {
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) {
@@ -394,6 +396,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
       markups,
       pageScales,
       pageRegions,
+      ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
       ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
     })
     if (result.bytes === null) opts.file.keep?.(source, current.version)
@@ -424,6 +427,7 @@ export async function embedCopy(opts: {
   appVersion: string
   read: () => Promise<Uint8Array>
   allScopes?: boolean
+  pageRotations?: ReadonlyMap<number, number>
 }): Promise<Uint8Array> {
   const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
@@ -431,6 +435,7 @@ export async function embedCopy(opts: {
   const result = await embedSheet(source, {
     documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
+    ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
   })
   return result.bytes ?? source
 }

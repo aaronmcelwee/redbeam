@@ -38,7 +38,7 @@ import { PRODUCT_TYPE_LABEL, readProductType } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
-  StretchHorizontal, Type,
+  RotateSheetCcw, RotateSheetCw, StretchHorizontal, Type,
 } from './icons.js'
 import type { Icon } from './icons.js'
 import { useClampedPopover } from './popover.js'
@@ -560,11 +560,13 @@ export interface DocumentPillProps {
   onFitWidth: () => void
   /** Arm a one-drag zoom to a box (Z). Absent hides the item. */
   onZoomBox?: () => void
+  /** Turn the open sheet a quarter turn: 1 clockwise, -1 counterclockwise. */
+  onRotate?: (delta: 1 | -1) => void
 }
 
 export function DocumentPill({
   page, pageCount, onPage, feetPerPoint, onPreset, onCalibrate, onDrawRegion, onApplyToAll,
-  regions, regionCount: countOnly = 0, calibration, pendingRegion, zoom, onZoom, onFitPage, onFitWidth, onZoomBox,
+  regions, regionCount: countOnly = 0, calibration, pendingRegion, zoom, onZoom, onFitPage, onFitWidth, onZoomBox, onRotate,
 }: DocumentPillProps) {
   const [scaleOpen, setScaleOpen] = useState(false)
   const [allScales, setAllScales] = useState(false)
@@ -664,6 +666,19 @@ export function DocumentPill({
                 <span className="grow">Zoom to a box</span>
                 <span className="hint">Z</span>
               </button>
+            )}
+            {onRotate !== undefined && (
+              <>
+                <div className="menusep" />
+                <button className="menuitem" role="menuitem" onClick={() => { setViewOpen(false); onRotate(1) }}>
+                  <Glyph icon={RotateSheetCw} role="inline" />
+                  <span className="grow">Rotate sheet clockwise</span>
+                </button>
+                <button className="menuitem" role="menuitem" onClick={() => { setViewOpen(false); onRotate(-1) }}>
+                  <Glyph icon={RotateSheetCcw} role="inline" />
+                  <span className="grow">Rotate sheet counterclockwise</span>
+                </button>
+              </>
             )}
             {/* The steppers, once the Compact tier has taken them off the surface. */}
             <div className="menusep" data-from="compact" />

@@ -174,6 +174,9 @@ export class Viewer {
   private texts = new Map<number, PageText>()
   private annots = new Map<number, PageAnnotation[]>()
   private links = new Map<number, PageLink[]>()
+  /** Each page's /Rotate in degrees, as the worker last reported it. */
+  private rotations: number[] = []
+  private rotateWaiters = new Map<number, Array<(info: PageMetrics & { rotation: number }) => void>>()
   private annotWaiters = new Map<string, Array<{ resolve: (a: PageAnnotation[]) => void; reject: (e: Error) => void }>>()
   private textWaiters = new Map<string, Array<{ resolve: (t: PageText) => void; reject: (e: Error) => void }>>()
   /**
@@ -273,6 +276,26 @@ export class Viewer {
     return this.sizes[index]
   }
 
+  /** The page's /Rotate in degrees, once the page has been opened. 0 before. */
+  getPageRotation(index: number): number {
+    return this.rotations[index] ?? 0
+  }
+
+  /**
+   * Turn a page to `degrees` (a multiple of 90) in the viewer's copy of the
+   * PDF. Renders, text, paths and links follow; the file on disk does not
+   * change until the app saves. Resolves with the page's new box.
+   */
+  rotatePage(index: number, degrees: number): Promise<PageMetrics & { rotation: number }> {
+    const rotation = ((Math.round(degrees / 90) % 4) + 4) % 4 * 90
+    return new Promise((resolve) => {
+      const list = this.rotateWaiters.get(index) ?? []
+      list.push(resolve)
+      this.rotateWaiters.set(index, list)
+      this.send({ type: 'rotate', page: index, rotation })
+    })
+  }
+
   getPageSizes(): readonly PageInfo[] {
     return this.sizes
   }
@@ -303,8 +326,22 @@ export class Viewer {
       this.opts.onReady?.({ pageCount: m.pageCount, sizes: this.sizes })
     } else if (m.type === 'page') {
       this.sizes[m.index] = { width: m.width, height: m.height }
+      if (m.rotation !== undefined) this.rotations[m.index] = m.rotation
       if (m.index === this.activeIndex) this.page = { width: m.width, height: m.height }
       this.opts.onPage?.({ index: m.index, width: m.width, height: m.height })
+    } else if (m.type === 'rotated') {
+      // Everything cached for the page was drawn or read at the old turn.
+      this.sizes[m.page] = { width: m.width, height: m.height }
+      this.rotations[m.page] = m.rotation
+      this.dropPage(m.page)
+      this.thumbs.deletePage(m.page)
+      this.texts.delete(m.page)
+      this.annots.delete(m.page)
+      this.links.delete(m.page)
+      const waiters = this.rotateWaiters.get(m.page) ?? []
+      this.rotateWaiters.delete(m.page)
+      if (m.page === this.activeIndex) this.loadPage(m.page)
+      for (const w of waiters) w({ index: m.page, width: m.width, height: m.height, rotation: m.rotation })
     } else if (m.type === 'tile') {
       this.pending.delete(m.key)
       this.tiles.set(m.key, m.page, m.bmp)

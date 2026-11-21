@@ -261,6 +261,8 @@ export type WorkerRequest =
   | { type: 'boot'; wasmUrl: string; pdfUrl: string }
   | { type: 'config'; maxPages?: number; quietMs?: number }
   | { type: 'page'; index: number }
+  /** Turn a page to `rotation` degrees (a multiple of 90), in the worker's copy. */
+  | { type: 'rotate'; page: number; rotation: number }
   | {
       type: 'tile'
       key: TileKey
@@ -304,7 +306,9 @@ export type WorkerRequest =
 
 export type WorkerResponse =
   | { type: 'booted'; pageCount: number; sizes: PageInfo[] }
-  | { type: 'page'; index: number; width: number; height: number }
+  /** `rotation`: the page's /Rotate in degrees, 0, 90, 180 or 270. */
+  | { type: 'page'; index: number; width: number; height: number; rotation?: number }
+  | { type: 'rotated'; page: number; width: number; height: number; rotation: number }
   | {
       type: 'tile'
       key: TileKey

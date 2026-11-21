@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.45 — 2026-11-21
+
+### Turn a sheet
+
+- **Rotate a sheet.** A sheet that comes in sideways can be turned a quarter turn at a time, from the zoom menu or the command prompt (*Ctrl+K*, "Rotate sheet"). Everything you drew on it turns with it, so areas, runs and counts stay on what they were drawn over and every quantity stays the same.
+- **The turn is saved in the PDF.** The sheet opens turned in Bluebeam and any other PDF viewer, with the takeoff on it.
+- **Undo starts again from the turn.** Shapes from before it cannot be undone across it, and REDBEAM says so.
+- **Sheets that were already turned in the PDF now line up.** Text selection, links, snapping and imported Bluebeam markups were all placed as if those sheets were upright.
+
+
 ## 0.3.44 — 2026-11-21
 
 ### Getting around a drawing set like any PDF viewer
