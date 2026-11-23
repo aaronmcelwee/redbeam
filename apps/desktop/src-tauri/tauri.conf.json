@@ -54,6 +54,10 @@
     "shortDescription": "Construction quantity takeoff",
     "longDescription": "REDBEAM measures ceiling and wall systems off PDF drawing sets and turns them into orderable quantities.",
     "windows": {
+      "signCommand": {
+        "cmd": "powershell",
+        "args": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "windows/sign.ps1", "%1"]
+      },
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },

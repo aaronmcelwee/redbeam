@@ -68,38 +68,14 @@ else's laptop. The bootstrapper is roughly 2 MB and fetches the runtime only if
 it is absent; the offline alternative adds about 130 MB to every download for a
 case that will almost never fire.
 
-## Signing — NOT DONE, and what it needs
+## Signing
 
-**The installer is unsigned.** This is the honest state, not an oversight to be
-discovered later.
-
-What that means in practice: Windows SmartScreen shows "Windows protected your
-PC" and hides the Run button behind *More info*. Some managed environments will
-refuse the file outright, and a browser may warn on download. Nothing about the
-app is wrong — the binary simply has no verifiable publisher, so Windows says
-so, and it says so in language that reads like a virus warning to the person
-being asked to install it.
-
-Signing needs a certificate, which is a purchase and an identity check, not a
-configuration change:
-
-- An **OV** (organisation validated) code-signing certificate is cheaper and
-  builds SmartScreen reputation gradually — early installs still warn.
-- An **EV** (extended validation) certificate carries immediate SmartScreen
-  reputation, costs more, and the private key must live on hardware or in an
-  attested cloud key store.
-- **Azure Trusted Signing** is the current middle path: pay per use, no
-  hardware token, and it satisfies the EV reputation rules. It requires an
-  Azure tenant and a verified organisation identity.
-
-Once a certificate exists, Tauri signs during `tauri build` via
-`bundle.windows.certificateThumbprint` (for a cert in the Windows store) or
-`bundle.windows.signCommand` (for anything else, including Trusted Signing).
-Nothing else in this repo has to change.
-
-Until then, hand people the installer with a sentence telling them the warning
-is expected and what to click. An unexplained SmartScreen dialog is how a tool
-gets a reputation for being broken before it is opened.
+Release builds are Authenticode-signed through Microsoft Artifact Signing once
+its account and GitHub settings exist; until then they are unsigned and the
+release run says so with a warning. `bundle.windows.signCommand` runs
+`src-tauri/windows/sign.ps1`, which leaves local builds unsigned. Setup, the
+six GitHub settings and what signing does and does not fix are in
+`docs/CODE-SIGNING.md`.
 
 ## Updates
 

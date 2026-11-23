@@ -3,7 +3,9 @@
 # Ship path: bump the version, commit, tag an annotated vMAJOR.MINOR.PATCH
 # (the tag message is the change notes), push the tag. This workflow builds
 # x64 and arm64 NSIS on windows-latest and signs them with
-# TAURI_SIGNING_PRIVATE_KEY. A live run then, in order: writes the change
+# TAURI_SIGNING_PRIVATE_KEY (updater .sig), and Authenticode-signs the app
+# and installer when Azure Artifact Signing is set up (docs/CODE-SIGNING.md).
+# A live run then, in order: writes the change
 # notes (and fails if they are empty), opens a draft GitHub Release with
 # those notes and the four installer files, runs workers/updater/publish.ps1
 # (installers and .sig files, then manifest.json, all with wrangler --remote),
@@ -97,6 +99,82 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Authenticode (Windows code signing), separate from the updater's
+      # minisign .sig above. With the Azure Artifact Signing secrets and
+      # variables set, REDBEAM.exe, the installer and the uninstaller are
+      # signed by windows/sign.ps1 (tauri.conf.json signCommand) through
+      # signtool and Microsoft's dlib. Without any of them the build stays
+      # unsigned and the run warns. Half a setup fails. See docs/CODE-SIGNING.md.
+      - name: Check Authenticode signing setup
+        id: authenticode
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGN_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          SIGN_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          SIGN_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $names = 'AZURE_TENANT_ID','AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','SIGN_ENDPOINT','SIGN_ACCOUNT','SIGN_PROFILE'
+          $set = @($names | Where-Object { -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          if ($set.Count -eq 0) {
+            Write-Host "::warning::Authenticode signing is not set up. This installer is unsigned, so SmartScreen and Smart App Control may block it. See docs/CODE-SIGNING.md."
+            "enabled=false" >> $env:GITHUB_OUTPUT
+          } elseif ($set.Count -ne $names.Count) {
+            $missing = $names | Where-Object { $set -notcontains $_ }
+            throw "Authenticode signing is half set up. Missing: $($missing -join ', '). See docs/CODE-SIGNING.md."
+          } else {
+            if ($env:SIGN_ENDPOINT -notmatch '^https://[a-z0-9]+\.codesigning\.azure\.net/?$') {
+              throw "ARTIFACT_SIGNING_ENDPOINT must look like https://eus.codesigning.azure.net"
+            }
+            "enabled=true" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Install .NET for the signing dlib
+        if: steps.authenticode.outputs.enabled == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Prepare Authenticode signing
+        if: steps.authenticode.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          SIGN_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          SIGN_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          SIGN_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Pinned Microsoft.ArtifactSigning.Client and its SHA-256.
+          $version = '1.0.151'
+          $sha256 = '35375A4BC4E1102DA729FC3D8D9925F774C3BAAE6B8B7FF6398D948CA9AB0D8A'
+          $root = Join-Path $env:RUNNER_TEMP 'artifact-signing'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $pkg = Join-Path $root 'client.zip'
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/$version/microsoft.artifactsigning.client.$version.nupkg" -OutFile $pkg
+          $actual = (Get-FileHash -LiteralPath $pkg -Algorithm SHA256).Hash
+          if ($actual -ne $sha256) { throw "Microsoft.ArtifactSigning.Client $version hash $actual does not match the pinned hash." }
+          Expand-Archive -LiteralPath $pkg -DestinationPath (Join-Path $root 'client') -Force
+          $dlib = Join-Path $root 'client/bin/x64/Azure.CodeSigning.Dlib.dll'
+          if (-not (Test-Path -LiteralPath $dlib)) { throw "Azure.CodeSigning.Dlib.dll is not in the package." }
+          # Only the environment credential (AZURE_* secrets), so a missing
+          # secret fails fast instead of trying a browser sign-in.
+          $meta = [ordered]@{
+            Endpoint = $env:SIGN_ENDPOINT.TrimEnd('/')
+            CodeSigningAccountName = $env:SIGN_ACCOUNT
+            CertificateProfileName = $env:SIGN_PROFILE
+            ExcludeCredentials = @(
+              'ManagedIdentityCredential','WorkloadIdentityCredential','SharedTokenCacheCredential',
+              'VisualStudioCredential','VisualStudioCodeCredential','AzureCliCredential',
+              'AzurePowerShellCredential','AzureDeveloperCliCredential','InteractiveBrowserCredential'
+            )
+          }
+          $metaPath = Join-Path $root 'metadata.json'
+          $meta | ConvertTo-Json | Set-Content -LiteralPath $metaPath -Encoding utf8NoBOM
+          "REDBEAM_SIGN_DLIB=$dlib" >> $env:GITHUB_ENV
+          "REDBEAM_SIGN_METADATA=$metaPath" >> $env:GITHUB_ENV
+
       # NSIS only. WiX cannot bundle aarch64, and the in-app updater installs
       # the NSIS exe. scripts/build-arm64.cmd is the native ARM64 machine
       # script (vcvarsarm64); this job cross-compiles on an x64 runner, which
@@ -107,6 +185,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: npx tauri build --target ${{ matrix.target }} --bundles nsis
 
       - name: Require the installer and its signature
@@ -117,6 +198,22 @@ jobs:
           $sig = @(Get-ChildItem -LiteralPath $dir -Filter "*-setup.exe.sig" -File)
           if ($exe.Count -ne 1) { throw "Expected one NSIS installer in $dir, found $($exe.Count)." }
           if ($sig.Count -ne 1) { throw "Expected a .sig beside $($exe[0].Name). The signing key did not produce one." }
+
+      - name: Require Authenticode signatures
+        if: steps.authenticode.outputs.enabled == 'true'
+        shell: pwsh
+        run: |
+          $nsis = "apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
+          $files = @(
+            (Get-ChildItem -LiteralPath $nsis -Filter "*-setup.exe" -File)[0].FullName
+            (Resolve-Path "apps/desktop/src-tauri/target/${{ matrix.target }}/release/redbeam.exe").Path
+          )
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature -LiteralPath $f
+            if ($s.Status -ne 'Valid') { throw "$f is not validly Authenticode-signed: $($s.Status) $($s.StatusMessage)" }
+            if ($null -eq $s.TimeStamperCertificate) { throw "$f is signed without a timestamp." }
+            Write-Host "$([IO.Path]::GetFileName($f)): $($s.SignerCertificate.Subject)"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
