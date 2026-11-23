@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.50 — 2026-11-23
+
+### Readable on a PC set to Light
+
+- **Fixed text you could barely read** in the sheet list, the tab strip and the Takeoff panel when Windows is set to Light. REDBEAM's window now stays dark whatever Windows' app mode is, so the see-through glass behind the panels is dark too and the text sits on the ground it was designed for.
+
+
 ## 0.3.49 — 2026-11-23
 
 ### Several PDFs open at once
