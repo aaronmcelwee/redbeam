@@ -37,3 +37,4 @@ packages/*/src/**/*.js.map
 # Manifest written by workers/updater/publish.ps1. Signatures are not secret,
 # but this file is a publish artifact and must not be committed by accident.
 workers/updater/.publish/
+apps/desktop/ui-sweep-out/

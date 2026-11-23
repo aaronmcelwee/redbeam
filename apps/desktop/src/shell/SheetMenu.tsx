@@ -5,6 +5,7 @@
  * Both panels select the same way (sheetSelection.ts) and act the same way,
  * so a sheet picked in one is not a different kind of thing in the other.
  */
+import { useEffect, useRef } from 'react'
 import { Glyph, Print, RotateSheetCcw, RotateSheetCw } from './icons.js'
 import { useClampedPopover } from './popover.js'
 
@@ -33,6 +34,14 @@ export function SheetMenu({
 }) {
   const clamp = useClampedPopover<HTMLDivElement>(true)
   const act = (f: () => void) => () => { f(); onClose() }
+  // Escape closes it, as every other menu does; it had only the scrim.
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); closeRef.current() } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const { onSetScale, onRotate, onPrint } = actions
   return (
     <>

@@ -43,6 +43,7 @@
  * fit one screen at the panel's width, which is why the rows are as dense as
  * they are.
  */
+import { useDismiss } from './dismiss.js'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type {
   FactoryCut, PieceResult, ProductType, QuantityResult, Scope, ScopePieces, ScopeType, Specifications,
@@ -342,24 +343,6 @@ function nextRoundName(base: string, existing: ReadonlyArray<{ name: string }>):
   return `${first} ${Date.now()}`
 }
 
-/** Close on Escape or a click outside. Both, because either alone is a trap. */
-function useDismiss(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
-    const onDown = (e: PointerEvent) => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) close()
-    }
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('pointerdown', onDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('pointerdown', onDown, true)
-    }
-  }, [open, close])
-  return ref
-}
 
 /** "13 Sep", or null when the row never got a timestamp. */
 function dayOf(at: string | null): string | null {
@@ -998,7 +981,7 @@ function EstimateOverview({
           exists is its name; the rest is set on its Setup section. */}
       {naming && (
         <NameRow
-          placeholder="Tag on the drawings — C-MT-01"
+          placeholder="Its tag, e.g. C-MT-01"
           label="New scope name"
           action="Add"
           onCommit={(name) => { onCreateScope?.(name); setNaming(false) }}

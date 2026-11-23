@@ -21,7 +21,7 @@
  * It is a full view, mounted in the shell's `.settingsview` beneath the title
  * bar — a place you go, not a question over the work.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CATEGORY_LABEL, SETTINGS, childrenOf, type SettingDescriptor,
 } from './registry.js'
@@ -92,16 +92,25 @@ export function SettingsPanel({ store, onClose, initialSettingId, onReportBug, h
    * Escape clears the filter first and leaves second — the same two-step
    * every find field uses. From anywhere on the page.
    */
+  /*
+   * Registered once, reading the latest through a ref. It used to re-register
+   * whenever `onClose` changed, which is every render of the workspace, and
+   * the workspace's own Escape handler re-renders it in the middle of the
+   * same key press: the old listener came off before its turn and the new one
+   * went on too late, so Escape never closed Settings.
+   */
+  const escRef = useRef({ query, onClose })
+  escRef.current = { query, onClose }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
-      if (query !== '') setQuery('')
-      else onClose()
+      if (escRef.current.query !== '') setQuery('')
+      else escRef.current.onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, query])
+  }, [])
 
   const set = (id: string, raw: unknown) => setError(store.set(id, raw))
   const changed = store.modifiedCount()

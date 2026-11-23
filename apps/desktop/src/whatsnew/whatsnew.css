@@ -59,7 +59,7 @@
   flex: 1 1 auto;
   min-height: 0;
   padding: 4px 24px 20px;
-  overflow-y: auto;
+  overflow-y: auto; overscroll-behavior: none;
   overflow-x: hidden;
   outline: none;
 }

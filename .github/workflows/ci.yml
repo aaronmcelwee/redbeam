@@ -26,3 +26,28 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run verify
+
+  # The real app in Chromium, every main surface, on a plain window and over
+  # Windows 11's Mica: fails on unreadable text, empty or off-screen menus,
+  # Escape that closes nothing, a wheel that scrolls nothing, uncaught errors.
+  # apps/desktop/tools/ui-sweep/sweep.mjs says what and why. The screenshots
+  # are kept on every run, pass or fail, to look at when the chrome changes.
+  ui-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-sweep-screenshots
+          path: apps/desktop/ui-sweep-out/
+          retention-days: 14

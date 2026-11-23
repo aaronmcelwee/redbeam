@@ -225,8 +225,14 @@ export function CommandPalette({
         const last = recent.map((id) => byId.get(id)).filter((c): c is Command => c !== undefined && ready(c) && c.suggest === undefined).map(plain)
         if (last.length > 0) out.push({ kind: 'recent', label: 'Recent', matches: last })
       }
-      if (out.length === 0) {
-        const found = search(pool.filter(ready), '', { limit: 60 })
+      /*
+       * One suggestion and nothing recent left a single row in a 440 px box,
+       * which read as a palette that had lost its commands. Under a handful,
+       * the rest of the catalogue follows what fits here.
+       */
+      const shown = new Set(out.flatMap((g) => g.matches.map((m) => m.command.id)))
+      if (shown.size < 6) {
+        const found = search(pool.filter((c) => ready(c) && !shown.has(c.id)), '', { limit: 60 })
         out.push(...groupMatches(found))
       }
       const flat = out.flatMap((g) => g.matches)

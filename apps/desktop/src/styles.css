@@ -106,7 +106,15 @@
  * the swipe gesture on every scroller, in both axes, Light and Pro alike.
  * The canvas is unaffected: it handles its own wheel events.
  */
-html, body, *, *::before, *::after { overscroll-behavior: none }
+html, body { overscroll-behavior: none }
+/*
+ * Only the sideways axis on everything else. `none` on both axes of every
+ * element also stopped a plain wheel from ever reaching its scroller when
+ * the pointer was over anything with overflow: hidden (an ellipsised name, a
+ * rounded card): that element is a scroll container too, so the wheel ended
+ * there. Settings could not be wheel-scrolled at all.
+ */
+*, *::before, *::after { overscroll-behavior-x: none }
 html { overflow: hidden }
 body {
   margin: 0;
@@ -320,7 +328,7 @@ h4 {
   display: grid;
   grid-template-rows: var(--rb-topbar-h) 1fr;
   padding: 0 var(--ads-sp-6) var(--ads-sp-6);
-  overflow-y: auto;
+  overflow-y: auto; overscroll-behavior: none;
   overflow-x: hidden;
   /* Opaque unless a backdrop was confirmed — see shell.css. Transparent here
      unconditionally would be a hole onto the desktop on any machine without
@@ -447,7 +455,7 @@ h4 {
 .st-drop { margin-top: 6px; padding: 22px; border: 1px dashed var(--rb-line-2); border-radius: 8px; color: var(--rb-ink-3); font-size: var(--rb-caption); text-align: center; }
 .st-drop b { color: var(--rb-ink-2); }
 .st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }
-.st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-4); font-size: var(--rb-caption); }
+.st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-3); font-size: var(--rb-caption); }
 /* Light / Pro, bottom right: a choice made once, so small and out of the way. */
 .st-mode { margin-left: auto; display: inline-flex; border: 1px solid var(--rb-line-2); border-radius: 4px; overflow: hidden; }
 .st-modebtn { appearance: none; border: 0; background: transparent; color: var(--rb-ink-3); font: inherit; font-size: var(--rb-caption); padding: 3px 12px; cursor: pointer; }

@@ -7,6 +7,7 @@
  * v2 design study split them into two 40px rows, and on a landscape drawing
  * that second row costs the axis there is least of. One row won.
  */
+import { useDismiss } from './dismiss.js'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AppMark } from '../brand/AppMark.js'
 import {
@@ -35,30 +36,6 @@ export function splitProjectPath(path: string): { head: string; tail: string } {
 
 // ------------------------------------------------------------------ menus --
 
-/**
- * Close on Escape or a click outside.
- *
- * Both, because either alone is a trap: Escape alone strands a menu when the
- * pointer has already moved on, and outside-click alone strands it for anyone
- * driving from the keyboard.
- */
-function useDismiss(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
-    const onDown = (e: PointerEvent) => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) close()
-    }
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('pointerdown', onDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('pointerdown', onDown, true)
-    }
-  }, [open, close])
-  return ref
-}
 
 /** What the app menu can do. Anything absent is not rendered — no dead rows. */
 export interface AppMenuActions {

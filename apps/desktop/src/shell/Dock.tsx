@@ -27,6 +27,7 @@
  * the collapsible items behind `data-collapse` and always render the overflow
  * menu, which the same query reveals.
  */
+import { useDismiss } from './dismiss.js'
 import { useEffect, useRef, useState } from 'react'
 import type { ScaleRegion, Scope } from '@redbeam/domain'
 import {
@@ -115,24 +116,6 @@ const SETUP: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
 
 // --------------------------------------------------------------- menus --
 
-/** Close on Escape or a click outside. Both, because either alone is a trap. */
-function useDismiss(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
-    const onDown = (e: PointerEvent) => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) close()
-    }
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('pointerdown', onDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('pointerdown', onDown, true)
-    }
-  }, [open, close])
-  return ref
-}
 
 // ------------------------------------------------------------ tool pill --
 
@@ -164,6 +147,8 @@ export interface ToolPillProps {
    * rounds to switch between.
    */
   estimates?: DockEstimate[]
+  /** Light: one file, no rounds, so the scope menu does not head itself with an "Estimate". */
+  fileMode?: boolean
   openEstimateId?: string | null
   onEstimate?: (id: string) => void
   /** Ask the sidebar to add a scope to the open round. */
@@ -210,7 +195,7 @@ export interface ToolPillProps {
  */
 export function ToolPill({
   tool, onTool, scopes, activeScope, onScope, takeoff, onTakeoff,
-  estimates = [], openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
+  estimates = [], fileMode = false, openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
   documentOpen = true,
 }: ToolPillProps) {
   const [scopeOpen, setScopeOpen] = useState(false)
@@ -325,7 +310,7 @@ export function ToolPill({
               scope is the foot. Nothing here closes the menu except choosing
               a scope, which is the one thing the menu is for.
             */}
-            <div className="scopemenuest">
+            {!fileMode && <div className="scopemenuest">
               <span className="menuhead">Estimate</span>
               <button
                 className="scopemenuswitch"
@@ -338,7 +323,7 @@ export function ToolPill({
                 <span className="scopemenuname">{round?.name ?? 'No estimate open'}</span>
                 {switchable && estimates.length > 1 && <Glyph icon={ChevronDown} role="small" />}
               </button>
-            </div>
+            </div>}
             {switchable && roundsOpen && estimates.map((e) => (
               <button
                 key={e.id}
@@ -351,14 +336,14 @@ export function ToolPill({
                 {e.id === openEstimateId && <span className="dockcheck"><Glyph icon={Check} role="small" filled /></span>}
               </button>
             ))}
-            <div className="menusep" />
+            {!fileMode && <div className="menusep" />}
             <div className="menuhead">Scopes</div>
             {scopes.length === 0 && (
               <div className="menunote">
                 <span>
                   {round === null
                     ? 'No estimate is open. Start one in the Estimates panel; scopes live inside it.'
-                    : 'No scopes in this estimate yet. Add one and it becomes the target for what you draw.'}
+                    : `No scopes in this ${fileMode ? 'file' : 'estimate'} yet. Add one and it becomes the target for what you draw.`}
                 </span>
               </div>
             )}
@@ -469,7 +454,8 @@ export function ToolPill({
                 className="menuitem"
                 role="menuitemradio"
                 aria-checked={tool === t.id}
-                data-from="minimum"
+                // Dimension folds out of the dock from Compact (unless in hand), the rest only at Minimum.
+                data-from={t.id === 'dimension' ? 'compact' : 'minimum'}
                 disabled={!documentOpen}
                 onClick={() => { onTool(t.id as Tool); setMoreOpen(false) }}
               >

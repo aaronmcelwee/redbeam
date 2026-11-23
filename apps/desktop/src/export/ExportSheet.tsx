@@ -136,7 +136,7 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
       <div className="es-hd nodot" ref={menuRef}>
         <div className="es-hdtext">
           <div className="es-hdname">{included.length} scope{included.length === 1 ? '' : 's'} · {lines} line{lines === 1 ? '' : 's'}</div>
-          <div className="es-hdsub">The PDF adds an image per sheet</div>
+          <div className="es-hdsub" title="The PDF adds an image per sheet">Adds an image per sheet</div>
         </div>
         <button className="es-btn primary" onClick={() => void savePdf()} disabled={busy !== null || included.length === 0}>
           {busy === null ? 'Save PDF' : 'Saving…'}

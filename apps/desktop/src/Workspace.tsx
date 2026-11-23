@@ -551,6 +551,8 @@ export default function Workspace({
   const [pageReadyKey, setPageReadyKey] = useState<string | null>(null)
   const [textNote, setTextNote] = useState<string | null>(null)
   const [pageCount, setPageCount] = useState(0)
+  /** The open drawing could not be read at all (not a PDF, damaged): said in the panes, not as a PDFium error. */
+  const [openFailed, setOpenFailed] = useState(false)
   const [pageIndex, setPageIndex] = useState(0)
   // Callbacks that are deliberately stable (sync handlers, the undo path) still
   // need the live page; state alone would give them the page as of their last
@@ -1370,7 +1372,10 @@ export default function Workspace({
       dbRef.current = opened.driver
       saveRef.current = debounceSave(opened.save)
       setBackend(opened.backend)
-      setStatus(`${opened.backend === 'tauri' ? 'desktop store' : 'browser store'} · ${opened.location}`)
+      // Which database opened is for whoever is debugging a project. A PDF
+      // opened to view or take off has no database to speak of, and every
+      // file opened in Light said "browser store · in memory (viewing)".
+      if (quickView === undefined) setStatus(`${opened.backend === 'tauri' ? 'desktop store' : 'browser store'} · ${opened.location}`)
       undoRef.current = new UndoStack(opened.driver, 100, undoOptionsFor(opened.backend, projectPath))
 
       let existing = await listScopes(opened.driver)
@@ -1905,7 +1910,7 @@ export default function Workspace({
       : scope === 'document' ? { documentId: docId }
       : scope === 'folder' && folder !== '' ? { pathPrefix: folder }
       : {}
-    return searchProjectText(db, q, {
+    const report = await searchProjectText(db, q, {
       ...reach,
       layout: async (pageId) => {
         const v = viewerRef.current
@@ -1919,7 +1924,13 @@ export default function Workspace({
         }
       },
     })
-  }, [documents])
+    /*
+     * Light's store is sql.js, which has no FTS5, so every search is the LIKE
+     * scan. Over one PDF that is the right search, not a degraded one, and the
+     * "Limited search … page_text_fts" note was database talk on every search.
+     */
+    return light ? { ...report, degraded: null } : report
+  }, [documents, light])
 
   /**
    * Read the project folder again.
@@ -1988,6 +1999,8 @@ export default function Workspace({
     historyNavRef.current = null
     textPickRef.current = null
     let shownPage: number | null = null
+    let booted = false
+    setOpenFailed(false)
     const viewer = new Viewer(rasterRef.current, overlayRef.current, worker, {
       tileSize: 512,
       overlay: { strokeScale: strokeScaleFor },
@@ -2000,6 +2013,7 @@ export default function Workspace({
         requestPaint()
       },
       onReady: ({ pageCount: n, sizes }) => {
+        booted = true
         setPageCount(n); setPageSizes([...sizes])
         // The page a search hit asked for before this document had booted.
         const want = pendingPageRef.current
@@ -2089,7 +2103,17 @@ export default function Workspace({
         // event, and now that status is shown as one it would toast on every
         // sheet change; `page` already carries the box for anyone who asks.
       },
-      onError: (m) => setStatus(`error: ${m}`),
+      onError: (m) => {
+        // Before the document is up, the error IS the document: it would not
+        // open. "error: FPDF_LoadMemDocument failed" over a pane that said
+        // "Opening the drawing…" forever was all a damaged PDF got.
+        if (!booted) {
+          setOpenFailed(true)
+          setStatus('This PDF could not be opened. It may be damaged, password-protected or not a PDF.')
+          return
+        }
+        setStatus(`error: ${m}`)
+      },
     })
     viewerRef.current = viewer
     viewer.boot('/pdfium.wasm', docUrl)
@@ -5997,7 +6021,11 @@ export default function Workspace({
     const onWheelNative = (e: WheelEvent) => {
       const v = viewerRef.current
       if (!v) return
-      // Unconditional: every wheel over the sheet is ours, whether it pans or
+      // Settings, the scale list and other panels that open over the sheet
+      // live inside the stage. A plain wheel over one that scrolls is that
+      // panel's: Settings could not be scrolled with the wheel at all.
+      if (!e.ctrlKey && !e.metaKey && scrollsInside(e.target, el)) return
+      // Otherwise every wheel over the sheet is ours, whether it pans or
       // zooms. Letting one through scrolls or zooms the webview behind us.
       e.preventDefault()
 
@@ -7167,7 +7195,7 @@ export default function Workspace({
    */
   const pendingText: string | null =
     activeDocId !== null && pageCount === 0
-      ? 'Opening the drawing…'
+      ? (openFailed ? 'This PDF could not be opened.' : 'Opening the drawing…')
       : scan === 'reading' && activeDocId === null
         ? 'Reading the project folder…'
         : null
@@ -9103,6 +9131,7 @@ export default function Workspace({
               takeoff={takeoff}
               onTakeoff={beginTakeoff}
               estimates={estimates.map((e) => ({ id: e.id, name: e.name }))}
+              fileMode={light}
               openEstimateId={openEstimateId}
               onEstimate={(id) => {
                 setOpenEstimateId(id)
@@ -9302,4 +9331,14 @@ export default function Workspace({
       )}
     </div>
   )
+}
+
+/** True when something between `target` and `stage` scrolls vertically and so owns a plain wheel. */
+function scrollsInside(target: EventTarget | null, stage: HTMLElement): boolean {
+  for (let n = target instanceof Element ? target : null; n !== null && n !== stage; n = n.parentElement) {
+    if (n.scrollHeight <= n.clientHeight + 1) continue
+    const y = getComputedStyle(n).overflowY
+    if (y === 'auto' || y === 'scroll') return true
+  }
+  return false
 }

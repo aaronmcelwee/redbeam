@@ -5,6 +5,21 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.51 — 2026-11-23
+
+### A tidy-up pass over every screen
+
+- **Settings scrolls with the mouse wheel again,** and so does any list whose rows you were pointing at. Since 0.3.22 the wheel did nothing over most of Settings.
+- **Escape closes things.** Settings, the app menu, the dock's menus, the tab menu and the sheet right-click menu all ignored Escape.
+- **The dock's ⋯ menu no longer opens empty** in a narrow window. It now holds Dimension, which the dock folds away at that width.
+- **Thumbnails stay the size of their pictures** in a short set instead of stretching to fill the pane.
+- **The dock wraps to two rows** in a narrow window instead of sliding one half under the other.
+- **The palette shows your commands** when it opens, not a single suggestion in an empty box.
+- **A PDF that cannot be opened says so** in plain words, instead of "FPDF_LoadMemDocument failed" over a list that said "Opening the drawing…" forever.
+- **No more database talk.** Opening a file no longer flashes "browser store · in memory", and searching no longer shows a "Limited search… page_text_fts" note.
+- **Smaller things:** the scope menu no longer heads itself "Estimate" for a single PDF, long scope details end in "…" instead of being cut, the new scope field's hint fits, and a few faint captions are easier to read.
+
+
 ## 0.3.50 — 2026-11-23
 
 ### Readable on a PC set to Light

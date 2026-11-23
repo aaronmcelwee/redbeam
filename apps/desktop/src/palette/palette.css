@@ -118,11 +118,11 @@
 .pp-refusal > svg { color: var(--rb-bad); flex: none; }
 
 /* ----------------------------------------------------------------- list -- */
-.pp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 6px; scrollbar-gutter: stable; }
+.pp-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: none; overflow-x: hidden; padding-bottom: 6px; scrollbar-gutter: stable; }
 .pp-group {
   display: flex; align-items: center; gap: 10px;
   height: 26px; padding: 8px 14px 0;
-  font-size: var(--rb-caption); font-weight: 600; color: var(--rb-ink-4);
+  font-size: var(--rb-caption); font-weight: 600; color: var(--rb-ink-3);
 }
 .pp-groupnote { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--rb-ink-4); }
 .pp-row {
@@ -141,7 +141,7 @@
 .pp-title mark { background: transparent; color: var(--rb-accent); }
 .pp-sub { color: var(--rb-ink-3); margin-left: 8px; }
 .pp-right { display: flex; align-items: center; gap: 6px; flex: none; }
-.pp-kind { color: var(--rb-ink-4); font-size: var(--rb-caption); }
+.pp-kind { color: var(--rb-ink-3); font-size: var(--rb-caption); }
 .pp-empty { padding: 20px 14px 14px; }
 .pp-emptyline { margin: 0; color: var(--rb-ink-3); }
 
