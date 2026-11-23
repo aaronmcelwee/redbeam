@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimum surface REDBEAM needs today: window control, the event bus, and path resolution. Filesystem, shell, dialog and http are deliberately NOT granted to the frontend \u2014 the folder and drawing pickers run in Rust, where the ACL does not apply, and adding them here would open the whole plugin to the webview. The updater and a single process:allow-restart are granted because an installed copy has no other route to a fix; `process:default` is NOT, since that would also hand the webview the ability to exit the app.",
+  "description": "Minimum surface REDBEAM needs today: window control (including its light/dark theme, so Mica matches the app), the event bus, and path resolution. Filesystem, shell, dialog and http are deliberately NOT granted to the frontend \u2014 the folder and drawing pickers run in Rust, where the ACL does not apply, and adding them here would open the whole plugin to the webview. The updater and a single process:allow-restart are granted because an installed copy has no other route to a fix; `process:default` is NOT, since that would also hand the webview the ability to exit the app.",
   "windows": [
     "*"
   ],
@@ -20,6 +20,7 @@
     "core:window:allow-start-dragging",
     "updater:default",
     "process:allow-restart",
-    "core:window:allow-set-title"
+    "core:window:allow-set-title",
+    "core:window:allow-set-theme"
   ]
 }

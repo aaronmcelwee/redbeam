@@ -108,9 +108,6 @@ fn open_or_focus(
             // resize border and Windows snap on an undecorated window.
             .decorations(false)
             .shadow(true)
-            // REDBEAM is a dark app; don't inherit Windows' Light app mode
-            // (see backdrop.rs for what that did to the main window).
-            .theme(Some(tauri::Theme::Dark))
             // Tauri's own default arguments, restated because setting this
             // replaces them rather than adding to them. Deliberately NOT
             // `--disable-pinch`: suppressing the gesture upstream can only take

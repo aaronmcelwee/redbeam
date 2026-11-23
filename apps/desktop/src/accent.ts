@@ -42,6 +42,22 @@ export function accentReport(): { text: string; colour: string | null } {
     : { text: 'Windows’ default blue. No accent is set in Windows.', colour: last.light2 }
 }
 
+/** Windows' default accent, SystemAccentColor. */
+const DEFAULT_BASE = '#0078D4'
+
+/**
+ * One step of the accent's dark ramp, made from the base the way `accent.rs`
+ * makes the light steps: each channel moved `by` of the way to black. Windows
+ * publishes Dark1/Dark2 in its palette, but the command returns only the
+ * light steps and the base; 25% from the default base lands on #005A9F,
+ * against Windows' own Dark1 of #005A9E.
+ */
+export function darken(hex: string, by: number): string {
+  const n = parseInt(hex.slice(1), 16)
+  const ch = (shift: number) => Math.round(((n >> shift) & 0xff) * (1 - by))
+  return '#' + [16, 8, 0].map((s) => ch(s).toString(16).padStart(2, '0')).join('').toUpperCase()
+}
+
 /** `#rrggbb`, and nothing else, ever reaches a style property. */
 export function isHex(value: unknown): value is string {
   return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
@@ -91,9 +107,18 @@ async function readOnce(): Promise<SystemAccent | null> {
      * blue. Aaron, 2026-09-18: "use the windows accent color for all accent
      * colored items."
      */
+    /*
+     * The raw steps, not `--rb-accent` itself: which step is THE accent
+     * depends on the theme (Light2 on a dark ground, Dark1 on a light one),
+     * and `theme/redbeam.css` picks per theme. Stamping `--rb-accent` inline
+     * would pin the dark-ground tint into the light theme.
+     */
+    const base = isHex(accent.base) ? accent.base : DEFAULT_BASE
     for (const el of [document.documentElement, document.body]) {
-      el.style.setProperty('--rb-accent', accent.light2)
-      el.style.setProperty('--rb-accent-2', accent.light1)
+      el.style.setProperty('--rb-sys-accent-light2', accent.light2)
+      el.style.setProperty('--rb-sys-accent-light1', accent.light1)
+      el.style.setProperty('--rb-sys-accent-dark1', darken(base, 0.25))
+      el.style.setProperty('--rb-sys-accent-dark2', darken(base, 0.45))
     }
     last = accent
     return accent

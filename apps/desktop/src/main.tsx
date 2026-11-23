@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { applySystemAccent, followSystemAccent } from './accent.js'
 import { applyBackdropClass } from './backdrop.js'
+import { installTheme } from './theme.js'
 import { installCrashHandlers } from './crash.js'
 import App from './App.js'
 import './styles.css'
@@ -18,15 +19,14 @@ import './styles.css'
  * the html stamp, and without it choosing dark on a light-OS machine leaves a
  * white flash at the edges of every scroll.
  *
- * Dark is the default rather than the system's light because of what this app
- * renders: the sheet is white paper filling most of the window, and chrome
- * that is also near-white competes with it for the eye. That is a REDBEAM
- * decision about its own surface, not a change to the system — both themes are
- * the system's own, fully specified steps.
+ * The theme is the user's (Settings › General › Theme, Match Windows by
+ * default) and `theme.ts` stamps it, before the first render so nothing
+ * paints in the other palette first. Dark had been the only theme, chosen
+ * because the sheet is white paper and near-white chrome competes with it;
+ * that is still the argument for Dark, now as a choice.
  */
-document.documentElement.setAttribute('data-theme', 'dark')
 document.body.classList.add('ads')
-document.body.setAttribute('data-theme', 'dark')
+installTheme()
 
 /*
  * The Windows 11 backdrop, if this machine has one.

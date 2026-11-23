@@ -299,7 +299,7 @@ h4 {
   padding: 0 10px; border: 0; border-radius: var(--r-sm);
   background: var(--rb-action); color: var(--rb-action-ink); font: inherit; font-weight: 600;
   white-space: nowrap; cursor: pointer }
-.act:hover:not(:disabled) { background: #fff }
+.act:hover:not(:disabled) { background: var(--rb-action-hover) }
 .act:disabled { background: var(--rb-hover); color: var(--rb-ink-dim); cursor: default }
 
 /* The bill of materials is a level of the estimates panel now — shell.css,
@@ -440,13 +440,13 @@ h4 {
 .st-card.primary { border-color: transparent; background: var(--rb-accent); color: var(--rb-accent-ink); }
 .st-card.primary:hover { background: var(--rb-accent-2); }
 .st-cardico { width: 40px; height: 40px; border-radius: 8px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink); }
-.st-card.primary .st-cardico { background: rgba(0, 0, 0, .14); color: var(--rb-accent-ink); }
+.st-card.primary .st-cardico { background: color-mix(in srgb, var(--rb-accent-ink) 14%, transparent); color: var(--rb-accent-ink); }
 .st-cardtext { min-width: 0; display: flex; flex-direction: column; }
 .st-cardtitle { font-size: var(--rb-body); font-weight: 600; }
 .st-carddesc { font-size: var(--rb-caption); line-height: 16px; color: var(--rb-ink-3); }
-.st-card.primary .st-carddesc { color: rgba(0, 0, 0, .65); }
-.st-card kbd { background: transparent; border-color: rgba(255, 255, 255, .25); }
-.st-card.primary kbd { border-color: rgba(0, 0, 0, .35); color: var(--rb-accent-ink); }
+.st-card.primary .st-carddesc { color: color-mix(in srgb, var(--rb-accent-ink) 72%, transparent); }
+.st-card kbd { background: transparent; border-color: var(--rb-line-2); }
+.st-card.primary kbd { border-color: color-mix(in srgb, var(--rb-accent-ink) 40%, transparent); color: var(--rb-accent-ink); }
 .st-pathcard { margin: 0 0 10px; padding: 14px 16px; border: 1px solid var(--rb-line); border-radius: 8px; background: var(--rb-panel); }
 .st-pathcard h4 { margin: 0 0 var(--ads-sp-2); }
 .st-offer { cursor: default; }

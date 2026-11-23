@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.51 — 2026-11-23
+## 0.3.52 — 2026-11-23
 
 ### A tidy-up pass over every screen
 
@@ -18,6 +18,15 @@ SmartScreen will ask once.
 - **A PDF that cannot be opened says so** in plain words, instead of "FPDF_LoadMemDocument failed" over a list that said "Opening the drawing…" forever.
 - **No more database talk.** Opening a file no longer flashes "browser store · in memory", and searching no longer shows a "Limited search… page_text_fts" note.
 - **Smaller things:** the scope menu no longer heads itself "Estimate" for a single PDF, long scope details end in "…" instead of being cut, the new scope field's hint fits, and a few faint captions are easier to read.
+
+
+## 0.3.51 — 2026-11-23
+
+### Light theme
+
+- **REDBEAM now comes in Light as well as Dark.** The sheet list, tabs, Takeoff panel, menus, Settings and the start screen all have a light version, built from Windows 11's own light colours.
+- **Choose it in Settings › General › Theme:** *Match Windows* (the default, so it follows Light or Dark in Windows Settings), *Light* or *Dark*. It changes straight away, and the glass behind the panels follows it.
+- **Buttons and highlights use your Windows accent colour** in both themes, in the darker shade Windows itself uses on a light background.
 
 
 ## 0.3.50 — 2026-11-23
