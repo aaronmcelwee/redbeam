@@ -39,7 +39,7 @@ describe('the Light palette', () => {
       [{ id: 'light-open', title: 'Open PDF…' }],
     )
     expect(out.map((c) => c.id)).toEqual(['light-open', 'fit-page', 'close-project'])
-    expect(out.find((c) => c.id === 'close-project')?.title).toBe('Close file')
+    expect(out.find((c) => c.id === 'close-project')?.title).toBe('Close all files')
   })
 
   it('names the panel and the exports for a file, and drops the duplicate save', () => {

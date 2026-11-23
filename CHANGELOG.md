@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.49 — 2026-11-23
+
+### Several PDFs open at once
+
+- **Open more than one PDF in a window.** Each PDF gets a tab across the top, like Bluebeam. *Ctrl+O*, double-clicking a PDF in Explorer and dragging one onto REDBEAM all open it in a new tab instead of replacing the one you have open.
+- **Each tab keeps its own takeoff,** saved into its own PDF. Switching tabs saves the one you leave, and closing a tab saves it first.
+- **Keys:** *Ctrl+Tab* and *Ctrl+Shift+Tab* switch tabs, *Ctrl+W* closes one and *Ctrl+Shift+T* reopens the one you closed.
+- **REDBEAM reopens your tabs** the next time it starts. A file that has moved since is left out.
+
+
 ## 0.3.48 — 2026-11-23
 
 ### Bookmarks

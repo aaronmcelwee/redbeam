@@ -12,8 +12,8 @@
 //! path until the main window asks for it. A launch while REDBEAM is already
 //! running is caught by the single-instance plugin, which hands the path to
 //! [`route`]: the window already showing that file comes forward, a window on
-//! the start screen opens it, and otherwise it opens in a new window (Light
-//! is one file per window).
+//! the start screen opens it, a Light window takes it as another tab, and
+//! otherwise it opens in a new window.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -40,6 +40,36 @@ enum Showing {
     /// A file (or project) is open. The path is kept folded for comparison;
     /// None when the window has something open that is not a single file.
     Busy(Option<String>),
+    /// Light: PDFs open as tabs, folded. The window takes another file as a
+    /// new tab, and comes forward on one it already has.
+    Tabs(Vec<String>),
+}
+
+impl Showing {
+    fn has(&self, wanted: &str) -> bool {
+        match self {
+            Showing::Busy(Some(f)) => f == wanted,
+            Showing::Tabs(files) => files.iter().any(|f| f == wanted),
+            _ => false,
+        }
+    }
+}
+
+/// Which window a file goes to, and whether it must be told to open it: the
+/// window already showing it, else one on the start screen, else a Light
+/// window with tabs. The main window first each time, so a fresh start fills
+/// the window on screen. None: a new window.
+fn choose(map: &HashMap<String, Showing>, wanted: &str) -> Option<(String, bool)> {
+    let mut windows: Vec<(&String, &Showing)> = map.iter().collect();
+    windows.sort_by_key(|(l, _)| (l.as_str() != "main", l.as_str().to_string()));
+    let pick = |f: &dyn Fn(&Showing) -> bool| windows.iter().find(|(_, s)| f(s)).map(|(l, s)| ((*l).clone(), *s));
+    if let Some((label, s)) = pick(&|s| s.has(wanted)) {
+        // A tab that is not the one showing still has to be switched to.
+        return Some((label, matches!(s, Showing::Tabs(_))));
+    }
+    pick(&|s| *s == Showing::Idle)
+        .or_else(|| pick(&|s| matches!(s, Showing::Tabs(_))))
+        .map(|(label, _)| (label, true))
 }
 
 #[derive(Default)]
@@ -106,8 +136,13 @@ pub fn launch_showing(
     state: State<'_, LaunchState>,
     idle: bool,
     file: Option<String>,
+    tabs: Option<Vec<String>>,
 ) {
-    let showing = if idle { Showing::Idle } else { Showing::Busy(file.as_deref().map(fold)) };
+    let showing = match tabs {
+        _ if idle => Showing::Idle,
+        Some(files) if !files.is_empty() => Showing::Tabs(files.iter().map(|f| fold(f)).collect()),
+        _ => Showing::Busy(file.as_deref().map(fold)),
+    };
     if let Ok(mut map) = state.showing.lock() {
         map.insert(window.label().to_string(), showing);
     }
@@ -135,22 +170,17 @@ pub async fn route(app: &AppHandle, path: String) -> Result<(), String> {
     let target = {
         let mut map = state.showing.lock().map_err(|e| e.to_string())?;
         map.retain(|label, _| app.get_webview_window(label).is_some());
-        let already = map
-            .iter()
-            .find(|(_, s)| **s == Showing::Busy(Some(wanted.clone())))
-            .map(|(label, _)| (label.clone(), false));
-        let free = || {
-            // The main window first, so a fresh start fills the window on screen.
-            let mut idle: Vec<&String> =
-                map.iter().filter(|(_, s)| **s == Showing::Idle).map(|(l, _)| l).collect();
-            idle.sort_by_key(|l| (l.as_str() != "main", l.as_str().to_string()));
-            idle.first().map(|l| ((*l).clone(), true))
-        };
-        let target = already.or_else(free);
+        let target = choose(&map, &wanted);
         if let Some((label, true)) = &target {
-            // Spoken for: a second file arriving before this one has opened
-            // must not land in the same window.
-            map.insert(label.clone(), Showing::Busy(Some(wanted.clone())));
+            match map.get_mut(label) {
+                // Taken as a tab: a second launch of the same file finds it here.
+                Some(Showing::Tabs(files)) => {
+                    if !files.contains(&wanted) { files.push(wanted.clone()) }
+                }
+                // Spoken for: a second file arriving before this one has opened
+                // must not land in the same window.
+                _ => { map.insert(label.clone(), Showing::Busy(Some(wanted.clone()))); }
+            }
         }
         target
     };
@@ -352,6 +382,25 @@ mod tests {
         // The program itself is never taken for the file.
         assert_eq!(pdf_from_args([file.display().to_string()], &dir), None);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn routes_to_the_window_showing_it_then_a_free_one_then_tabs() {
+        let mut map = HashMap::new();
+        map.insert("view-1".to_string(), Showing::Busy(Some(fold("C:/a.pdf"))));
+        map.insert("main".to_string(), Showing::Tabs(vec![fold("C:/b.pdf"), fold("C:/c.pdf")]));
+        // Already open: that window, told to open it only when it is a tab.
+        assert_eq!(choose(&map, &fold("c:\\a.pdf")), Some(("view-1".to_string(), false)));
+        assert_eq!(choose(&map, &fold("C:/c.pdf")), Some(("main".to_string(), true)));
+        // New: the tabbed window takes it.
+        assert_eq!(choose(&map, &fold("C:/d.pdf")), Some(("main".to_string(), true)));
+        // A start-screen window comes before a tabbed one.
+        map.insert("view-2".to_string(), Showing::Idle);
+        assert_eq!(choose(&map, &fold("C:/d.pdf")), Some(("view-2".to_string(), true)));
+        // Nothing free and no tabs: a new window.
+        let mut busy = HashMap::new();
+        busy.insert("main".to_string(), Showing::Busy(None));
+        assert_eq!(choose(&busy, &fold("C:/d.pdf")), None);
     }
 
     #[test]

@@ -79,7 +79,7 @@ export function lightCommands<C extends { id: string; title: string; detail?: st
   const kept = all
     .filter((c) => !isProjectOnlyCommand(c.id))
     .map((c) => {
-      if (c.id === 'close-project') return { ...c, title: 'Close file', detail: 'Saves the takeoff into the PDF, then back to the start page' }
+      if (c.id === 'close-project') return { ...c, title: 'Close all files', detail: 'Saves the takeoff into the PDF, then back to the start page' }
       if (c.id === 'pane-estimates') return { ...c, title: c.title.replace('estimates pane', 'takeoff pane') }
       if (c.id === 'export-estimate') return { ...c, title: 'Export takeoff…' }
       if (c.id === 'remove-scope') return { ...c, title: 'Remove scope…' }

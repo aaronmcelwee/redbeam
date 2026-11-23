@@ -23,10 +23,12 @@ export async function takeLaunchFile(): Promise<string | null> {
  * Tell the app what this window shows, so a PDF opened from Explorer later
  * comes forward in the window already showing it, fills a window on the
  * start screen, or gets a window of its own.
+ *
+ * `tabs`: Light's open PDFs. The window then takes another file as a tab.
  */
-export async function reportShowing(idle: boolean, file: string | null): Promise<void> {
+export async function reportShowing(idle: boolean, file: string | null, tabs: readonly string[] = []): Promise<void> {
   if (!isTauri()) return
-  try { await invoke('launch_showing', { idle, file }) } catch { /* only routing is lost */ }
+  try { await invoke('launch_showing', { idle, file, tabs: tabs.length > 0 ? tabs : null }) } catch { /* only routing is lost */ }
 }
 
 /** Hand a PDF back to be opened elsewhere: this window was no longer free when it arrived. */
