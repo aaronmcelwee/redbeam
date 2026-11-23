@@ -208,6 +208,7 @@ h4 {
 .thumb:hover { border-color: var(--ink-4) }
 /* The current sheet, in the same red the sheet index and the rail use for it. */
 .thumb.active { border-color: var(--rb-accent); box-shadow: 0 0 0 1px var(--rb-accent) }
+.thumb.picked { background: color-mix(in srgb, var(--rb-accent) 16%, transparent); border-color: var(--rb-accent) }
 /* the sheet is paper, not chrome — see --paper */
 .thumb canvas { display: block; background: var(--paper); transition: opacity .15s; border-radius: 2px }
 

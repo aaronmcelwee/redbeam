@@ -6878,36 +6878,42 @@ export default function Workspace({
   }, [goToPage, setStatus, sheetLabelFor])
 
   /**
-   * Turn the open sheet a quarter turn, clockwise (+1) or counterclockwise (-1).
+   * Turn sheets by clockwise quarter turns: 1, 2 (180°) or 3 (counterclockwise).
    *
-   * Everything drawn on it turns with it (rotatePageData), so a takeoff stays
+   * Everything drawn on each turns with it (rotatePageData), so a takeoff stays
    * on what it was drawn over and every quantity stays what it was. The undo
    * history goes: an earlier shape put back would land in the old orientation.
    */
-  const rotateSheet = useCallback(async (delta: 1 | -1) => {
+  const rotatePages = useCallback(async (pages: readonly number[], turns: 1 | 2 | 3) => {
     const v = viewerRef.current, db = dbRef.current
     const docId = activeDocId
-    if (!v || !db || docId === null || page.width === 0) return
-    const index = pageIndexRef.current
-    const target = (((v.getPageRotation(index) + delta * 90) % 360) + 360) % 360
+    if (!v || !db || docId === null || pages.length === 0) return
+    const turnsWord = turns === 1 ? 'clockwise' : turns === 3 ? 'counterclockwise' : '180°'
+    const what = pages.length === 1 ? sheetLabelFor(pages[0]!) : `${pages.length} sheets`
     try {
-      await rotatePageData(db, pageIdFor(docId, pageIndexRef.current), delta === 1 ? 1 : 3)
+      const forDoc = pageRotationsRef.current.get(docId) ?? new Map<number, number>()
+      pageRotationsRef.current.set(docId, forDoc)
+      for (const targetPage of pages) {
+        await rotatePageData(db, pageIdFor(docId, targetPage), turns)
+        const after = await v.turnPage(targetPage, turns)
+        forDoc.set(targetPage, after.rotation)
+      }
       const u = undoRef.current
       if (u) { await u.clear(); setUndoState(u.state) }
-      const forDoc = pageRotationsRef.current.get(docId) ?? new Map<number, number>()
-      forDoc.set(index, target)
-      pageRotationsRef.current.set(docId, forDoc)
-      setFitMode('page')
-      await v.rotatePage(index, target)
+      if (pages.includes(pageIndexRef.current)) setFitMode('page')
       await syncMarkups()
       await refreshScopes()
       setRotationTick((n) => n + 1)
       requestPaint()
-      setStatus(`turned ${sheetLabelFor(index)} ${delta === 1 ? 'clockwise' : 'counterclockwise'} · the takeoff turned with it · undo starts again from here`)
+      setStatus(`turned ${what} ${turnsWord} · the takeoff turned with it · undo starts again from here`)
     } catch (err) {
-      setStatus(`could not turn the sheet: ${err instanceof Error ? err.message : String(err)}`)
+      setStatus(`could not turn ${what}: ${err instanceof Error ? err.message : String(err)}`)
     }
-  }, [activeDocId, page.width, syncMarkups, refreshScopes, requestPaint, setStatus, sheetLabelFor])
+  }, [activeDocId, syncMarkups, refreshScopes, requestPaint, setStatus, sheetLabelFor])
+  const rotateSheet = useCallback((delta: 1 | -1) => {
+    if (page.width === 0) return Promise.resolve()
+    return rotatePages([pageIndexRef.current], delta === 1 ? 1 : 3)
+  }, [page.width, rotatePages])
 
   /**
    * Print sheets of the open drawing: the PDF with this window's takeoff in
@@ -8480,6 +8486,8 @@ export default function Workspace({
               current={pageIndex}
               onGoToPage={goToPage}
               onSetScale={(pages) => setScaleTarget(pages)}
+              onRotate={(pages, turns) => { void rotatePages(pages, turns) }}
+              onPrint={(pages) => { void printSheets(pages) }}
               scaleOf={scaleOfPage}
               pending={pendingText}
             />
@@ -8491,6 +8499,10 @@ export default function Workspace({
               requestThumbnail={(i, w) => viewerRef.current?.requestThumbnail(i, w)}
               onGoTo={goToPage}
               labels={thumbLabels}
+              rotationOf={(i) => viewerRef.current?.getPageRotation(i) ?? 0}
+              onSetScale={(pages) => setScaleTarget(pages)}
+              onRotate={(pages, turns) => { void rotatePages(pages, turns) }}
+              onPrint={(pages) => { void printSheets(pages) }}
               empty={pendingText ?? 'No document open.'}
             />
           )}
