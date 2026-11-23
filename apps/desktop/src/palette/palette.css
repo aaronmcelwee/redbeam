@@ -135,7 +135,7 @@
 .pp-row.armed { background: var(--rb-selected); }
 .pp-row.off .pp-title, .pp-row.off > svg { color: var(--rb-ink-4); }
 .pp-row.off { cursor: default; }
-.pp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; justify-self: center; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
+.pp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; justify-self: center; box-shadow: 0 0 0 1px var(--rb-line-2); }
 .pp-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pp-title { color: var(--rb-ink); }
 .pp-title mark { background: transparent; color: var(--rb-accent); }

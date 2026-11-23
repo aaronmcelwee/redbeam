@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.51 — 2026-11-23
+
+### Light theme
+
+- **REDBEAM now comes in Light as well as Dark.** The sheet list, tabs, Takeoff panel, menus, Settings and the start screen all have a light version, built from Windows 11's own light colours.
+- **Choose it in Settings › General › Theme:** *Match Windows* (the default, so it follows Light or Dark in Windows Settings), *Light* or *Dark*. It changes straight away, and the glass behind the panels follows it.
+- **Buttons and highlights use your Windows accent colour** in both themes, in the darker shade Windows itself uses on a light background.
+
+
 ## 0.3.50 — 2026-11-23
 
 ### Readable on a PC set to Light
