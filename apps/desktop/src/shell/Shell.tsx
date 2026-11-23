@@ -489,7 +489,7 @@ export function DocumentTabStrip({
   activeId: string | null
   onSelect: (id: string) => void
   onClose?: (id: string) => void
-  /** The "+" that opens another document. Absent in Light, where a window is one file. */
+  /** The "+" that opens another document: in Light, another PDF in a new tab. */
   onBrowse?: () => void
   /** Open this document in a context window — a second view, side by side. */
   onPopOut?: (id: string) => void

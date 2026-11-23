@@ -216,6 +216,17 @@ export interface WorkspaceProps {
     light?: boolean
     /** Light mode: pick another PDF to open in this window. */
     onOpenAnother?: () => void
+    /**
+     * Light mode's tabs, one per open PDF (lightTabs.ts). The app saves the
+     * one showing before it shows another, so these only say what to do.
+     */
+    tabs?: {
+      list: { file: string; name: string }[]
+      onSelect: (file: string) => void
+      onClose: (file: string) => void
+      onStep: (step: 1 | -1) => void
+      onReopen: () => void
+    }
   }
   /** Name this job, as the switcher's header offers. */
   onRenameProject?: (name: string) => void
@@ -5193,8 +5204,11 @@ export default function Workspace({
   const openAnotherFile = useCallback(() => {
     const go = quickView?.onOpenAnother
     if (go === undefined) return
-    leaveSaving(go)
+    // With tabs this file stays open, and the app saves it as the new tab comes up.
+    if (quickView?.tabs !== undefined) go()
+    else leaveSaving(go)
   }, [quickView, leaveSaving])
+  const lightTabs = quickView?.tabs
   const saveOpenFile = useCallback(() => {
     const id = leftDocRef.current
     if (id === null) return
@@ -5217,14 +5231,21 @@ export default function Workspace({
   useEffect(() => {
     if (!light) return
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
       const k = e.key.toLowerCase()
+      // Tabs, as a browser and Bluebeam have them.
+      if (lightTabs !== undefined) {
+        if (k === 'tab') { e.preventDefault(); lightTabs.onStep(e.shiftKey ? -1 : 1); return }
+        if (k === 'w' && !e.shiftKey) { e.preventDefault(); lightTabs.onClose(quickView!.file); return }
+        if (k === 't' && e.shiftKey) { e.preventDefault(); lightTabs.onReopen(); return }
+      }
+      if (e.shiftKey) return
       if (k === 's') { e.preventDefault(); saveOpenFile() }
       else if (k === 'o') { e.preventDefault(); openAnotherFile() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [light, saveOpenFile, openAnotherFile])
+  }, [light, saveOpenFile, openAnotherFile, lightTabs, quickView])
 
   /** Live markup counts per scope, for the shelf and the archive warning. */
   /**
@@ -8256,9 +8277,31 @@ export default function Workspace({
     return lightCommands(out, [
       {
         id: 'light-open', kind: 'command', title: 'Open PDF…', shortcut: 'Ctrl+O',
-        detail: 'Saves this one first, then opens the other in this window',
-        keywords: ['open', 'file', 'drawing', 'pdf'], run: openAnotherFile,
+        detail: lightTabs !== undefined ? 'In a new tab; this one stays open' : 'Saves this one first, then opens the other in this window',
+        keywords: ['open', 'file', 'drawing', 'pdf', 'tab'], run: openAnotherFile,
       },
+      ...(lightTabs === undefined ? [] : [
+        {
+          id: 'light-close-tab', kind: 'command' as const, title: 'Close this file', shortcut: 'Ctrl+W',
+          detail: 'Saves its takeoff into the PDF first', keywords: ['close', 'tab', 'file'],
+          run: () => lightTabs.onClose(quickView!.file),
+        },
+        {
+          id: 'light-next-tab', kind: 'command' as const, title: 'Next tab', shortcut: 'Ctrl+Tab',
+          keywords: ['tab', 'switch', 'file', 'next'], ...stuck(lightTabs.list.length < 2 ? 'only one file open' : undefined),
+          run: () => lightTabs.onStep(1),
+        },
+        {
+          id: 'light-prev-tab', kind: 'command' as const, title: 'Previous tab', shortcut: 'Ctrl+Shift+Tab',
+          keywords: ['tab', 'switch', 'file', 'previous'], ...stuck(lightTabs.list.length < 2 ? 'only one file open' : undefined),
+          run: () => lightTabs.onStep(-1),
+        },
+        {
+          id: 'light-reopen-tab', kind: 'command' as const, title: 'Reopen closed file', shortcut: 'Ctrl+Shift+T',
+          detail: 'The tab closed last', keywords: ['reopen', 'undo', 'close', 'tab', 'file'],
+          run: lightTabs.onReopen,
+        },
+      ]),
       {
         id: 'light-save', kind: 'command', title: 'Save takeoff into this PDF', shortcut: 'Ctrl+S',
         detail: 'Scopes and markups travel inside the file; Bluebeam shows the markups',
@@ -8319,7 +8362,7 @@ export default function Workspace({
     openDocIds, closeDocument, convertSheetAnnotations, convertAnnotations, selectedAnnots,
     quantities, projectMarkups,
     light, openAnotherFile, saveOpenFile, importScopesFromPdf, startFromPdf, saveCopyOfFile,
-    paletteOpen,
+    paletteOpen, lightTabs, quickView,
   ])
 
   return (
@@ -8352,7 +8395,8 @@ export default function Workspace({
               onImportScopes: () => void importScopesFromPdf(),
               onPalette: openPalette,
               onSettings: openSettings,
-              onCloseProject: closeProjectSavingTakeoff,
+              // One tab: the rest stay open. The last one closed goes to the start page.
+              onCloseProject: lightTabs !== undefined ? () => lightTabs.onClose(quickView!.file) : closeProjectSavingTakeoff,
               closeLabel: 'Close file',
             }
           : {
@@ -8388,6 +8432,15 @@ export default function Workspace({
         workOpen={workOpen}
         onToggleWork={() => setWorkOpen((v) => !v)}
       >
+        {light && lightTabs !== undefined ? (
+          <DocumentTabStrip
+            tabs={lightTabs.list.map((t) => ({ id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file }))}
+            activeId={quickView!.file}
+            onSelect={lightTabs.onSelect}
+            onClose={lightTabs.onClose}
+            {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
+          />
+        ) : (
         <DocumentTabStrip
           tabs={openTabs}
           activeId={activeDocId}
@@ -8401,6 +8454,7 @@ export default function Workspace({
             },
           })}
         />
+        )}
       </TitleBar>
 
       <Sidebar

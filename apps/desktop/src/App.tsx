@@ -26,6 +26,8 @@ import { WhatsNewHost } from './whatsnew/WhatsNew.js'
 import { setBeforeQuit } from './update/session.js'
 import { PRO_AVAILABLE, readMode, writeMode, type AppMode } from './light.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
+import { projectBridge } from './project/bridge.js'
+import { SESSION_LIMIT, lightFileOf, readSession, samePath, stepTab, withoutTab, withTab, writeSession, type LightFile } from './lightTabs.js'
 import {
   choosePdfHandler, defaultOfferDismissed, dismissDefaultOffer, onOpenFile, openElsewhere,
   reportShowing, takeLaunchFile, usePdfHandlerStatus,
@@ -220,13 +222,31 @@ export default function App() {
    * project folder first." So a picked or dropped PDF that no job already
    * holds opens here, in memory; one that a job holds opens that job.
    */
-  const [quick, setQuick] = useState<{ folder: string; file: string; relativePath: string } | null>(null)
+  const [quick, setQuick] = useState<LightFile | null>(null)
+  const quickRef = useRef(quick)
+  quickRef.current = quick
+  /**
+   * LIGHT: the PDFs open in this window, as tabs (lightTabs.ts). `quick` is
+   * the one showing; the rest hold nothing that is not already in their files.
+   */
+  const [tabs, setTabs] = useState<LightFile[]>([])
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  /** Tabs closed this session, newest last: what Ctrl+Shift+T brings back. */
+  const closedTabsRef = useRef<string[]>([])
+  /** Save the showing file into its PDF, then `go`. Stays put when the save is refused and the person keeps the file. */
+  const leaveThen = useCallback((go: () => void) => {
+    const before = beforeCloseRef.current
+    if (before === null) { go(); return }
+    void before(go).then((ok) => { if (ok) go() }, go)
+  }, [])
   /** The document to open first once a project comes up — the drawing that was just viewed or picked. */
   const [firstDocument, setFirstDocument] = useState<string | null>(null)
 
   const closeProject = useCallback(() => {
     setOpenPath(null)
     setQuick(null)
+    setTabs([])
     setFirstDocument(null)
     setMode(readMode())
     setFiles(recentFiles())
@@ -244,9 +264,14 @@ export default function App() {
     if (readMode() === 'light') {
       rememberFile(pick.path)
       setFiles(recentFiles())
-      const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
       setQuickNote(null)
-      setQuick({ folder: pick.path.slice(0, cut), file: pick.path, relativePath: pick.path.slice(cut + 1) })
+      const path = pick.path
+      const f = tabsRef.current.find((t) => samePath(t.file, path)) ?? lightFileOf(path)
+      const now = quickRef.current
+      if (now === null) { setTabs((t) => withTab(t, f)); setQuick(f); return }
+      if (samePath(now.file, f.file)) return
+      // Another PDF opens beside this one: save this one first, as leaving does.
+      leaveThen(() => { setTabs((t) => withTab(withTab(t, now), f)); setQuick(f) })
       return
     }
     if (pick.project !== null && pick.project.hasDatabase && pick.relativePath !== null) {
@@ -258,7 +283,7 @@ export default function App() {
     const folder = pick.path.slice(0, cut)
     const name = pick.path.slice(cut + 1)
     setQuick({ folder, file: pick.path, relativePath: name })
-  }, [project])
+  }, [project, leaveThen])
 
   const viewDrawing = useCallback(() => {
     void project.viewDrawing().then((pick) => { if (pick !== null) showDrawing(pick) })
@@ -275,6 +300,45 @@ export default function App() {
     }
     void project.open(path, { create: false })
   }, [project, showDrawing])
+
+  /** Light: show another open tab, saving the one left first. */
+  const selectTab = useCallback((file: string) => {
+    const f = tabsRef.current.find((t) => samePath(t.file, file))
+    const now = quickRef.current
+    if (f === undefined || (now !== null && samePath(now.file, file))) return
+    leaveThen(() => setQuick(f))
+  }, [leaveThen])
+  /** Light: close a tab. The one showing is saved first, and its neighbour shows; the last goes to the start page. */
+  const closeTab = useCallback((file: string) => {
+    const remember = () => {
+      closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file].slice(-SESSION_LIMIT)
+    }
+    const now = quickRef.current
+    if (now === null || !samePath(now.file, file)) {
+      remember()
+      setTabs((t) => withoutTab(t, file, null).tabs)
+      return
+    }
+    leaveThen(() => {
+      remember()
+      const { tabs: rest, next } = withoutTab(tabsRef.current, file, file)
+      if (next === null) { closeProject(); return }
+      setTabs(rest)
+      setQuick(next)
+    })
+  }, [leaveThen, closeProject])
+  /** Light: Ctrl+Tab and Ctrl+Shift+Tab. */
+  const stepTabBy = useCallback((step: 1 | -1) => {
+    const now = quickRef.current
+    if (now === null) return
+    const next = stepTab(tabsRef.current, now.file, step)
+    if (next !== null) selectTab(next.file)
+  }, [selectTab])
+  /** Light: Ctrl+Shift+T brings back the tab closed last. */
+  const reopenTab = useCallback(() => {
+    const file = closedTabsRef.current.pop()
+    if (file !== undefined) dropPath(file)
+  }, [dropPath])
 
   /**
    * Quick view's way out: the drawing's project folder. It has to contain the
@@ -306,17 +370,42 @@ export default function App() {
    * same road a drop takes, so it lands in a job or in quick view alike.
    */
   const viewedFromUrl = useRef(false)
+  /** The main window's tabs are written for next time only once last time's are back. */
+  const sessionReadyRef = useRef(false)
+  const restoreTabs = useCallback(async () => {
+    const saved = readSession()
+    const found: LightFile[] = []
+    for (const file of saved.files) {
+      // Gone since (moved, renamed, a drive not mounted): left out, said nowhere.
+      const there = await projectBridge.locateFile(file).then((o) => o.path !== null, () => false)
+      if (there) found.push(lightFileOf(file))
+    }
+    if (found.length === 0 || quickRef.current !== null || readMode() !== 'light') return
+    const active = saved.active
+    setTabs(found)
+    setQuick(found.find((f) => active !== null && samePath(f.file, active)) ?? found[0]!)
+  }, [])
+  useEffect(() => {
+    if (!sessionReadyRef.current || identity.role !== 'main' || !light || openPath !== null) return
+    writeSession({ files: tabs.map((t) => t.file), active: quick?.file ?? null })
+  }, [tabs, quick, light, openPath, identity.role])
   useEffect(() => {
     if (viewedFromUrl.current || !project.desktop) return
     viewedFromUrl.current = true
     const wanted = new URLSearchParams(location.search).get('view')
     if (wanted !== null && wanted !== '') { dropPath(wanted); return }
-    // Started by double-clicking a PDF, or by Open with: the first window
-    // opens it (open_with.rs keeps the path until asked).
     if (identity.role === 'main' && identity.projectId === null) {
-      void takeLaunchFile().then((path) => { if (path !== null) dropPath(path) })
+      void (async () => {
+        // Light: the tabs open when this window last changed tabs come back.
+        if (readMode() === 'light') await restoreTabs()
+        sessionReadyRef.current = true
+        // Started by double-clicking a PDF, or by Open with: the first window
+        // opens it (open_with.rs keeps the path until asked), as another tab.
+        const path = await takeLaunchFile()
+        if (path !== null) dropPath(path)
+      })()
     }
-  }, [project.desktop, dropPath, identity])
+  }, [project.desktop, dropPath, identity, restoreTabs])
 
   /*
    * A PDF opened from Explorer while REDBEAM is running. The app sends it
@@ -324,19 +413,21 @@ export default function App() {
    * opened in the meantime, it goes back to be opened in another window.
    */
   const idle = openPath === null && quick === null && identity.projectId === null
-  const showingRef = useRef({ idle, file: quick?.file ?? null })
-  showingRef.current = { idle, file: quick?.file ?? null }
+  // Light takes another PDF as a tab, so a window with tabs is never "taken".
+  const tabFiles = useMemo(() => (light && openPath === null ? tabs.map((t) => t.file) : []), [light, openPath, tabs])
+  const showingRef = useRef({ idle, file: quick?.file ?? null, takesTabs: tabFiles.length > 0 })
+  showingRef.current = { idle, file: quick?.file ?? null, takesTabs: tabFiles.length > 0 }
   useEffect(() => {
     if (identity.role === 'context') return
-    void reportShowing(idle, quick?.file ?? null)
-  }, [idle, quick, identity.role])
+    void reportShowing(idle, quick?.file ?? null, tabFiles)
+  }, [idle, quick, tabFiles, identity.role])
   useEffect(() => {
     if (identity.role === 'context') return
     let stop: (() => void) | undefined
     let cancelled = false
     void onOpenFile((path) => {
       const now = showingRef.current
-      if (now.idle) { dropPath(path); return }
+      if (now.idle || now.takesTabs) { dropPath(path); return }
       // Say what is really here first: the app marked this window as taken
       // by the new file when it sent it.
       void reportShowing(now.idle, now.file).then(() => openElsewhere(path))
@@ -440,7 +531,17 @@ export default function App() {
               ? {
                   quickView: {
                     file: quick.file, relativePath: quick.relativePath, onAdopt: adoptProject,
-                    ...(light ? { light: true, ...(project.desktop ? { onOpenAnother: viewDrawing } : {}) } : {}),
+                    ...(light
+                      ? {
+                          light: true,
+                          ...(project.desktop ? { onOpenAnother: viewDrawing } : {}),
+                          tabs: {
+                            list: tabs.map((t) => ({ file: t.file, name: t.relativePath })),
+                            onSelect: selectTab, onClose: closeTab, onStep: stepTabBy,
+                            onReopen: reopenTab,
+                          },
+                        }
+                      : {}),
                   },
                 }
               : {})}
