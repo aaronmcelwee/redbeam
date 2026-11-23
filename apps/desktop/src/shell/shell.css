@@ -3545,3 +3545,32 @@ html[data-backdrop="tabbed"] .dockgroup {
 .es-tr.es-tracc, .es-tr.es-tracc .es-trn { color: var(--rb-ink-3); }
 /* Confidence, said once on the Parts header. */
 .es-chip { padding: 0 5px; border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-3); font: var(--rb-caption) var(--rb-figures); white-space: nowrap; }
+
+/* Contents: Sheets or Bookmarks. A segmented switch, not tabs of the rail. */
+.contentsview {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  margin: var(--ads-sp-2) var(--ads-sp-4) 0;
+  padding: 2px;
+  border-radius: var(--rb-radius-control, 4px);
+  background: var(--ads-inset);
+}
+.contentsview > button {
+  flex: 1 1 0;
+  min-height: 24px;
+  border: 0;
+  border-radius: calc(var(--rb-radius-control, 4px) - 1px);
+  background: transparent;
+  color: var(--ads-ink-2);
+  font: inherit;
+  cursor: pointer;
+}
+.contentsview > button.on { background: var(--rb-selected); color: var(--ads-ink); }
+.contentsview > button:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 1px; }
+
+/* Bookmarks: twisty, title, page. Indent comes from the row's own padding. */
+.sheetrow.bookmarkrow { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.bookmarktwisty { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
+.bookmarktwisty > svg { transition: transform var(--rb-motion-fast) var(--rb-ease-decel); }
+@media (prefers-reduced-motion: reduce) { .bookmarktwisty > svg { transition: none; } }
