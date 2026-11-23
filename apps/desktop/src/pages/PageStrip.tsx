@@ -6,9 +6,14 @@
  * the page under the cursor. This component asks for them and forgets; the
  * viewer decides when to actually rasterize.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { hasSheetActions, SheetMenu, type SheetActions } from '../shell/SheetMenu.js'
+import {
+  clickSheet, describeSelection, EMPTY_SELECTION, rightClickSheet, selectedInOrder,
+  type SheetSelection,
+} from '../shell/sheetSelection.js'
 
-export interface PageStripProps {
+export interface PageStripProps extends SheetActions {
   pageCount: number
   current: number
   /** Ask the viewer for a thumbnail. Returns one immediately if cached. */
@@ -26,6 +31,11 @@ export interface PageStripProps {
    * or "still opening".
    */
   empty?: string
+  /**
+   * Each page's rotation in degrees. A thumbnail drawn before a turn is
+   * redrawn when its page's rotation changes.
+   */
+  rotationOf?: (index: number) => number
 }
 
 export function PageStrip({
@@ -37,8 +47,19 @@ export function PageStrip({
   thumbWidth = 80,
   eagerRadius = 6,
   empty,
+  rotationOf,
+  onSetScale, onRotate, onPrint,
 }: PageStripProps) {
   const [entry, setEntry] = useState('')
+  const [selection, setSelection] = useState<SheetSelection>(EMPTY_SELECTION)
+  const [menu, setMenu] = useState<{ x: number, y: number, pages: number[] } | null>(null)
+  const actions: SheetActions = {
+    ...(onSetScale !== undefined ? { onSetScale } : {}),
+    ...(onRotate !== undefined ? { onRotate } : {}),
+    ...(onPrint !== undefined ? { onPrint } : {}),
+  }
+  const all = Array.from({ length: Math.max(0, pageCount) }, (_, i) => i)
+  const labelOf = (i: number) => labels?.[i] ?? String(i + 1)
   const stripRef = useRef<HTMLDivElement>(null)
 
   // Keep the active page in view when it changes from outside (search, undo
@@ -82,34 +103,60 @@ export function PageStrip({
       </div>
 
       <div className="thumbs" ref={stripRef}>
-        {Array.from({ length: pageCount }, (_, i) => (
+        {all.map((i) => (
           <Thumb
-            key={i}
+            key={`${i}:${rotationOf?.(i) ?? 0}`}
             index={i}
             active={i === current}
+            picked={selection.pages.size > 1 && selection.pages.has(i)}
+            onPick={(e) => {
+              setSelection((prev) => clickSheet(prev, i, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey }, all))
+              // A modified click builds a selection; only a plain one turns the page.
+              if (!e.shiftKey && !e.ctrlKey && !e.metaKey) onGoTo(i)
+            }}
+            onMenu={hasSheetActions(actions) ? (e) => {
+              e.preventDefault()
+              const next = rightClickSheet(selection, i)
+              setSelection(next)
+              setMenu({ x: e.clientX, y: e.clientY, pages: selectedInOrder(next) })
+            } : undefined}
             label={labels?.[i] ?? String(i + 1)}
             width={thumbWidth}
             eager={Math.abs(i - current) <= eagerRadius}
             request={requestThumbnail}
-            onGoTo={onGoTo}
           />
         ))}
       </div>
+      {selection.pages.size > 1 && (
+        <div className="panefoot">{selection.pages.size} of {pageCount} pages selected · right-click for actions</div>
+      )}
+      {menu !== null && (
+        <SheetMenu
+          at={menu}
+          pages={menu.pages}
+          heading={describeSelection({ pages: new Set(menu.pages), anchor: null }, labelOf)}
+          actions={actions}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }
 
 function Thumb({
-  index, active, label, width, eager, request, onGoTo,
+  index, active, picked, label, width, eager, request, onPick, onMenu,
 }: {
   index: number
   active: boolean
+  /** Part of a multi-page selection. */
+  picked: boolean
   label: string
   width: number
   /** Load without waiting to be scrolled into view. */
   eager: boolean
   request: (index: number, width?: number) => ImageBitmap | undefined
-  onGoTo: (index: number) => void
+  onPick: (e: ReactMouseEvent) => void
+  onMenu: ((e: ReactMouseEvent) => void) | undefined
 }) {
   const hostRef = useRef<HTMLButtonElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -170,9 +217,11 @@ function Thumb({
   return (
     <button
       ref={hostRef}
-      className={`thumb${active ? ' active' : ''}`}
+      className={`thumb${active ? ' active' : ''}${picked ? ' picked' : ''}`}
       data-page={index}
-      onClick={() => onGoTo(index)}
+      aria-selected={picked}
+      onClick={onPick}
+      onContextMenu={onMenu}
       title={`Page ${label}`}
     >
       <canvas ref={canvasRef} style={{ width, minHeight: ready ? undefined : 40, opacity: ready ? 1 : 0 }} />

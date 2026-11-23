@@ -263,6 +263,8 @@ export type WorkerRequest =
   | { type: 'page'; index: number }
   /** Turn a page to `rotation` degrees (a multiple of 90), in the worker's copy. */
   | { type: 'rotate'; page: number; rotation: number }
+  /** Turn a page by `turns` clockwise quarter turns from where it is now. */
+  | { type: 'turn'; page: number; turns: number }
   | {
       type: 'tile'
       key: TileKey

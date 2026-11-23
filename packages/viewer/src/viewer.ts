@@ -296,6 +296,20 @@ export class Viewer {
     })
   }
 
+  /**
+   * Turn a page by `turns` clockwise quarter turns from wherever it is now,
+   * which the viewer may not know for a page it has not opened. Resolves with
+   * the page's new box and rotation.
+   */
+  turnPage(index: number, turns: number): Promise<PageMetrics & { rotation: number }> {
+    return new Promise((resolve) => {
+      const list = this.rotateWaiters.get(index) ?? []
+      list.push(resolve)
+      this.rotateWaiters.set(index, list)
+      this.send({ type: 'turn', page: index, turns: ((Math.round(turns) % 4) + 4) % 4 })
+    })
+  }
+
   getPageSizes(): readonly PageInfo[] {
     return this.sizes
   }

@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Glyph, Search } from './icons.js'
-import { useClampedPopover } from './popover.js'
+import { hasSheetActions, SheetMenu, type SheetActions } from './SheetMenu.js'
 import {
   buildSheetIndex, filterSheets, sheetDots, type SheetIndexInput, type SheetRow,
 } from './sheets.js'
@@ -22,17 +22,10 @@ import {
   type SheetSelection,
 } from './sheetSelection.js'
 
-export interface SheetIndexProps extends SheetIndexInput {
+export interface SheetIndexProps extends SheetIndexInput, SheetActions {
   /** 0-based index of the sheet on screen. */
   current: number
   onGoToPage: (page: number) => void
-  /**
-   * Set one scale across the selected sheets.
-   *
-   * The whole 400-series is at one scale and the title block says so on every
-   * sheet; setting it forty times is data entry.
-   */
-  onSetScale?: (pages: number[]) => void
   /** Feet per point per page, for the badge. Absent means not set. */
   scaleOf?: (page: number) => number | null
   /**
@@ -44,8 +37,13 @@ export interface SheetIndexProps extends SheetIndexInput {
 }
 
 export function SheetIndex({
-  current, onGoToPage, onSetScale, scaleOf, pending = null, ...input
+  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, ...input
 }: SheetIndexProps) {
+  const actions: SheetActions = {
+    ...(onSetScale !== undefined ? { onSetScale } : {}),
+    ...(onRotate !== undefined ? { onRotate } : {}),
+    ...(onPrint !== undefined ? { onPrint } : {}),
+  }
   const [query, setQuery] = useState('')
   const [selection, setSelection] = useState<SheetSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{ x: number, y: number, pages: number[] } | null>(null)
@@ -56,7 +54,6 @@ export function SheetIndex({
 
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const currentRef = useRef<HTMLButtonElement | null>(null)
-  const menuClamp = useClampedPopover<HTMLDivElement>(menu !== null)
 
   // Follow the document. Without this, paging with the dock leaves the index
   // showing wherever it was last scrolled, which is the sheet you just left.
@@ -106,7 +103,7 @@ export function SheetIndex({
         if (!e.shiftKey && !e.ctrlKey && !e.metaKey) onGoToPage(r.page)
       }}
       onContextMenu={(e) => {
-        if (onSetScale === undefined) return
+        if (!hasSheetActions(actions)) return
         e.preventDefault()
         const next = rightClickSheet(selection, r.page)
         setSelection(next)
@@ -202,40 +199,14 @@ export function SheetIndex({
         })}
       </div>
 
-      {menu !== null && onSetScale !== undefined && (
-        <>
-          {/* A scrim, so the next click anywhere dismisses the menu rather than
-              also landing on whatever is underneath it. */}
-          <div
-            className="menuscrim"
-            onPointerDown={(e) => { e.stopPropagation(); setMenu(null) }}
-            onContextMenu={(e) => { e.preventDefault(); setMenu(null) }}
-          />
-          {/*
-            `sheetmenu`, not a bare `dockmenu`: the dock's menus rise from a
-            pill (`bottom: calc(100% + 8px)`), and a pointer-anchored `top`
-            on top of that gave the box a negative height. It rendered as a
-            one-pixel sliver, and "Set scale…" on a selection was unreachable
-            by the gesture that offers it.
-          */}
-          <div
-            className="dockmenu sheetmenu"
-            role="menu"
-            ref={menuClamp.ref}
-            style={{ left: menu.x, top: menu.y, ...menuClamp.style }}
-          >
-            <div className="menuhead">
-              {describeSelection({ pages: new Set(menu.pages), anchor: null }, labelFor)}
-            </div>
-            <button
-              className="menuitem"
-              role="menuitem"
-              onClick={() => { onSetScale(menu.pages); setMenu(null) }}
-            >
-              <span className="grow">Set scale…</span>
-            </button>
-          </div>
-        </>
+      {menu !== null && (
+        <SheetMenu
+          at={menu}
+          pages={menu.pages}
+          heading={describeSelection({ pages: new Set(menu.pages), anchor: null }, labelFor)}
+          actions={actions}
+          onClose={() => setMenu(null)}
+        />
       )}
 
       <div className="panefoot">

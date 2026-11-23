@@ -668,13 +668,15 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         break
       }
 
-      case 'rotate': {
+      case 'rotate':
+      case 'turn': {
         await booted
         // The page dictionary's /Rotate, in this worker's copy of the PDF only:
         // the file on disk is written by the app's save. Reopened so its size
         // and every later render, text and path read see the new turn.
         const entry = pool!.acquire(m.page)
-        pdfium.FPDFPage_SetRotation(entry.handle, wrapTurns(m.rotation / 90))
+        const next = m.type === 'turn' ? turnsOf(entry.handle) + m.turns : m.rotation / 90
+        pdfium.FPDFPage_SetRotation(entry.handle, wrapTurns(next))
         pool!.drop(m.page)
         const fresh = pool!.acquire(m.page)
         pageSizes[m.page] = { width: fresh.width, height: fresh.height }

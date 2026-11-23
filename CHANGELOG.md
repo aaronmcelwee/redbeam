@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.47 — 2026-11-23
+
+### Work on several sheets at once
+
+- **Rotate, print or set the scale of a selection.** In the Contents list or the Thumbnails panel, *Ctrl+click* or *Shift+click* to pick several sheets, then right-click. Rotate them clockwise, counterclockwise or 180°, print them, or set one scale for all of them. Turns save into the PDF and the takeoff on each sheet turns with it.
+- **Thumbnails can be selected.** Picked pages are highlighted, and a plain click still goes to that page.
+
+
 ## 0.3.46 — 2026-11-21
 
 ### Print
