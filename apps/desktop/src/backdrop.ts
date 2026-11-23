@@ -18,6 +18,20 @@ import { isTauri } from './tauri/window.js'
 /** The attribute the stylesheet keys off. Exported for the tests. */
 export const BACKDROP_ATTR = 'data-backdrop'
 
+let blocked = false
+
+/**
+ * Paint opaque for the rest of the run, whatever Rust said.
+ *
+ * Called when the window could not be given the app's theme (`theme.ts`):
+ * Mica would then be tinted for the other theme, and the chrome over it
+ * unreadable. Opaque is a complete way for the app to look.
+ */
+export function blockBackdrop(): void {
+  blocked = true
+  document.documentElement.removeAttribute(BACKDROP_ATTR)
+}
+
 /**
  * Ask whether the backdrop took, and mark the document if it did.
  *
@@ -26,10 +40,10 @@ export const BACKDROP_ATTR = 'data-backdrop'
  * app opaque, which is a complete and correct way for it to look.
  */
 export async function applyBackdropClass(): Promise<boolean> {
-  if (!isTauri()) return false
+  if (!isTauri() || blocked) return false
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const active = await invoke<boolean>('backdrop_active')
+    const active = await invoke<boolean>('backdrop_active') && !blocked
     if (active) document.documentElement.setAttribute(BACKDROP_ATTR, 'tabbed')
     return active
   } catch {

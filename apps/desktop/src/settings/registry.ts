@@ -108,6 +108,23 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'folder. Takes effect on the start screen.',
   },
   {
+    id: 'general.theme',
+    category: 'general',
+    section: 'Appearance',
+    type: 'enum',
+    // Match Windows: the app was dark-only until 0.3.51, and on a PC set to
+    // Light its see-through chrome went pale under dark-theme text. Aaron,
+    // 2026-11-23: "What if user wants light mode?"
+    default: 'system',
+    choices: [
+      { value: 'system', label: 'Match Windows' },
+      { value: 'light', label: 'Light' },
+      { value: 'dark', label: 'Dark' },
+    ],
+    label: 'Theme',
+    description: 'Light or dark panels around the drawing. Match Windows follows the app mode set in Windows Settings › Personalization › Colors.',
+  },
+  {
     id: 'general.restoreProjectWindows',
     category: 'general',
     section: 'Startup',

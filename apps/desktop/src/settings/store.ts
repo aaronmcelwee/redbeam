@@ -22,6 +22,9 @@ export interface SettingsStorage {
 
 const KEY = 'redbeam.settings.v1'
 
+/** Fired on window after any store in this window writes, so a reader holding its own store can re-read. */
+export const SETTINGS_CHANGED = 'redbeam:settings'
+
 /** localStorage-backed, with every access guarded. */
 export function browserStorage(): SettingsStorage {
   return {
@@ -132,6 +135,9 @@ export class SettingsStore {
     for (const s of SETTINGS) if (this.values[s.id] !== s.default) diff[s.id] = this.values[s.id]!
     this.storage.write(JSON.stringify(diff))
     for (const fn of this.listeners) fn(this.all())
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new Event(SETTINGS_CHANGED))
+    }
   }
 }
 

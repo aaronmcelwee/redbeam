@@ -137,6 +137,7 @@ import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayo
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { useBridgeRequests } from './bridge/useBridgeRequests.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
+import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
 import { openWhatsNew } from './whatsnew/open.js'
 import {
@@ -1136,6 +1137,13 @@ export default function Workspace({
       paintRef.current()
     })
   }, [])
+
+  // The surround is read from the stylesheet on each paint; a theme change
+  // only needs one more paint to land on the drawing.
+  useEffect(() => {
+    window.addEventListener(THEME_CHANGED, requestPaint)
+    return () => window.removeEventListener(THEME_CHANGED, requestPaint)
+  }, [requestPaint])
 
   const paint = useCallback(() => {
     const v = viewerRef.current
