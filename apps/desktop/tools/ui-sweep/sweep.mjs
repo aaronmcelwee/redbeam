@@ -48,7 +48,8 @@ const keepGoing = args.includes('--keep-going')
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null
 
 /** The Mica colour DWM paints behind a window pinned Dark (Mica Alt, dark). */
-const MICA = process.env.RB_SWEEP_MICA ?? '#202020'
+// What DWM draws behind transparent chrome: Mica tinted dark or light by the window theme.
+const MICA = { dark: process.env.RB_SWEEP_MICA ?? '#202020', light: process.env.RB_SWEEP_MICA_LIGHT ?? '#F3F3F3' }
 
 // ------------------------------------------------------------- checks --
 
@@ -119,6 +120,12 @@ async function inspect(page) {
  */
 function ownContrast() {
   const parse = (c) => {
+    // color-mix() computes to color(srgb r g b / a), channels 0 to 1.
+    const s = c.match(/color\(srgb ([^)]+)\)/)
+    if (s) {
+      const v = s[1].split(/[ /]+/).filter(Boolean).map(Number)
+      return [v[0] * 255, v[1] * 255, v[2] * 255, v.length > 3 ? v[3] : 1]
+    }
     const m = c.match(/rgba?\(([^)]+)\)/)
     if (!m) return [0, 0, 0, 0]
     const v = m[1].split(/[ ,/]+/).filter(Boolean).map(Number)
@@ -386,8 +393,9 @@ async function serve() {
   return vite
 }
 
-async function pass(browser, backdrop) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+async function pass(browser, theme, backdrop) {
+  // The theme setting defaults to Match Windows, which follows prefers-color-scheme.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: theme })
   // A control that is there clicks at once; waiting 30 s for one that is not only hides the failure.
   page.setDefaultTimeout(5000)
   const errors = []
@@ -402,10 +410,10 @@ async function pass(browser, backdrop) {
         s.textContent = `html { background: ${mica} !important }`
         document.head.append(s)
       })
-    }, MICA)
+    }, MICA[theme])
   }
   await page.route('**/__sweep.pdf', (r) => r.fulfill({ body: PDF, contentType: 'application/pdf' }))
-  shotPrefix = backdrop ? 'mica-' : ''
+  shotPrefix = `${theme}-${backdrop ? 'mica-' : ''}`
   const failures = []
   for (const [name, step] of STEPS) {
     if (only !== null && name !== only && !['viewer', 'start'].includes(name)) continue
@@ -442,7 +450,9 @@ const vite = await serve()
 let failures = []
 try {
   const browser = await chromium.launch()
-  failures = [...await pass(browser, false), ...await pass(browser, true)]
+  for (const theme of ['dark', 'light']) {
+    for (const backdrop of [false, true]) failures.push(...await pass(browser, theme, backdrop))
+  }
   await browser.close()
 } finally {
   vite.kill()
