@@ -70,7 +70,7 @@
   flex-direction: column;
   gap: 14px;
   padding: 0 18px 16px;
-  overflow: auto;
+  overflow: auto; overscroll-behavior: none;
 }
 
 .rpt-kinds { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -285,7 +285,7 @@ describe('the dock', () => {
     const menu = pill.slice(pill.indexOf('className="dockmenu right" role="menu"'))
     const items = menu.match(/<button[\s\S]*?>/g) ?? []
     expect(items.length).toBeGreaterThan(0)
-    for (const item of items) expect(item, item).toMatch(/data-from="(compact|minimum)"/)
+    for (const item of items) expect(item, item).toMatch(/data-from=(?:"(compact|minimum)"|\{[^}]*'compact'[^}]*'minimum'[^}]*\})/)
   })
 
   /** One slot, two states: the accent Take off at rest, an outlined Done in takeoff. */

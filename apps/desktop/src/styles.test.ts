@@ -133,9 +133,26 @@ describe('panel scrolling', () => {
     './ads/primitives.css',
   ]
 
-  it('turns off overscroll on every element', () => {
+  it('turns off overscroll on the window and sideways on every element', () => {
     const css = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8')
-    expect(css).toMatch(/html, body, \*, \*::before, \*::after \{ overscroll-behavior: none \}/)
+    expect(css).toMatch(/html, body \{ overscroll-behavior: none \}/)
+    expect(css).toMatch(/\*, \*::before, \*::after \{ overscroll-behavior-x: none \}/)
+  })
+
+  /*
+   * Not `*` on both axes: that made every overflow: hidden element (an
+   * ellipsised name, a rounded card) a dead end for the wheel, and Settings
+   * could not be scrolled. Each scroller turns its own overscroll off.
+   */
+  it('turns off overscroll on every scroller, and only there', () => {
+    for (const sheet of sheets) {
+      const css = readFileSync(fileURLToPath(new URL(sheet, import.meta.url)), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const rule of css.match(/[^{}]*\{[^{}]*\}/g) ?? []) {
+        if (!/overflow(-y)?:\s*(auto|scroll)/.test(rule)) continue
+        expect(rule, `${sheet}: a scroller without overscroll-behavior`).toMatch(/overscroll-behavior:\s*none/)
+      }
+    }
   })
 
   it('pins the sideways axis of every vertical scroller', () => {

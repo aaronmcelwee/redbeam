@@ -878,7 +878,7 @@
   color: var(--ads-ink);
 }
 .ads-palette-search input::placeholder { color: var(--ads-ink-3); }
-.ads-palette-list { overflow-y: auto; overflow-x: hidden; padding: var(--ads-sp-2); }
+.ads-palette-list { overflow-y: auto; overscroll-behavior: none; overflow-x: hidden; padding: var(--ads-sp-2); }
 .ads-palette-group { padding: var(--ads-sp-3) var(--ads-sp-3) var(--ads-sp-1); } /* wears .ads-kicker */
 .ads-palette-row {
   display: flex;
