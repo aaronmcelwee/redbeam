@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Glyph, Search } from './icons.js'
 import { hasSheetActions, SheetMenu, type SheetActions } from './SheetMenu.js'
+import { BookmarkTree } from './BookmarkTree.js'
 import {
   buildSheetIndex, filterSheets, sheetDots, type SheetIndexInput, type SheetRow,
 } from './sheets.js'
@@ -21,6 +22,9 @@ import {
   clickSheet, describeSelection, EMPTY_SELECTION, rightClickSheet, selectedInOrder,
   type SheetSelection,
 } from './sheetSelection.js'
+
+/** Which view of Contents was last shown, kept per viewer. */
+const VIEW_KEY = 'redbeam.contents-view'
 
 export interface SheetIndexProps extends SheetIndexInput, SheetActions {
   /** 0-based index of the sheet on screen. */
@@ -45,6 +49,13 @@ export function SheetIndex({
     ...(onPrint !== undefined ? { onPrint } : {}),
   }
   const [query, setQuery] = useState('')
+  const [view, setView] = useState<'sheets' | 'bookmarks'>(() => {
+    try { return localStorage.getItem(VIEW_KEY) === 'bookmarks' ? 'bookmarks' : 'sheets' } catch { return 'sheets' }
+  })
+  const chooseView = (v: 'sheets' | 'bookmarks') => {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* a convenience only */ }
+  }
   const [selection, setSelection] = useState<SheetSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{ x: number, y: number, pages: number[] } | null>(null)
   const groups = useMemo(() => buildSheetIndex(input), [
@@ -142,8 +153,26 @@ export function SheetIndex({
     </button>
   )
 
+  // Sheets or the PDF's own bookmarks. Offered only when the PDF has bookmarks.
+  const viewSwitch = input.outline.length === 0 ? null : (
+    <div className="contentsview" role="tablist" aria-label="Show">
+      <button role="tab" aria-selected={view === 'sheets'} className={view === 'sheets' ? 'on' : ''} onClick={() => chooseView('sheets')}>Sheets</button>
+      <button role="tab" aria-selected={view === 'bookmarks'} className={view === 'bookmarks' ? 'on' : ''} onClick={() => chooseView('bookmarks')}>Bookmarks</button>
+    </div>
+  )
+
+  if (view === 'bookmarks' && input.outline.length > 0) {
+    return (
+      <>
+        {viewSwitch}
+        <BookmarkTree outline={input.outline} current={current} onGoToPage={onGoToPage} labelFor={labelFor} {...actions} />
+      </>
+    )
+  }
+
   return (
     <>
+      {viewSwitch}
       <div className="panesearch">
         <Glyph icon={Search} role="small" />
         <input

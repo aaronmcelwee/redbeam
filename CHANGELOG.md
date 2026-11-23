@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.48 — 2026-11-23
+
+### Bookmarks
+
+- **See the PDF's bookmarks the way it was written.** The Contents panel has a *Sheets | Bookmarks* switch when the PDF has bookmarks. *Bookmarks* shows every bookmark, nested and in order, with folders you can open and close, like Bluebeam's Bookmarks panel. Click one to go to its page, or search with *Find a bookmark*.
+- **Act on bookmarks too.** *Ctrl+click* or *Shift+click* several, or right-click a folder, to rotate, print or set the scale of every sheet under them.
+- REDBEAM remembers which view you last used.
+
+
 ## 0.3.47 — 2026-11-23
 
 ### Work on several sheets at once
