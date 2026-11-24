@@ -5,6 +5,17 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.53 — 2026-11-24
+
+### Tools you can find and name
+
+- **Toolbar buttons have labels.** Each tool now shows its name, beside the icon when there's room and in a small caption under it when there isn't. On a narrow window the page and zoom controls move up a row to make room. Only a very narrow drawing goes back to icons alone.
+- **A Zoom button beside Pan and Select.** Drag a box around part of the sheet to fill the window with it. Z still does the same.
+- **An Origin tool for the pattern's 0,0.** In takeoff, beside Direction: click an area's corner, an edge or a point inside it, and its panels or baffles start from there. It snaps to the corner or edge, and to the drawing's own lines. The right-click "Start the pattern here" still works.
+- **Every tool shows its shortcut** when you hover over it. New keys: D for Dimension and O for Origin.
+- **Darker text and icons in Light.** Body text, captions and icons are near-black now instead of grey.
+
+
 ## 0.3.52 — 2026-11-23
 
 ### A tidy-up pass over every screen

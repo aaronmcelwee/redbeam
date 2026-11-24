@@ -30,6 +30,10 @@ export type Tool =
   // `text` selects the sheet's own words with a box, for Ctrl+C. It reads the
   // drawing and leaves nothing on it.
   | 'text'
+  // `origin` sets where an area's pattern starts (its 0,0): one click on a
+  // corner, an edge or a point inside the area, with snapping. It was a
+  // right-click menu item only (#69).
+  | 'origin'
 
 export interface DraftState {
   tool: Tool

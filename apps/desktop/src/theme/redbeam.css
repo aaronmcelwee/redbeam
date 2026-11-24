@@ -452,9 +452,8 @@
  * opaque — light ink on light glass is the failure this exists to prevent.
  *
  * Contrast is measured against #EEEEEE, the lightest ground any text sits on
- * here (Mica Alt light is darker): ink 16:1, ink-2 8.6:1, ink-3 4.8:1, so a
- * 12px caption still clears 4.5. TextFillColorTertiary (#8A8A8A) does not, so
- * ink-3 is a step darker than Windows' own and #8A8A8A is the placeholder.
+ * here (Mica Alt light is darker): ink 15:1, ink-2 14:1, ink-3 9.5:1 and
+ * placeholders 5.8:1. Darker than Windows' own greys on purpose (#67).
  *
  * The drawing surround is a mid grey rather than a light one: the sheet is
  * warm white paper, and a near-white surround would lose its edge.
@@ -470,9 +469,15 @@
   --rb-line:      rgba(0, 0, 0, .0803);       /* DividerStrokeColorDefault */
   --rb-line-2:    rgba(0, 0, 0, .16);
   --rb-ink:       #1A1A1A;  /* TextFillColorPrimary */
-  --rb-ink-2:     #4A4A4A;
-  --rb-ink-3:     #6B6B6B;
-  --rb-ink-4:     #8A8A8A;  /* TextFillColorTertiary: placeholders */
+  /*
+   * Near-black, not Windows' greys. #4A4A4A body text and #6B6B6B icons and
+   * captions passed AA and still read as grey on white to the people using
+   * it: "text should be black, icons should be black, none of this grey on
+   * white" (#67). The steps stay, so a caption is still quieter than a value.
+   */
+  --rb-ink-2:     #1F1F1F;
+  --rb-ink-3:     #3B3B3B;
+  --rb-ink-4:     #5C5C5C;  /* placeholders */
   --rb-ink-dim:   #A6A6A6;  /* TextFillColorDisabled */
 
   --rb-red:       #D92B2B;

@@ -2043,9 +2043,37 @@
 .dockgroup > .dockscopewrap { flex: 0 1 auto; min-width: 160px; max-width: 240px; }
 .dockgroup > .dockscalewrap { flex: 0 1 auto; }
 
-@container viewport (min-width: 1440px) {
-  .dock .docklabel { display: inline; }
-  .dock .docktool { width: auto; padding-inline: var(--ads-sp-2) var(--ads-sp-3); }
+/*
+ * Labels are not a tier any more (#71): ToolPill measures the row and says
+ * which it has room for in data-labels — all of them, the takeoff tools', or
+ * none.
+ */
+.dock .dockwork[data-labels="all"] .docklabel { display: inline; }
+.dock .dockwork[data-labels="all"] .docktool { width: auto; padding-inline: var(--ads-sp-2) var(--ads-sp-3); }
+/* A caption under the icon: 16px glyph and a 12px line in the same 32px. */
+/*
+ * Wrapped: the sheet controls go up a row so the tools have the dock's whole
+ * width, the way the Minimum tier already lays the dock out.
+ */
+.dock:has(> .dockwork[data-labels="wrapped"]) {
+  left: var(--ads-sp-2); right: var(--ads-sp-2); transform: none; max-width: none;
+  flex-wrap: wrap-reverse; justify-content: center;
+}
+.dock .dockwork[data-labels="stacked"] .docktool,
+.dock .dockwork[data-labels="wrapped"] .docktool {
+  width: auto;
+  min-width: var(--rb-dock-btn);
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding-inline: var(--ads-sp-1);
+}
+.dock .dockwork[data-labels="stacked"] .docklabel,
+.dock .dockwork[data-labels="wrapped"] .docklabel {
+  display: block;
+  font-size: 11px;
+  line-height: 12px;
+  white-space: nowrap;
 }
 @container viewport (max-width: 1439px) {
   .dock .dockscalefull { display: none; }
