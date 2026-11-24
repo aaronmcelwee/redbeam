@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "REDBEAM",
         "url": "index.html?role=main",
         "width": 1440,
