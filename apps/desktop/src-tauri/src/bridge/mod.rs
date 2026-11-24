@@ -49,8 +49,14 @@ use tauri::AppHandle;
 /// Bridge protocol version. Bump when a method's shape changes incompatibly.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-/// Longest request line accepted, so a bad client cannot exhaust memory.
-const MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
+/// Longest request line accepted, so a client that never sends a newline
+/// cannot grow the buffer until the process dies.
+///
+/// It was 4 MB, which a big `create_markups` batch (hundreds of traced areas
+/// with curves) can pass (Aaron, 2026-11-24: no arbitrary caps). A gigabyte
+/// is past any real call and still ends a runaway; only a process already
+/// running on this machine can reach the socket at all.
+const MAX_REQUEST_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Discovery file name.
 ///
@@ -198,6 +204,10 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
 
     let mut out = stream;
     let response = match serde_json::from_str::<Request>(line.trim()) {
+        Err(_) if line.len() as u64 >= MAX_REQUEST_BYTES && !line.ends_with('\n') => json!({
+            "id": Value::Null, "ok": false,
+            "error": "request is larger than 1 GB; send it in parts",
+        }),
         Err(e) => json!({ "id": Value::Null, "ok": false, "error": format!("bad request: {e}") }),
         Ok(req) => {
             if !token_matches(&req.token, token) {

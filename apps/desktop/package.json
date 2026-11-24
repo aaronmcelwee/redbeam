@@ -1,6 +1,6 @@
 {
   "name": "@redbeam/desktop",
-  "version": "0.3.71",
+  "version": "0.3.76",
   "private": true,
   "type": "module",
   "scripts": {

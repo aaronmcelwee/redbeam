@@ -96,15 +96,15 @@ export interface OutlineBackend {
 export const PDFACTION_GOTO = 1
 
 /**
- * Hard ceiling on nodes returned by one walk.
+ * Bookmarks read from one outline: all of them.
  *
- * Not a performance budget — the cycle guard already terminates a loop the
- * moment it revisits a handle. This is the second line of defence for what the
- * Set cannot see: a generator emitting a genuinely acyclic but absurd outline
- * (every text run on every sheet, say). 10,000 is ~90 bookmarks per sheet on
- * the 110-sheet set, which no legitimate index approaches.
+ * There was a 10,000 ceiling here, a second guard behind the cycle check.
+ * A set past 1,000 sheets with detail bookmarks under each sheet passes
+ * 10,000 legitimately (Aaron, 2026-11-24: no arbitrary caps), and the walk
+ * cannot run away without it: every node is a distinct PDFium handle, and a
+ * repeat ends the branch (`seen`). A caller or test may still pass one.
  */
-export const MAX_OUTLINE_NODES = 10_000
+export const MAX_OUTLINE_NODES = Infinity
 
 /**
  * Ceiling on nesting depth.

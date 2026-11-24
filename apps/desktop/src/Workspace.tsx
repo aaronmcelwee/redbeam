@@ -164,8 +164,12 @@ import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } fro
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
-/** Deepest zoom, 1000%: enough to pick a baffle's corner on a 1/8" plan. */
-const MAX_ZOOM = 10
+/**
+ * Deepest zoom, 6400%, as Bluebeam allows. It was 1000% (Aaron, 2026-11-24:
+ * no arbitrary caps); the tiles render only what is on screen, so a deeper
+ * zoom costs no more than a shallow one.
+ */
+const MAX_ZOOM = 64
 const VW = 1180
 const VH = 780
 /**
@@ -1498,7 +1502,7 @@ export default function Workspace({
       // opened to view or take off has no database to speak of, and every
       // file opened in Light said "browser store · in memory (viewing)".
       if (quickView === undefined) setStatus(`${opened.backend === 'tauri' ? 'desktop store' : 'browser store'} · ${opened.location}`)
-      undoRef.current = new UndoStack(opened.driver, 100, undoOptionsFor(opened.backend, projectPath))
+      undoRef.current = new UndoStack(opened.driver, undefined, undoOptionsFor(opened.backend, projectPath))
 
       let existing = await listScopes(opened.driver)
       /*
@@ -2027,7 +2031,7 @@ export default function Workspace({
    * folder reach is the open document's folder; at the root it is the
    * whole project.
    */
-  const runSearch = useCallback(async (q: string, scope: SearchScope) => {
+  const runSearch = useCallback(async (q: string, scope: SearchScope, offset = 0) => {
     const db = dbRef.current
     if (!db) throw new Error('no project is open')
     const docId = docIdRef.current
@@ -2040,6 +2044,7 @@ export default function Workspace({
       : {}
     const report = await searchProjectText(db, q, {
       ...reach,
+      offset,
       layout: async (pageId) => {
         const v = viewerRef.current
         const index = pageIndexOf(pageId)
@@ -9258,7 +9263,12 @@ export default function Workspace({
         validate: (t) => (t.trim().length < 2 ? 'two characters at least' : null),
         describe: (t) => `Find “${t.trim()}”`,
         run: async (t) => {
-          const report = await runSearch(t.trim(), reach)
+          // Every hit, page after page: the list has no ceiling.
+          let report = await runSearch(t.trim(), reach)
+          while (report.truncated) {
+            const more = await runSearch(t.trim(), reach, report.hits.length)
+            report = { ...report, hits: [...report.hits, ...more.hits], truncated: more.truncated && more.hits.length > 0 }
+          }
           const n = report.hits.length
           if (n === 0) {
             const coverage = report.totalPageCount > 0 ? Math.round((report.indexedPageCount / report.totalPageCount) * 100) : 0
