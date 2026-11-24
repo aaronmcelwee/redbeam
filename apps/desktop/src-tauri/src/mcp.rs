@@ -62,14 +62,17 @@ fn connect(port: u16) -> std::io::Result<TcpStream> {
     TcpStream::connect_timeout(&addr, Duration::from_secs(2))
 }
 
-/// Start REDBEAM once per server process. A copy that is already running
-/// just comes forward (single instance), which is harmless.
+/// Start REDBEAM once per server process. The flag tells a copy that is
+/// already running to stay where it is: it used to come forward (and out of
+/// the taskbar) each time an AI app's server could not reach it within two
+/// seconds, over whatever the person was working in.
 fn launch_app() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let Ok(exe) = std::env::current_exe() else { return };
         let command = || {
             let mut c = std::process::Command::new(&exe);
+            c.arg(crate::open_with::FROM_AI_APP);
             c.stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());
