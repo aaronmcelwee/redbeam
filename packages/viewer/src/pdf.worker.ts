@@ -89,10 +89,8 @@ async function boot(wasmUrl: string, pdfUrl: string) {
   pdfium = await init({ wasmBinary })
   pdfium.PDFiumExt_Init()
 
-  const bytes = new Uint8Array(await (await fetch(pdfUrl)).arrayBuffer())
-  const ptr = pdfium.pdfium.wasmExports.malloc(bytes.length)
-  pdfium.pdfium.HEAPU8.set(bytes, ptr)
-  doc = pdfium.FPDF_LoadMemDocument(ptr, bytes.length, '')
+  const { ptr, length } = await fetchIntoHeap(pdfUrl)
+  doc = pdfium.FPDF_LoadMemDocument(ptr, length, '')
   if (!doc) throw new Error('FPDF_LoadMemDocument failed')
 
   pool = new PagePool<number>({
@@ -110,6 +108,48 @@ async function boot(wasmUrl: string, pdfUrl: string) {
   pageSizes = readAllPageSizes(count)
   resolveBoot()
   post({ type: 'booted', pageCount: count, sizes: pageSizes })
+}
+
+/**
+ * Fetch the PDF straight into PDFium's heap.
+ *
+ * Reading it into an ArrayBuffer first and copying that in held the file twice
+ * in this worker, which for a 470 MB specifications book was close to a
+ * gigabyte at once. When the response says how long it is (a blob URL does),
+ * the body streams into the heap chunk by chunk instead.
+ */
+async function fetchIntoHeap(url: string): Promise<{ ptr: number, length: number }> {
+  const res = await fetch(url)
+  const declared = Number(res.headers.get('content-length') ?? '')
+  const reader = Number.isFinite(declared) && declared > 0 ? res.body?.getReader() : undefined
+  if (reader !== undefined) {
+    const ptr: number = pdfium.pdfium.wasmExports.malloc(declared)
+    if (!ptr) throw new Error(`could not set aside ${Math.round(declared / 1048576)} MB for the PDF`)
+    let at = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (at + value.length > declared) {
+        // Longer than it said: give up on streaming and read it whole.
+        pdfium.pdfium.wasmExports.free(ptr)
+        void reader.cancel()
+        return copyIntoHeap(new Uint8Array(await (await fetch(url)).arrayBuffer()))
+      }
+      // HEAPU8 is re-read every chunk: the heap may have grown, which
+      // replaces the view.
+      pdfium.pdfium.HEAPU8.set(value, ptr + at)
+      at += value.length
+    }
+    return { ptr, length: at }
+  }
+  return copyIntoHeap(new Uint8Array(await res.arrayBuffer()))
+}
+
+function copyIntoHeap(bytes: Uint8Array): { ptr: number, length: number } {
+  const ptr: number = pdfium.pdfium.wasmExports.malloc(bytes.length)
+  if (!ptr) throw new Error(`could not set aside ${Math.round(bytes.length / 1048576)} MB for the PDF`)
+  pdfium.pdfium.HEAPU8.set(bytes, ptr)
+  return { ptr, length: bytes.length }
 }
 
 /**

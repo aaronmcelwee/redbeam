@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.71 — 2026-11-24
+
+### Big PDFs open
+
+- **No more 256 MB limit.** REDBEAM refused any PDF over 256 MB, so large tender sets and specification books would not open, for you or for an AI app. PDFs up to 2 GB now open, and a 500 MB, 360-sheet set opens in a few seconds.
+- **Less memory for big files.** The PDF is now read straight into the viewer instead of being held twice while it opens.
+
+
 ## 0.3.69 — 2026-11-24
 
 ### REDBEAM stays where you put it
