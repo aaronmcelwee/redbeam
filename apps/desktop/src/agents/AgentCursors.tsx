@@ -90,7 +90,11 @@ export const AgentCursors = forwardRef<AgentCursorsHandle, {
       el.style.transition = glide && el.dataset['mode'] === spot.mode ? '' : 'none'
       el.dataset['mode'] = spot.mode
       // The label flips to the left of a cursor near the right edge.
-      el.dataset['flip'] = spot.x > size.width - 280 ? 'true' : 'false'
+      const wide = (el.lastElementChild as HTMLElement | null)?.offsetWidth ?? 280
+      const over = spot.x + 18 + wide + 6 - size.width
+      const flip = over > 0 && spot.x - wide > 0
+      el.dataset['flip'] = flip ? 'true' : 'false'
+      el.style.setProperty('--shift', `${!flip && over > 0 && spot.mode === 'on' ? Math.round(over) : 0}px`)
       el.dataset['up'] = spot.y > size.height - 56 ? 'true' : 'false'
       el.style.transform = `translate(${Math.round(spot.x)}px, ${Math.round(spot.y)}px)`
     }
@@ -119,10 +123,10 @@ export const AgentCursors = forwardRef<AgentCursorsHandle, {
             data-agent={a.name}
             data-busy={doing.busy ? 'true' : 'false'}
             data-quiet={quiet ? 'true' : 'false'}
-            style={{ '--agent': a.color.fill } as CSSProperties}
+            style={{ '--agent': a.color.fill, '--agent-bright': a.color.bright, '--agent-on': a.color.on } as CSSProperties}
             ref={(el) => { if (el === null) nodes.current.delete(a.id); else nodes.current.set(a.id, el) }}
           >
-            <svg className="agentcursor-arrow" width="18" height="20" viewBox="0 0 18 20">
+            <svg className="agentcursor-arrow" width="24" height="27" viewBox="0 0 18 20">
               <path d="M2 1.5 L2 16.5 L6.2 12.6 L9.1 18.6 L11.9 17.3 L9 11.4 L14.6 11.2 Z" />
             </svg>
             <span className="agentcursor-label">

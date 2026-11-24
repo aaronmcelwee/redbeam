@@ -106,46 +106,86 @@ const METHOD_OF = SPEC.methodOf
 const ACTION_OF = SPEC.actionOf
 
 /**
- * Who a call is from. Several agents work in REDBEAM at once, each in tabs of
+ * Who a call is from. Several chats work in REDBEAM at once, each in tabs of
  * its own with its own colour and cursor; the app tells them apart by this.
- * One server process is one agent, unless the AI app runs several workers
- * over one connection and each passes `agent` (mcp.rs does the same).
+ *
+ * An AI app runs ONE server process for all its chats, and nothing in MCP
+ * says which chat a call is from. So a chat starts a session
+ * (redbeam_start_session) and is handed a value to pass back on every call.
+ * The server makes that value, with a code no other session has, so two
+ * chats that call their job the same thing still get a group each, and a
+ * chat that passes none, or makes one up, is refused rather than landing in
+ * another chat's tabs (mcp.rs does the same).
  */
 const SESSION = `${process.pid.toString(16)}-${Date.now().toString(16)}`
 let clientName = null
-const AGENT_ARG = 'agent'
-function identity(label) {
-  const l = typeof label === 'string' && label.trim() !== '' ? label.trim() : null
-  return { id: l === null ? SESSION : `${SESSION}/${l.toLowerCase()}`, client: clientName, label: l }
+const SESSION_ARG = 'session'
+const SESSION_TOOL = SPEC.sessions.tool
+/** code -> the task its chat named. */
+const sessions = new Map()
+const CODE_LETTERS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+function newCode() {
+  for (;;) {
+    let code = ''
+    for (let i = 0; i < 3; i++) code += CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)]
+    if (!sessions.has(code)) return code
+  }
 }
-/** The tool list with the shared `agent` input on every tool. */
+/** Start a session for a chat: the value it passes back from now on. */
+function startSession(task) {
+  const t = (typeof task === 'string' ? task : '').trim().replace(/\s+/g, ' ').replace(/#/g, '').slice(0, 60).trim()
+  if (t === '') throw new Error('Give `task`: a short name for the job this chat is doing.')
+  const code = newCode()
+  sessions.set(code, t)
+  return `${t} #${code}`
+}
+/** The session a call named, or null when it named none this server issued. Only the code is read: a chat may tidy the words. */
+function sessionOf(value) {
+  if (typeof value !== 'string') return null
+  const hash = value.lastIndexOf('#')
+  if (hash < 0) return null
+  const code = value.slice(hash + 1).trim().toUpperCase()
+  const task = sessions.get(code)
+  return task === undefined ? null : { code, task }
+}
+function identity(session) {
+  return { id: `${SESSION}/${session.code}`, client: clientName, label: session.task }
+}
+/** The tool list: the session tool first, then every tool with the required `session` input. */
 function toolsWithAgent() {
-  return tools.map((t) => {
+  return [SESSION_TOOL, ...tools.map((t) => {
     const schema = t.inputSchema ?? { type: 'object', properties: {} }
-    if (schema.properties?.[AGENT_ARG] !== undefined) return t
+    if (schema.properties?.[SESSION_ARG] !== undefined) return t
     return {
       ...t,
       inputSchema: {
         ...schema,
         properties: {
           ...(schema.properties ?? {}),
-          [AGENT_ARG]: {
-            type: 'string',
-            description: 'Only when several agents share this connection (sub-agents, parallel workers): a short name of your own, the same on every call. Each name gets its own tabs, colour and cursor in REDBEAM.',
-          },
+          [SESSION_ARG]: { type: 'string', description: SPEC.sessions.input },
         },
+        required: [...(schema.required ?? []), SESSION_ARG],
       },
     }
-  })
+  })]
 }
 
 async function callTool(name, args = {}) {
+  if (name === SESSION_TOOL.name) {
+    const session = startSession(args?.task)
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.' }, null, 2) }],
+      structuredContent: { session },
+    }
+  }
   const method = METHOD_OF[name]
   if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
   // Who is calling is not an input of the tool: it rides beside them.
-  const { [AGENT_ARG]: label, ...inputs } = args ?? {}
+  const { [SESSION_ARG]: named, ...inputs } = args ?? {}
+  const session = sessionOf(named)
+  if (session === null) throw new Error(SPEC.sessions.refused)
   const bound = ACTION_OF[name] ? { ...inputs, action: ACTION_OF[name] } : inputs
-  const result = await bridgeCall(method, bound, identity(label))
+  const result = await bridgeCall(method, bound, identity(session))
 
   // A screenshot is returned as an image block, not as a data URL in text: a
   // 2 MB base64 string pasted into a transcript is unreadable and expensive.
@@ -227,6 +267,6 @@ function startServer() {
   process.stderr.write(`REDBEAM MCP server ready. Discovery: ${DISCOVERY_FILE}\n`)
 }
 
-export { bridgeCall, callTool, tools, toolsWithAgent, identity, METHOD_OF, ACTION_OF, startServer }
+export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, METHOD_OF, ACTION_OF, startServer }
 
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/')) startServer()

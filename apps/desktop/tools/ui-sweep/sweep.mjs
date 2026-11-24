@@ -188,8 +188,12 @@ function ownContrast() {
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 const row = (page, number) => page.locator('.sheetrow', { hasText: number }).first()
 
-// AI agents: three of them, as three apps' MCP servers would name themselves.
-const AGENTS = [{ id: 'sweep-1', client: 'claude-ai' }, { id: 'sweep-2', client: 'claude-code' }, { id: 'sweep-3', client: 'chatgpt' }]
+// AI sessions: two chats in one app (one MCP server, two sessions) and one in another.
+const AGENTS = [
+  { id: 'sweep-claude/7K2', client: 'claude-ai', label: 'Nokia Canada North Campus takeoff' },
+  { id: 'sweep-claude/M4Q', client: 'claude-ai', label: 'Level 2 ceilings' },
+  { id: 'sweep-chatgpt/9XB', client: 'chatgpt', label: 'Clinic framing session' },
+]
 const AGENT_FILES = ['C:\\Jobs\\Agents\\Tower A.pdf', 'C:\\Jobs\\Agents\\Tower B.pdf', 'C:\\Jobs\\Agents\\Clinic.pdf']
 /** One bridge call from an agent, answered by the window (tauri-mock.js). */
 const agentCall = (page, agent, action, params) => page.evaluate(([a, b, c]) => window.__sweepAgent(a, b, c), [agent, action, params ?? {}])
@@ -477,14 +481,25 @@ const STEPS = [
     const after = await person(page)
     if (JSON.stringify(after) !== JSON.stringify(before)) problems.push(`agents: the person's view moved: ${JSON.stringify(before)} became ${JSON.stringify(after)}`)
     const seen = await page.evaluate(() => ({
-      chips: [...document.querySelectorAll('.wshost[data-showing="true"] .agentgroup .agentname')].map((n) => n.textContent),
-      colours: [...document.querySelectorAll('.wshost[data-showing="true"] .agentgroup')].map((g) => g.style.getPropertyValue('--agent')),
+      chips: [...document.querySelectorAll('.wshost[data-showing="true"] .agentchip')].map((c) => `${c.querySelector('.agentname')?.textContent} · ${c.querySelector('.agenttask')?.textContent}`),
+      colours: [...document.querySelectorAll('.wshost[data-showing="true"] .agentchip')].map((g) => g.style.getPropertyValue('--agent-bright')),
+      flyouts: document.querySelectorAll('.agentflyout, [role="dialog"]').length,
+      strip: (() => {
+        const tab = document.querySelector('.wshost[data-showing="true"] [data-tab][role="tab"]')?.getBoundingClientRect()
+        const chips = [...document.querySelectorAll('.wshost[data-showing="true"] .agentchip')].map((c) => c.getBoundingClientRect())
+        return { tab: tab?.width ?? 0, widest: Math.max(0, ...chips.map((r) => r.width)), over: chips.some((r) => tab !== undefined && r.left < tab.right - 1) }
+      })(),
       behind: document.querySelectorAll('.wshost[data-showing="false"]').length,
       inert: document.querySelectorAll('.wshost[data-showing="false"][inert]').length,
       tabs: [...document.querySelectorAll('.wshost[data-showing="true"] [data-tab][role="tab"] .tabname')].map((n) => n.textContent),
     }))
-    if (seen.chips.join() !== 'Claude,Claude Code,ChatGPT') problems.push(`agents: expected a chip each for Claude, Claude Code and ChatGPT, saw ${seen.chips.join() || 'none'}`)
-    if (new Set(seen.colours).size !== 3) problems.push('agents: the three agents do not have three colours')
+    const want = 'Claude · Nokia Canada North Campus takeoff|Claude · Level 2 ceilings|ChatGPT · Clinic framing'
+    if (seen.chips.join('|') !== want) problems.push(`agents: expected one chip per session (${want}), saw ${seen.chips.join('|') || 'none'}`)
+    if (new Set(seen.colours).size !== 3) problems.push('agents: the three sessions do not have three colours')
+    if (seen.flyouts !== 0) problems.push('agents: something opened over the person\'s work when agents arrived')
+    if (seen.strip.over) problems.push('agents: a session chip sits over the person\'s tab')
+    if (seen.strip.tab < 100) problems.push(`agents: the sessions squeezed the person's tab to ${Math.round(seen.strip.tab)} px`)
+    if (seen.strip.widest > 240) problems.push(`agents: a collapsed session takes ${Math.round(seen.strip.widest)} px of the strip`)
     if (seen.behind !== 3 || seen.inert !== 3) problems.push(`agents: ${seen.behind} PDFs live behind the one showing, ${seen.inert} of them inert (want 3 and 3)`)
     if (seen.tabs.join() !== 'Sweep set') problems.push(`agents: the person's strip should hold only their tab, holds ${seen.tabs.join()}`)
     return problems
@@ -537,14 +552,30 @@ const STEPS = [
     return problems
   }],
   ['agent-watch', async (page) => {
-    // The person looks in on an agent: its tabs unfold, its PDF shows, its cursor says what it is doing.
+    // The person looks in on a session: one click lists its PDFs, picking one shows it, its cursor says what it is doing.
     const problems = []
-    await shown(page).locator('.agentchip').first().click()
+    const chip = shown(page).locator('.agentchip').first()
+    await chip.click()
     await page.waitForTimeout(250)
-    await shown(page).locator('.agenttab').first().click()
+    const flyout = page.locator('.agentflyout')
+    const head = await flyout.locator('.agentflyout-head').textContent().catch(() => null)
+    if (head === null) problems.push('agent-watch: clicking a session opened no list of its PDFs')
+    else if (!/Claude · Nokia Canada North Campus takeoff/.test(head) || !/is operating this PDF/.test(head)) problems.push(`agent-watch: the flyout should name the session and say it is operating its PDF, reads "${head}"`)
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-flyout.png`) })
+    // Escape puts it away again, as any menu.
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(150)
+    if (await flyout.count() > 0) problems.push('agent-watch: Escape did not close the session flyout')
+    await chip.click()
+    await flyout.locator('.agentfile [role="menuitemradio"]').first().click()
     await page.waitForTimeout(1200)
-    const showing = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agenttab.active .tabname')?.textContent)
-    if (showing !== 'Tower A') problems.push(`agent-watch: clicking Claude's tab should show Tower A, shows ${showing ?? 'nothing'}`)
+    const showing = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agentchip[data-showing="true"] .agenttask')?.textContent)
+    if (showing !== 'Nokia Canada North Campus takeoff') problems.push(`agent-watch: picking the session's PDF should show it and mark its chip, marked ${showing ?? 'none'}`)
+    await agentAct(page, AGENTS[0], 'find_text', { query: 'CL-105' })
+    await page.waitForTimeout(300)
+    const searching = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agentcursor-doing')?.textContent)
+    if (searching !== 'Searching for “CL-105”') problems.push(`agent-watch: the cursor's label should say what the session is doing now, reads "${searching ?? 'nothing'}"`)
     const made = await agentAct(page, AGENTS[0], 'create_markup', {
       kind: 'area', scope: 'ACT-1', rings: [[{ x: 0.2, y: 0.25 }, { x: 0.55, y: 0.25 }, { x: 0.55, y: 0.6 }, { x: 0.2, y: 0.6 }]],
     })
@@ -555,10 +586,10 @@ const STEPS = [
     })
     if (cursor === null) problems.push(`agent-watch: no cursor on the sheet after the agent drew (${JSON.stringify(made).slice(0, 140)})`)
     else {
-      if (!/^Claude/.test(cursor.text ?? '')) problems.push(`agent-watch: the cursor's label should start with the agent's name, reads "${cursor.text}"`)
+      if (!/^Claude · Nokia Canada North Campus takeoff/.test(cursor.text ?? '')) problems.push(`agent-watch: the cursor's label should start with the session's name, reads "${cursor.text}"`)
       if (typeof made.error !== 'string' && cursor.mode !== 'on') problems.push(`agent-watch: the cursor should sit on the point drawn, is ${cursor.mode}`)
     }
-    if (await shown(page).locator('.agentbar', { hasText: 'is working in this PDF' }).count() === 0) problems.push('agent-watch: nothing on the sheet says an agent drives this tab')
+    if (await shown(page).locator('.agentbar', { hasText: 'is operating this PDF' }).count() === 0) problems.push('agent-watch: nothing on the sheet says an agent drives this tab')
     const hit = await page.evaluate(() => {
       const c = document.querySelector('.wshost[data-showing="true"] .agentcursor-label')
       if (c === null) return null

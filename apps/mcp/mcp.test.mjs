@@ -166,3 +166,33 @@ test('round 3 agent takeoff tools are named and described', () => {
   const exp = tools.find((x) => x.name === 'redbeam_export')
   assert.ok(exp.inputSchema.properties.path, 'export takes a path')
 })
+
+test('a chat starts a session, and a call without one is refused', async () => {
+  // Aaron, 2026-11-24: "let the Mcp start up a new session per Chatgpt or
+  // Claude chat". One server serves every chat of its app, so the server
+  // hands each chat a value only it holds.
+  const { callTool, toolsWithAgent, startSession, sessionOf } = await import('./index.mjs')
+  const listed = toolsWithAgent()
+  assert.equal(listed[0].name, 'redbeam_start_session')
+  for (const t of listed.slice(1)) {
+    assert.equal(t.inputSchema.properties.session.type, 'string', t.name)
+    assert.ok(t.inputSchema.required.includes('session'), t.name)
+  }
+  // Two chats that call their job the same thing are still two sessions.
+  const a = startSession('Nokia Canada North Campus takeoff')
+  const b = startSession('Nokia Canada North Campus takeoff')
+  assert.notEqual(a, b)
+  assert.match(a, /^Nokia Canada North Campus takeoff #[2-9A-Z]{3}$/)
+  assert.notEqual(sessionOf(a).code, sessionOf(b).code)
+  assert.equal(sessionOf(a).task, 'Nokia Canada North Campus takeoff')
+  // A chat may tidy the words; the code is what counts.
+  assert.equal(sessionOf(`nokia takeoff #${sessionOf(a).code.toLowerCase()} `).code, sessionOf(a).code)
+  // None, a made-up one, or a bare name: refused before REDBEAM is reached.
+  for (const bad of [undefined, '', 'Nokia Canada North Campus takeoff', 'x #000', 42]) {
+    await assert.rejects(callTool('redbeam_get_ui_state', { session: bad }), /redbeam_start_session/)
+  }
+  await assert.rejects(callTool('redbeam_get_ui_state', { agent: 'framing' }), /redbeam_start_session/)
+  const started = await callTool('redbeam_start_session', { task: '  Level 2   ceilings ' })
+  assert.match(started.structuredContent.session, /^Level 2 ceilings #[2-9A-Z]{3}$/)
+  await assert.rejects(callTool('redbeam_start_session', {}), /task/)
+})

@@ -34,6 +34,8 @@ struct Spec {
     method_of: Value,
     action_of: Value,
     instructions: Value,
+    /// The session tool, the `session` input's words, and what a call without one is told.
+    sessions: Value,
 }
 
 fn spec() -> Spec {
@@ -43,6 +45,7 @@ fn spec() -> Spec {
         method_of: v["methodOf"].clone(),
         action_of: v["actionOf"].clone(),
         instructions: v["instructions"].clone(),
+        sessions: v["sessions"].clone(),
     }
 }
 
@@ -149,21 +152,64 @@ static CLIENT: Mutex<Option<String>> = Mutex::new(None);
 /// Every identity this server has called REDBEAM as, to say goodbye for.
 static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// The input every tool takes so several agents can share one connection.
-const AGENT_ARG: &str = "agent";
+/// The input every tool takes: which chat the call is from.
+const SESSION_ARG: &str = "session";
+const SESSION_TOOL: &str = "redbeam_start_session";
 
-/// Who a call is from: this server, or the named worker inside it.
+/// The sessions this server has started: each one's code and the task its chat named.
+static SESSIONS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+const CODE_LETTERS: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+/// Start a session for a chat: the value it passes back on every call.
 ///
-/// Several agents work in REDBEAM at once, each in tabs of its own with its
-/// own colour and cursor (Aaron, 2026-11-24). One AI app is one server
-/// process, so the process is the agent — unless the app runs several
-/// workers over one connection, which then say which one is calling.
-fn identity(label: Option<&str>) -> Value {
-    let label = label.map(str::trim).filter(|l| !l.is_empty());
-    let id = match label {
-        Some(l) => format!("{}/{}", session(), l.to_lowercase()),
-        None => session().to_string(),
+/// An AI app runs ONE server process for all its chats, and nothing in MCP
+/// says which chat a call is from (Aaron, 2026-11-24: "let the Mcp start up
+/// a new session per Chatgpt or Claude chat"). So the server makes the value,
+/// ending in a code no other session has: two chats that call their job the
+/// same thing still get a group of tabs each, and a chat that passes none or
+/// makes one up is refused rather than landing in another chat's tabs.
+fn start_session(task: &str) -> Result<String, String> {
+    let task: String = task.replace('#', "").split_whitespace().collect::<Vec<_>>().join(" ");
+    let task: String = task.chars().take(60).collect::<String>().trim().to_string();
+    if task.is_empty() {
+        return Err("Give `task`: a short name for the job this chat is doing.".into());
+    }
+    let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ (u64::from(std::process::id()) << 20);
+    let code = loop {
+        let mut code = String::new();
+        for _ in 0..3 {
+            // xorshift: unguessable is not the point, unalike is.
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            code.push(CODE_LETTERS[(seed % CODE_LETTERS.len() as u64) as usize] as char);
+        }
+        if !sessions.iter().any(|(c, _)| *c == code) {
+            break code;
+        }
     };
+    sessions.push((code.clone(), task.clone()));
+    Ok(format!("{task} #{code}"))
+}
+
+/// The session a call named, as (code, task); None when this server issued
+/// no such session. Only the code is read: a chat may tidy the words.
+fn session_of(value: Option<&str>) -> Option<(String, String)> {
+    let (_, code) = value?.rsplit_once('#')?;
+    let code = code.trim().to_uppercase();
+    let sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    sessions.iter().find(|(c, _)| *c == code).cloned()
+}
+
+/// Who a call is from: one chat's session inside this server.
+fn identity(code: &str, task: &str) -> Value {
+    let id = format!("{}/{code}", session());
     {
         let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
         if !seen.contains(&id) {
@@ -171,14 +217,14 @@ fn identity(label: Option<&str>) -> Value {
         }
     }
     let client = CLIENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    json!({ "id": id, "client": client, "label": label })
+    json!({ "id": id, "client": client, "label": task })
 }
 
-/// The tool list with the shared `agent` input added to every tool.
-fn tools_with_agent(tools: &Value) -> Value {
-    let mut tools = tools.clone();
+/// The tool list: the session tool first, then every tool with the required `session` input.
+fn tools_with_agent(spec: &Spec) -> Value {
+    let mut tools = spec.tools.clone();
     if let Some(list) = tools.as_array_mut() {
-        for tool in list {
+        for tool in list.iter_mut() {
             let schema = &mut tool["inputSchema"];
             if !schema.is_object() {
                 *schema = json!({ "type": "object", "properties": {} });
@@ -186,13 +232,18 @@ fn tools_with_agent(tools: &Value) -> Value {
             if !schema["properties"].is_object() {
                 schema["properties"] = json!({});
             }
-            if schema["properties"].get(AGENT_ARG).is_none() {
-                schema["properties"][AGENT_ARG] = json!({
+            if schema["properties"].get(SESSION_ARG).is_none() {
+                schema["properties"][SESSION_ARG] = json!({
                     "type": "string",
-                    "description": "Only when several agents share this connection (sub-agents, parallel workers): a short name of your own, the same on every call. Each name gets its own tabs, colour and cursor in REDBEAM.",
+                    "description": spec.sessions["input"],
                 });
+                match schema["required"].as_array_mut() {
+                    Some(list) => list.push(json!(SESSION_ARG)),
+                    None => schema["required"] = json!([SESSION_ARG]),
+                }
             }
         }
+        list.insert(0, spec.sessions["tool"].clone());
     }
     tools
 }
@@ -239,18 +290,27 @@ fn bridge_call(method: &str, params: &Value, agent: &Value) -> Result<Value, Str
 
 /// One tools/call, as MCP content. Mirrors apps/mcp/index.mjs callTool.
 fn call_tool(spec: &Spec, name: &str, args: &Value) -> Result<Value, String> {
+    if name == SESSION_TOOL {
+        let session = start_session(args.get("task").and_then(Value::as_str).unwrap_or(""))?;
+        let text = serde_json::to_string_pretty(&json!({ "session": session,
+            "use": "Pass this exact value as `session` on every other REDBEAM call in this chat." }))
+            .unwrap_or_default();
+        return Ok(json!({ "content": [{ "type": "text", "text": text }], "structuredContent": { "session": session } }));
+    }
     let method = spec.method_of.get(name).and_then(Value::as_str)
         .ok_or_else(|| format!("Unknown REDBEAM tool: {name}"))?;
     let mut params = if args.is_object() { args.clone() } else { json!({}) };
     // Who is calling is not an input of the tool: it rides beside them.
-    let label = params
+    let named = params
         .as_object_mut()
-        .and_then(|o| o.remove(AGENT_ARG))
+        .and_then(|o| o.remove(SESSION_ARG))
         .and_then(|v| v.as_str().map(str::to_owned));
+    let (code, task) = session_of(named.as_deref())
+        .ok_or_else(|| spec.sessions["refused"].as_str().unwrap_or("Call redbeam_start_session first.").to_string())?;
     if let Some(action) = spec.action_of.get(name).and_then(Value::as_str) {
         params["action"] = json!(action);
     }
-    let result = bridge_call(method, &params, &identity(label.as_deref()))?;
+    let result = bridge_call(method, &params, &identity(&code, &task))?;
 
     // A screenshot goes back as an image, not a 2 MB data URL in text.
     if name == "redbeam_screenshot" {
@@ -285,7 +345,7 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
             }))
         }
         "ping" => ok(json!({})),
-        "tools/list" => ok(json!({ "tools": tools_with_agent(&spec.tools) })),
+        "tools/list" => ok(json!({ "tools": tools_with_agent(spec) })),
         "resources/list" => ok(json!({ "resources": [] })),
         "prompts/list" => ok(json!({ "prompts": [] })),
         "tools/call" => {
@@ -369,29 +429,55 @@ mod tests {
     }
 
     #[test]
-    fn every_tool_takes_an_agent_name() {
+    fn every_tool_requires_a_session() {
         let s = spec();
         let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).unwrap();
-        for t in r["result"]["tools"].as_array().unwrap() {
-            assert_eq!(t["inputSchema"]["properties"]["agent"]["type"], "string", "{}", t["name"]);
+        let listed = r["result"]["tools"].as_array().unwrap();
+        assert_eq!(listed[0]["name"], SESSION_TOOL);
+        for t in &listed[1..] {
+            assert_eq!(t["inputSchema"]["properties"]["session"]["type"], "string", "{}", t["name"]);
+            // Required: one server serves every chat of its app, and only this tells them apart.
+            let required = t["inputSchema"]["required"].as_array().cloned().unwrap_or_default();
+            assert!(required.contains(&json!("session")), "{}", t["name"]);
         }
         // tools.json itself stays as it was: the Node server adds its own.
-        assert!(s.tools.as_array().unwrap().iter().all(|t| t["inputSchema"]["properties"].get("agent").is_none()));
+        assert!(s.tools.as_array().unwrap().iter().all(|t| t["inputSchema"]["properties"].get("session").is_none()));
     }
 
     #[test]
-    fn a_named_worker_is_its_own_agent() {
-        let whole = identity(None);
-        let a = identity(Some("Framing"));
-        let b = identity(Some(" framing "));
-        let c = identity(Some("ceilings"));
-        assert_eq!(whole["id"], session());
-        assert_ne!(a["id"], whole["id"]);
-        // The same worker, however it capitalized its name this time.
-        assert_eq!(a["id"], b["id"]);
-        assert_ne!(a["id"], c["id"]);
-        assert_eq!(a["label"], "Framing");
-        assert!(identity(Some("  "))["label"].is_null());
+    fn each_chat_gets_a_session_of_its_own() {
+        // Two chats that call their job the same thing are still two sessions.
+        let a = start_session("Nokia Canada  North Campus takeoff").unwrap();
+        let b = start_session("Nokia Canada North Campus takeoff").unwrap();
+        assert_ne!(a, b);
+        assert!(a.starts_with("Nokia Canada North Campus takeoff #"), "{a}");
+        let (code_a, task_a) = session_of(Some(&a)).unwrap();
+        let (code_b, _) = session_of(Some(&b)).unwrap();
+        assert_ne!(code_a, code_b);
+        assert_eq!(task_a, "Nokia Canada North Campus takeoff");
+        assert_ne!(identity(&code_a, &task_a)["id"], identity(&code_b, &task_a)["id"]);
+        assert_eq!(identity(&code_a, &task_a)["label"], "Nokia Canada North Campus takeoff");
+        // A chat may tidy the words; the code is what counts.
+        assert_eq!(session_of(Some(&format!("nokia #{} ", code_a.to_lowercase()))).unwrap().0, code_a);
+        // None, a bare name, or a made-up code is nobody's session.
+        assert!(session_of(None).is_none());
+        assert!(session_of(Some("Nokia Canada North Campus takeoff")).is_none());
+        assert!(session_of(Some("x #000")).is_none());
+        assert!(start_session("  # ").is_err());
+    }
+
+    #[test]
+    fn a_call_without_a_session_is_refused_before_redbeam_is_reached() {
+        let s = spec();
+        for args in [json!({}), json!({ "session": "Nokia takeoff" }), json!({ "agent": "framing" })] {
+            let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": { "name": "redbeam_get_ui_state", "arguments": args } })).unwrap();
+            assert_eq!(r["result"]["isError"], true);
+            assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("redbeam_start_session"));
+        }
+        let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": { "name": "redbeam_start_session", "arguments": { "task": "Level 2 ceilings" } } })).unwrap();
+        assert!(r["result"]["structuredContent"]["session"].as_str().unwrap().starts_with("Level 2 ceilings #"));
     }
 
     #[test]

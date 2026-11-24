@@ -3,14 +3,15 @@
  * cursor says.
  */
 import { describe, expect, it } from 'vitest'
-import { AGENT_COLORS, agentName, callPage, callPoint, clientName, describeCall, identityOf, nextColor, RosterStore, WORKING_MS } from './roster.js'
+import { AGENT_COLORS, agentName, callPage, callPoint, clientName, describeCall, identityOf, nextColor, RosterStore, sessionTask, WORKING_MS } from './roster.js'
 
-/** WCAG relative luminance contrast of white text on `hex`. */
-function whiteOn(hex: string): number {
+const lum = (hex: string): number => {
   const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
-  const l = 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!
-  return 1.05 / (l + 0.05)
+  return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!
 }
+/** WCAG contrast of one colour on another. */
+const contrast = (a: string, b: string): number => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
+const whiteOn = (hex: string): number => contrast('#FFFFFF', hex)
 
 describe('agent names and colours', () => {
   it('names an agent after the app it runs in', () => {
@@ -30,6 +31,23 @@ describe('agent names and colours', () => {
   it('reads white text on every agent colour', () => {
     for (const c of AGENT_COLORS) expect(whiteOn(c.fill), c.name).toBeGreaterThanOrEqual(4.5)
     expect(new Set(AGENT_COLORS.map((c) => c.fill)).size).toBe(AGENT_COLORS.length)
+  })
+  it('reads its own ink on every bright tone, and no two tones are alike', () => {
+    for (const c of AGENT_COLORS) expect(contrast(c.on, c.bright), c.name).toBeGreaterThanOrEqual(4.5)
+    expect(new Set(AGENT_COLORS.map((c) => c.bright)).size).toBe(AGENT_COLORS.length)
+    expect(new Set(AGENT_COLORS.map((c) => c.fill)).size).toBe(AGENT_COLORS.length)
+  })
+  it('names a session by its app and the job its chat named', () => {
+    // Aaron, 2026-11-24: "Chatgpt Nokia Canada North Campus takeoff session is operating these files".
+    const who = { id: 'p/7K2', client: 'chatgpt', label: 'Nokia Canada North Campus takeoff session' }
+    expect(sessionTask(who)).toBe('Nokia Canada North Campus takeoff')
+    expect(agentName(who, [])).toBe('ChatGPT · Nokia Canada North Campus takeoff')
+    // Two chats that named the same job are still told apart.
+    expect(agentName(who, ['ChatGPT · Nokia Canada North Campus takeoff'])).toBe('ChatGPT · Nokia Canada North Campus takeoff 2')
+    expect(sessionTask({ id: 'p' })).toBeNull()
+    const store = new RosterStore(() => 0)
+    const a = store.see(who)
+    expect([a.app, a.task]).toEqual(['ChatGPT', 'Nokia Canada North Campus takeoff'])
   })
   it('hands out a colour nobody holds, and the least used once all are out', () => {
     expect(nextColor([])).toBe(AGENT_COLORS[0])

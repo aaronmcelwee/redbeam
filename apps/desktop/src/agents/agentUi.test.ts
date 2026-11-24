@@ -8,7 +8,7 @@ import { AGENT_COLORS, type Agent } from './roster.js'
 
 const FILE = 'C:\\Jobs\\A.pdf'
 const agent = (over: Partial<Agent> = {}): Agent => ({
-  id: 'a', name: 'Claude', color: AGENT_COLORS[0]!, state: 'working', current: FILE, since: 0, seenAt: 0, collapsed: true,
+  id: 'a', name: 'Claude', app: 'Claude', task: null, color: AGENT_COLORS[0]!, state: 'working', current: FILE, since: 0, seenAt: 0, collapsed: true,
   activity: { text: 'Drawing an area', at: 1000, busy: false, file: FILE, page: 2, point: { x: 0.5, y: 0.5 } },
   ...over,
 })

@@ -4875,9 +4875,9 @@ export default function Workspace({
   }, [refreshEstimates, refreshScopes, identity.projectId])
 
 
-  const createScope = useCallback(async (scope: Scope) => {
+  const createScope = useCallback(async (scope: Scope, opts?: { activate?: boolean }) => {
     await saveScope(scope)
-    setActiveScope(scope.id)
+    if (opts?.activate !== false) setActiveScope(scope.id)
     // A scope belongs to a bidding round, never to the project directly.
     const db = dbRef.current
     const round = openEstimateIdRef.current
@@ -5686,6 +5686,22 @@ export default function Workspace({
    * run one at a time (agents/router.ts), so one ref is enough.
    */
   const agentCtxRef = useRef<CallContext>(UNNAMED_CALL)
+  /**
+   * The scope each agent is working in while it is a guest in this PDF.
+   *
+   * Aaron, 2026-11-24: "I can be doing a manual takeoff while the agent
+   * searches for references to a scope and highlights them for me." The
+   * active scope is where the PERSON's next stroke lands. An agent drawing
+   * beside them in the same PDF has a scope of its own, and never changes
+   * theirs.
+   */
+  const guestScopeRef = useRef(new Map<string, string>())
+  /** The scope a call means when it names none: the active one in a tab its caller drives, its own otherwise. */
+  const agentScope = (): string | null => {
+    const ctx = agentCtxRef.current
+    if (ctx.drives) return activeScopeRef.current
+    return guestScopeRef.current.get(ctx.agent?.id ?? '') ?? null
+  }
   const showPageForAgent = async (n: number): Promise<void> => {
     if (!Number.isInteger(n) || n < 0 || n >= pageCount) throw new Error(`page ${n} out of range (0..${pageCount - 1})`)
     if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
@@ -5718,7 +5734,7 @@ export default function Workspace({
     scopes: scopesRef.current.slice(0, 60).map((x) => ({ scopeId: x.id, label: x.label })),
   })
   const agentAreas = (params: Record<string, unknown>): { scope: Scope; areas: Markup[] } | { error: string } => {
-    const sid = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+    const sid = String(params['scopeId'] ?? agentScope() ?? '')
     const ids = Array.isArray(params['markupIds']) ? (params['markupIds'] as unknown[]).map(String)
       : typeof params['markupId'] === 'string' ? [params['markupId']] : null
     if (ids !== null) {
@@ -5784,7 +5800,7 @@ export default function Workspace({
     }
     const min = closed ? 3 : kind === 'count' ? 1 : 2
     if (rings[0]!.length < min) return { error: `${kind} needs at least ${min} vertices` }
-    const scopeId = typeof spec['scopeId'] === 'string' ? spec['scopeId'] : activeScopeRef.current
+    const scopeId = typeof spec['scopeId'] === 'string' ? spec['scopeId'] : agentScope()
     if (scopeId !== null && !scopesRef.current.some((sc) => sc.id === scopeId)) return noScope(scopeId)
     return { markup: { id: uid(), documentId: docId, pageId, scopeId, kind, rings } }
   }
@@ -6028,6 +6044,11 @@ export default function Workspace({
         case 'set_active_scope': {
           const id = String(params['scopeId'] ?? '')
           if (!scopes.some((sc) => sc.id === id)) return noScope(id)
+          // A guest picks the scope ITS next markups go to; the person's active scope is theirs.
+          if (!agentCtxRef.current.drives) {
+            if (agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, id)
+            return { activeScope: id, note: 'yours for this PDF; the person keeps their own active scope' }
+          }
           setActiveScope(id)
           return { activeScope: id }
         }
@@ -6487,7 +6508,7 @@ export default function Workspace({
          * a RECORD of what the takeoff said, superseded by the next save.
          */
         case 'commit_scope': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const p = piecesRef.current.find((x) => x.scope.id === id)
@@ -6682,7 +6703,10 @@ export default function Workspace({
             color: typeof params['color'] === 'string' ? params['color'] : '#39a2ff',
             specifications: product === null ? (specs ?? {}) : writeProductType(specs ?? {}, product),
           }
-          await createScope(scope)
+          // In the person's PDF the new scope is the agent's to draw in, not the person's active one.
+          const guest = !agentCtxRef.current.drives
+          await createScope(scope, { activate: !guest })
+          if (guest && agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, scope.id)
           /*
            * A scope belongs to a bidding round, never to the project. Created
            * with no round open it exists, accepts markups, shows a quantity on
@@ -6704,7 +6728,7 @@ export default function Workspace({
         }
 
         case 'update_scope': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const sent = objectParam(params['specifications'])
@@ -6776,7 +6800,7 @@ export default function Workspace({
         }
 
         case 'duplicate_scope': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const made = await duplicateScope(id)
@@ -7252,7 +7276,7 @@ export default function Workspace({
          * them.
          */
         case 'set_pattern_direction': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           let x1 = Number(params['x1']), y1 = Number(params['y1']), x2 = Number(params['x2']), y2 = Number(params['y2'])
@@ -7290,7 +7314,7 @@ export default function Workspace({
           return { scopeId: sc.id, applyTo, direction: { x1, y1, x2, y2 } }
         }
         case 'get_pattern': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const specs = sc.specifications
@@ -7377,7 +7401,7 @@ export default function Workspace({
           const areaPts = onLines.moved > 0 ? ringsAreaPoints(onLines.rings, { width: page.width, height: page.height }) : result.areaPoints2
           const areaSqFt = fpp !== undefined && fpp > 0 ? Math.round(areaPts * fpp * fpp * 100) / 100 : null
           if (params['create'] === true) {
-            const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : activeScopeRef.current
+            const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : agentScope()
             const id = uid()
             await runCommand(cmdCreate({
               id, documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
@@ -7554,7 +7578,7 @@ export default function Workspace({
          * their cut lengths, stock use, and parts.
          */
         case 'get_piece_list': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const p = piecesRef.current.find((x) => x.scope.id === id)
@@ -10574,6 +10598,7 @@ export default function Workspace({
           <AgentBar
             file={quickView.file}
             owner={lightTabs.list.find((t) => t.file === quickView.file)?.owner}
+            tabs={lightTabs.list}
             {...(lightTabs.onHandOver !== undefined ? { onHandOver: lightTabs.onHandOver } : {})}
             {...(lightTabs.onTakeOver !== undefined ? { onTakeOver: lightTabs.onTakeOver } : {})}
           />
@@ -11237,7 +11262,7 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
  * in a tab it drives; in someone else's, the person is asked first.
  */
 const VIEW_ACTIONS = new Set([
-  'set_tool', 'set_active_scope', 'zoom_to_region', 'set_layout_preview', 'open_panel',
+  'set_tool', 'zoom_to_region', 'set_layout_preview', 'open_panel',
   'begin_scale_region', 'cancel_scale_region', 'select_markups', 'set_markup_visibility',
   'undo', 'redo',
 ])

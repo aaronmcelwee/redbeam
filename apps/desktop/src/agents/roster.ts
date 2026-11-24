@@ -29,24 +29,34 @@ export interface AgentIdentity {
 export interface AgentColor {
   /** A plain word, for a tooltip or a screen reader. */
   name: string
-  /** Fill for the cursor, the label beside it, the tab's dot and underline. White text reads on it at 5:1 or better. */
+  /** The deep tone: the group's underline and washes, and text-sized marks on the window's own ground. */
   fill: string
+  /**
+   * The bright tone: the cursor on the sheet, its label, the dot and the
+   * count on the chip. Aaron, 2026-11-24: "brightly colored cursors". A
+   * drawing is black line on white paper, and a cursor has to be found on it
+   * at a glance from across the sheet.
+   */
+  bright: string
+  /** The ink that reads on `bright` at 4.5:1 or better: near black on the light ones, white on the rest. */
+  on: string
 }
 
 /**
- * Eight colours an estimator will not confuse with one another, with the
- * red of the brand, or with the grey of a tab at rest. Each holds 4.5:1
- * under white text (the label by the cursor) and against the Light window.
+ * Eight colours an estimator will not confuse with one another or with the
+ * grey of a tab at rest. The bright tones are Windows' own accent swatches,
+ * so they sit with the rest of a Windows 11 desktop; none is the brand red,
+ * which marks the person's own active tab.
  */
 export const AGENT_COLORS: readonly AgentColor[] = [
-  { name: 'violet', fill: '#7A52C7' },
-  { name: 'teal', fill: '#037B80' },
-  { name: 'orange', fill: '#B7470B' },
-  { name: 'blue', fill: '#0F6CBD' },
-  { name: 'magenta', fill: '#B5309F' },
-  { name: 'green', fill: '#3F7305' },
-  { name: 'gold', fill: '#8A6100' },
-  { name: 'slate', fill: '#5B6B73' },
+  { name: 'violet', fill: '#7A52C7', bright: '#7C4DFF', on: '#FFFFFF' },
+  { name: 'teal', fill: '#037B80', bright: '#00B7C3', on: '#10151A' },
+  { name: 'orange', fill: '#B7470B', bright: '#FF8C00', on: '#10151A' },
+  { name: 'blue', fill: '#0F6CBD', bright: '#1890FF', on: '#10151A' },
+  { name: 'magenta', fill: '#B5309F', bright: '#E3008C', on: '#FFFFFF' },
+  { name: 'green', fill: '#3F7305', bright: '#6BB700', on: '#10151A' },
+  { name: 'gold', fill: '#8A6100', bright: '#FFB900', on: '#10151A' },
+  { name: 'pink', fill: '#B0306A', bright: '#FF5C9E', on: '#10151A' },
 ]
 
 /** Where on a sheet an agent last acted. Normalized [0,1], y down, as the bridge takes them. */
@@ -73,7 +83,12 @@ export type AgentState = 'working' | 'idle' | 'gone'
 
 export interface Agent {
   id: string
+  /** The whole name, unique in the window: "ChatGPT · Nokia Canada North Campus takeoff". */
   name: string
+  /** The AI app: "Claude", "ChatGPT". */
+  app: string
+  /** What this chat said it is doing, in its own words; null when it did not say. */
+  task: string | null
   color: AgentColor
   /** working: a call within the last few seconds. idle: connected, quiet. gone: its app closed the connection. */
   state: AgentState
@@ -107,6 +122,12 @@ export function clientName(client: string | undefined): string {
   return tidy === '' ? 'AI agent' : tidy.slice(0, 24)
 }
 
+/** What a session said it is doing, tidied to one line a chip can carry. */
+export function sessionTask(who: AgentIdentity): string | null {
+  const t = (who.label ?? '').trim().replace(/\s+/g, ' ').replace(/\s+session$/i, '')
+  return t === '' ? null : t.length > 60 ? `${t.slice(0, 59)}…` : t
+}
+
 /**
  * A name nobody else in the window has: "Claude", then "Claude 2".
  * An agent that named itself is "Claude · framing" so two workers of one app
@@ -114,7 +135,7 @@ export function clientName(client: string | undefined): string {
  */
 export function agentName(who: AgentIdentity, taken: readonly string[]): string {
   const base = clientName(who.client)
-  const label = (who.label ?? '').trim().replace(/\s+/g, ' ').slice(0, 28)
+  const label = sessionTask(who) ?? ''
   const wanted = label === '' ? base : `${base} · ${label}`
   if (!taken.includes(wanted)) return wanted
   for (let n = 2; n < 1000; n++) {
@@ -348,6 +369,8 @@ export class RosterStore {
     const added: Agent = {
       id: who.id,
       name: agentName(who, this.state.agents.map((a) => a.name)),
+      app: clientName(who.client),
+      task: sessionTask(who),
       color: nextColor(live.map((a) => a.color)),
       state: 'idle',
       activity: null,
