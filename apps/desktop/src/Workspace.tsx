@@ -131,7 +131,8 @@ import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/s
 import { indexProject, type IndexProgress } from './search/indexer.js'
 import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
 import { detectPattern, linesFromSegments, measurePoints } from './search/measure.js'
-import { describeAllProducts, describeProduct, missingKeys, unknownSpecKeys } from './agent/products.js'
+import { describeAllProducts, describeProduct, measuresAsText, missingKeys, unknownSpecKeys } from './agent/products.js'
+import { ringsAreaPoints, snapToLinework } from './agent/snapTrace.js'
 import { expandRing } from './agent/arcs.js'
 import { checkScale, statedScales } from './agent/statedScale.js'
 import { pieceList } from './agent/pieceList.js'
@@ -6336,7 +6337,17 @@ export default function Workspace({
           const notes: string[] = []
           if (scopeId === null && kind !== 'shape') notes.push('it has no scope, so it counts toward nothing; reassign_markup gives it one')
           if (cal === null && !(projectRegions.get(pageId) ?? []).length) notes.push(`${sheetLabelFor(pageIndexRef.current)} has no scale, so this measures nothing yet; set_page_scale or read_scale`)
-          return { id, kind, scopeId, pageId, page: pageIndexRef.current, ...(notes.length > 0 ? { warnings: notes } : {}) }
+          // What it measures at the sheet's scale, holes taken out.
+          const made = kind === 'area' ? built.markup.rings : [ring as Array<{ x: number; y: number }>]
+          const isClosed = kind === 'area' || kind === 'shape'
+          const mOpts = { closed: isClosed, regions: projectRegions.get(pageId) ?? [], pageFeetPerPoint: calRef.current?.feetPerPoint ?? null }
+          const outer = measurePoints(made[0]!, { width: page.width, height: page.height }, mOpts)
+          let net = outer.areaSquareFeet ?? null
+          if (net !== null) for (const hole of made.slice(1)) net -= measurePoints(hole, { width: page.width, height: page.height }, mOpts).areaSquareFeet ?? 0
+          const measure = kind === 'count' ? { count: made[0]!.length }
+            : isClosed ? { areaSquareFeet: net === null ? null : Math.round(Math.max(0, net) * 1000) / 1000, perimeterFeet: outer.lengthFeet, perimeter: outer.length }
+              : { lengthFeet: outer.lengthFeet, length: outer.length }
+          return { id, kind, scopeId, pageId, page: pageIndexRef.current, sheet: sheetLabelFor(pageIndexRef.current), measure, ...(notes.length > 0 ? { warnings: notes } : {}) }
         }
 
         case 'delete_markup': {
@@ -6430,8 +6441,10 @@ export default function Workspace({
           if (scopesRef.current.some((s) => s.label === label)) {
             return { error: `a scope called "${label}" already exists` }
           }
-          const specs = objectParam(params['specifications'])
-          if (specs === null) return { error: 'specifications must be an object' }
+          const sent = objectParam(params['specifications'])
+          if (sent === null) return { error: 'specifications must be an object' }
+          // A measure sent as a number is the text the product reads.
+          const specs = sent === undefined ? undefined : measuresAsText(sent)
           const scope: Scope = {
             id: `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
             label,
@@ -6464,8 +6477,10 @@ export default function Workspace({
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
-          const specs = objectParam(params['specifications'])
-          if (specs === null) return { error: 'specifications must be an object' }
+          const sent = objectParam(params['specifications'])
+          if (sent === null) return { error: 'specifications must be an object' }
+          // A measure sent as a number is the text the product reads.
+          const specs = sent === undefined ? undefined : measuresAsText(sent)
           /*
            * MERGED, not replaced.
            *
@@ -7076,25 +7091,47 @@ export default function Workspace({
           if (!v || page.width === 0) return { error: 'no page is showing' }
           const pt = bridgePoint(params['point'])
           if (pt === null) return { error: 'trace_area needs `point` {x,y}, normalized, inside the field to trace' }
-          const half = 600
+          const fpp = calRef.current?.feetPerPoint
+          /*
+           * `sizeFeet` is roughly how wide the field is. The tracer reads a
+           * square frame as a 512-cell raster, so a smaller frame is a finer
+           * read: at the default 1200 points a cell is 2.3 points, too coarse
+           * for a small field (a 2 ft cell came back as 5.19 sq ft).
+           */
+          const sizeFeet = Number(params['sizeFeet'])
+          const frame = fpp !== undefined && fpp > 0 && Number.isFinite(sizeFeet) && sizeFeet > 0
+            ? Math.max(60, Math.min(1200, (sizeFeet / fpp) * 3)) : 1200
+          const half = frame / 2
           const clip = {
             x0: Math.max(0, pt.x - half / page.width), y0: Math.max(0, pt.y - half / page.height),
             x1: Math.min(1, pt.x + half / page.width), y1: Math.min(1, pt.y + half / page.height),
           }
           const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL })
-          const fpp = calRef.current?.feetPerPoint
           const gap = Number(params['bridgeGapFeet'])
+          // A gap wider than a third of the field would close the field itself.
+          const gapFeet = Number.isFinite(gap) && gap > 0 ? gap
+            : Number.isFinite(sizeFeet) && sizeFeet > 0 ? Math.min(3.5, sizeFeet / 6) : null
           const result = traceRegion({
             segments: g.segments, seed: pt, page: { width: page.width, height: page.height },
             options: {
+              frameSizePoints: frame,
               ...(fpp !== undefined && fpp > 0 ? { feetPerPoint: fpp } : {}),
-              ...(fpp !== undefined && fpp > 0 && Number.isFinite(gap) && gap > 0 ? { bridgeGapFeet: gap } : {}),
+              ...(fpp !== undefined && fpp > 0 && gapFeet !== null ? { bridgeGapFeet: gapFeet } : {}),
             },
           })
-          if (!result.ok) return { error: `no closed boundary there: ${result.message}`, reason: result.reason }
+          if (!result.ok) {
+            return {
+              error: `no closed boundary there: ${result.message}`, reason: result.reason,
+              hint: 'for a small field give sizeFeet (roughly how wide it is): gaps up to 3.5 ft are closed by default, which closes a field narrower than that',
+            }
+          }
           const r5 = (n: number) => Math.round(n * 1e5) / 1e5
-          const rings = result.region.map((ring) => ring.map((p) => ({ x: r5(p.x), y: r5(p.y) })))
-          const areaSqFt = fpp !== undefined && fpp > 0 ? Math.round(result.areaPoints2 * fpp * fpp * 100) / 100 : null
+          // Back onto the drawing's own lines: the raster's edge is a cell or two off them.
+          const onLines = params['snap'] === false ? { rings: result.region, moved: 0 }
+            : snapToLinework(result.region, g.segments, { width: page.width, height: page.height }, Math.max(3, (frame / 512) * 2.5))
+          const rings = onLines.rings.map((ring) => ring.map((p) => ({ x: r5(p.x), y: r5(p.y) })))
+          const areaPts = onLines.moved > 0 ? ringsAreaPoints(onLines.rings, { width: page.width, height: page.height }) : result.areaPoints2
+          const areaSqFt = fpp !== undefined && fpp > 0 ? Math.round(areaPts * fpp * fpp * 100) / 100 : null
           if (params['create'] === true) {
             const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : activeScopeRef.current
             const id = uid()

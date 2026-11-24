@@ -804,6 +804,14 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "sizeFeet": {
+            "type": "number",
+            "description": "For trace_area: roughly how wide the field is, in feet. Give it for anything smaller than a room: the sheet is read finer and small gaps stay open."
+          },
+          "snap": {
+            "type": "boolean",
+            "description": "For trace_area: move the outline onto the drawing's own lines. Default true."
           }
         }
       },
@@ -814,7 +822,7 @@
     },
     {
       "name": "redbeam_detect_pattern",
-      "description": "Read a drawn pattern of parallel members (baffles, planks, slats) in a box: direction (and a directionLine for set_pattern_direction), on-centre spacing, member length, runs across and rows along, and how regular it is. Needs a window.",
+      "description": "Read a drawn pattern of parallel members (baffles, planks, slats) in a box: direction (and a directionLine for set_pattern_direction), on-centre spacing, member length, runs across and rows along, and how regular it is. Needs a window. The box must hold whole members: lines cut by its edge are not counted.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1293,7 +1301,7 @@
     },
     {
       "name": "redbeam_create_scope",
-      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs.",
+      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1338,7 +1346,7 @@
     },
     {
       "name": "redbeam_update_scope",
-      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced.",
+      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2460,6 +2468,14 @@
           "includeArchived": {
             "type": "boolean",
             "description": "For list_scopes: also list archived scopes."
+          },
+          "sizeFeet": {
+            "type": "number",
+            "description": "For trace_area: roughly how wide the field is, in feet. Give it for anything smaller than a room: the sheet is read finer and small gaps stay open."
+          },
+          "snap": {
+            "type": "boolean",
+            "description": "For trace_area: move the outline onto the drawing's own lines. Default true."
           }
         },
         "required": [

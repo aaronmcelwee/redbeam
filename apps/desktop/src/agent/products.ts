@@ -116,3 +116,18 @@ export function unknownSpecKeys(type: string, specs: Record<string, unknown>): s
   for (const f of editableMeasures(product)) { mine.add(f.valueKey); mine.add(f.unitKey) }
   return Object.keys(specs).filter((k) => !known.has(k) || (!mine.has(k) && !OTHER_KNOWN.includes(k)))
 }
+
+/**
+ * Measures sent as numbers, as text. A spec measure is text ("24", "7 1/2")
+ * because that is what the form holds; an AI app sent `panelWidth: 2`, it was
+ * stored, and nothing read it, so the scope stayed "cannot be calculated".
+ */
+export function measuresAsText(specs: Record<string, unknown>): Record<string, unknown> {
+  const keys = new Set<string>()
+  for (const p of PRODUCT_TYPES) for (const f of editableMeasures(p)) keys.add(f.valueKey)
+  const out: Record<string, unknown> = { ...specs }
+  for (const [k, v] of Object.entries(specs)) {
+    if (typeof v === 'number' && Number.isFinite(v) && keys.has(k)) out[k] = String(v)
+  }
+  return out
+}

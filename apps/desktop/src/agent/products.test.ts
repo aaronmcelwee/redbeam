@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readProductType, missingRequiredMeasures } from '@redbeam/domain'
 import { describeProduct, describeAllProducts, missingKeys } from './products.js'
+import { measuresAsText as asText } from './products.js'
 
 describe('describeProduct', () => {
   it('names the keys a baffle needs', () => {
@@ -28,5 +29,15 @@ describe('unknownSpecKeys', () => {
     expect(unknownSpecKeys('baffle', { spacing: '6', spacingUnit: 'in', length: "8' L", product: 'Akustus', panelWidth: '24' }))
       .toEqual(['length', 'product', 'panelWidth'])
     expect(unknownSpecKeys('baffle', { productType: 'baffle', scopeDefaultDirection: {}, areaOrigins: {} })).toEqual([])
+  })
+})
+
+describe('measuresAsText', () => {
+  it('turns a number sent for a measure into the text the product reads', () => {
+    const key = describeProduct('panels').fields.find((f) => f.kind === 'measure' && f.required)!.key
+    const specs = asText({ [key]: 24, note: 5, pageDirections: { a: 1 } })
+    expect(specs[key]).toBe('24')
+    expect(specs['note']).toBe(5)
+    expect(specs['pageDirections']).toEqual({ a: 1 })
   })
 })
