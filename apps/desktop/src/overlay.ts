@@ -4,7 +4,12 @@ import type { OverlaySet } from '@redbeam/viewer'
 
 const FALLBACK = '#8a929c'
 
-export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
+/**
+ * `pending`: markups not yet accepted (imported from the PDF). They are drawn
+ * dashed with a faint fill, so a takeoff that counts reads differently from
+ * one waiting on somebody's yes.
+ */
+export function toOverlay(markups: Markup[], scopes: Scope[], pending: ReadonlySet<string> = new Set()): OverlaySet {
   const colorOf = new Map(scopes.map((s) => [s.id, s.color]))
   const set: OverlaySet = { polygons: [], lines: [], dots: [] }
 
@@ -15,6 +20,7 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
     const region = m.kind === 'area' && m.rings.length > 1 ? areaRegion(m.rings) : m.rings
     const ring = region[0]
     if (!ring || ring.length === 0) continue
+    const waiting = pending.has(m.id)
 
     if (m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape') {
       let cx = 0, cy = 0
@@ -36,14 +42,14 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
         // blend; a 0.32 fill and no stroke is the nearest the overlay draws,
         // and it reads as marker rather than as billed area precisely because
         // it has no edge.
-        fillOpacity: m.kind === 'cutout' ? 0 : m.kind === 'shape' ? 0.32 : 0.16,
+        fillOpacity: m.kind === 'cutout' ? 0 : m.kind === 'shape' ? 0.32 : waiting ? 0.06 : 0.16,
         strokeOpacity: m.kind === 'shape' ? 0 : m.kind === 'cutout' ? 1 : 0.9,
         // A cutout is an opening: no fill, and a SOLID edge heavier than the
         // area's, so it reads as a hole cut in the material rather than as a
         // hidden line. It was dashed; Aaron, 2026-09-11: "the cutout should
         // be bolder and solid".
         strokeWidth: m.kind === 'cutout' ? 2 : 1.4,
-        dashed: false,
+        dashed: waiting,
         cx,
         cy,
       })
@@ -53,7 +59,7 @@ export function toOverlay(markups: Markup[], scopes: Scope[]): OverlaySet {
         const a = ring[i - 1]!, b = ring[i]!
         set.lines.push({
           x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-          color, opacity: 1, width: 2, dashed: false,
+          color, opacity: 1, width: 2, dashed: waiting,
         })
       }
     } else if (m.kind === 'count') {
