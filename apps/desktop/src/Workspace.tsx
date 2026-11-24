@@ -63,7 +63,7 @@ import {
 } from './shell/Shell.js'
 import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
 import { newScope, nextScopeColor, SCOPE_PALETTE } from './shell/scopeFactory.js'
-import { clipOf, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
+import { clipOf, notePaste, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
 import { SheetIndex } from './shell/SheetIndex.js'
 import { useClampedPopover } from './shell/popover.js'
 import { pageStepForKey, steppedPage, toolForKey } from './shell/sheetKeys.js'
@@ -3120,8 +3120,8 @@ export default function Workspace({
    * Pasting onto the current page rather than the source page is the point:
    * the same detail repeats across sheets, and re-tracing it on each one is the
    * work this is meant to remove. From another sheet or another PDF it lands
-   * where it was on its own sheet; onto the sheet it came from it is nudged so
-   * the copy is visibly distinct. From another PDF, each markup goes to the
+   * where it was on its own sheet; onto the sheet it came from, or pasted again
+   * onto the same sheet, it steps down and right so each copy is visibly distinct. From another PDF, each markup goes to the
    * scope of the same name here, made when this file has none.
    */
   const pasteClipboard = useCallback(async () => {
@@ -3145,6 +3145,7 @@ export default function Workspace({
       })
     })
     if (!await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`paste ${cmds.length} markups`, cmds))) return
+    notePaste(clip, { documentId: docId, pageId })
     setSelectedIds(created); selectedRef.current = created
     setStatus(pasteStatus(plan, clip.documentId !== docId))
   }, [runCommand])

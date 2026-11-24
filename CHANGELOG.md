@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.64 — 2026-11-24
+
+### Copy and paste markups between PDFs
+
+- **Paste into another open PDF.** Select markups, press Ctrl+C, switch to another PDF's tab and press Ctrl+V. They land in the same place on the sheet, at their real size, so they measure the same.
+- **Scopes come along.** A pasted markup goes into the scope with the same name in the other PDF. If that PDF doesn't have one, REDBEAM adds it with the same colour and product.
+- **Copies don't stack.** Pasting again onto the same sheet places each copy a little further down and to the right.
+- **Copy from the right-click menu.** Right-click a markup and choose Copy markup. Dimensions and callouts keep their text when pasted.
+
+
 ## 0.3.63 — 2026-11-24
 
 ### AI apps can do a whole takeoff

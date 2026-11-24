@@ -40,6 +40,8 @@ export interface MarkupClip {
   documentId: string
   pageId: string
   items: ClipItem[]
+  /** Pastes made so far, by `documentId|pageId`, so each repeat lands a step further on. */
+  pasted?: Record<string, number>
 }
 
 export interface ClipSource {
@@ -85,7 +87,7 @@ export interface PastePlan {
   markups: Array<{ kind: string; rings: Pt[][]; content?: Record<string, unknown>; scopeId: string | null }>
   /** Markups with a point off the sheet they landed on. */
   offSheet: number
-  /** True when moved by PASTE_NUDGE (pasted onto the sheet it was copied from). */
+  /** True when moved off the original spot: onto the sheet it came from, or a repeat paste. */
   nudged: boolean
 }
 
@@ -102,8 +104,12 @@ export function planPaste(
   mintScopeId: () => string,
   palette: (taken: readonly Scope[]) => string,
 ): PastePlan {
-  const nudged = clip.documentId === target.documentId && clip.pageId === target.pageId
-  const d = nudged ? PASTE_NUDGE : 0
+  // Each paste onto the same sheet steps a little further, so a repeat is
+  // visibly a new copy rather than one stacked exactly on the last.
+  const home = clip.documentId === target.documentId && clip.pageId === target.pageId
+  const steps = (clip.pasted?.[`${target.documentId}|${target.pageId}`] ?? 0) + (home ? 1 : 0)
+  const nudged = steps > 0
+  const d = steps * PASTE_NUDGE
   const ids = new Set(liveScopes.map((s) => s.id))
   const byLabel = new Map(liveScopes.map((s) => [key(s.label), s.id]))
   const mapped = new Map<string, string>()
@@ -148,6 +154,12 @@ export function planPaste(
     }
   })
   return { newScopes, markups, offSheet, nudged }
+}
+
+/** Record a paste of `clip` onto `target`, for the next one's step. */
+export function notePaste(clip: MarkupClip, target: { documentId: string; pageId: string }): void {
+  const k = `${target.documentId}|${target.pageId}`
+  clip.pasted = { ...clip.pasted, [k]: (clip.pasted?.[k] ?? 0) + 1 }
 }
 
 /** The status line after a paste. */

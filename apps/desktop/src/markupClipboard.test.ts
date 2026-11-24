@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Scope } from '@redbeam/domain'
-import { PASTE_NUDGE, clipOf, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
+import { PASTE_NUDGE, clipOf, notePaste, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
 
 const scope = (id: string, label: string, color = '#e2483d', specifications: Record<string, unknown> = {}): Scope =>
   ({ id, label, scopeType: 'area', color, specifications })
@@ -90,5 +90,17 @@ describe('markup clipboard', () => {
     content.offsetPoints = 99
     const plan = planPaste(clip, { ...A, documentId: 'doc-b' }, [], mint, palette)
     expect(plan.markups[0]!.content).toEqual({ offsetPoints: 12, ortho: 'none', label: '10\'-0"' })
+  })
+
+  it('steps each repeat paste onto the same sheet, so copies do not stack', () => {
+    const clip = clipOf([{ id: 'm1', scopeId: null, kind: 'area', rings: square }], [], A)
+    const B = { documentId: 'doc-b', pageId: 'doc-b:p1', width: 1000, height: 500 }
+    expect(planPaste(clip, B, [], mint, palette).markups[0]!.rings).toEqual(square)
+    notePaste(clip, B)
+    const again = planPaste(clip, B, [], mint, palette)
+    expect(again.nudged).toBe(true)
+    expect(again.markups[0]!.rings[0]![0]!.x).toBeCloseTo(0.1 + PASTE_NUDGE)
+    notePaste(clip, A)
+    expect(planPaste(clip, A, [], mint, palette).markups[0]!.rings[0]![0]!.x).toBeCloseTo(0.1 + 2 * PASTE_NUDGE)
   })
 })
