@@ -46,7 +46,7 @@ export default function App() {
    */
   const win = useWindowControls()
   /** What the open workspace must finish before this window closes (Light: save into the PDF). */
-  const beforeCloseRef = useRef<((leave: () => void) => Promise<boolean>) | null>(null)
+  const beforeCloseRef = useRef<((leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>) | null>(null)
   /**
    * The listener that hears every close of this window. One, for the
    * window's whole life: it used to come and go with the open file, and a
@@ -74,7 +74,7 @@ export default function App() {
     // Already saving to close: that save asks within seconds if it cannot finish.
     if (closeAskingRef.current) return
     closeAskingRef.current = true
-    void before(closeNow)
+    void before(closeNow, { closing: true })
       .then((ok) => { if (ok) closeNow() }, (err: unknown) => {
         console.error('[window] saving before close failed; closing.', err)
         closeNow()
@@ -91,7 +91,7 @@ export default function App() {
       void guard.then((stop) => stop())
     }
   }, [])
-  const registerBeforeClose = useCallback((fn: ((leave: () => void) => Promise<boolean>) | null) => {
+  const registerBeforeClose = useCallback((fn: ((leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>) | null) => {
     beforeCloseRef.current = fn
     // An update that installs or restarts ends the app without closing the window.
     setBeforeQuit(fn)
