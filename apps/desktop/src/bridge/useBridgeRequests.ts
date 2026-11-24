@@ -29,6 +29,22 @@ export interface BridgeActions {
     action: string,
     params: Record<string, unknown>,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>
+  /**
+   * One read-only SELECT against this window's store. Light keeps the takeoff
+   * here, in the store the PDF was read into, so the bridge's listings and
+   * execute_query answer from it (bridge/methods.rs `light_query`).
+   */
+  query?: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
+}
+
+/**
+ * Whether `sql` only reads. The bridge checks execute_query's SQL before it
+ * gets here; this holds for every caller, so a store with no undo entry
+ * behind it is never written from outside.
+ */
+export function isReadOnlySql(sql: string): boolean {
+  const t = sql.trim().replace(/;\s*$/, '').trim()
+  return /^(select|with)\b/i.test(t) && !t.includes(';')
 }
 
 interface RequestPayload {
@@ -73,6 +89,15 @@ export function useBridgeRequests(actions: BridgeActions): void {
               const name = typeof params['action'] === 'string' ? params['action'] : ''
               if (name === '') { result = { error: 'invoke_ui_action needs `action`' }; break }
               result = await ref.current.invoke(name, params)
+              break
+            }
+            case 'query': {
+              const sql = typeof params['sql'] === 'string' ? params['sql'] : ''
+              const args = Array.isArray(params['params']) ? params['params'] as unknown[] : []
+              const run = ref.current.query
+              if (run === undefined) { result = { error: 'this window has no store to read' }; break }
+              if (!isReadOnlySql(sql)) { result = { error: 'query runs ONE read-only SELECT; writes go through the undo stack' }; break }
+              result = { rows: await run(sql, args) }
               break
             }
             default:
