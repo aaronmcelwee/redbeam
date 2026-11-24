@@ -475,6 +475,43 @@ export async function embedCopy(opts: {
   return result.bytes ?? source
 }
 
+/**
+ * Where a working copy an agent named should go.
+ *
+ * `name` may carry folders ("Red Beam Test\\A-101 copy.pdf"): they are kept as
+ * folders beside the open file, not flattened into the file name (Aaron,
+ * 2026-11-24: save_copy "turned `Red Beam Test\\…` into a file name"). A full
+ * path is taken as it is. Only the characters Windows forbids in a name are
+ * replaced, per segment. `folder` ends in its separator; an empty `name` means
+ * the caller's default name.
+ */
+export type CopyTarget =
+  | { kind: 'relative'; folder: string; name: string }
+  | { kind: 'absolute'; folder: string; name: string }
+  | { kind: 'error'; error: string }
+
+export function copyTarget(wanted: string): CopyTarget {
+  const raw = wanted.trim()
+  const drive = /^[A-Za-z]:[\\/]/.test(raw) ? raw.slice(0, 2) : ''
+  const absolute = drive !== '' || /^[\\/]/.test(raw)
+  const parts = raw.slice(drive.length).split(/[\\/]+/).map((x) => x.trim()).filter((x) => x !== '' && x !== '.')
+  if (parts.some((x) => x === '..')) return { kind: 'error', error: '`name` cannot use ".."; give a folder under the open file\'s folder, or a full path' }
+  const clean = parts.map((x) => x.replace(/[:*?"<>|]/g, '-').replace(/[. ]+$/, '')).filter((x) => x !== '')
+  if (clean.length === 0) return { kind: 'error', error: '`name` has no file name in it' }
+  const last = clean[clean.length - 1]!
+  // "Red Beam Test\" names a folder: the copy keeps its default name there.
+  const endsInFolder = /[\\/]$/.test(raw)
+  const name = endsInFolder ? '' : (/\.pdf$/i.test(last) ? last : `${last}.pdf`)
+  const folders = endsInFolder ? clean : clean.slice(0, -1)
+  if (absolute) {
+    const unc = raw.startsWith('\\\\') || raw.startsWith('//')
+    const sep = unc || drive !== '' || raw.includes('\\') ? '\\' : '/'
+    const root = unc ? sep + sep : drive + sep
+    return { kind: 'absolute', folder: root + folders.map((x) => x + sep).join(''), name }
+  }
+  return { kind: 'relative', folder: folders.length > 0 ? folders.join('/') + '/' : '', name }
+}
+
 /** The name offered for a copy: "A-101.pdf" becomes "A-101 (takeoff).pdf". */
 export function copyName(fileName: string): string {
   const base = fileName.replace(/^.*[\\/]/, '')

@@ -18,6 +18,7 @@
  *   highest-priority job. Otherwise speculative prefetch, being posted earlier,
  *   would run ahead of the tile the user is waiting on.
  */
+import { RangeReader, xhrRange } from './rangeReader.js'
 import { init } from '@embedpdf/pdfium'
 import { type Job } from './jobQueue.js'
 import { PagePool } from './pagePool.js'
@@ -89,11 +90,12 @@ async function boot(wasmUrl: string, pdfUrl: string) {
   pdfium = await init({ wasmBinary })
   pdfium.PDFiumExt_Init()
 
-  const bytes = new Uint8Array(await (await fetch(pdfUrl)).arrayBuffer())
-  const ptr = pdfium.pdfium.wasmExports.malloc(bytes.length)
-  pdfium.pdfium.HEAPU8.set(bytes, ptr)
-  doc = pdfium.FPDF_LoadMemDocument(ptr, bytes.length, '')
-  if (!doc) throw new Error('FPDF_LoadMemDocument failed')
+  doc = openByRanges(pdfUrl)
+  if (doc === null) {
+    const { ptr, length } = await fetchIntoHeap(pdfUrl)
+    doc = pdfium.FPDF_LoadMemDocument(ptr, length, '')
+  }
+  if (!doc) throw new Error('PDFium could not open the PDF')
 
   pool = new PagePool<number>({
     max: maxPages,
@@ -110,6 +112,106 @@ async function boot(wasmUrl: string, pdfUrl: string) {
   pageSizes = readAllPageSizes(count)
   resolveBoot()
   post({ type: 'booted', pageCount: count, sizes: pageSizes })
+}
+
+/**
+ * Open the PDF reading only the byte ranges PDFium asks for.
+ *
+ * The desktop app serves drawings through `rbdoc:`, which answers Range
+ * requests from the file on disk, so a 500 MB set never has to be in memory
+ * whole: PDFium reads the trailer and cross-reference table, then the objects
+ * of the pages it draws. Null when the URL does not take ranges (a blob URL),
+ * and the caller reads the file whole instead.
+ *
+ * FPDF_FILEACCESS keeps the length in an `unsigned long`, which is 32 bits in
+ * this WebAssembly build, so PDFium itself cannot address past 4 GiB.
+ */
+function openByRanges(url: string): number | null {
+  if (url.startsWith('blob:') || url.startsWith('data:') || typeof XMLHttpRequest === 'undefined') return null
+  let probe: ReturnType<typeof xhrRange>
+  try {
+    probe = xhrRange(url, 0, 1)
+  } catch {
+    return null
+  }
+  if (probe === null || probe.total === null || probe.total <= 0) return null
+  const size = probe.total
+  if (size > 0xffffffff) throw new Error(`This PDF is ${Math.round(size / 1073741824)} GB; the PDF engine can only address 4 GB.`)
+  const reader = new RangeReader(size, (a, b) => {
+    const got = xhrRange(url, a, b)
+    if (got === null) throw new Error('the drawing stopped answering range reads')
+    return got.bytes
+  })
+  const m = pdfium.pdfium
+  const getBlock = m.addFunction((_param: number, position: number, buf: number, size: number) => {
+    try {
+      // HEAPU8 is read at each call: the heap may have grown since the last.
+      return reader.read(position >>> 0, size >>> 0, m.HEAPU8.subarray(buf, buf + (size >>> 0))) ? 1 : 0
+    } catch (err) {
+      console.warn('[pdf] block read failed', err)
+      return 0
+    }
+  }, 'iiiii')
+  // FPDF_FILEACCESS { unsigned long m_FileLen; GetBlock*; void* m_Param } — 12 bytes.
+  const access: number = m.wasmExports.malloc(12)
+  m.HEAPU32[access >> 2] = size >>> 0
+  m.HEAPU32[(access >> 2) + 1] = getBlock
+  m.HEAPU32[(access >> 2) + 2] = 0
+  const handle: number = pdfium.FPDF_LoadCustomDocument(access, '')
+  if (!handle) {
+    m.removeFunction(getBlock)
+    m.wasmExports.free(access)
+    return null
+  }
+  // The loader and its struct live as long as the document: this worker holds
+  // one document and is thrown away with it.
+  rangeStats = reader
+  return handle
+}
+
+/** The open document's range reader, when it was opened that way. */
+let rangeStats: RangeReader | null = null
+
+/**
+ * Fetch the PDF straight into PDFium's heap.
+ *
+ * Reading it into an ArrayBuffer first and copying that in held the file twice
+ * in this worker, which for a 470 MB specifications book was close to a
+ * gigabyte at once. When the response says how long it is (a blob URL does),
+ * the body streams into the heap chunk by chunk instead.
+ */
+async function fetchIntoHeap(url: string): Promise<{ ptr: number, length: number }> {
+  const res = await fetch(url)
+  const declared = Number(res.headers.get('content-length') ?? '')
+  const reader = Number.isFinite(declared) && declared > 0 ? res.body?.getReader() : undefined
+  if (reader !== undefined) {
+    const ptr: number = pdfium.pdfium.wasmExports.malloc(declared)
+    if (!ptr) throw new Error(`could not set aside ${Math.round(declared / 1048576)} MB for the PDF`)
+    let at = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (at + value.length > declared) {
+        // Longer than it said: give up on streaming and read it whole.
+        pdfium.pdfium.wasmExports.free(ptr)
+        void reader.cancel()
+        return copyIntoHeap(new Uint8Array(await (await fetch(url)).arrayBuffer()))
+      }
+      // HEAPU8 is re-read every chunk: the heap may have grown, which
+      // replaces the view.
+      pdfium.pdfium.HEAPU8.set(value, ptr + at)
+      at += value.length
+    }
+    return { ptr, length: at }
+  }
+  return copyIntoHeap(new Uint8Array(await res.arrayBuffer()))
+}
+
+function copyIntoHeap(bytes: Uint8Array): { ptr: number, length: number } {
+  const ptr: number = pdfium.pdfium.wasmExports.malloc(bytes.length)
+  if (!ptr) throw new Error(`could not set aside ${Math.round(bytes.length / 1048576)} MB for the PDF`)
+  pdfium.pdfium.HEAPU8.set(bytes, ptr)
+  return { ptr, length: bytes.length }
 }
 
 /**
@@ -810,6 +912,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           open: pool?.openCount ?? 0,
           pages: pool?.pages ?? [],
           queued: sched.queue.size,
+          ...(rangeStats === null ? {} : { rangeReads: rangeStats.fetches }),
         })
         break
     }

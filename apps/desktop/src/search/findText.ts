@@ -26,11 +26,20 @@ export interface FindOptions {
   wholeWord?: boolean
   /** Stop after this many on the page. */
   limit?: number
+  /** Pass over this many matches first: where the last answer left off on this page. */
+  skip?: number
 }
 
 const isWordChar = (c: string | undefined): boolean => c !== undefined && /[\p{L}\p{N}]/u.test(c)
 
-/** Every occurrence of `query` in one page's text, with its box. */
+/**
+ * Every occurrence of `query` in one page's text, with its box.
+ *
+ * Linear in the page: a one-letter query on a sheet of forty thousand words
+ * has tens of thousands of matches, and looking through every run for each
+ * of them froze the window. Matches come in text order and so do the runs,
+ * so one cursor walks the runs alongside.
+ */
 export function findInPageText(
   page: { text: string; runs: readonly TextRun[] },
   query: string,
@@ -47,30 +56,45 @@ export function findInPageText(
   const hay = safe ? hay0 : page.text
   const needle = safe ? needle0 : q
   const limit = opts.limit ?? 500
+  let skip = Math.max(0, opts.skip ?? 0)
   const out: TextMatch[] = []
+  const runs = inTextOrder(page.runs)
 
   let from = 0
+  let first = 0
   while (out.length < limit) {
     const at = hay.indexOf(needle, from)
     if (at < 0) break
     from = at + Math.max(1, needle.length)
     const end = at + needle.length
     if (opts.wholeWord === true && (isWordChar(page.text[at - 1]) || isWordChar(page.text[end]))) continue
-    const hit = page.runs.filter((r) => r.start < end && r.start + r.length > at)
-    if (hit.length === 0) continue
-    const box: NormBox = {
-      x0: Math.min(...hit.map((r) => r.x0)),
-      y0: Math.min(...hit.map((r) => r.y0)),
-      x1: Math.max(...hit.map((r) => r.x1)),
-      y1: Math.max(...hit.map((r) => r.y1)),
+    // Runs that end before this match end before every later one too.
+    while (first < runs.length && runs[first]!.start + runs[first]!.length <= at) first++
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    const words: string[] = []
+    for (let i = first; i < runs.length && runs[i]!.start < end; i++) {
+      const r = runs[i]!
+      if (r.start + r.length <= at) continue
+      x0 = Math.min(x0, r.x0); y0 = Math.min(y0, r.y0); x1 = Math.max(x1, r.x1); y1 = Math.max(y1, r.y1)
+      words.push(page.text.slice(r.start, r.start + r.length))
     }
+    if (words.length === 0) continue
+    if (skip > 0) { skip--; continue }
     out.push({
-      text: hit.map((r) => page.text.slice(r.start, r.start + r.length)).join(' ').trim(),
-      box: roundBox(box),
-      center: { x: round((box.x0 + box.x1) / 2), y: round((box.y0 + box.y1) / 2) },
+      text: words.join(' ').trim(),
+      box: roundBox({ x0, y0, x1, y1 }),
+      center: { x: round((x0 + x1) / 2), y: round((y0 + y1) / 2) },
     })
   }
   return out
+}
+
+/** The runs by where they start in the text. They nearly always are already. */
+function inTextOrder(runs: readonly TextRun[]): readonly TextRun[] {
+  for (let i = 1; i < runs.length; i++) {
+    if (runs[i]!.start < runs[i - 1]!.start) return [...runs].sort((a, b) => a.start - b.start)
+  }
+  return runs
 }
 
 /** The words on a page, optionally only those whose centre is in `within`. */

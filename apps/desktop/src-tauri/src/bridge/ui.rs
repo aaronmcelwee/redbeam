@@ -69,6 +69,10 @@ pub fn caller() -> Value {
 }
 
 /// Ask the frontend to do something and wait for its answer.
+///
+/// Long work does not get a longer wait: an action that reads a whole set
+/// (find_text, read_scale, list_annotations) answers inside this with what it
+/// has and where to carry on, while the reading continues in the window.
 pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, String> {
     request_within(app, action, params, UI_TIMEOUT)
 }

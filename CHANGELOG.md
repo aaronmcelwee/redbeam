@@ -5,17 +5,45 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.70 — 2026-11-24
+## 0.3.78 — 2026-11-24
 
 ### AI agents work beside you
 
-- **Several agents at once, each in its own tabs.** Claude, ChatGPT and other AI apps can now work in REDBEAM at the same time as you and as each other. A PDF an agent opens is its own tab, kept behind the one you are looking at. Your tab, your sheet and your zoom stay exactly where you left them.
-- **Agents in the tab strip.** Each agent is a chip beside your tabs, in its own colour, with its name, how many PDFs it has open and what it is doing right now. Click the chip to unfold its tabs, and click a tab to look in on it. On the start page a card lists the agents still at work.
-- **Coloured cursors that say what the agent is doing.** When you look at a PDF an agent is working in, its cursor is on the sheet where it last acted, with a label such as "Claude: Drawing an area".
-- **Agents never take the keyboard or the window.** An agent's action no longer moves your caret, opens a panel over what you are typing, or brings REDBEAM to the front. When an AI app starts REDBEAM itself, the window opens behind what you are working in.
-- **Your PDFs stay yours.** An agent can read a PDF you have open and draw on the sheet you are on. If it wants to turn pages or zoom there, REDBEAM asks you first: "Let it work here" hands it the tab, "Not now" tells it to work in a copy. "Make this tab mine" takes a tab back.
-- **Agents close only their own tabs**, and their tabs are not reopened next time you start REDBEAM.
-- **No Save window from an agent.** An agent exporting a PDF now has to say where the file goes, so a Save dialog never appears in front of you on its behalf.
+- **Several AI sessions at once, each in its own tab group.** Every Claude or ChatGPT chat that works in REDBEAM gets a session of its own, named for its app and the job it is doing, such as "ChatGPT · Nokia Canada North Campus takeoff". Each session is a pill in its own colour beside your tabs, folded out of your way. Click the pill and its PDFs unfold as real tabs you can click into and work in beside the agent. Click again and they fold away.
+- **An agent can work in a PDF you have open.** It does not open a second copy: it joins yours as a guest, and your tab shows a dot in the session's colour. You can do a manual takeoff while the agent searches and marks up the same sheets. Your tab, your sheet, your zoom, your tool and your selection stay exactly where you left them.
+- **Undo is yours.** Ctrl+Z takes back only your own work, never what an agent just drew, and an agent can undo only its own.
+- **Bright cursors that say what the agent is doing now.** When you look at a PDF a session is working in, its cursor is on the sheet where it is acting, with the action and the session's name. The label only ever says what is happening now.
+- **Waiting for you, and Finished.** A session that stops for your approval shows "Waiting for you" on its pill. When it finishes, the PDFs it changed move to your own tabs with a dot until you open them, and the PDFs it only read are closed. One quiet "Finished" pill lists what each session left you and what it closed, to reopen with a click.
+- **A session that dies cleans up after itself.** If an AI app is closed or stops answering mid-job, its session is marked finished within seconds, its cursor goes away and its tabs are settled the same way. You can also end a session yourself from its pill.
+- **Agents never take the keyboard or the window.** An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, REDBEAM asks you first. "What's new" no longer opens over a window an AI app started.
+- **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
+
+
+## 0.3.75 — 2026-11-24
+
+### AI apps: copies into folders, and searches with no limit
+
+- **Working copies go in the folder you name.** An AI app asked to save a copy as `Red Beam Test\set.pdf` got a file called "Red Beam Test-set.pdf". The folder is now kept as a folder beside the open PDF, and made if it is not there. A full path works too.
+- **Text search has no time limit.** Searching a 171-sheet set for one word stopped after 70 sheets, because a search was given 14 seconds. There is no limit now, on time or on the size of the set. The sheets are read in the background until the whole set is done, the AI app gets the matches found so far within a few seconds, and it asks for the rest from where it left off. REDBEAM stays usable while this runs.
+- **Nothing is cut off.** Reading scales and the PDF's own markups across a whole set, and long lists of words, lines, markups and bookmarks, used to stop at a fixed count or time. They now hand back everything, a part at a time.
+- **No empty answer while a PDF is still opening.** A search sent too early said it found nothing; it now says the document is still opening.
+
+
+## 0.3.74 — 2026-11-24
+
+### PDFs of any size
+
+- **No size limit.** REDBEAM had a limit on how big a PDF could be. It's gone: a 2.5 GB, 1,800-sheet set opens, for you and for AI apps.
+- **Big sets open without being loaded whole.** REDBEAM now reads only the parts of the PDF it needs from disk, so a large set shows its first sheet in seconds and uses far less memory. The search index reads sets the same way.
+
+
+## 0.3.71 — 2026-11-24
+
+### Big PDFs open
+
+- **No more 256 MB limit.** REDBEAM refused any PDF over 256 MB, so large tender sets and specification books would not open, for you or for an AI app. PDFs up to 2 GB now open, and a 500 MB, 360-sheet set opens in a few seconds.
+- **Less memory for big files.** The PDF is now read straight into the viewer instead of being held twice while it opens.
+
 
 ## 0.3.69 — 2026-11-24
 
