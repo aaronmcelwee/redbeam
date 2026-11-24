@@ -19,6 +19,14 @@ SmartScreen will ask once.
 - **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
 
 
+## 0.3.76 — 2026-11-24
+
+### Takeoffs in big sets
+
+- **Takeoffs in big sets load and save without reading the whole PDF.** In a set over 128 MB, REDBEAM now reads only the parts of the PDF that hold your takeoff when it opens, and a save adds just the new part to the end of the file. Drawing an area on a 2.5 GB, 1,800-sheet set and saving it wrote about 6 KB.
+- **A save never lands on a changed file.** If the PDF was changed on disk while it was open, the save stops instead of writing over the other change.
+
+
 ## 0.3.75 — 2026-11-24
 
 ### AI apps: copies into folders, and searches with no limit

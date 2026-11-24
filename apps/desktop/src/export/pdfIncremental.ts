@@ -71,6 +71,29 @@ function serialize(obj: PDFObject): Uint8Array {
   return buf
 }
 
+/** What an update section needs to know about the file it is appended to. */
+export interface UpdateBase {
+  /** The file's length: the update starts here. */
+  length: number
+  /** Offset of the file's last cross-reference section (its `startxref`). */
+  prev: number
+  /** Whether that section is a classic table (else a stream). */
+  useTable: boolean
+  /** Whether the file's last byte is a line end. */
+  endsWithNewline: boolean
+}
+
+export function updateBaseOf(original: Uint8Array): UpdateBase {
+  const prev = lastStartXref(original)
+  const last = original[original.length - 1]
+  return {
+    length: original.length,
+    prev,
+    useTable: isXrefTable(original, prev),
+    endsWithNewline: last === 0x0a || last === 0x0d,
+  }
+}
+
 /**
  * The bytes of `original` followed by an update section holding `changed`.
  *
@@ -84,22 +107,36 @@ export function appendIncrementalUpdate(
   doc: PDFDocument,
   changed: Iterable<PDFRef>,
 ): Uint8Array {
+  const tail = incrementalTail(updateBaseOf(original), doc, changed)
+  const out = new Uint8Array(original.length + tail.length)
+  out.set(original, 0)
+  out.set(tail, original.length)
+  return out
+}
+
+/**
+ * Just the update section, for a file whose bytes are not in memory (a big
+ * drawing read by range, lazyPdf.ts): offsets in it count from `base.length`.
+ */
+export function incrementalTail(
+  base: UpdateBase,
+  doc: PDFDocument,
+  changed: Iterable<PDFRef>,
+): Uint8Array {
   const ctx = doc.context
-  const prev = lastStartXref(original)
-  const useTable = isXrefTable(original, prev)
+  const { prev, useTable } = base
 
   const refs = [...new Map([...changed].map((r) => [r.toString(), r])).values()]
     .filter((r) => ctx.lookup(r) !== undefined)
     .sort((a, b) => a.objectNumber - b.objectNumber)
 
-  const chunks: Uint8Array[] = [original]
-  let offset = original.length
+  const chunks: Uint8Array[] = []
+  let offset = base.length
   const push = (b: Uint8Array): void => { chunks.push(b); offset += b.length }
 
   // A file is not required to end in a newline, and `obj` glued to `%%EOF`
   // is not an object any reader will find.
-  const last = original[original.length - 1]
-  if (last !== 0x0a && last !== 0x0d) push(latin1('\n'))
+  if (!base.endsWithNewline) push(latin1('\n'))
 
   const offsets: Array<[PDFRef, number]> = []
   for (const ref of refs) {
@@ -148,7 +185,7 @@ export function appendIncrementalUpdate(
     push(latin1(`\nendobj\nstartxref\n${xrefAt}\n%%EOF\n`))
   }
 
-  const out = new Uint8Array(offset)
+  const out = new Uint8Array(offset - base.length)
   let at = 0
   for (const c of chunks) { out.set(c, at); at += c.length }
   return out

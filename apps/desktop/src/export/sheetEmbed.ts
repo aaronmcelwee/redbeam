@@ -51,7 +51,7 @@ import {
   type PDFContext, type PDFPage,
 } from 'pdf-lib'
 import { areaRegion } from '@redbeam/domain'
-import { appendIncrementalUpdate, newRefsSince, reserveExistingNumbers } from './pdfIncremental.js'
+import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, regionAt, shapeForKind,
@@ -814,6 +814,11 @@ export async function readSheetEmbed(bytes: Uint8Array): Promise<SheetEmbedReadi
   return readDoc(await load(bytes))
 }
 
+/** `readSheetEmbed` for a document already open (lazyPdf.ts reads one by byte range). */
+export function readSheetEmbedFrom(doc: PDFDocument): SheetEmbedReading {
+  return readDoc(doc)
+}
+
 // ----------------------------------------------------------------- writing --
 
 function buildAnnot(
@@ -1007,8 +1012,35 @@ export function rotationsToWrite(
  */
 export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise<EmbedResult> {
   const doc = await load(source)
-  const ctx = doc.context
   const largestBefore = reserveExistingNumbers(doc, source)
+  const out = embedInto(doc, largestBefore, input, updateBaseOf(source))
+  if (out.tail === null) return out.result
+  const bytes = new Uint8Array(source.length + out.tail.length)
+  bytes.set(source, 0)
+  bytes.set(out.tail, source.length)
+  return { ...out.result, bytes }
+}
+
+/**
+ * `embedSheet` for a drawing that is not in memory: `doc` was opened by byte
+ * range (lazyPdf.ts) with its object numbers reserved up to the file's /Size.
+ * `tail` is what to append to the file; `result.bytes` stays null.
+ */
+export function embedSheetTail(
+  doc: PDFDocument,
+  base: UpdateBase,
+  input: EmbedInput,
+): { result: EmbedResult, tail: Uint8Array | null } {
+  return embedInto(doc, doc.context.largestObjectNumber, input, base)
+}
+
+function embedInto(
+  doc: PDFDocument,
+  largestBefore: number,
+  input: EmbedInput,
+  base: UpdateBase,
+): { result: EmbedResult, tail: Uint8Array | null } {
+  const ctx = doc.context
   const before = readDoc(doc)
   const prev = before.slice
 
@@ -1047,13 +1079,13 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     || (input.retireForeign === true && doc.getPages().some((p) => annotsOn(p).some((a) => foreignMarkup(a))))
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0 && !retiring
     && prev.documentId === input.documentId && turned.length === 0) {
-    return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }
+    return { result: { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }, tail: null }
   }
   // Someone else saved a different takeoff into this file since this writer
   // last looked. Writing now would replace theirs with ours, unseen.
   if (input.expectStamp !== undefined && prev !== null && sliceStamp(prev) !== input.expectStamp
     && prev.contentHash !== contentHash) {
-    return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev), conflict: true }
+    return { result: { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev), conflict: true }, tail: null }
   }
 
   const when = pdfDate(input.now?.() ?? new Date())
@@ -1227,10 +1259,8 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
 
   changed.push(...newRefsSince(doc, largestBefore))
   return {
-    bytes: appendIncrementalUpdate(source, doc, changed),
-    editedElsewhere,
-    foreignKept: before.foreignAnnots,
-    stamp: sliceStamp(slice),
+    result: { bytes: null, editedElsewhere, foreignKept: before.foreignAnnots, stamp: sliceStamp(slice) },
+    tail: incrementalTail(base, doc, changed),
   }
 }
 

@@ -146,6 +146,14 @@ export interface ProjectBridge {
    * browser mode.
    */
   appendDocument(projectPath: string, relativePath: string, tail: Uint8Array, expectedSha256: string, expectedLength: number): Promise<DocumentWrite>
+  /**
+   * Open a drawing for byte-range reads (`rbdoc:`, docstream.rs). Null when
+   * this core cannot. Release the token when done: it holds the file open.
+   */
+  streamDocument?(projectPath: string, relativePath: string): Promise<{ token: string, size: number } | null>
+  releaseStream?(token: string): Promise<void>
+  /** SHA-256 of the file a stream reads, hashed by the core through the stream's own handle. */
+  streamFingerprint?(token: string): Promise<string>
 }
 
 /** See `ProjectBridge.findOldProject`. */
@@ -543,6 +551,26 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
           'x-redbeam-overwrite': overwrite ? '1' : '0',
         },
       })
+    },
+
+    async streamDocument(projectPath, relativePath) {
+      if (!desktop) return null
+      try {
+        const got = await invoke<{ token: string, size: number } | null>('project_stream_document', { path: projectPath, relativePath })
+        return got != null && typeof got.token === 'string' ? got : null
+      } catch {
+        return null
+      }
+    },
+
+    async releaseStream(token) {
+      if (!desktop) return
+      await invoke('project_stream_release', { token }).catch(() => {})
+    },
+
+    async streamFingerprint(token) {
+      if (!desktop) throw new Error(BROWSER_NO_READ)
+      return invoke<string>('project_stream_fingerprint', { token })
     },
 
     async appendDocument(projectPath, relativePath, tail, expectedSha256, expectedLength): Promise<DocumentWrite> {
