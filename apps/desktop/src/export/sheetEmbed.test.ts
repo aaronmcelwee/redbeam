@@ -264,3 +264,23 @@ describe('a sheet turned in REDBEAM', () => {
     expect(again.bytes).toBeNull()
   })
 })
+
+describe('a working copy without the other markups (round 3 #13)', () => {
+  it('takes every other app\'s markup off and keeps links and REDBEAM\'s own', async () => {
+    const first = await embedSheet(await blank(true), input())
+    const revu = await resaveElsewhere(first.bytes!, (doc) => {
+      const page = doc.getPages()[0]!
+      const arr = page.node.lookup(PDFName.of('Annots'), PDFArray)
+      arr.push(doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Square', Rect: [10, 10, 100, 100], NM: PDFString.of('DAVE1') })))
+      arr.push(doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'FreeText', Rect: [10, 10, 100, 100], NM: PDFString.of('DAVE2') })))
+      arr.push(doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [10, 10, 100, 100], NM: PDFString.of('LINK') })))
+    })
+    const copy = await embedSheet(revu, { ...input(), retireForeign: true })
+    expect(copy.bytes).not.toBeNull()
+    const nms = (await pageAnnots(copy.bytes!)).map((a) => str(a, 'NM')).sort()
+    expect(nms).toEqual(['LINK', redbeamNm('m1')].sort())
+    // And a plain save keeps them.
+    const plain = await embedSheet(revu, input([area('m1'), area('m2')]))
+    expect((await pageAnnots(plain.bytes!)).map((a) => str(a, 'NM'))).toContain('DAVE1')
+  })
+})

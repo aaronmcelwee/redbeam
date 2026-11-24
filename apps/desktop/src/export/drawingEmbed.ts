@@ -41,6 +41,13 @@ const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
      SELECT id FROM calculation_runs WHERE scope_id IN (
        SELECT scope_id FROM markups WHERE document_id = ?1 AND deleted_at IS NULL AND scope_id IS NOT NULL))`],
   ['layout_components', 'SELECT * FROM layout_components WHERE document_id = ?1'],
+  /*
+   * Who changed what, and when (Aaron, 2026-11-24: "That would have answered
+   * straight away who deleted the markup from Dave's file"). The trail rides
+   * in the PDF with the takeoff, so it survives the session; the newest 5000
+   * entries, which is years of a busy estimate.
+   */
+  ['activity', 'SELECT * FROM activity ORDER BY created_at DESC LIMIT 5000'],
 ]
 
 /**
@@ -431,6 +438,8 @@ export async function embedCopy(opts: {
   read: () => Promise<Uint8Array>
   allScopes?: boolean
   pageRotations?: ReadonlyMap<number, number>
+  /** Leave every other app's markups out of the copy. */
+  withoutForeign?: boolean
 }): Promise<Uint8Array> {
   const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
@@ -441,6 +450,7 @@ export async function embedCopy(opts: {
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
     ...(retire.length === 0 ? {} : { retire }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
+    ...(opts.withoutForeign === true ? { retireForeign: true } : {}),
   })
   return result.bytes ?? source
 }
@@ -553,7 +563,7 @@ export function migrationStatus(result: MigrationResult): string | null {
 
 /** Order matters: a row's parents go in before it does. */
 const IMPORT_ORDER = ['scopes', 'calibrations', 'scale_regions', 'markups',
-  'calculation_runs', 'quantity_results', 'layout_components'] as const
+  'calculation_runs', 'quantity_results', 'layout_components', 'activity'] as const
 
 const IDENT = /^[a-z_][a-z0-9_]*$/
 

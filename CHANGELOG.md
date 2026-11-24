@@ -5,6 +5,19 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.59 — 2026-11-24
+
+### AI apps can do a whole takeoff
+
+- **Products say what they need.** An AI app can ask what a product needs (spacing, stock length, connector spacing and so on), with the exact field, unit and default for each. A scope that can't be counted yet names the fields to fill in, and a value written where nothing reads it is flagged.
+- **Product type and pattern set by the app.** A new scope can be given its product type directly. The pattern's start point (a point, a corner, an edge, the centre or automatic) and its direction (for the scope, a sheet or one area) can be set and read back.
+- **Reading the drawing.** Line reading can keep only lines inside a box, horizontal or vertical lines, or a length range, without duplicates. An app can also read a drawn pattern's spacing, member length, runs and rows, and trace the closed outline around a point.
+- **Scales and sheet names.** The scales printed on each sheet are read with their positions and checked against the scale that's set, or against a written dimension. Pages that the bookmarks leave as plain numbers are named from their title blocks, and so are spec sections and addendum pages.
+- **Addenda.** A sheet issued again later in the set is marked as replaced, sheets can be linked by hand, and scopes with takeoff on a replaced sheet are listed.
+- **Drawing the takeoff.** Outlines can have true arcs and circles, many markups can go in at once as a single undo step, and a working copy can leave out other apps' markups. Cutouts are taken out of baffle, plank and panel patterns.
+- **Output.** A piece list gives every run's pieces with their cut lengths (including pieces cut to fit), stock use and parts, and can be exported as a spreadsheet. Exports can be written to a chosen file. The PDF now keeps a history of who changed each markup and scope (a person or an AI app) and when.
+
+
 ## 0.3.58 — 2026-11-24
 
 ### AI apps can measure, and keep a client's file clean

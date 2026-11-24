@@ -140,6 +140,13 @@ export interface EmbedInput {
    * the markup is not shown twice, and a deleted one stays deleted.
    */
   retire?: readonly string[]
+  /**
+   * Take every other app's markup off the sheet (links and form fields stay).
+   * For a working copy of someone else's file that should carry only this
+   * takeoff (Aaron, 2026-11-24: "I had to strip Dave's markups outside
+   * RedBeam"). Never used on a save to the original.
+   */
+  retireForeign?: boolean
   /** For tests; defaults to the clock. */
   now?: () => Date
 }
@@ -963,7 +970,14 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
   }
   const turned = rotationsToWrite(doc.getPages(), input.pageRotations)
   const retire = new Set(input.retire ?? [])
-  const retiring = retire.size > 0 && doc.getPages().some((p) => annotsOn(p).some((a) => !isOurs(a) && retire.has(textOf(a, 'NM'))))
+  const KEEP_SUBTYPES = new Set(['Link', 'Widget'])
+  const foreignMarkup = (a: PDFDict): boolean => {
+    if (input.retireForeign !== true || isOurs(a)) return false
+    const st = a.lookup(PDFName.of('Subtype'))
+    return !(st instanceof PDFName && KEEP_SUBTYPES.has(st.decodeText()))
+  }
+  const retiring = (retire.size > 0 && doc.getPages().some((p) => annotsOn(p).some((a) => !isOurs(a) && retire.has(textOf(a, 'NM')))))
+    || (input.retireForeign === true && doc.getPages().some((p) => annotsOn(p).some((a) => foreignMarkup(a))))
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0 && !retiring
     && prev.documentId === input.documentId && turned.length === 0) {
     return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }
@@ -1002,6 +1016,7 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
         removed = true
         continue
       }
+      if (a instanceof PDFDict && foreignMarkup(a)) { removed = true; continue }
       if (a instanceof PDFDict && retire.size > 0) {
         // The retired markup, and the note popup that belongs to it.
         const parent = a.lookup(PDFName.of('Parent'))

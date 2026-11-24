@@ -97,7 +97,7 @@ test('export says where its output goes', () => {
   assert.match(t.description, /download/i)
   assert.deepEqual(
     t.inputSchema.properties.what.enum,
-    ['tsv', 'report', 'marked-pdf', 'csv', 'estimate-tsv', 'pdf'],
+    ['tsv', 'report', 'marked-pdf', 'csv', 'estimate-tsv', 'pdf', 'pieces-csv'],
   )
 })
 
@@ -151,4 +151,18 @@ test('page numbering is documented as zero-based where it is exposed', () => {
       `${p} names a sheet and must say the numbering is zero-based`,
     )
   }
+})
+
+test('round 3 agent takeoff tools are named and described', () => {
+  for (const name of [
+    'redbeam_describe_product', 'redbeam_set_pattern_origin', 'redbeam_set_pattern_direction', 'redbeam_get_pattern',
+    'redbeam_trace_area', 'redbeam_detect_pattern', 'redbeam_read_scale', 'redbeam_track_addenda',
+    'redbeam_create_markups', 'redbeam_get_piece_list', 'redbeam_get_history',
+  ]) {
+    const t = tools.find((x) => x.name === name)
+    assert.ok(t, `${name} is listed`)
+    assert.ok(t.description.length > 60, `${name} says what it does`)
+  }
+  const exp = tools.find((x) => x.name === 'redbeam_export')
+  assert.ok(exp.inputSchema.properties.path, 'export takes a path')
 })

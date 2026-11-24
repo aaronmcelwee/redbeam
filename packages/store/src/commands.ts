@@ -214,7 +214,7 @@ export function editGeometry(
       await updateMarkupGeometry(db, id, after)
       await logActivity(db, {
         eventType: 'markup.geometry_changed', entityType: 'markup', entityId: id,
-        origin: 'user', details: { what },
+        origin, details: { what },
       })
     },
     async revert(db) {
@@ -225,7 +225,7 @@ export function editGeometry(
       // clobber a peer. See `src-tauri/src/undo/apply.rs :: guard`.
       await updateMarkupGeometry(db, id, before)
       await logActivity(db, {
-        eventType: 'markup.geometry_reverted', entityType: 'markup', entityId: id, origin: 'user',
+        eventType: 'markup.geometry_reverted', entityType: 'markup', entityId: id, origin,
       })
     },
   }
@@ -255,7 +255,7 @@ export function reassignScope(
       await assignMarkupScope(db, id, after)
       await logActivity(db, {
         eventType: 'markup.scope_changed', entityType: 'markup', entityId: id,
-        origin: 'user', details: { from: before, to: after },
+        origin, details: { from: before, to: after },
       })
     },
     async revert(db) {

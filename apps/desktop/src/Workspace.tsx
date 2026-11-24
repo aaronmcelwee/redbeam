@@ -13,7 +13,8 @@ import {
   type MarkupKind, type PieceResult, type ScalePreset,
   type Calibration, type Markup, type Scope, type ScopeType, type QuantityResult,
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
-  areaOriginsFrom, patternStartPoint, isAreaCorner, nearestAreaVertex,
+  areaOriginsFrom, patternStartPoint, isAreaCorner, nearestAreaVertex, areaCornerPoint, normalizedBoundingRect, pointInRegion,
+  canonicalProductType, scopeDefaultDirectionFrom as scopeDirectionOf, formatFeetInches,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
   deviceLocations, factoryCutPieces, type FactoryCut,
 } from '@redbeam/domain'
@@ -21,8 +22,8 @@ import {
   ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
   listEstimates, createEstimate as createEstimateRow, listEstimateScopeIds,
   estimateDocuments, addScopeToEstimate,
-  upsertScope, setScopeArchived, type SqlDriver,
-  pageIdFor, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
+  upsertScope, setScopeArchived, logActivity, type SqlDriver,
+  pageIdFor, pageNumberFrom, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
   type DocumentRow, type SearchHit, type NormBox,
   UndoStack, createMarkup as cmdCreate, removeMarkup as cmdRemove,
   editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
@@ -68,7 +69,7 @@ import { pageStepForKey, steppedPage, toolForKey } from './shell/sheetKeys.js'
 import type { SheetScope } from './shell/sheets.js'
 import { StatusToast } from './shell/StatusToast.js'
 import { PerfReadout } from './shell/PerfReadout.js'
-import { buildSheetIndex, sheetFromText } from './shell/sheets.js'
+import { buildSheetIndex, isOrdinalLabel, mergeSheetLabels, sheetFromText } from './shell/sheets.js'
 import type { SheetIndexShape, SheetOutlineNode } from './shell/sheets.js'
 import {
   EstimatesPanel, type EstimateFile, type EstimateListItem, type PanelWarning, type ScopeMarkup, type ScopeStanding,
@@ -128,7 +129,11 @@ import { saveFile, saveOutcomeText } from './export/saveFile.js'
 import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/snapshots.js'
 import { indexProject, type IndexProgress } from './search/indexer.js'
 import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
-import { linesFromSegments, measurePoints } from './search/measure.js'
+import { detectPattern, linesFromSegments, measurePoints } from './search/measure.js'
+import { describeAllProducts, describeProduct, missingKeys, unknownSpecKeys } from './agent/products.js'
+import { expandRing } from './agent/arcs.js'
+import { checkScale, statedScales } from './agent/statedScale.js'
+import { pieceList } from './agent/pieceList.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
 import { hitTestDimension } from './tools/dimension.js'
 import { drawPatternItems, type PatternOriginItem } from './tools/pattern.js'
@@ -716,6 +721,12 @@ export default function Workspace({
   const [docMarkups, setDocMarkups] = useState<Markup[]>([])
   /** Latest value, for write paths. See the note on `pageIndexRef`. */
   const docMarkupsRef = useRef<Markup[]>([])
+  /**
+   * Who is making the change being written: an AI app while a bridge action
+   * runs, the person otherwise. Recorded in the activity trail that travels
+   * in the PDF (round 3 #16), so "who deleted that markup" has an answer.
+   */
+  const actorRef = useRef<'user' | 'agent'>('user')
   /**
    * The whole PROJECT's takeoff, for totalling.
    *
@@ -1795,9 +1806,12 @@ export default function Workspace({
     const v = viewerRef.current
     const db = dbRef.current
     if (!v || !db || pageCount === 0) return
-    if (docIndex.shape !== 'none' && docIndex.shape !== 'sparse') return
-    // Something already names them; nothing to work out.
-    if (docIndex.labels.some((l) => l !== null && l.trim() !== '')) return
+    /*
+     * Every page is read, not only when nothing names the set: an outline or
+     * page labels that cover pages 1-32 and leave 33-54 as plain numbers
+     * (Aaron, 2026-11-24) still need the rest read off their title blocks.
+     * The document's own names win where they exist (mergeSheetLabels).
+     */
 
     let cancelled = false
     const docId = docIdRef.current
@@ -2521,9 +2535,33 @@ export default function Workspace({
    * The quantities and the report already leave the app; this is the half a
    * spreadsheet cannot carry — the sheet somebody argues about later.
    */
-  const exportMarkedDrawing = useCallback(async (): Promise<string | null> => {
+  const exportMarkedDrawing = useCallback(async (
+    /** An AI app's chosen path: written there instead of asking (round 3 #15). */
+    target?: { path: string; overwrite: boolean },
+  ): Promise<string | null> => {
     const doc = documents.find((d) => d.id === activeDocId)
     if (doc === undefined) return 'No drawing is open.'
+    if (target !== undefined) {
+      let written: Promise<string> | null = null
+      const problem = await exportMarkedPdf({
+        documentId: doc.id,
+        documentName: doc.displayName || doc.relativePath,
+        markups: projectMarkups,
+        scopes,
+        calibrations: projectCalibrations,
+        pageBoxes: projectPageBoxes,
+        readBytes: () => projectBridge.readDocument(projectPath, doc.relativePath),
+        save: (_fileName, bytes) => {
+          written = projectBridge.writeExport === undefined
+            ? Promise.reject(new Error('this build cannot write files'))
+            : projectBridge.writeExport(target.path, bytes, target.overwrite)
+        },
+      })
+      if (problem !== null) return problem
+      if (written === null) return 'nothing was written'
+      try { await written } catch (err) { return err instanceof Error ? err.message : String(err) }
+      return null
+    }
     return exportMarkedPdf({
       documentId: doc.id,
       documentName: doc.displayName || doc.relativePath,
@@ -3123,7 +3161,7 @@ export default function Workspace({
       if (cmd !== null) await runCommand(cmd)
       return
     }
-    await runCommand(cmdRemove({ id, kind: m.kind, origin: 'user' }))
+    await runCommand(cmdRemove({ id, kind: m.kind, origin: actorRef.current }))
   }, [runCommand])
 
   // ------------------------------------------------------------- interaction --
@@ -4501,10 +4539,26 @@ export default function Workspace({
   const saveScope = useCallback(async (scope: Scope) => {
     const db = dbRef.current
     if (!db) return
+    const before = scopesRef.current.find((x) => x.id === scope.id)
     await upsertScope(db, {
       id: scope.id, label: scope.label, scopeType: scope.scopeType,
       color: scope.color, specifications: scope.specifications, archivedAt: null,
     })
+    {
+      const changed = before === undefined ? [] : [
+        ...(before.label !== scope.label ? ['label'] : []),
+        ...(before.scopeType !== scope.scopeType ? ['scopeType'] : []),
+        ...(before.color !== scope.color ? ['color'] : []),
+        ...[...new Set([...Object.keys(before.specifications), ...Object.keys(scope.specifications)])]
+          .filter((k) => JSON.stringify(before.specifications[k]) !== JSON.stringify(scope.specifications[k])),
+      ]
+      try {
+        await logActivity(db, {
+          eventType: before === undefined ? 'scope.created' : 'scope.changed', entityType: 'scope', entityId: scope.id,
+          origin: actorRef.current, details: { label: scope.label, ...(changed.length > 0 ? { changed } : {}) },
+        })
+      } catch { /* the trail is a record, never a reason to fail a save */ }
+    }
     saveRef.current?.()
     await refreshScopes()
     void broadcastChange('scopes', identity.projectId ?? 'default')
@@ -4796,6 +4850,12 @@ export default function Workspace({
     const db = dbRef.current
     if (!db) return
     await setScopeArchived(db, id, archived)
+    try {
+      await logActivity(db, {
+        eventType: archived ? 'scope.archived' : 'scope.restored', entityType: 'scope', entityId: id,
+        origin: actorRef.current, details: { label: scopesRef.current.find((x) => x.id === id)?.label ?? '' },
+      })
+    } catch { /* as in saveScope */ }
     saveRef.current?.()
     await refreshScopes()
     void broadcastChange('scopes', identity.projectId ?? 'default')
@@ -5439,6 +5499,79 @@ export default function Workspace({
     throw new Error(`page ${n} did not show within 10s`)
   }
 
+  /** The areas an agent's call is about: by id, by a point, or every area of the scope on this sheet. */
+  const agentAreas = (params: Record<string, unknown>): { scope: Scope; areas: Markup[] } | { error: string } => {
+    const sid = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+    const ids = Array.isArray(params['markupIds']) ? (params['markupIds'] as unknown[]).map(String)
+      : typeof params['markupId'] === 'string' ? [params['markupId']] : null
+    if (ids !== null) {
+      const found = ids.map((i) => docMarkupsRef.current.find((m) => m.id === i))
+      const missing = ids.filter((_, k) => found[k] === undefined)
+      if (missing.length > 0) return { error: `no such markup: ${missing.join(', ')}` }
+      const areas = found as Markup[]
+      if (areas.some((m) => m.kind !== 'area' || m.scopeId === null)) return { error: 'patterns are set on areas that belong to a scope' }
+      const sc = scopesRef.current.find((x) => x.id === areas[0]!.scopeId)
+      if (!sc || areas.some((m) => m.scopeId !== sc.id)) return { error: 'those areas are in different scopes; one scope per call' }
+      return { scope: sc, areas }
+    }
+    const sc = scopesRef.current.find((x) => x.id === sid)
+    if (!sc) return { error: `no such scope: ${sid || '(none active)'}` }
+    const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+    let areas = docMarkupsRef.current.filter((m) => m.kind === 'area' && m.scopeId === sc.id && m.pageId === here)
+    const pt = bridgePoint(params['point'])
+    if (pt !== null) {
+      const inside = areas.filter((m) => pointInRegion(pt, m.rings))
+      if (inside.length > 0) areas = inside
+      else {
+        const box = { width: page.width, height: page.height }
+        const near = areas.map((m) => ({ m, p: nearestOnBoundary(m.rings, pt, box) }))
+          .filter((x) => x.p !== null && Math.hypot((x.p.x - pt.x) * box.width, (x.p.y - pt.y) * box.height) <= 24)
+          .sort((a, b) => Math.hypot(a.p!.x - pt.x, a.p!.y - pt.y) - Math.hypot(b.p!.x - pt.x, b.p!.y - pt.y))
+        areas = near.length > 0 ? [near[0]!.m] : []
+      }
+    }
+    if (areas.length === 0) return { error: `no area of ${sc.label} ${pt !== null ? 'at that point' : 'on this sheet'}; give markupId, or a point inside one` }
+    return { scope: sc, areas }
+  }
+  /** Pages for a read: page, pages or fromPage..toPage, else the sheet showing. */
+  const agentPageList = (params: Record<string, unknown>, current: number): { pages: number[] } | { error: string } => {
+    if (params['page'] === undefined && params['pages'] === undefined && params['fromPage'] === undefined && params['toPage'] === undefined) {
+      return { pages: [current] }
+    }
+    const r = bridgePages(params, pageCount)
+    return typeof r === 'string' ? { error: r } : { pages: r }
+  }
+  /** One markup from an agent's description, checked; curves laid out (round 3 #10). */
+  const agentMarkup = (spec: Record<string, unknown>, docId: string, pageId: string): { markup: Markup } | { error: string } => {
+    const kind = String(spec['kind'] ?? '') as MarkupKind
+    const kinds: MarkupKind[] = ['area', 'cutout', 'polyline', 'count', 'shape']
+    if (!kinds.includes(kind)) return { error: `cannot create kind: ${kind}` }
+    let raw: unknown = spec['rings']
+    if (typeof raw === 'string') { try { raw = JSON.parse(raw) } catch { raw = null } }
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return { error: 'needs rings: [[{x,y}, …]] in NORMALIZED [0,1] coords; a vertex may carry `bulge` for an arc to the next one, and a ring may be {circle:{cx,cy,r}}' }
+    }
+    const closed = kind === 'area' || kind === 'cutout' || kind === 'shape'
+    const pb = projectPageBoxes.get(pageId)
+    const box = pb !== undefined && pb.width > 0 ? { width: pb.width, height: pb.height } : { width: page.width || 1, height: page.height || 1 }
+    const rings: Array<Array<{ x: number; y: number }>> = []
+    for (const r of kind === 'area' ? raw : [raw[0]]) {
+      const ring = expandRing(r, box, closed)
+      if (ring === null || ring.length === 0) return { error: `not a ring: ${JSON.stringify(r).slice(0, 80)}` }
+      for (const p of ring) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < -0.05 || p.x > 1.05 || p.y < -0.05 || p.y > 1.05) {
+          return { error: `vertex out of normalized range: ${JSON.stringify(p)}` }
+        }
+      }
+      rings.push(ring)
+    }
+    const min = closed ? 3 : kind === 'count' ? 1 : 2
+    if (rings[0]!.length < min) return { error: `${kind} needs at least ${min} vertices` }
+    const scopeId = typeof spec['scopeId'] === 'string' ? spec['scopeId'] : activeScopeRef.current
+    if (scopeId !== null && !scopesRef.current.some((sc) => sc.id === scopeId)) return { error: `no such scope: ${scopeId}` }
+    return { markup: { id: uid(), documentId: docId, pageId, scopeId, kind, rings } }
+  }
+
   useBridgeRequests({
     query: async (sql, params) => {
       const db = dbRef.current
@@ -5559,6 +5692,12 @@ export default function Workspace({
     },
 
     invoke: async (action, params) => {
+      actorRef.current = 'agent'
+      try { return await invokeAction(action, params) } finally { actorRef.current = 'user' }
+    },
+  })
+  async function invokeAction(action: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    {
       /*
        * A nested object, however the caller managed to send it.
        *
@@ -5628,7 +5767,8 @@ export default function Workspace({
           if (activeDocId === null) return { error: 'no document is open' }
           const doc = documents.find((d) => d.id === activeDocId)
           const sheets = sheetGroups.flatMap((g) => g.rows.map((r) => {
-            const unnamed = r.number === `Page ${r.page + 1}` && r.title === ''
+            // A bare page label ("34") is a position, not a sheet name.
+            const unnamed = r.title === '' && (r.number === `Page ${r.page + 1}` || isOrdinalLabel(r.number))
             return {
               page: r.page,
               sheet: unnamed ? null : r.number,
@@ -5802,15 +5942,31 @@ export default function Workspace({
           }
           const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
           const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 300) || 300))
-          const { lines, total } = linesFromSegments(g.segments, v.pageInfo, {
-            feetPerPoint: calRef.current?.feetPerPoint ?? null,
-            minLengthPoints: Math.max(0, Number(params['minLengthPoints'] ?? 2) || 0),
+          const fpp = calRef.current?.feetPerPoint ?? null
+          const feetToPts = (k: string): number | undefined => {
+            const f = Number(params[k])
+            return Number.isFinite(f) && f >= 0 && fpp !== null && fpp > 0 ? f / fpp : undefined
+          }
+          const maxPts = Number.isFinite(Number(params['maxLengthPoints'])) ? Number(params['maxLengthPoints']) : feetToPts('maxLengthFeet')
+          const minFromFeet = feetToPts('minLengthFeet')
+          const orientation = params['orientation']
+          const sort = params['sort']
+          const { lines, total, duplicatesRemoved } = linesFromSegments(g.segments, v.pageInfo, {
+            feetPerPoint: fpp,
+            minLengthPoints: minFromFeet ?? Math.max(0, Number(params['minLengthPoints'] ?? 2) || 0),
+            ...(maxPts !== undefined ? { maxLengthPoints: maxPts } : {}),
+            ...(params['inside'] === true ? { inside: clip } : {}),
+            ...(orientation === 'horizontal' || orientation === 'vertical' ? { orientation } : {}),
+            ...(Number.isFinite(Number(params['angleTolerance'])) ? { angleTolerance: Number(params['angleTolerance']) } : {}),
+            dedupe: params['dedupe'] !== false,
+            ...(sort === 'x' || sort === 'y' || sort === 'length' ? { sort } : {}),
             limit,
           })
           return {
             page: pageIndexRef.current,
             lines,
             total,
+            ...(duplicatesRemoved > 0 ? { duplicatesRemoved } : {}),
             ...(total > lines.length ? { truncated: true } : {}),
             ...(g.truncated ? { note: 'the box holds more geometry than was read; use a smaller box' } : {}),
           }
@@ -5832,6 +5988,7 @@ export default function Workspace({
             read: () => projectBridge.readDocument(projectPath, doc.relativePath),
             allScopes: light,
             ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+            ...(params['withoutEmbeddedMarkups'] === true ? { withoutForeign: true } : {}),
           })
           const dir = doc.relativePath.includes('/') ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/') + 1) : ''
           const wanted = typeof params['name'] === 'string' && params['name'].trim() !== ''
@@ -5845,7 +6002,11 @@ export default function Workspace({
               const sep = projectPath.includes('\\') ? '\\' : '/'
               const path = `${projectPath.replace(/[\\/]+$/, '')}${sep}${(dir + name).split('/').join(sep)}`
               setStatus(`saved a working copy: ${name}`)
-              return { path, name, note: 'the original was not changed; open this copy with redbeam_open_file and take off there' }
+              return {
+                path, name,
+                ...(params['withoutEmbeddedMarkups'] === true ? { embeddedMarkups: 'left out' } : {}),
+                note: 'the original was not changed; open this copy with redbeam_open_file and take off there',
+              }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err)
               if (!/already there/.test(msg)) return { error: `could not save a copy: ${msg}` }
@@ -5916,7 +6077,13 @@ export default function Workspace({
         case 'get_bom': {
           const bom = buildBom(piecesRef.current)
           return {
-            lines: bom.lines,
+            // A blocked line names the keys to set, not only their labels (round 3 #1).
+            lines: bom.lines.map((l) => {
+              if (l.confidence !== 'blocked') return l
+              const sc = scopesRef.current.find((x) => x.id === l.scopeId)
+              const keys = sc === undefined ? [] : missingKeys(readProductType(sc.specifications), sc.specifications)
+              return keys.length > 0 ? { ...l, missing: keys } : l
+            }),
             totals: bom.totals,
             counts: bom.counts,
             needsAttention: bom.needsAttention,
@@ -5941,28 +6108,55 @@ export default function Workspace({
          */
         case 'export': {
           const what = String(params['what'] ?? '')
+          /*
+           * Written to a path the agent chose (round 3 #15) instead of
+           * returned as text or dropped in Downloads.
+           */
+          const target = typeof params['path'] === 'string' && params['path'].trim() !== ''
+            ? { path: params['path'].trim(), overwrite: params['overwrite'] === true } : undefined
+          const toFile = async (format: string, text: string): Promise<Record<string, unknown>> => {
+            if (target === undefined) return { format, text }
+            if (projectBridge.writeExport === undefined) return { error: 'this build cannot write files' }
+            try {
+              const written = await projectBridge.writeExport(target.path, new TextEncoder().encode(text), target.overwrite)
+              return { format, saved: true, path: written, bytes: text.length }
+            } catch (err) { return { error: err instanceof Error ? err.message : String(err) } }
+          }
+          if (what === 'pieces-csv') {
+            const rowsOut = ['scope,page,area,run,run length,piece,cut,cut ft,cut to fit,stock fraction,family,offcut ft']
+            for (const p of piecesRef.current) {
+              if (p.result.blockers.length > 0 || p.result.runs.length === 0) continue
+              const list = pieceList(p.result)
+              const q = (t: string) => `"${t.replace(/"/g, '""')}"`
+              for (const r of list.runs) {
+                const pg = pageNumberFrom(r.pageId, docIdRef.current)
+                r.pieces.forEach((pc, i) => rowsOut.push([q(p.scope.label), pg === null ? '' : q(sheetLabelFor(pg)), r.area + 1, r.run + 1, q(r.length), i + 1, q(pc.cut), pc.cutFeet, pc.cutToFit ? 'yes' : '', pc.stockFraction, pc.family, pc.offcutFeet].join(',')))
+              }
+            }
+            return toFile('pieces-csv', rowsOut.join('\r\n') + '\r\n')
+          }
           if (what === 'marked-pdf') {
             // Awaited: the write-back can fail on a source file it cannot
             // read, and reporting `saved` before it returns records that
             // failure as a success.
-            const problem = await exportMarkedDrawing()
+            const problem = await exportMarkedDrawing(target)
             return problem === null
-              ? { format: 'marked-pdf', saved: true, markups: markupsOnOpenDrawing }
+              ? { format: 'marked-pdf', saved: true, markups: markupsOnOpenDrawing, ...(target !== undefined ? { path: target.path } : {}) }
               : { error: problem }
           }
           if (what === 'csv' || what === 'estimate-tsv' || what === 'pdf') {
             const id = String(params['estimateId'] ?? openEstimateIdRef.current ?? '')
             const draft = await buildExportFor(id)
             if (draft === null) return { error: `no such estimate: ${id || '(none open)'}` }
-            if (what === 'csv') return { format: 'csv', text: estimateToCsv(draft) }
-            if (what === 'estimate-tsv') return { format: 'estimate-tsv', text: estimateToTsv(draft) }
-            const result = await saveEstimatePdf(draft, () => {})
+            if (what === 'csv') return toFile('csv', estimateToCsv(draft))
+            if (what === 'estimate-tsv') return toFile('estimate-tsv', estimateToTsv(draft))
+            const result = await saveEstimatePdf(draft, () => {}, target)
             return result.problem === null
               ? { format: 'pdf', saved: true, said: result.said, scopes: draft.scopes.length }
               : { error: result.problem }
           }
           const bom = buildBom(piecesRef.current)
-          if (what === 'tsv') return { format: 'tsv', text: bomToTsv(bom) }
+          if (what === 'tsv') return toFile('tsv', bomToTsv(bom))
           if (what === 'report') {
             // The same inputs the panel passes. `projectName` is the shared
             // value both read, so the agent's report and the button's report
@@ -5975,6 +6169,7 @@ export default function Workspace({
               documents: documents.map((d) => d.displayName || d.relativePath),
               generatedAt: new Date(),
             })
+            if (target !== undefined) return toFile('report', html)
             return { format: 'report', bytes: html.length, html }
           }
           return { error: `unknown export: ${what} (tsv, report, marked-pdf, csv, estimate-tsv or pdf)` }
@@ -6013,11 +6208,9 @@ export default function Workspace({
           const allowed: MarkupKind[] = ['area', 'cutout', 'polyline', 'count', 'shape']
           if (!allowed.includes(kind as MarkupKind)) return { error: `cannot create kind: ${kind}` }
 
-          const rings = params['rings']
-          const ring = Array.isArray(rings) ? rings[0] : null
-          if (!Array.isArray(ring) || ring.length === 0) {
-            return { error: 'create_markup needs rings: [[{x,y}, …]] in NORMALIZED [0,1] coords' }
-          }
+          const built = agentMarkup(params, docIdRef.current, pageIdFor(docIdRef.current, pageIndexRef.current))
+          if ('error' in built) return built
+          const ring = built.markup.rings[0]!
           // Page points would be in the hundreds and would still "work",
           // producing a markup somewhere off the sheet. Reject rather than
           // silently place it.
@@ -6040,13 +6233,15 @@ export default function Workspace({
           if (kind === 'cutout') {
             const edits = cutEdits(markupsRef.current, pageId, ring as Array<{ x: number; y: number }>)
             if (edits.length === 0) return { error: 'the cutout crosses no area on this sheet' }
-            void runCommand(editsCommand(edits, 'cut area')!)
+            await runCommand(editsCommand(edits, 'cut area')!)
             return { cut: edits.map((e) => e.id), kind, pageId }
           }
           const id = uid()
-          void runCommand(cmdCreate({
+          // Awaited: an id reported before the write lands is a markup the next call cannot find.
+          await runCommand(cmdCreate({
             id, documentId: docId, pageId, scopeId,
-            kind, rings: [ring as Array<{ x: number; y: number }>],
+            // An area keeps its holes; every other kind is one ring.
+            kind, rings: kind === 'area' ? built.markup.rings : [ring as Array<{ x: number; y: number }>],
             // `agent`, not `user`: the activity trail must be able to say who
             // drew a markup, and a review gate cannot filter what it cannot see.
             origin: 'agent', reviewState: 'accepted',
@@ -6109,9 +6304,22 @@ export default function Workspace({
           const label = String(params['label'] ?? '').trim()
           if (label === '') return { error: 'create_scope needs a label' }
           const types: Array<Scope['scopeType']> = ['area', 'linear', 'count']
-          const scopeType = String(params['scopeType'] ?? '') as Scope['scopeType']
+          /*
+           * The product, stated rather than guessed (round 3 #2). It decides
+           * what the scope is measured as, so scopeType may be left out.
+           */
+          const productRaw = typeof params['productType'] === 'string' ? params['productType'].trim() : ''
+          const product = productRaw === '' ? null : canonicalProductType(productRaw)
+          if (product !== null && product === 'baffle' && !/baffle/i.test(productRaw)) {
+            return { error: `unknown productType "${productRaw}": use one of ${PRODUCT_TYPES.join(', ')}` }
+          }
+          const implied = product === null ? null : scopeTypeForProduct(product)
+          const scopeType = String(params['scopeType'] ?? implied ?? '') as Scope['scopeType']
           if (!types.includes(scopeType)) {
-            return { error: `scopeType must be one of ${types.join(', ')}` }
+            return { error: `scopeType must be one of ${types.join(', ')}${product === 'custom_assembly' ? ' (a custom assembly can be any of them)' : ''}` }
+          }
+          if (implied !== null && scopeType !== implied) {
+            return { error: `a ${PRODUCT_TYPE_LABEL[product!]} scope is measured as ${implied}, not ${scopeType}` }
           }
           /*
            * Two scopes with one label are indistinguishable in the shelf, in
@@ -6129,7 +6337,7 @@ export default function Workspace({
             label,
             scopeType,
             color: typeof params['color'] === 'string' ? params['color'] : '#39a2ff',
-            specifications: specs ?? {},
+            specifications: product === null ? (specs ?? {}) : writeProductType(specs ?? {}, product),
           }
           await createScope(scope)
           /*
@@ -6138,10 +6346,15 @@ export default function Workspace({
            * the sheet — and is in no total anywhere. Reported rather than
            * refused, because the same is true of the button.
            */
+          const madeProduct = readProductType(scope.specifications)
+          const stillNeeds = missingKeys(madeProduct, scope.specifications)
           return {
             scopeId: scope.id,
             label,
             scopeType,
+            productType: madeProduct,
+            ...(((u) => u.length > 0 ? { ignoredKeys: u, warning: `nothing reads ${u.join(', ')} for a ${madeProduct}; see describe_product for the keys that count` } : {})(unknownSpecKeys(madeProduct, scope.specifications))),
+            ...(stillNeeds.length > 0 ? { needs: stillNeeds, note: 'set these with update_scope {specifications}; describe_product lists every field' } : {}),
             estimateId: openEstimateIdRef.current,
             inEstimate: openEstimateIdRef.current !== null,
           }
@@ -6167,6 +6380,14 @@ export default function Workspace({
            * could never be taken off again.
            */
           let merged = sc.specifications
+          const nextProductRaw = typeof params['productType'] === 'string' ? params['productType'].trim() : ''
+          if (nextProductRaw !== '') {
+            const np = canonicalProductType(nextProductRaw)
+            if (np === 'baffle' && !/baffle/i.test(nextProductRaw)) {
+              return { error: `unknown productType "${nextProductRaw}": use one of ${PRODUCT_TYPES.join(', ')}` }
+            }
+            merged = writeProductType(merged, np)
+          }
           if (specs !== undefined) {
             merged = { ...sc.specifications }
             for (const [k, v] of Object.entries(specs)) {
@@ -6202,7 +6423,10 @@ export default function Workspace({
             label: next.label,
             scopeType: next.scopeType,
             typeChanged: next.scopeType !== sc.scopeType,
+            productType: readProductType(next.specifications),
             specifications: next.specifications,
+            ...(((u) => u.length > 0 ? { ignoredKeys: u, warning: `nothing reads ${u.join(', ')} for a ${readProductType(next.specifications)}; see describe_product for the keys that count` } : {})(unknownSpecKeys(readProductType(next.specifications), next.specifications))),
+            ...(((n) => n.length > 0 ? { needs: n } : {})(missingKeys(readProductType(next.specifications), next.specifications))),
           }
         }
 
@@ -6408,11 +6632,404 @@ export default function Workspace({
           void runCommand(cmdReassign(id, m.scopeId, target, undefined, 'agent'))
           return { id, scopeId: target }
         }
+        /*
+         * ---- round 3 (Aaron, 2026-11-24): agent takeoffs ----
+         */
+        case 'describe_product': {
+          const t = typeof params['productType'] === 'string' ? params['productType'].trim() : ''
+          if (t === '') return { products: describeAllProducts() }
+          return { ...describeProduct(t) }
+        }
+        /*
+         * Where an area's pattern starts. Per area, in the same specification
+         * the Origin tool writes, so the tool and an agent see one answer.
+         */
+        case 'set_pattern_origin': {
+          const target = agentAreas(params)
+          if ('error' in target) return target
+          const { scope: sc, areas } = target
+          const mode = String(params['mode'] ?? (params['point'] !== undefined ? 'point' : 'center'))
+          const pt = bridgePoint(params['point'])
+          const corner = params['corner']
+          const pageBox = { width: page.width, height: page.height }
+          const origins = { ...(sc.specifications[AREA_ORIGINS_KEY] as Record<string, unknown> ?? {}) }
+          const placed: Array<{ markupId: string; origin: { x: number; y: number } | null }> = []
+          for (const m of areas) {
+            let p: { x: number; y: number } | null = null
+            if (mode === 'auto') { delete origins[m.id]; placed.push({ markupId: m.id, origin: null }); continue }
+            if (mode === 'center') {
+              const r = normalizedBoundingRect(m.rings)
+              p = r === null ? null : { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }
+              if (p !== null && !pointInRegion(p, m.rings)) {
+                return { error: `the centre of ${m.id} is outside the area (an L-shape or a ring); give a point instead` }
+              }
+            } else if (mode === 'corner') {
+              if (isAreaCorner(corner)) p = areaCornerPoint(m.rings, corner, pageBox)
+              else if (pt !== null) p = nearestAreaVertex(m.rings, pt, pageBox)
+              else return { error: 'corner mode needs `corner` (top-left, top-right, bottom-left, bottom-right) or a `point` near the corner' }
+            } else if (mode === 'edge' || mode === 'line') {
+              if (pt === null) return { error: `${mode} mode needs a \`point\` on or near the edge` }
+              p = nearestOnBoundary(m.rings, pt, pageBox)
+            } else if (mode === 'point') {
+              if (pt === null) return { error: 'point mode needs `point` {x,y}, normalized' }
+              p = patternStartPoint(pt, m.rings, { scaleX: page.width, scaleY: page.height, radius: 3 })
+              if (p === null) return { error: `that point is outside area ${m.id}` }
+            } else {
+              return { error: 'mode must be point, corner, edge, center or auto' }
+            }
+            if (p === null) return { error: `could not place an origin on ${m.id}` }
+            origins[m.id] = { x: p.x, y: p.y }
+            placed.push({ markupId: m.id, origin: { x: p.x, y: p.y } })
+          }
+          await saveScope({ ...sc, specifications: { ...sc.specifications, [AREA_ORIGINS_KEY]: origins } })
+          requestPaint()
+          return { scopeId: sc.id, mode, areas: placed }
+        }
+        /*
+         * The direction the members run: for the whole scope, one sheet, or
+         * one area. Area beats sheet beats scope, as the Direction tool reads
+         * them.
+         */
+        case 'set_pattern_direction': {
+          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const sc = scopesRef.current.find((x) => x.id === id)
+          if (!sc) return { error: `no such scope: ${id}` }
+          let x1 = Number(params['x1']), y1 = Number(params['y1']), x2 = Number(params['x2']), y2 = Number(params['y2'])
+          const angle = params['angle']
+          if (angle !== undefined) {
+            // Degrees on the sheet, counter-clockwise from the page's horizontal as the drawing reads.
+            const a = (Number(angle) * Math.PI) / 180
+            if (!Number.isFinite(a)) return { error: 'angle must be a number of degrees' }
+            const L = 0.05 * Math.min(page.width, page.height)
+            x1 = 0.5; y1 = 0.5
+            x2 = 0.5 + (Math.cos(a) * L) / page.width
+            y2 = 0.5 - (Math.sin(a) * L) / page.height
+          }
+          if ([x1, y1, x2, y2].some((v) => !Number.isFinite(v))) {
+            return { error: 'give x1,y1,x2,y2 (normalized) along a member, or `angle` in degrees (0 = across the sheet, 90 = up it)' }
+          }
+          if (x1 === x2 && y1 === y2) return { error: 'a zero-length vector is not a direction' }
+          const applyTo = String(params['applyTo'] ?? 'scope')
+          const vector = { sourcePage: pageIndexRef.current, x1, y1, x2, y2 }
+          const specs = { ...sc.specifications }
+          if (applyTo === 'scope') specs['scopeDefaultDirection'] = vector
+          else if (applyTo === 'page') {
+            const pages = { ...(specs[PAGE_DIRECTIONS_KEY] as Record<string, unknown> ?? {}) }
+            pages[pageIdFor(docIdRef.current, pageIndexRef.current)] = vector
+            specs[PAGE_DIRECTIONS_KEY] = pages
+          } else if (applyTo === 'area') {
+            const target = agentAreas({ ...params, scopeId: sc.id })
+            if ('error' in target) return target
+            const areasMap = { ...(specs[AREA_DIRECTIONS_KEY] as Record<string, unknown> ?? {}) }
+            for (const m of target.areas) areasMap[m.id] = vector
+            specs[AREA_DIRECTIONS_KEY] = areasMap
+          } else return { error: 'applyTo must be scope, page or area' }
+          await saveScope({ ...sc, specifications: specs })
+          requestPaint()
+          return { scopeId: sc.id, applyTo, direction: { x1, y1, x2, y2 } }
+        }
+        case 'get_pattern': {
+          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const sc = scopesRef.current.find((x) => x.id === id)
+          if (!sc) return { error: `no such scope: ${id}` }
+          const specs = sc.specifications
+          const dirOut = (d: ReturnType<typeof scopeDirectionOf>) => d === null ? null : { x1: d[0].x, y1: d[0].y, x2: d[1].x, y2: d[1].y }
+          const pageDirs = pageDirectionsFrom(specs), areaDirs = areaDirectionsFrom(specs), origins = areaOriginsFrom(specs)
+          const run = piecesRef.current.find((p) => p.scope.id === sc.id)
+          const used = new Map<string, { x: number; y: number }>()
+          for (const e of run?.result.runs ?? []) {
+            const box = projectPageBoxes.get(e.pageId)
+            if (box === undefined || box.width === 0) continue
+            used.set(`${e.pageId}:${used.size}`, { x: e.layout.origin.x / box.width, y: e.layout.origin.y / box.height })
+          }
+          const areas = docMarkupsRef.current.filter((m) => m.scopeId === sc.id && m.kind === 'area').map((m) => {
+            const ad = areaDirs.get(m.id), pd = pageDirs.get(m.pageId)
+            const o = origins.get(m.id)
+            return {
+              markupId: m.id,
+              pageId: m.pageId,
+              direction: ad !== undefined ? { source: 'area', ...dirOut(ad)! } : pd !== undefined ? { source: 'page', ...dirOut(pd)! } : scopeDirectionOf(specs) !== null ? { source: 'scope', ...dirOut(scopeDirectionOf(specs))! } : null,
+              origin: o !== undefined ? { source: 'placed', x: o.x, y: o.y } : { source: 'automatic' },
+            }
+          })
+          return {
+            scopeId: sc.id,
+            productType: readProductType(specs),
+            scopeDirection: dirOut(scopeDirectionOf(specs)),
+            pageDirections: Object.fromEntries([...pageDirs].map(([k, d]) => [k, dirOut(d)])),
+            areas,
+            layoutOrigins: [...used.values()],
+            note: 'direction precedence: area, then page, then scope. An automatic origin is chosen per area for the best yield.',
+          }
+        }
+        /*
+         * The closed boundary around a point, read from the drawing's lines:
+         * the same tracer as the Trace tool. Returned as rings ready for
+         * create_markup, or placed as an area when `create` is true.
+         */
+        case 'trace_area': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || page.width === 0) return { error: 'no page is showing' }
+          const pt = bridgePoint(params['point'])
+          if (pt === null) return { error: 'trace_area needs `point` {x,y}, normalized, inside the field to trace' }
+          const half = 600
+          const clip = {
+            x0: Math.max(0, pt.x - half / page.width), y0: Math.max(0, pt.y - half / page.height),
+            x1: Math.min(1, pt.x + half / page.width), y1: Math.min(1, pt.y + half / page.height),
+          }
+          const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL })
+          const fpp = calRef.current?.feetPerPoint
+          const gap = Number(params['bridgeGapFeet'])
+          const result = traceRegion({
+            segments: g.segments, seed: pt, page: { width: page.width, height: page.height },
+            options: {
+              ...(fpp !== undefined && fpp > 0 ? { feetPerPoint: fpp } : {}),
+              ...(fpp !== undefined && fpp > 0 && Number.isFinite(gap) && gap > 0 ? { bridgeGapFeet: gap } : {}),
+            },
+          })
+          if (!result.ok) return { error: `no closed boundary there: ${result.message}`, reason: result.reason }
+          const r5 = (n: number) => Math.round(n * 1e5) / 1e5
+          const rings = result.region.map((ring) => ring.map((p) => ({ x: r5(p.x), y: r5(p.y) })))
+          const areaSqFt = fpp !== undefined && fpp > 0 ? Math.round(result.areaPoints2 * fpp * fpp * 100) / 100 : null
+          if (params['create'] === true) {
+            const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : activeScopeRef.current
+            const id = uid()
+            await runCommand(cmdCreate({
+              id, documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+              scopeId, kind: 'area', rings, origin: 'agent', reviewState: 'accepted', content: { source: 'trace' },
+            }))
+            return { id, rings, areaSquareFeet: areaSqFt, holes: rings.length - 1 }
+          }
+          return { rings, areaSquareFeet: areaSqFt, holes: rings.length - 1, note: 'pass these rings to create_markup, or call again with create:true' }
+        }
+        case 'detect_pattern': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          const rect = bridgeRect(params['rect'])
+          if (rect === undefined || rect === null) return { error: 'detect_pattern needs `rect` {x0,y0,x1,y1} around several members' }
+          const clip = { x0: Math.min(rect.x0, rect.x1), y0: Math.min(rect.y0, rect.y1), x1: Math.max(rect.x0, rect.x1), y1: Math.max(rect.y0, rect.y1) }
+          const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
+          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const centre = [[{ x: (clip.x0 + clip.x1) / 2, y: (clip.y0 + clip.y1) / 2 }]]
+          const region = (projectRegions.get(here) ?? []).find((r) => pointInRegion(centre[0]![0]!, [[
+            { x: Math.min(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) }, { x: Math.max(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) },
+            { x: Math.max(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) }, { x: Math.min(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) },
+          ]]))
+          const r = detectPattern(g.segments, v.pageInfo, {
+            feetPerPoint: region?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null,
+            inside: clip,
+            ...(Number.isFinite(Number(params['minLengthPoints'])) ? { minLengthPoints: Number(params['minLengthPoints']) } : {}),
+          })
+          return { page: pageIndexRef.current, ...r }
+        }
+        /*
+         * The scales the sheet states, with where each is printed, and the
+         * scale set on it. With `points` and `dimension`, also a check of the
+         * set scale against a written dimension.
+         */
+        case 'read_scale': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          const pages = agentPageList(params, pageIndexRef.current)
+          if ('error' in pages) return pages
+          const out: Array<Record<string, unknown>> = []
+          const t0 = performance.now()
+          for (const p of pages.pages) {
+            if (performance.now() - t0 > 14_000) { out.push({ page: p, notRead: true }); continue }
+            const sweepPage = p
+            const pt = await v.requestText(sweepPage, { priority: PRIORITY_THUMBNAIL })
+            const stated = statedScales({ text: pt.text, runs: pt.runs })
+            const pid = pageIdFor(docIdRef.current, sweepPage)
+            const set = projectCalibrations.get(pid) ?? null
+            const regions = (projectRegions.get(pid) ?? []).map((r) => ({ id: r.id, label: r.label, feetPerPoint: r.feetPerPoint, rect: r.rect }))
+            const agrees = set === null || stated.scales.length === 0 ? null
+              : stated.scales.some((s) => Math.abs(s.feetPerPoint / set - 1) < 0.005)
+            out.push({
+              page: p,
+              sheet: sheetLabelFor(p),
+              set: set === null ? null : { feetPerPoint: set, label: scaleLabel(set) },
+              stated: stated.scales,
+              ...(stated.notes.length > 0 ? { notes: stated.notes } : {}),
+              ...(regions.length > 0 ? { regions } : {}),
+              ...(agrees !== null ? { setMatchesAStatedScale: agrees } : {}),
+            })
+          }
+          const pts = Array.isArray(params['points']) ? (params['points'] as unknown[]).map(bridgePoint) : []
+          const dim = typeof params['dimension'] === 'string' ? params['dimension'] : null
+          if (dim !== null) {
+            if (pts.length !== 2 || pts.some((p) => p === null)) return { error: 'a dimension check needs `points`: the two ends the written dimension spans, normalized', sheets: out }
+            const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+            const regs = projectRegions.get(here) ?? []
+            const mid = { x: (pts[0]!.x + pts[1]!.x) / 2, y: (pts[0]!.y + pts[1]!.y) / 2 }
+            const reg = regs.find((r) => mid.x >= Math.min(r.rect.x0, r.rect.x1) && mid.x <= Math.max(r.rect.x0, r.rect.x1) && mid.y >= Math.min(r.rect.y0, r.rect.y1) && mid.y <= Math.max(r.rect.y0, r.rect.y1))
+            const checked = reg?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
+            return { sheets: out, check: { page: pageIndexRef.current, ...(reg !== undefined ? { region: reg.id } : {}), ...checkScale(pts[0]!, pts[1]!, dim, { width: page.width, height: page.height }, checked) } }
+          }
+          return { sheets: out }
+        }
+        /*
+         * Addenda (round 3 #9): which sheets of this set are replaced by a
+         * later issue of the same sheet, and which scopes have takeoff on a
+         * replaced one. A replacement is recorded in the scope-independent
+         * meta of the open file; `replaces` links one by hand.
+         */
+        case 'track_addenda': {
+          const db = dbRef.current
+          if (!db || activeDocId === null) return { error: 'no document is open' }
+          const rows = sheetGroups.flatMap((g) => g.rows)
+          const key = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '')
+          let links = await readAddendaLinks(db)
+          const by = params['page'], replaces = params['replaces']
+          if (by !== undefined || replaces !== undefined) {
+            const newer = Number(by), older = Number(replaces)
+            if (!Number.isInteger(newer) || !Number.isInteger(older) || newer === older || newer < 0 || older < 0 || newer >= pageCount || older >= pageCount) {
+              return { error: 'to link by hand give `page` (the addendum sheet) and `replaces` (the sheet it replaces), both ZERO-based pages of this file' }
+            }
+            links = [...links.filter((l) => l.replaced !== older), { replaced: older, by: newer, source: 'linked' }]
+            await writeAddendaLinks(db, links)
+          }
+          // Same sheet number printed twice: the later page in the set replaces the earlier.
+          const seen = new Map<string, number>()
+          const auto: Array<{ replaced: number; by: number; source: string }> = []
+          for (const r of [...rows].sort((a, b) => a.page - b.page)) {
+            if (r.number === `Page ${r.page + 1}` || r.number.startsWith('Addendum')) continue
+            const k = key(r.number)
+            const prev = seen.get(k)
+            if (prev !== undefined && !links.some((l) => l.replaced === prev)) auto.push({ replaced: prev, by: r.page, source: 'same sheet number' })
+            seen.set(k, r.page)
+          }
+          const all = [...links, ...auto]
+          const replacedPages = new Set(all.map((l) => l.replaced))
+          const affected = new Map<string, { scopeId: string; label: string; markups: number; pages: Set<number> }>()
+          for (const m of docMarkupsRef.current) {
+            if (m.scopeId === null) continue
+            const p = pageNumberFrom(m.pageId, docIdRef.current)
+            if (p === null || !replacedPages.has(p)) continue
+            const sc = scopesRef.current.find((x) => x.id === m.scopeId)
+            const a = affected.get(m.scopeId) ?? { scopeId: m.scopeId, label: sc?.label ?? m.scopeId, markups: 0, pages: new Set<number>() }
+            a.markups++; a.pages.add(p)
+            affected.set(m.scopeId, a)
+          }
+          const describe = (p: number) => ({ page: p, sheet: sheetLabelFor(p), title: sheetTitleFor(p) })
+          return {
+            replaced: all.map((l) => ({ old: describe(l.replaced), new: describe(l.by), source: l.source })),
+            scopesOnReplacedSheets: [...affected.values()].map((a) => ({ scopeId: a.scopeId, label: a.label, markups: a.markups, pages: [...a.pages].sort((x, y) => x - y) })),
+            note: 'an addendum issued as a separate PDF: open it, read its list_sheets, and link each sheet here with page/replaces after inserting it, or compare the two lists',
+          }
+        }
+        /*
+         * Several markups in one call and one undo step (round 3 #12). Each
+         * entry is what create_markup takes. A cutout cuts the areas under it,
+         * including areas made earlier in the same call.
+         */
+        case 'create_markups': {
+          const list = Array.isArray(params['markups']) ? params['markups'] as Array<Record<string, unknown>> : null
+          if (list === null || list.length === 0) return { error: 'create_markups needs `markups`: [{kind, rings, scopeId?}, …]' }
+          if (list.length > 500) return { error: 'at most 500 markups in one call' }
+          const docId = docIdRef.current
+          const pending: Markup[] = []
+          const edits: Array<{ id: string; before: Markup['rings']; after: Markup['rings'] }> = []
+          const results: Array<Record<string, unknown>> = []
+          for (let i = 0; i < list.length; i++) {
+            // Each entry may name its own ZERO-based page; otherwise the sheet showing.
+            // An agent-named page is a target, like a scale gesture's, never a stale read.
+            const targetPage = list[i]!['page'] === undefined ? pageIndexRef.current : Number(list[i]!['page'])
+            const pg = targetPage
+            if (!Number.isInteger(pg) || pg < 0 || pg >= pageCount) return { error: `markup ${i}: page ${String(list[i]!['page'])} out of range (0..${pageCount - 1})`, created: 0 }
+            const pageId = pageIdFor(docId, targetPage)
+            const built = agentMarkup(list[i]!, docId, pageId)
+            if ('error' in built) return { error: `markup ${i}: ${built.error}`, created: 0 }
+            if (built.markup.kind === 'cutout') {
+              const ring = built.markup.rings[0]!
+              const pendingEdits = cutEdits(pending, pageId, ring)
+              for (const e of pendingEdits) {
+                const m = pending.find((x) => x.id === e.id)!
+                m.rings = e.after
+              }
+              const existing = cutEdits(docMarkupsRef.current, pageId, ring)
+              edits.push(...existing)
+              if (pendingEdits.length + existing.length === 0) return { error: `markup ${i}: the cutout crosses no area on this sheet`, created: 0 }
+              results.push({ index: i, kind: 'cutout', cut: [...pendingEdits, ...existing].map((e) => e.id) })
+              continue
+            }
+            pending.push(built.markup)
+            results.push({ index: i, id: built.markup.id, kind: built.markup.kind, scopeId: built.markup.scopeId, page: pg })
+          }
+          const cmds = pending.map((m) => cmdCreate({ ...m, origin: 'agent', reviewState: 'accepted' }))
+          const editCmd = edits.length > 0 ? editsCommand(edits, 'cut area') : null
+          const all = [...cmds, ...(editCmd !== null ? [editCmd] : [])]
+          await runCommand(all.length === 1 ? all[0]! : cmdBatch(`add ${pending.length} markups`, all))
+          return { created: pending.length, markups: results }
+        }
+        /*
+         * The piece list of a run product (round 3 #14): runs, pieces and
+         * their cut lengths, stock use, and parts.
+         */
+        case 'get_piece_list': {
+          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const sc = scopesRef.current.find((x) => x.id === id)
+          if (!sc) return { error: `no such scope: ${id}` }
+          const p = piecesRef.current.find((x) => x.scope.id === id)
+          if (!p) return { error: `no calculation for ${sc.label} yet` }
+          if (p.result.blockers.length > 0) {
+            return { error: `${sc.label} cannot be calculated yet`, blockers: p.result.blockers, missing: missingKeys(readProductType(sc.specifications), sc.specifications) }
+          }
+          if (p.result.runs.length === 0) {
+            return { scopeId: id, productType: p.result.productType, note: 'this product is laid out as panels, not runs; get_bom has the panel counts', parts: p.result.quantities }
+          }
+          const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 1000) || 1000))
+          return { scopeId: id, label: sc.label, ...pieceList(p.result, { maxRuns: limit }) }
+        }
+        /*
+         * Who changed what, and when: the activity trail, which travels in
+         * the PDF with the takeoff (round 3 #16).
+         */
+        case 'get_history': {
+          const db = dbRef.current
+          if (!db) return { error: 'no document is open' }
+          const limit = Math.max(1, Math.min(2000, Number(params['limit'] ?? 200) || 200))
+          const filter = typeof params['id'] === 'string' ? params['id'] : null
+          const rows = await listActivity(db, filter === null ? limit : 5000)
+          const events = rows.filter((r) => filter === null || r.entityId === filter).slice(0, limit)
+          const info = new Map<string, Record<string, unknown>>()
+          const ids = [...new Set(events.filter((e) => e.entityType === 'markup' && e.entityId !== null).map((e) => e.entityId!))]
+          for (let i = 0; i < ids.length; i += 200) {
+            const chunk = ids.slice(i, i + 200)
+            try {
+              const found = await db.all<{ id: string; kind: string; page_id: string; scope_id: string | null; origin: string; content_json: string; deleted_at: string | null }>(
+                `SELECT id, kind, page_id, scope_id, origin, content_json, deleted_at FROM markups WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk)
+              for (const f of found) {
+                let adopted: unknown = null
+                try { adopted = (JSON.parse(f.content_json) as { adopted?: unknown }).adopted ?? null } catch { adopted = null }
+                const pg = pageNumberFrom(f.page_id, docIdRef.current)
+                info.set(f.id, {
+                  kind: f.kind, page: pg, ...(pg !== null ? { sheet: sheetLabelFor(pg) } : {}),
+                  scope: scopesRef.current.find((x) => x.id === f.scope_id)?.label ?? null,
+                  madeBy: f.origin, ...(adopted !== null ? { fromAnotherApp: adopted } : {}),
+                  ...(f.deleted_at !== null ? { deleted: true } : {}),
+                })
+              }
+            } catch { /* a markup row the database no longer has is reported bare */ }
+          }
+          return {
+            events: events.map((e) => ({
+              at: e.createdAt,
+              by: e.origin === 'agent' ? 'AI app' : e.origin === 'user' ? 'person' : e.origin,
+              event: e.eventType,
+              entity: e.entityType,
+              id: e.entityId,
+              ...(Object.keys(e.details ?? {}).length > 0 ? { details: e.details } : {}),
+              ...(e.entityId !== null && info.has(e.entityId) ? { markup: info.get(e.entityId) } : {}),
+            })),
+          }
+        }
         default:
           return { error: `unknown action: ${action}` }
       }
-    },
-  })
+    }
+  }
 
   /**
    * Wheel and trackpad pinch, on a NON-PASSIVE native listener.
@@ -6580,9 +7197,7 @@ export default function Workspace({
     outline: docIndex.outline,
     // The document's own labels first; what we read off the sheets fills the
     // gaps. A publisher's label is authoritative and a title block is a guess.
-    labels: docIndex.labels.length > 0 && docIndex.labels.some((l) => l !== null)
-      ? docIndex.labels
-      : derivedLabels,
+    labels: mergeSheetLabels(docIndex.labels, derivedLabels, pageCount),
     takeoffPages,
   }), [pageCount, docIndex, derivedLabels, takeoffPages])
 
@@ -6657,6 +7272,8 @@ export default function Workspace({
   const saveEstimatePdf = useCallback(async (
     draft: EstimateExport,
     onProgress: (text: string) => void,
+    /** An AI app's chosen path: written there instead of asking (round 3 #15). */
+    target?: { path: string; overwrite: boolean },
   ): Promise<{ problem: string | null; said: string }> => {
     const resolver = createCoreBlobUrlResolver(projectPath)
     try {
@@ -6681,6 +7298,13 @@ export default function Workspace({
         snapshots,
         notes: failures.map((f) => `${f.document}: ${f.reason}`),
       })
+      if (target !== undefined) {
+        if (projectBridge.writeExport === undefined) return { problem: 'this build cannot write files', said: '' }
+        const path = await projectBridge.writeExport(target.path, bytes, target.overwrite)
+        const said = `PDF saved to ${path}`
+        setStatus(said)
+        return { problem: null, said }
+      }
       onProgress('Choosing where to save…')
       const outcome = await saveFile(bytes, {
         name: exportFileName(draft, 'pdf'),
@@ -9840,6 +10464,49 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
   if (![box.x0, box.y0, box.x1, box.y1].every((x) => Number.isFinite(x) && x >= -0.001 && x <= 1.001)) return null
   if (box.x0 === box.x1 || box.y0 === box.y1) return null
   return box
+}
+
+/** A normalized point from a bridge argument, or null. */
+function bridgePoint(v: unknown): { x: number; y: number } | null {
+  let o: unknown = v
+  if (typeof v === 'string') { try { o = JSON.parse(v) } catch { return null } }
+  if (typeof o !== 'object' || o === null) return null
+  const x = Number((o as { x?: unknown }).x), y = Number((o as { y?: unknown }).y)
+  return Number.isFinite(x) && Number.isFinite(y) && x >= -0.001 && x <= 1.001 && y >= -0.001 && y <= 1.001 ? { x, y } : null
+}
+
+/** The point on an area's outer edge nearest `p`, measured in page points. */
+function nearestOnBoundary(
+  rings: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>, p: { x: number; y: number }, page: { width: number; height: number },
+): { x: number; y: number } | null {
+  const ring = rings[0]
+  if (ring === undefined || ring.length < 2) return null
+  let best: { x: number; y: number } | null = null, bestD = Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]!, b = ring[(i + 1) % ring.length]!
+    const ax = a.x * page.width, ay = a.y * page.height, dx = (b.x - a.x) * page.width, dy = (b.y - a.y) * page.height
+    const L2 = dx * dx + dy * dy
+    const t = L2 > 0 ? Math.max(0, Math.min(1, ((p.x * page.width - ax) * dx + (p.y * page.height - ay) * dy) / L2)) : 0
+    const q = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+    const d = Math.hypot((q.x - p.x) * page.width, (q.y - p.y) * page.height)
+    if (d < bestD) { bestD = d; best = q }
+  }
+  return best
+}
+
+/** Addendum links recorded in the open file (round 3 #9). They travel in the PDF. */
+const ADDENDA_KEY = 'addenda_links'
+type AddendumLink = { replaced: number; by: number; source: string }
+async function readAddendaLinks(db: SqlDriver): Promise<AddendumLink[]> {
+  try {
+    const rows = await db.all<{ value: string }>('SELECT value FROM redbeam_meta WHERE key = ?', [ADDENDA_KEY])
+    const v = rows[0] === undefined ? [] : JSON.parse(rows[0].value) as unknown
+    return Array.isArray(v) ? v.filter((l): l is AddendumLink => typeof l === 'object' && l !== null
+      && Number.isInteger((l as AddendumLink).replaced) && Number.isInteger((l as AddendumLink).by)) : []
+  } catch { return [] }
+}
+async function writeAddendaLinks(db: SqlDriver, links: AddendumLink[]): Promise<void> {
+  await db.run('INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES(?, ?)', [ADDENDA_KEY, JSON.stringify(links)])
 }
 
 /** Pages an agent asked for (`page`, `pages`, or `fromPage`..`toPage`), or every page. */

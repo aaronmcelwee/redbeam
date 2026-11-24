@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildSheetIndex, filterSheets, splitSheetTitle, sheetFromText, sheetDots, SHEET_DOT_CAP,
+  buildSheetIndex, filterSheets, splitSheetTitle, sheetFromText, sheetDots, SHEET_DOT_CAP, mergeSheetLabels,
   type SheetIndexInput, type SheetOutlineNode,
 } from './sheets.js'
 
@@ -398,5 +398,25 @@ describe('sheetFromText', () => {
   it('says nothing when the page has no title block', () => {
     expect(sheetFromText('')).toBeNull()
     expect(sheetFromText('a cover sheet with only prose and a date 2024.12.20')).toBeNull()
+  })
+})
+
+describe('sheet names for the rest of the set (round 3 #8)', () => {
+  const NL = String.fromCharCode(10)
+  it('reads a title block that prints the name above the code', () => {
+    expect(sheetFromText(['PROJECT 2024-117', 'REFLECTED CEILING PLAN - LEVEL 2', 'A2.21', 'R2'].join(NL)))
+      .toEqual({ number: 'A2.21', title: 'REFLECTED CEILING PLAN - LEVEL 2' })
+  })
+  it('prefers a labelled sheet number', () => {
+    expect(sheetFromText(['A9.01', 'DETAILS', 'SHEET TITLE', 'CEILING DETAILS', 'SHEET NUMBER', 'A7.1'].join(NL)))
+      .toEqual({ number: 'A7.1', title: 'CEILING DETAILS' })
+  })
+  it('names a spec section and an addendum page', () => {
+    expect(sheetFromText(['Barclays Midrise', 'SECTION 095113 - ACOUSTICAL PANEL CEILINGS', 'PART 1 GENERAL'].join(NL)))
+      .toEqual({ number: '09 51 13', title: 'ACOUSTICAL PANEL CEILINGS' })
+    expect(sheetFromText(['ADDENDUM NO. 01', 'Issued 2026-11-02'].join(NL))).toEqual({ number: 'Addendum 1', title: '' })
+  })
+  it('fills only the pages the document leaves as plain numbers', () => {
+    expect(mergeSheetLabels(['A1.0 PLAN', '34', null], ['X', 'A4.1 RCP', 'A4.2 RCP'], 3)).toEqual(['A1.0 PLAN', 'A4.1 RCP', 'A4.2 RCP'])
   })
 })

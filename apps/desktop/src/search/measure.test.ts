@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { linesFromSegments, measurePoints } from './measure.js'
+import { detectPattern, linesFromSegments, measurePoints } from './measure.js'
 
 const page = { width: 1000, height: 500 }
 
@@ -40,5 +40,51 @@ describe('linesFromSegments', () => {
     expect(r.total).toBe(2)
     expect(r.lines[0]!.lengthPoints).toBe(500)
     expect(r.lines[0]!.lengthFeet).toBe(50)
+  })
+})
+
+describe('get_lines filters', () => {
+  const pg = { width: 1000, height: 1000 }
+  it('keeps only lines inside the box, by orientation and length, without duplicates', () => {
+    const flat = [
+      0.1, 0.1, 0.3, 0.1, // horizontal, 200 pt
+      0.3, 0.1, 0.1, 0.1, // the same, drawn backwards
+      0.1, 0.1, 0.1, 0.3, // vertical
+      0.1, 0.5, 0.9, 0.5, // horizontal, crosses out of the box
+      0.1, 0.2, 0.12, 0.2, // short
+    ]
+    const box = { x0: 0, y0: 0, x1: 0.5, y1: 0.4 }
+    const r = linesFromSegments(flat, pg, { inside: box, orientation: 'horizontal', minLengthPoints: 50 })
+    expect(r.lines).toHaveLength(1)
+    expect(r.duplicatesRemoved).toBe(1)
+    expect(r.lines[0]).toMatchObject({ x1: 0.1, x2: 0.3, angle: 0 })
+    expect(linesFromSegments(flat, pg, { orientation: 'vertical' }).lines).toHaveLength(1)
+    expect(linesFromSegments(flat, pg, { maxLengthPoints: 100, dedupe: false }).lines).toHaveLength(1)
+    const byY = linesFromSegments(flat, pg, { sort: 'y', dedupe: true }).lines.map((l) => l.y1)
+    expect(byY).toEqual([...byY].sort((a, b) => a - b))
+  })
+})
+
+describe('detectPattern', () => {
+  const pg = { width: 1000, height: 1000 }
+  it('reads spacing, member length, runs and rows from parallel members', () => {
+    // 6 horizontal baffles 60 pt apart, two 200 pt members end to end on each line, each drawn with two faces 4 pt apart.
+    const flat: number[] = []
+    for (let i = 0; i < 6; i++) {
+      const y = (100 + i * 60) / 1000
+      for (const face of [0, 0.004]) {
+        flat.push(0.1, y + face, 0.3, y + face)
+        flat.push(0.31, y + face, 0.51, y + face)
+      }
+    }
+    const r = detectPattern(flat, pg, { feetPerPoint: 0.1 })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.direction).toBe('horizontal')
+    expect(r.runs).toBe(6)
+    expect(r.rows).toBe(2)
+    expect(r.spacingPoints).toBeCloseTo(60, 1)
+    expect(r.spacingFeet).toBeCloseTo(6, 2)
+    expect(r.memberLengthPoints).toBeCloseTo(200, 1)
+    expect(r.regularity).toBe(1)
   })
 })
