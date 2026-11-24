@@ -1476,9 +1476,9 @@ pub async fn project_read_document(
     }
     if metadata.len() > MAX_DOCUMENT_READ_BYTES {
         return Err(format!(
-            "{relative_path} is {} bytes, over the {MAX_DOCUMENT_READ_BYTES}-byte limit for \
-             reading a document through the IPC hop",
-            metadata.len()
+            "{relative_path} is {} MB. REDBEAM opens PDFs up to {} MB.",
+            metadata.len() / (1024 * 1024),
+            MAX_DOCUMENT_READ_BYTES / (1024 * 1024)
         ));
     }
 
@@ -1835,9 +1835,14 @@ fn append_document_if_unchanged(
     Ok(DocumentWrite::Written { fingerprint: hex(&hasher.finalize()) })
 }
 
-/// Cap on [`project_read_document`]. A drawing set's individual sheets are
-/// single-digit megabytes; anything past this wants the asset protocol.
-pub const MAX_DOCUMENT_READ_BYTES: u64 = 256 * 1024 * 1024;
+/// Cap on [`project_read_document`].
+///
+/// This was 256 MB, and real tender files are bigger: an addendum set of 288 MB,
+/// a 301 MB construction set and a 470 MB specifications book were all refused.
+/// The bytes end up in PDFium's WebAssembly heap, which tops out at 4 GiB, and
+/// the page tiles and parsed objects need room beside them, so the cap sits at
+/// half of that. A JavaScript ArrayBuffer of this size is fine in WebView2.
+pub const MAX_DOCUMENT_READ_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Join a project-relative path onto its root, refusing anything that escapes.
 ///
