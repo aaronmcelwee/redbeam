@@ -16,6 +16,7 @@ import { cutAreas, polylineLength, regionArea, ringsOverlap, squarePointsToSquar
 import {
   embedSheet, hash53, readSheetEmbed, type EmbedInput, type EmbedMarkup, type EmbedResult, type SheetEmbedReading, type SheetSlice, type SliceTables,
 } from './sheetEmbed.js'
+import { adoptedTables } from './adopt.js'
 import type { WritableScaleRegion } from './pdfMarkup.js'
 
 /**
@@ -368,7 +369,8 @@ export interface EmbedDrawingOptions {
 }
 
 async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
-  const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
+  const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
+    await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
 
   let current: { bytes: Uint8Array, version: string }
@@ -379,7 +381,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
   }
 
   try {
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) {
@@ -396,6 +398,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
       markups,
       pageScales,
       pageRegions,
+      ...(retire.length === 0 ? {} : { retire }),
       ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
       ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
     })
@@ -429,12 +432,14 @@ export async function embedCopy(opts: {
   allScopes?: boolean
   pageRotations?: ReadonlyMap<number, number>
 }): Promise<Uint8Array> {
-  const tables = await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true })
+  const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
+    await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
   const source = await opts.read()
   const result = await embedSheet(source, {
     documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
+    ...(retire.length === 0 ? {} : { retire }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
   })
   return result.bytes ?? source

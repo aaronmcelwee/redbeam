@@ -565,7 +565,7 @@ describe('a project opening a drawing changed in Light mode', () => {
 
 describe('a Light file is saved into only once its own takeoff is in the window', () => {
   const reading = (over: Partial<SheetEmbedReading> = {}): SheetEmbedReading => ({
-    slice: null, source: null, redbeamAnnots: [], sheets: [], foreignAnnots: 0, privateDataLost: false, sliceTooNew: false, ...over,
+    slice: null, source: null, redbeamAnnots: [], sheets: [], foreignAnnots: 0, adoptable: [], privateDataLost: false, sliceTooNew: false, ...over,
   })
 
   it('round-trips everything a person made, and may then be saved', async () => {

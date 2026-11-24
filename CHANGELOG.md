@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.56 — 2026-11-24
+
+### Bluebeam markups you can work with
+
+- **Bluebeam areas and lengths are REDBEAM markups now.** When a PDF opens, its Bluebeam (or Acrobat) areas, rectangles, polylines and measured lines, cutouts included, become ordinary markups with no scope. Select, move, reshape or delete them like anything you drew, and give an area a scope to make it part of that takeoff.
+- **Nothing is doubled or lost in Bluebeam.** A markup you leave alone stays exactly as Bluebeam saved it. One you change or give a scope is saved as REDBEAM's, in place of the original. One you delete is deleted from the PDF too.
+- Clouds, arrows, text boxes and stamps stay Bluebeam's, drawn on the sheet as before.
+
+
 ## 0.3.55 — 2026-11-24
 
 ### Claude and ChatGPT can read your sheets closely
