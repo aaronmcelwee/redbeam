@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.68 — 2026-11-24
+
+### Warnings you can close
+
+- **The "rebuilt from the markups" warning can be dismissed.** When another app has stripped REDBEAM's takeoff detail from a PDF, the Takeoff panel says what was rebuilt. It now has an X, and once closed it stays closed for that file.
+
+
 ## 0.3.67 — 2026-11-24
 
 ### No more pile of save-a-copy prompts
