@@ -5078,6 +5078,8 @@ export default function Workspace({
 
   /** Leaving a drawing (another tab, or closing it) saves its takeoff into it. */
   const leftDocRef = useRef<string | null>(null)
+  /** An AI app asked to close the tab showing, and it has not gone yet. */
+  const closingTabRef = useRef(false)
   useEffect(() => {
     const prev = leftDocRef.current
     leftDocRef.current = activeDocId
@@ -6912,8 +6914,16 @@ export default function Workspace({
           if (tab.file === quickView.file && activeDocId !== null) await saveTakeoffIntoDrawing(activeDocId, { quiet: true })
           // Answered first: closing the tab showing takes this workspace, and the answer, with it.
           const close = lightTabs.onClose
+          if (tab.file === quickView.file) {
+            // Its takeoff is saved before it goes, which can take seconds: a second
+            // close meanwhile would be told this same tab closed again.
+            if (closingTabRef.current) return { error: `${tab.name} is still closing (its takeoff is being saved); ask again once get_ui_state shows another file` }
+            closingTabRef.current = true
+            // If the save is refused the tab stays, and may be asked to close again.
+            setTimeout(() => { closingTabRef.current = false }, 15000)
+          }
           setTimeout(() => close(tab.file), 60)
-          return { closed: tab.file }
+          return { closed: tab.file, ...(tab.file === quickView.file ? { note: 'closing now; get_ui_state shows the next file once it has' } : {}) }
         }
         case 'rotate_pages': {
           const pages = agentPageList(params, pageIndexRef.current)
