@@ -128,6 +128,12 @@ export interface ProjectBridge {
    */
   writeDocument(projectPath: string, relativePath: string, bytes: Uint8Array, expectedSha256: string): Promise<DocumentWrite>
   /**
+   * Write a NEW drawing inside the project, refusing if anything is already
+   * at that path. For a working copy of a file that is not ours to write into.
+   * Rejects in browser mode.
+   */
+  createDocument?(projectPath: string, relativePath: string, bytes: Uint8Array): Promise<DocumentWrite>
+  /**
    * Add `tail` to the end of a drawing, only if it is still `expectedLength`
    * bytes with SHA-256 `expectedSha256`. For an incremental update, which only
    * ever adds to the file: the rest of it is not written again. Rejects in
@@ -509,6 +515,16 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
           'x-redbeam-path': encodeURIComponent(projectPath),
           'x-redbeam-relative-path': encodeURIComponent(relativePath),
           'x-redbeam-expected-sha256': expectedSha256,
+        },
+      })
+    },
+
+    async createDocument(projectPath, relativePath, bytes): Promise<DocumentWrite> {
+      if (!desktop) throw new Error(BROWSER_NO_READ)
+      return invoke<DocumentWrite>('project_create_document', bytes, {
+        headers: {
+          'x-redbeam-path': encodeURIComponent(projectPath),
+          'x-redbeam-relative-path': encodeURIComponent(relativePath),
         },
       })
     },

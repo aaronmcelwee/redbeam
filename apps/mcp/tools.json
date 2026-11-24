@@ -16,14 +16,20 @@
     "redbeam_export": "invoke_ui_action",
     "redbeam_list_sheets": "invoke_ui_action",
     "redbeam_find_text": "invoke_ui_action",
-    "redbeam_set_markup_visibility": "invoke_ui_action"
+    "redbeam_set_markup_visibility": "invoke_ui_action",
+    "redbeam_measure": "invoke_ui_action",
+    "redbeam_get_lines": "invoke_ui_action",
+    "redbeam_save_copy": "invoke_ui_action"
   },
   "actionOf": {
     "redbeam_get_bom": "get_bom",
     "redbeam_export": "export",
     "redbeam_list_sheets": "list_sheets",
     "redbeam_find_text": "find_text",
-    "redbeam_set_markup_visibility": "set_markup_visibility"
+    "redbeam_set_markup_visibility": "set_markup_visibility",
+    "redbeam_measure": "measure",
+    "redbeam_get_lines": "get_lines",
+    "redbeam_save_copy": "save_copy"
   },
   "tools": [
     {
@@ -178,7 +184,7 @@
           },
           "width": {
             "type": "integer",
-            "description": "For a region: output width in pixels (height follows the box's proportions). Default 2000, at most 6000."
+            "description": "For a region: the resolution, as output width in pixels (height follows the box). Default 1200; 600-800 is plenty to read a tag, 2000+ for fine print. At most 6000."
           },
           "page": {
             "type": "integer",
@@ -262,6 +268,82 @@
       }
     },
     {
+      "name": "redbeam_measure",
+      "description": "Measure a distance, or an area, between points on the open sheet, at its scale (a scale region's if the points sit in one, else the sheet's). Nothing is drawn or written. Points are NORMALIZED [0,1] page coordinates, y down, the same space find_text, get_lines and screenshot regions use. Without a scale it answers in PDF points and says so. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "description": "Two or more points."
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "Close the shape and give its area too."
+          },
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based page to show first. Defaults to the open sheet."
+          }
+        },
+        "required": [
+          "points"
+        ]
+      }
+    },
+    {
+      "name": "redbeam_get_lines",
+      "description": "The drawing's own line segments inside a box of the open sheet, longest first: each segment's ends (NORMALIZED [0,1], y down) and its length in PDF points and, when the sheet has a scale, in feet. Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Keep the box small. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rect": {
+            "type": "object",
+            "description": "{x0,y0,x1,y1}, normalized."
+          },
+          "minLengthPoints": {
+            "type": "number",
+            "description": "Leave out shorter segments. Default 2."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Most lines returned. Default 300."
+          },
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based page to show first."
+          }
+        },
+        "required": [
+          "rect"
+        ]
+      }
+    },
+    {
+      "name": "redbeam_save_copy",
+      "description": "Save a working copy of the open PDF beside it, with everything the open file holds, and leave the original untouched. REDBEAM keeps takeoff inside the PDF, so before creating scopes or setting a scale on a file that is not yours to change (a client's tender set, someone else's markups), save a copy, open it with redbeam_open_file, and work there. Returns the copy's path. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "File name for the copy. Defaults to \"<name> (takeoff).pdf\"."
+          }
+        }
+      }
+    },
+    {
       "name": "redbeam_get_bom",
       "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated.",
       "inputSchema": {
@@ -299,7 +381,7 @@
     },
     {
       "name": "redbeam_invoke_ui_action",
-      "description": "Drive the app the way a person would. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first.",
+      "description": "Drive the app the way a person would. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -333,7 +415,10 @@
               "find_text",
               "get_words",
               "zoom_to_region",
-              "set_markup_visibility"
+              "set_markup_visibility",
+              "measure",
+              "get_lines",
+              "save_copy"
             ]
           },
           "tool": {
@@ -346,7 +431,7 @@
           },
           "page": {
             "type": "integer",
-            "description": "For go_to_page, get_words, find_text and zoom_to_region. ZERO-based."
+            "description": "For go_to_page, get_words, find_text, zoom_to_region, measure and get_lines. ZERO-based."
           },
           "on": {
             "type": "boolean",
@@ -418,7 +503,7 @@
           },
           "rect": {
             "type": "object",
-            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside."
+            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside. For get_lines, the box to read linework from; keep it small."
           },
           "kind": {
             "type": "string",
@@ -478,7 +563,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "For find_text (default 300 matches) and get_words (default 3000 words)."
+            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines)."
           },
           "margin": {
             "type": "number",
@@ -495,6 +580,22 @@
           "redbeam": {
             "type": "boolean",
             "description": "For set_markup_visibility: false hides REDBEAM's takeoff, dimensions and layout drawn over the sheet, true shows them. The takeoff itself is untouched."
+          },
+          "points": {
+            "type": "array",
+            "description": "For measure: two or more {x,y} in NORMALIZED [0,1] page coordinates, y down. Nothing is drawn or written."
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "For measure: close the shape back to the first point and also give its area. Default false."
+          },
+          "minLengthPoints": {
+            "type": "number",
+            "description": "For get_lines: leave out segments shorter than this, in PDF points. Default 2 (hatching and text strokes)."
+          },
+          "name": {
+            "type": "string",
+            "description": "For save_copy: the copy's file name. Defaults to \"<name> (takeoff).pdf\"; a free name is found if it is taken."
           }
         },
         "required": [

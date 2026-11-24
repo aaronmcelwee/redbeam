@@ -128,6 +128,7 @@ import { saveFile, saveOutcomeText } from './export/saveFile.js'
 import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/snapshots.js'
 import { indexProject, type IndexProgress } from './search/indexer.js'
 import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
+import { linesFromSegments, measurePoints } from './search/measure.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
 import { hitTestDimension } from './tools/dimension.js'
 import { drawPatternItems, type PatternOriginItem } from './tools/pattern.js'
@@ -5535,7 +5536,7 @@ export default function Workspace({
         const v = viewerRef.current
         if (!v) return null
         if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
-        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? 2000) || 2000))
+        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? 1200) || 1200))
         const out = await v.renderRegion(region, width, {
           ...(typeof params['annotations'] === 'boolean' ? { annots: params['annotations'] } : {}),
           ...(typeof params['overlay'] === 'boolean' ? { overlay: params['overlay'] } : {}),
@@ -5755,6 +5756,102 @@ export default function Workspace({
             return { error: 'set_markup_visibility needs `embedded` and/or `redbeam` (true shows, false hides)' }
           }
           return { markupVisibility: setMarkupVisibility(next) }
+        }
+        /*
+         * A distance or an area between points, at the sheet's scale, with
+         * nothing drawn and nothing written. For sizes an agent would
+         * otherwise count pixels for.
+         */
+        case 'measure': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          const raw = typeof params['points'] === 'string'
+            ? ((): unknown => { try { return JSON.parse(params['points'] as string) } catch { return null } })()
+            : params['points']
+          const pts = Array.isArray(raw)
+            ? raw.map((p) => ({ x: Number((p as { x?: unknown }).x), y: Number((p as { y?: unknown }).y) }))
+            : []
+          if (pts.length < 2 || !pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= -0.001 && p.x <= 1.001 && p.y >= -0.001 && p.y <= 1.001)) {
+            return { error: 'measure needs `points`: two or more {x,y} in NORMALIZED [0,1] page coordinates' }
+          }
+          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          return {
+            page: pageIndexRef.current,
+            ...measurePoints(pts, v.pageInfo, {
+              closed: params['closed'] === true,
+              regions: projectRegions.get(here) ?? [],
+              pageFeetPerPoint: calRef.current?.feetPerPoint ?? null,
+            }),
+          }
+        }
+        /*
+         * The drawing's own linework inside a box: each segment's ends and
+         * length, longest first. Read from the PDF's vector paths, the same
+         * geometry snapping uses.
+         */
+        case 'get_lines': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          const rect = bridgeRect(params['rect'])
+          if (rect === undefined || rect === null) return { error: 'get_lines needs `rect` {x0,y0,x1,y1}, normalized [0,1]; keep it small, a whole sheet is hundreds of thousands of lines' }
+          const clip = {
+            x0: Math.min(rect.x0, rect.x1), y0: Math.min(rect.y0, rect.y1),
+            x1: Math.max(rect.x0, rect.x1), y1: Math.max(rect.y0, rect.y1),
+          }
+          const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
+          const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 300) || 300))
+          const { lines, total } = linesFromSegments(g.segments, v.pageInfo, {
+            feetPerPoint: calRef.current?.feetPerPoint ?? null,
+            minLengthPoints: Math.max(0, Number(params['minLengthPoints'] ?? 2) || 0),
+            limit,
+          })
+          return {
+            page: pageIndexRef.current,
+            lines,
+            total,
+            ...(total > lines.length ? { truncated: true } : {}),
+            ...(g.truncated ? { note: 'the box holds more geometry than was read; use a smaller box' } : {}),
+          }
+        }
+        /*
+         * A working copy of the open PDF, beside it, for takeoff on a file
+         * that is not ours to write into: a client's tender set with someone
+         * else's markups. The copy carries everything the open file has, and
+         * nothing is written to the original. The agent opens the copy with
+         * redbeam_open_file and works there.
+         */
+        case 'save_copy': {
+          const db = dbRef.current
+          const doc = documents.find((d) => d.id === leftDocRef.current)
+          if (!db || !doc) return { error: 'no document is open' }
+          if (projectBridge.createDocument === undefined) return { error: 'this build cannot write files' }
+          const bytes = await embedCopy({
+            db, documentId: doc.id, relativePath: doc.relativePath, displayName: doc.displayName || doc.relativePath, appVersion: APP_VERSION,
+            read: () => projectBridge.readDocument(projectPath, doc.relativePath),
+            allScopes: light,
+            ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+          })
+          const dir = doc.relativePath.includes('/') ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/') + 1) : ''
+          const wanted = typeof params['name'] === 'string' && params['name'].trim() !== ''
+            ? params['name'].trim().replace(/[\\/:*?"<>|]/g, '-')
+            : copyName(doc.relativePath)
+          const named = /\.pdf$/i.test(wanted) ? wanted : `${wanted}.pdf`
+          for (let n = 1; n <= 20; n++) {
+            const name = n === 1 ? named : named.replace(/\.pdf$/i, ` ${n}.pdf`)
+            try {
+              await projectBridge.createDocument(projectPath, dir + name, bytes)
+              const sep = projectPath.includes('\\') ? '\\' : '/'
+              const path = `${projectPath.replace(/[\\/]+$/, '')}${sep}${(dir + name).split('/').join(sep)}`
+              setStatus(`saved a working copy: ${name}`)
+              return { path, name, note: 'the original was not changed; open this copy with redbeam_open_file and take off there' }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              if (!/already there/.test(msg)) return { error: `could not save a copy: ${msg}` }
+            }
+          }
+          return { error: 'could not find a free name for the copy' }
         }
         case 'set_layout_preview': {
           const on = params['on'] !== false
