@@ -10,17 +10,20 @@
  * When a drawing opens, every other-app area and length on it (a polygon or
  * rectangle, cutouts included; a polyline or measured line) becomes a REDBEAM
  * markup with no scope, standing in for the annotation, which the viewer then
- * stops drawing. It selects, moves, reshapes and takes a scope like anything
+ * stops drawing. It comes in PENDING (origin `import`, review_state
+ * `proposed`), out of every quantity, until somebody accepts it: by giving it a
+ * scope, or with "Accept imported markups". Aaron, 2026-11-24: "They should
+ * come in as pending and stay out of quantities until someone accepts them." It selects, moves, reshapes and takes a scope like anything
  * drawn here. The markup remembers the annotation's /NM and the revision it
  * was adopted at (`content.adopted`).
  *
  * The PDF stays the only record, and a markup must never be lost or doubled
  * between REDBEAM and Bluebeam, so saving follows three rules:
  *
- * - UNTOUCHED (still the adopted revision): nothing is written for it, and it
+ * - UNTOUCHED (still the adopted revision, still pending): nothing is written for it, and it
  *   is not kept in the slice. The annotation stays exactly as Bluebeam saved
  *   it, and the next open adopts it afresh, with whatever Bluebeam did since.
- * - CHANGED here (reshaped, moved, given a scope): written as a REDBEAM
+ * - CHANGED here (reshaped, moved, given a scope, accepted): written as a REDBEAM
  *   markup, and the original annotation is taken off the sheet (`retire`).
  * - DELETED here: the original annotation is taken off the sheet.
  *
@@ -52,12 +55,18 @@ export function adoptionOf(content: unknown): Adoption | null {
   return typeof nm === 'string' && nm !== '' && typeof rev === 'string' ? { nm, rev } : null
 }
 
-interface Row { id: string, kind: string, scope_id: string | null, geometry_json: string, content_json?: string | null }
+interface Row {
+  id: string, kind: string, scope_id: string | null, geometry_json: string
+  content_json?: string | null, review_state?: string | null
+}
 
-/** True when an adopted markup is still exactly what was adopted. */
+/**
+ * True when an adopted markup is still exactly what was adopted: the same
+ * shape, no scope, and not yet accepted. Accepting one is a change to keep.
+ */
 export function untouched(row: Row): boolean {
   const a = adoptionOf(row.content_json)
-  return a !== null && markupRev(row) === a.rev
+  return a !== null && markupRev(row) === a.rev && (row.review_state ?? 'proposed') === 'proposed'
 }
 
 /**
@@ -77,7 +86,7 @@ export async function adoptedTables(
   for (const row of live) {
     const a = adoptionOf(row.content_json)
     if (a === null) { kept.push(row as unknown as Record<string, unknown>); continue }
-    if (markupRev(row) === a.rev) { keepNm.add(a.nm); continue }
+    if (untouched(row)) { keepNm.add(a.nm); continue }
     retire.add(a.nm)
     kept.push(row as unknown as Record<string, unknown>)
   }
@@ -142,7 +151,7 @@ export async function adoptForeignAnnots(
       await db.run(
         `INSERT INTO markups(id, document_id, page_id, scope_id, kind, geometry_json, style_json, content_json, origin, review_state, created_at, updated_at)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [id, documentId, pageId, null, f.kind, geometry, '{}', JSON.stringify(content), 'user', 'accepted', now, now])
+        [id, documentId, pageId, null, f.kind, geometry, '{}', JSON.stringify(content), 'import', 'proposed', now, now])
       out.added++
     }
     await db.exec('COMMIT')

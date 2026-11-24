@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString } from 'pdf-lib'
-import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
+import { ingestDocuments, listMarkups, migrate, SqlJsDriver, type Migration } from '@redbeam/store'
 import { adoptForeignAnnots, adoptedId, untouched } from './adopt.js'
 import { embedDrawing, type DrawingFile } from './drawingEmbed.js'
 import { readSheetEmbed } from './sheetEmbed.js'
@@ -102,6 +102,8 @@ describe('Bluebeam markups held as REDBEAM markups', () => {
     expect(rows[0]!.kind).toBe('area')
     expect(rows[0]!.scope_id).toBeNull()
     expect(untouched(rows[0]!)).toBe(true)
+    const state = await db.all<{ origin: string, review_state: string }>('SELECT origin, review_state FROM markups')
+    expect(state[0]).toEqual({ origin: 'import', review_state: 'proposed' })
     // A second open adds nothing.
     expect((await adoptForeignAnnots(db, docId, reading)).added).toBe(0)
   })
@@ -133,6 +135,18 @@ describe('Bluebeam markups held as REDBEAM markups', () => {
     expect(after.redbeamAnnots[0]!.cutouts).toHaveLength(1)
     // Saved again: still one.
     await embed(file)
+    expect((await readSheetEmbed(file.bytes)).redbeamAnnots).toHaveLength(1)
+  })
+
+  it('pending markups stay out of the accepted list; accepting one writes it as REDBEAM\'s', async () => {
+    const file = memoryFile(await bluebeamPdf())
+    await adoptForeignAnnots(db, docId, await readSheetEmbed(file.bytes))
+    expect(await listMarkups(db, {})).toHaveLength(0)
+    expect(await listMarkups(db, { reviewStates: ['accepted', 'proposed'] })).toHaveLength(1)
+    await db.run("UPDATE markups SET review_state = 'accepted'")
+    expect((await embed(file)).kind).toBe('written')
+    const nms = await nmsOn(file.bytes)
+    expect(nms).not.toContain('QWERTYUIOPASDFGH')
     expect((await readSheetEmbed(file.bytes)).redbeamAnnots).toHaveLength(1)
   })
 

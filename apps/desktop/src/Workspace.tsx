@@ -609,6 +609,12 @@ export default function Workspace({
   const [archivedScopes, setArchivedScopes] = useState<Scope[]>([])
   const [activeScope, setActiveScope] = useState<string | null>(null)
   const [markups, setMarkups] = useState<Markup[]>([])
+  /**
+   * Markups waiting to be accepted: other apps' markups brought in from the
+   * PDF (export/adopt.ts). Shown on the sheet, dashed, and selectable, but kept
+   * out of every total (`docMarkups`, `projectMarkups`) until accepted.
+   */
+  const pendingIdsRef = useRef<ReadonlySet<string>>(new Set())
   const markupsRef = useRef<Markup[]>([])
   const [cal, setCal] = useState<Calibration | null>(null)
   /** Latest value, for the commit path. See the note on `pageIndexRef`. */
@@ -1654,7 +1660,7 @@ export default function Workspace({
      * never measured at its page number for one render and then corrected.
      */
     const [allRows, cals, allCals, allBoxes, regions, rounds] = await Promise.all([
-      listMarkups(db, {}),
+      listMarkups(db, { reviewStates: ['accepted', 'proposed'] }),
       listCalibrations(db, docId),
       listAllCalibrations(db),
       listPageBoxes(db),
@@ -1663,10 +1669,13 @@ export default function Workspace({
     ])
     setProjectRegions(regions)
     applyEstimates(rounds)
-    const all = allRows.map(toMarkup)
+    pendingIdsRef.current = new Set(allRows.filter((r) => r.reviewState === 'proposed').map((r) => r.id))
+    const shown = allRows.map(toMarkup)
+    // Totals see accepted markups only; the sheet shows pending ones too.
+    const all = shown.filter((m) => !pendingIdsRef.current.has(m.id))
     const doc = all.filter((m) => m.documentId === docId)
     // The cuts in this sheet's areas, as cutouts to select (cutouts.ts).
-    setMarkups(withCutouts(doc.filter((m) => m.pageId === pageId)))
+    setMarkups(withCutouts(shown.filter((m) => m.documentId === docId && m.pageId === pageId)))
     setDocMarkups(doc)
     setDocCalibrations(new Map([...cals].map(([id, c]) => [id, c.feetPerPdfPoint])))
     setProjectMarkups(all)
@@ -2194,7 +2203,7 @@ export default function Workspace({
     const v = viewerRef.current
     if (!v) return
     // A hole is shown by its area's shape, not as an object of its own.
-    const set: OverlaySet = toOverlay(markups.filter((m) => !isCutId(m.id)), scopes)
+    const set: OverlaySet = toOverlay(markups.filter((m) => !isCutId(m.id)), scopes, pendingIdsRef.current)
     v.setOverlay(set)
     requestPaint()
   }, [markups, scopes, requestPaint])
@@ -2965,6 +2974,24 @@ export default function Workspace({
   }, [requestPaint])
 
   /** The markups behind these ids, on this sheet or anywhere in the project. */
+  /**
+   * Accept imported markups (pending, from the PDF) into the takeoff, so they
+   * count. Returns how many were pending. Not an undo step: a markup accepted
+   * by mistake is given no scope, which counts it nowhere, or deleted.
+   */
+  const acceptImported = useCallback(async (ids: readonly string[]): Promise<number> => {
+    const db = dbRef.current
+    const pending = ids.filter((id) => pendingIdsRef.current.has(id))
+    if (db === null || pending.length === 0) return 0
+    const now = new Date().toISOString()
+    for (const id of pending) {
+      await db.run("UPDATE markups SET review_state = 'accepted', updated_at = ? WHERE id = ? AND review_state = 'proposed'", [now, id])
+    }
+    await syncMarkups()
+    saveRef.current?.()
+    return pending.length
+  }, [syncMarkups])
+
   const markupsFor = useCallback(
     (ids: readonly string[]) => resolveMarkups(ids.filter((id) => !isCutId(id)), markupsRef.current, projectMarkupsRef.current),
     [],
@@ -3059,9 +3086,12 @@ export default function Workspace({
     const moved = present.filter((m) => m.scopeId !== scopeId).length
     if (await runCommand(cmd)) {
       const to = scopeId === null ? 'no scope' : (scopesRef.current.find((sc) => sc.id === scopeId)?.label ?? 'scope')
-      setStatus(`moved ${moved} markup${moved === 1 ? '' : 's'} to ${to}`)
+      // Giving an imported markup a scope is accepting it into the takeoff.
+      const accepted = scopeId === null ? 0 : await acceptImported(present.map((m) => m.id))
+      setStatus(`moved ${moved} markup${moved === 1 ? '' : 's'} to ${to}`
+        + (accepted > 0 ? `, ${accepted} imported markup${accepted === 1 ? '' : 's'} accepted` : ''))
     }
-  }, [runCommand, markupsFor])
+  }, [runCommand, markupsFor, acceptImported])
 
   /** Move every selected markup to another scope, as one undo step. */
   const reassignSelection = useCallback(
@@ -5136,7 +5166,7 @@ export default function Workspace({
           if (docIdRef.current === doc.id && viewerRef.current !== null) hideOwnAnnots(viewerRef.current, pageIndexRef.current)
           if (result.added > 0) {
             await syncMarkups()
-            setStatus(`${result.added} Bluebeam markup${result.added === 1 ? ' is' : 's are'} now editable in ${name}. Select one to give it a scope.`)
+            setStatus(`${result.added} Bluebeam markup${result.added === 1 ? '' : 's'} in ${name} came in pending, dashed and counted nowhere. Give one a scope, or use Accept imported markups, to count it.`)
           }
         }
         if (reading.slice === null && !reading.privateDataLost && !reading.sliceTooNew) {
@@ -8508,6 +8538,30 @@ export default function Workspace({
         },
       },
       {
+        id: 'accept-imported', kind: 'command', title: 'Accept imported markups…',
+        detail: 'Bluebeam markups from the PDF count once accepted',
+        keywords: ['bluebeam', 'pending', 'import', 'accept', 'review', 'approve'],
+        step: {
+          kind: 'choose', label: 'Accept',
+          options: () => {
+            const acceptStatus = (n: number) => setStatus(n === 0
+              ? 'no imported markups waiting there'
+              : `${n} imported markup${n === 1 ? '' : 's'} accepted into the takeoff`)
+            const pendingHere = (where: 'selected' | 'sheet' | 'drawing') => {
+              const pending = pendingIdsRef.current
+              if (where === 'selected') return selectedRef.current.filter((id) => pending.has(id))
+              if (where === 'sheet') return markupsRef.current.filter((m) => pending.has(m.id)).map((m) => m.id)
+              return [...pending]
+            }
+            return [
+              { id: 'accept-selected', kind: 'command', title: 'The selected markups', run: () => void acceptImported(pendingHere('selected')).then(acceptStatus) },
+              { id: 'accept-sheet', kind: 'command', title: 'Every imported markup on this sheet', run: () => void acceptImported(pendingHere('sheet')).then(acceptStatus) },
+              { id: 'accept-drawing', kind: 'command', title: 'Every imported markup in this PDF', run: () => void acceptImported(pendingHere('drawing')).then(acceptStatus) },
+            ]
+          },
+        },
+      },
+      {
         id: 'duplicate-markup', kind: 'command', title: 'Duplicate selected markup', shortcut: 'Ctrl+D',
         detail: `${selectedIds.length} selected`, keywords: ['copy', 'clone', 'selection'],
         ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
@@ -8807,7 +8861,7 @@ export default function Workspace({
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
     scaleOfPage, applyScaleToSelection, markupCounts,
-    beginTakeoff, takeoff, tool, selectedIds, reassignSelection, removeMarkups, duplicateMarkups,
+    beginTakeoff, takeoff, tool, selectedIds, reassignSelection, acceptImported, removeMarkups, duplicateMarkups,
     openParts, prefs, settings, setZoom, openDocument, refreshEstimates,
     identity.projectId, projectPath, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged,
     openEstimateExport, markupRowsFor, goToMarkup, directionFromEdge, startPatternHere, clearPatternOrigin,
