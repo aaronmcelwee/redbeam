@@ -5,6 +5,18 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.70 — 2026-11-24
+
+### AI agents work beside you
+
+- **Several agents at once, each in its own tabs.** Claude, ChatGPT and other AI apps can now work in REDBEAM at the same time as you and as each other. A PDF an agent opens is its own tab, kept behind the one you are looking at. Your tab, your sheet and your zoom stay exactly where you left them.
+- **Agents in the tab strip.** Each agent is a chip beside your tabs, in its own colour, with its name, how many PDFs it has open and what it is doing right now. Click the chip to unfold its tabs, and click a tab to look in on it. On the start page a card lists the agents still at work.
+- **Coloured cursors that say what the agent is doing.** When you look at a PDF an agent is working in, its cursor is on the sheet where it last acted, with a label such as "Claude: Drawing an area".
+- **Agents never take the keyboard or the window.** An agent's action no longer moves your caret, opens a panel over what you are typing, or brings REDBEAM to the front. When an AI app starts REDBEAM itself, the window opens behind what you are working in.
+- **Your PDFs stay yours.** An agent can read a PDF you have open and draw on the sheet you are on. If it wants to turn pages or zoom there, REDBEAM asks you first: "Let it work here" hands it the tab, "Not now" tells it to work in a copy. "Make this tab mine" takes a tab back.
+- **Agents close only their own tabs**, and their tabs are not reopened next time you start REDBEAM.
+- **No Save window from an agent.** An agent exporting a PDF now has to say where the file goes, so a Save dialog never appears in front of you on its behalf.
+
 ## 0.3.69 — 2026-11-24
 
 ### REDBEAM stays where you put it
