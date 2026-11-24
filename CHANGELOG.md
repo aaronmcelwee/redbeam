@@ -13,6 +13,13 @@ SmartScreen will ask once.
 - **Alt+F4 and the taskbar's Close too.** Every way of closing the window saves the takeoff first, then closes for certain.
 
 
+## 0.3.64 — 2026-11-24
+
+### AI apps stay in one window
+
+- **No extra windows.** When an AI app opened a PDF just as REDBEAM was starting, or opened two PDFs one after the other, each could land in a new window. They now open as tabs in the window that's already there.
+
+
 ## 0.3.63 — 2026-11-24
 
 ### AI apps can do a whole takeoff
