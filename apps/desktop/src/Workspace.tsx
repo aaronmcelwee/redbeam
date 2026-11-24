@@ -7121,8 +7121,9 @@ export default function Workspace({
           })
           if (!result.ok) {
             return {
-              error: `no closed boundary there: ${result.message}`, reason: result.reason,
-              hint: 'for a small field give sizeFeet (roughly how wide it is): gaps up to 3.5 ft are closed by default, which closes a field narrower than that',
+              // In the sentence, not beside it: an error reaches the app as its text alone.
+              error: `no closed boundary there: ${result.message}. For a small field give sizeFeet (roughly how wide it is): gaps up to 3.5 ft are closed by default, which closes a field narrower than that`,
+              reason: result.reason,
             }
           }
           const r5 = (n: number) => Math.round(n * 1e5) / 1e5
@@ -7314,7 +7315,7 @@ export default function Workspace({
           const p = piecesRef.current.find((x) => x.scope.id === id)
           if (!p) return { error: `no calculation for ${sc.label} yet` }
           if (p.result.blockers.length > 0) {
-            return { error: `${sc.label} cannot be calculated yet`, blockers: p.result.blockers, missing: missingKeys(readProductType(sc.specifications), sc.specifications) }
+            return { error: `${sc.label} cannot be calculated yet: ${p.result.blockers.map((b) => (typeof b === 'string' ? b : JSON.stringify(b))).join('; ')}`, blockers: p.result.blockers, missing: missingKeys(readProductType(sc.specifications), sc.specifications) }
           }
           if (p.result.runs.length === 0) {
             return { scopeId: id, productType: p.result.productType, note: 'this product is laid out as panels, not runs; get_bom has the panel counts', parts: p.result.quantities }
