@@ -93,7 +93,7 @@ function bridgeCall(method, params = {}) {
  * a forty-line enum drift the first time someone adds an action.
  *
  * Descriptions say what a result MEANS, not just what the call does, because
- * that is what stops an agent misreading one: `open_project` returning
+ * that is what stops an agent misreading one: `open_file` returning
  * `accepted` is the obvious trap. Reading and producing the deliverable
  * (get_bom, export) have tools of their own as well as their place in the
  * action enum, because an action buried in an enum stays unfound.

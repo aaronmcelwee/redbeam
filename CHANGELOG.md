@@ -5,13 +5,21 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.54 — 2026-11-24
+## 0.3.55 — 2026-11-24
 
 ### Bluebeam markups you can work with
 
 - **Bluebeam areas and lengths are REDBEAM markups now.** When a PDF opens, its Bluebeam (or Acrobat) areas, rectangles, polylines and measured lines, cutouts included, become ordinary markups with no scope. Select, move, reshape or delete them like anything you drew, and give an area a scope to make it part of that takeoff.
 - **Nothing is doubled or lost in Bluebeam.** A markup you leave alone stays exactly as Bluebeam saved it. One you change or give a scope is saved as REDBEAM's, in place of the original. One you delete is deleted from the PDF too.
 - Clouds, arrows, text boxes and stamps stay Bluebeam's, drawn on the sheet as before.
+
+
+## 0.3.54 — 2026-11-24
+
+### Pro mode is retired, and AI agents work in Light
+
+- **Claude and ChatGPT stay in the PDF you have open.** When an AI app drives REDBEAM, it now reads and changes the takeoff of the PDF showing in the window, the same one you see, saved into that PDF. Before, it went looking for a project and switched the window back to the old Pro screens.
+- **Pro is gone.** REDBEAM is a PDF viewer that does takeoffs, and nothing else: the Mode setting and the Light/Pro switch on the start screen are removed, and nothing (a click, a link or an AI app) can open a project any more. An old project folder still works the same way as before: open a PDF from it and its takeoff moves into that PDF.
 
 
 ## 0.3.53 — 2026-11-24

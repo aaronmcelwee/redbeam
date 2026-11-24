@@ -5352,7 +5352,16 @@ export default function Workspace({
    * bridge starts describing an app that no longer exists.
    */
   useBridgeRequests({
+    query: async (sql, params) => {
+      const db = dbRef.current
+      if (db === null) throw new Error('the PDF is still opening; poll redbeam_get_ui_state until pageCount > 0')
+      return db.all<Record<string, unknown>>(sql, params)
+    },
     uiState: () => ({
+      // The PDF this window is showing and the others open as tabs.
+      ...(light && quickView !== undefined
+        ? { file: quickView.file, tabs: quickView.tabs?.list.map((t) => t.file) ?? [quickView.file] }
+        : {}),
       projectPath,
       role: identity.role,
       backend,

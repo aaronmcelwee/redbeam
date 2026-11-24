@@ -3,7 +3,6 @@
     "redbeam_get_state": "get_state",
     "redbeam_project_summary": "project_summary",
     "redbeam_open_file": "open_file",
-    "redbeam_open_project": "open_project",
     "redbeam_list_documents": "list_documents",
     "redbeam_list_pages": "list_pages",
     "redbeam_list_scopes": "list_scopes",
@@ -23,7 +22,7 @@
   "tools": [
     {
       "name": "redbeam_get_state",
-      "description": "Whether a project is open, its database path and schema version. Cheap; answers from the store even when the window is minimized or busy.",
+      "description": "What REDBEAM has open: `file` is the PDF showing (`fileOpen` false on the start screen), `tabs` the PDFs open beside it, and `note` says what to do next. REDBEAM has no projects, so `projectOpen` is always false; that is not a fault.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -31,7 +30,7 @@
     },
     {
       "name": "redbeam_project_summary",
-      "description": "Counts of documents, pages, scopes, markups and calibrated pages. The fastest way to see whether an ingest has finished.",
+      "description": "Counts of documents, pages, scopes, markups and calibrated pages for the PDF showing in the window, whose takeoff is read from the PDF itself. Fails, rather than counting zeros, when no PDF is open.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -54,24 +53,8 @@
       }
     },
     {
-      "name": "redbeam_open_project",
-      "description": "Ask the app to open a project folder. Returns {accepted:true} — NOT \"opened\". The open happens on the UI thread afterwards; poll redbeam_get_state until projectOpen is true.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Absolute path to the project folder."
-          }
-        },
-        "required": [
-          "path"
-        ]
-      }
-    },
-    {
       "name": "redbeam_list_documents",
-      "description": "Documents in the open project. Capped; `truncated` says when there are more.",
+      "description": "Documents in the PDF showing in the window (Light: one document, the PDF). Capped; `truncated` says when there are more.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -99,7 +82,7 @@
     },
     {
       "name": "redbeam_list_scopes",
-      "description": "Scopes in the open project. Archived scopes are hidden unless asked for.",
+      "description": "Scopes in the PDF showing in the window. Archived scopes are hidden unless asked for.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -147,7 +130,7 @@
     },
     {
       "name": "redbeam_execute_query",
-      "description": "Run one read-only SELECT against the project database. Writes are refused: a write here would change a takeoff with no undo entry and no activity row.",
+      "description": "Run one read-only SELECT against the takeoff of the PDF showing in the window (the same tables a project database has). Writes are refused: a write here would change a takeoff with no undo entry and no activity row.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -175,7 +158,7 @@
     },
     {
       "name": "redbeam_screenshot",
-      "description": "PNG of the current canvas, raster and markup overlay composited. Needs a window with a project open.",
+      "description": "PNG of the current canvas, raster and markup overlay composited. Needs a window with a PDF open.",
       "inputSchema": {
         "type": "object",
         "properties": {

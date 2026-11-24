@@ -1,13 +1,9 @@
 //! Bridge method dispatch (plan 11.2).
 //!
-//! Almost everything here answers straight out of the SQLite store, without
-//! touching a window. That is a real advantage over the Qt bridge, where every
-//! query went through the UI thread and a modal dialog could wedge automation:
-//! here an agent can read a project's scopes, markups and calibration while the
-//! app is minimized, busy, or showing a dialog.
-//!
-//! Only methods that genuinely need the UI — navigation, screenshots — will
-//! reach for a window, and they are separated for exactly that reason.
+//! The takeoff lives in the window that shows its PDF (see `light_query`), so
+//! the store reads below are SQL sent to that window's in-memory store. The
+//! methods that act on the window itself — navigation, screenshots, writes —
+//! go through `invoke_ui_action` and the same handlers a click uses.
 //!
 //! # Read and write are separated on purpose
 //!
@@ -19,9 +15,23 @@
 //! *proposals* through the same path the UI uses.
 
 use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
 
-use crate::store::StoreState;
+
+/// Every store read answers from the window.
+///
+/// Aaron, 2026-11-24: "Using REDBEAM with AI agents forces it to go back to
+/// pro mode. I want AI agents to work natively in light mode", then "lets
+/// retire pro mode altogether". These reads were written for Pro, where the
+/// takeoff lived in a project's SQLite file. Now it lives in the window, in
+/// the in-memory store the PDF was read into, so the Rust store is empty (or
+/// holds an old project an earlier session moved into its PDFs). An agent
+/// reading it saw "no project open", reached for `open_project`, and that
+/// put the window in Pro. `open_project` is gone; the reads go to the window.
+
+/// How long a Light read waits for a window. A window with a PDF open answers
+/// in milliseconds; only a start screen, which has nothing to say, waits it out.
+const LIGHT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Route one bridge call.
 pub fn dispatch(app: &AppHandle, method: &str, params: &Value) -> Result<Value, String> {
@@ -36,7 +46,6 @@ pub fn dispatch(app: &AppHandle, method: &str, params: &Value) -> Result<Value, 
         "get_calibration" => get_calibration(app, params),
         "project_summary" => project_summary(app),
         "execute_query" => execute_query(app, params),
-        "open_project" => open_project(app, params),
         "open_file" => open_file(app, params),
         // UI round trips. Separated from the store-backed methods above
         // because these are the only ones a wedged or window-less app can
@@ -56,7 +65,7 @@ fn capabilities() -> Value {
         "methods": [
             "ping", "get_capabilities", "get_state", "list_documents", "list_pages",
             "list_scopes", "list_markups", "get_calibration", "project_summary",
-            "execute_query", "open_project", "open_file",
+            "execute_query", "open_file",
             "get_ui_state", "screenshot", "invoke_ui_action",
         ],
         // Named so a client does not have to discover the gap by trying.
@@ -72,14 +81,34 @@ fn capabilities() -> Value {
 
 // ------------------------------------------------------------------ helpers --
 
-fn store(app: &AppHandle) -> tauri::State<'_, StoreState> {
-    app.state::<StoreState>()
-}
 
 fn query(app: &AppHandle, sql: &str, params: Vec<Value>) -> Result<Vec<Map<String, Value>>, String> {
-    store(app)
-        .with(|s| s.all(sql, &params))
-        .map_err(|e| e.to_string())
+    light_query(app, sql, params)
+}
+
+/// Run a read against the store of the PDF showing in a window (Light).
+///
+/// The same SQL the Pro store runs: the in-memory store is built from the
+/// same migrations, so the column lists above hold for both.
+fn light_query(app: &AppHandle, sql: &str, params: Vec<Value>) -> Result<Vec<Map<String, Value>>, String> {
+    let reply = super::ui::request_within(
+        app,
+        "query",
+        &json!({ "sql": sql, "params": params }),
+        LIGHT_READ_TIMEOUT,
+    )?;
+    light_rows(&reply)
+}
+
+/// The rows out of a window's answer to `query`, refusing anything else.
+fn light_rows(reply: &Value) -> Result<Vec<Map<String, Value>>, String> {
+    let rows = reply
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or("the window answered a query without rows")?;
+    rows.iter()
+        .map(|r| r.as_object().cloned().ok_or_else(|| "the window answered a row that is not an object".to_string()))
+        .collect()
 }
 
 fn str_param(params: &Value, key: &str) -> Option<String> {
@@ -119,14 +148,34 @@ fn listing(rows: Vec<Map<String, Value>>, limit: i64, key: &str) -> Value {
 // ------------------------------------------------------------------ methods --
 
 fn get_state(app: &AppHandle) -> Result<Value, String> {
-    let open = store(app).with(|s| Ok(s.db_path().display().to_string())).ok();
-    let schema = store(app).with(|s| s.schema_version()).ok();
-    Ok(json!({
-        "projectOpen": open.is_some(),
-        "dbPath": open,
-        "schemaVersion": schema,
+    Ok(light_state(app))
+}
+
+/// What the window has open, asked of it. Never an error: "nothing is
+/// open" is an answer, and the note says what to do about it.
+fn light_state(app: &AppHandle) -> Value {
+    let ui = super::ui::request_within(app, "get_ui_state", &json!({}), LIGHT_READ_TIMEOUT).ok();
+    let file = ui
+        .as_ref()
+        .and_then(|u| u.get("file"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let page_count = ui.as_ref().and_then(|u| u.get("pageCount")).cloned().unwrap_or(Value::Null);
+    let tabs = ui.as_ref().and_then(|u| u.get("tabs")).cloned().unwrap_or(json!([]));
+    json!({
+        "fileOpen": file.is_some(),
+        "file": file,
+        "pageCount": page_count,
+        "tabs": tabs,
+        // Kept for agents written against the old project tools: always false.
+        "projectOpen": false,
+        "note": if file.is_some() {
+            "The takeoff lives in the PDF. Reads answer for the PDF showing; writes go through redbeam_invoke_ui_action."
+        } else {
+            "No PDF is open, and REDBEAM has no projects. Open a PDF with redbeam_open_file, then poll redbeam_get_ui_state until pageCount > 0."
+        },
         "pid": std::process::id(),
-    }))
+    })
 }
 
 fn list_documents(app: &AppHandle, params: &Value) -> Result<Value, String> {
@@ -241,22 +290,21 @@ fn get_calibration(app: &AppHandle, params: &Value) -> Result<Value, String> {
 }
 
 fn project_summary(app: &AppHandle) -> Result<Value, String> {
-    let count = |sql: &str| -> i64 {
-        query(app, sql, vec![])
-            .ok()
-            .and_then(|r| r.first().and_then(|m| m.get("n").and_then(|v| v.as_i64())))
-            .unwrap_or(0)
-    };
-    Ok(json!({
-        "documents": count("SELECT COUNT(*) AS n FROM documents"),
-        "pages": count("SELECT COUNT(*) AS n FROM pages"),
-        "scopes": count("SELECT COUNT(*) AS n FROM scopes WHERE archived_at IS NULL"),
-        "archivedScopes": count("SELECT COUNT(*) AS n FROM scopes WHERE archived_at IS NOT NULL"),
-        "markups": count("SELECT COUNT(*) AS n FROM markups WHERE deleted_at IS NULL"),
-        "deletedMarkups": count("SELECT COUNT(*) AS n FROM markups WHERE deleted_at IS NOT NULL"),
-        "calibratedPages": count("SELECT COUNT(*) AS n FROM calibrations"),
-        "schemaVersion": store(app).with(|s| s.schema_version()).unwrap_or(0),
-    }))
+    // One round trip, and a failure is reported: counting zeros because no
+    // PDF answered would say "empty takeoff", which is a different thing.
+    let rows = light_query(
+        app,
+        "SELECT (SELECT COUNT(*) FROM documents) AS documents,
+                (SELECT COUNT(*) FROM pages) AS pages,
+                (SELECT COUNT(*) FROM scopes WHERE archived_at IS NULL) AS scopes,
+                (SELECT COUNT(*) FROM scopes WHERE archived_at IS NOT NULL) AS archivedScopes,
+                (SELECT COUNT(*) FROM markups WHERE deleted_at IS NULL) AS markups,
+                (SELECT COUNT(*) FROM markups WHERE deleted_at IS NOT NULL) AS deletedMarkups,
+                (SELECT COUNT(*) FROM calibrations) AS calibratedPages",
+        vec![],
+    )?;
+    let out = rows.into_iter().next().unwrap_or_default();
+    Ok(Value::Object(out))
 }
 
 /// Arbitrary READ-ONLY query, for the questions no typed method covers.
@@ -266,36 +314,6 @@ fn project_summary(app: &AppHandle) -> Result<Value, String> {
 /// is a guard against an agent corrupting a takeoff by "just checking
 /// something". Writes must go through the undo stack, and a DELETE issued here
 /// would leave no undo entry and no activity row.
-/// Ask the app to open a project folder.
-///
-/// This EMITS an event the frontend handles exactly as it handles the picker,
-/// rather than calling `StoreState::open` directly. Opening the store behind
-/// the UI's back would give the window one project and the database another —
-/// the same split-brain the store moved into Rust to prevent, reintroduced
-/// through the automation door.
-///
-/// It therefore returns `accepted`, not `opened`: the open happens on the UI
-/// thread afterwards. Poll `get_state` until `projectOpen` is true. Saying
-/// "opened" here would be a claim this method cannot support.
-fn open_project(app: &AppHandle, params: &Value) -> Result<Value, String> {
-    let path = str_param(params, "path").ok_or("open_project needs `path`")?;
-    if path.trim().is_empty() {
-        return Err("open_project needs a non-empty `path`".into());
-    }
-    // Checked here so a typo fails immediately with a clear message, rather
-    // than as a silent no-op three polls later.
-    if !std::path::Path::new(&path).is_dir() {
-        return Err(format!("not a folder: {path}"));
-    }
-    app.emit("redbeam://bridge/open-project", json!({ "path": path }))
-        .map_err(|e| format!("could not reach a window: {e}"))?;
-    Ok(json!({
-        "accepted": true,
-        "path": path,
-        "note": "poll get_state until projectOpen is true",
-    }))
-}
-
 /// Open a PDF the way Explorer does (open_with::route): forward in the
 /// window already showing it, into an empty window, or in a new one. This is
 /// how an agent starts work in Light, where a window is one PDF.
@@ -404,6 +422,15 @@ mod tests {
         for sql in ["SELECT * FROM scopes", "WITH x AS (SELECT 1) SELECT * FROM x"] {
             assert!(execute_query_guard(&json!({ "sql": sql })).is_ok(), "{sql}");
         }
+    }
+
+    #[test]
+    fn light_rows_come_back_as_objects_and_anything_else_is_refused() {
+        let rows = light_rows(&json!({ "rows": [{ "id": "a" }, { "id": "b" }] })).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1]["id"], json!("b"));
+        assert!(light_rows(&json!({})).is_err());
+        assert!(light_rows(&json!({ "rows": [1] })).is_err());
     }
 
     #[test]
