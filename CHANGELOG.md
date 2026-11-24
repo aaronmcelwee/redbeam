@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.57 — 2026-11-24
+
+### Imported Bluebeam markups wait for your yes
+
+- **Bluebeam markups come in pending.** Areas and lengths brought in from the PDF are drawn dashed and count toward nothing until you accept them.
+- **Accept by giving one a scope,** or with **Accept imported markups…** in the command palette, for the selected markups, the whole sheet or the whole PDF.
+- A pending markup you leave alone stays exactly as Bluebeam saved it.
+
+
 ## 0.3.56 — 2026-11-24
 
 ### Bluebeam markups you can work with
