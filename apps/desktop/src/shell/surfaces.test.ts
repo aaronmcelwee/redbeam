@@ -239,7 +239,8 @@ describe('the dock', () => {
    */
   it('keeps Pan out of the takeoff tools, among the read tools', () => {
     expect(tools).not.toContain("'pan'")
-    expect(src).toContain("READ_TOOLS.map((t) => toolButton(t, t.id === 'dimension' ? 'read' : undefined))")
+    expect(src).toContain('READ_TOOLS.map((t) => (')
+    expect(src).toContain("toolButton(t, t.id === 'dimension' ? 'read' : undefined)")
   })
 
   /** A dimension is read off the sheet, not taken off into a quantity. */

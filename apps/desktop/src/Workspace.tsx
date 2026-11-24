@@ -129,6 +129,7 @@ import { indexProject, type IndexProgress } from './search/indexer.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
 import { hitTestDimension } from './tools/dimension.js'
 import { drawPatternItems, type PatternOriginItem } from './tools/pattern.js'
+import { pickOriginArea } from './tools/origin.js'
 import {
   hiddenOnPage, hiddenStorageKey, hideAll, hideAnnotation, parseHiddenBook, showHidden,
   visibleAnnotations, type HiddenBook,
@@ -3724,6 +3725,22 @@ export default function Workspace({
      * is down, and asking for a keystroke to confirm something already
      * unambiguous is the ceremony this tool exists to avoid.
      */
+    /*
+     * Origin: one click sets where an area's pattern starts (#69). The click
+     * is already snapped to the drawing; the area it is for, and its corner
+     * or edge within a grip's reach, are decided in tools/origin.ts.
+     */
+    if (tool === 'origin') {
+      const v = viewRef.current
+      const pick = pickOriginArea(p, markupsRef.current, activeScopeRef.current, {
+        scaleX: page.width * v.zoom, scaleY: page.height * v.zoom, radius: VERTEX_GRAB_PX + 3,
+      })
+      if (pick === null) setStatus('click inside an area, or on its corner or edge, to start its pattern there')
+      else void startPatternHere(pick.markup, pick.point)
+      requestPaint()
+      return
+    }
+
     if (tool === 'dimension') {
       const next = dimensionDraftPlace(dimensionDraftRef.current, p, page.width, page.height)
       dimensionDraftRef.current = next
@@ -5418,7 +5435,7 @@ export default function Workspace({
            */
           const known: Tool[] = [
             'pan', 'select', 'area', 'cutout', 'polyline', 'count', 'shape',
-            'calibrate', 'direction', 'scale-region', 'dimension', 'text',
+            'calibrate', 'direction', 'scale-region', 'dimension', 'text', 'origin',
           ]
           if (!known.includes(next as Tool)) return { error: `unknown tool: ${next}` }
           setTool(next as Tool)
@@ -9150,6 +9167,8 @@ export default function Workspace({
               markupCountFor={(id) => markupCounts[id] ?? 0}
               onOpenEstimates={() => setWorkOpen(true)}
               documentOpen={activeDocId !== null}
+              onZoomBox={() => { if (zoomBoxArmedRef.current) disarmZoomBox(); else armZoomBox() }}
+              zoomBoxArmed={zoomBoxArmed}
             />
           }
           right={

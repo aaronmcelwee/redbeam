@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { pageStepForKey, steppedPage, toolForKey } from './sheetKeys.js'
+import { pageStepForKey, shortcutFor, steppedPage, toolForKey } from './sheetKeys.js'
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(name, import.meta.url)), 'utf8')
@@ -72,7 +72,60 @@ describe('sheet stepping keys (#30)', () => {
 describe('Pan and Select at every width (#31)', () => {
   it('only Dimension sits in the collapsing read tier', () => {
     const dock = read('./Dock.tsx')
-    expect(dock).toContain("READ_TOOLS.map((t) => toolButton(t, t.id === 'dimension' ? 'read' : undefined))")
+    expect(dock).toContain("toolButton(t, t.id === 'dimension' ? 'read' : undefined)")
     expect(dock).not.toContain("READ_TOOLS.map((t) => toolButton(t, 'read'))")
+  })
+})
+
+describe('every tool names its key (#68)', () => {
+  it('D arms Dimension and O arms Origin', () => {
+    expect(toolForKey('d', bare)).toBe('dimension')
+    expect(toolForKey('o', bare)).toBe('origin')
+    expect(toolForKey('d', ctrl)).toBeNull()
+    expect(toolForKey('o', ctrl)).toBeNull()
+  })
+
+  it('reads the key for a tooltip off the same table', () => {
+    expect(shortcutFor('area')).toBe('A')
+    expect(shortcutFor('cutout')).toBe('X')
+    expect(shortcutFor('polyline')).toBe('L')
+    expect(shortcutFor('count')).toBe('C')
+    expect(shortcutFor('shape')).toBe('S')
+    expect(shortcutFor('dimension')).toBe('D')
+    expect(shortcutFor('origin')).toBe('O')
+    expect(shortcutFor('scale-region')).toBe('Shift+K')
+    expect(shortcutFor('direction')).toBeNull()
+  })
+
+  it('the dock writes every tool tooltip through toolTitle', () => {
+    const dock = read('./Dock.tsx')
+    expect(dock).toContain('toolTitle(t.id, t.title ?? t.label)')
+    // No key typed by hand into a title, where it could drift from the table.
+    expect(dock).not.toMatch(/title: '[^']*\([A-Z]\)'/)
+  })
+})
+
+describe('a Zoom-to-box button beside Pan and Select (#70)', () => {
+  it('sits after Select in the read tools', () => {
+    const dock = read('./Dock.tsx')
+    expect(dock).toContain("t.id === 'select' && onZoomBox !== undefined")
+    expect(read('../Workspace.tsx')).toContain('zoomBoxArmed={zoomBoxArmed}')
+  })
+})
+
+describe('tool labels wherever they fit (#71)', () => {
+  it('steps from labels beside icons, to captions, to two rows, to icons', async () => {
+    const { nextLabelTier } = await import('./Dock.js')
+    expect(nextLabelTier('all')).toBe('stacked')
+    expect(nextLabelTier('stacked')).toBe('wrapped')
+    expect(nextLabelTier('wrapped')).toBe('none')
+    expect(nextLabelTier('none')).toBe('none')
+  })
+
+  it('is measured, not a 1440px breakpoint', () => {
+    const css = read('./shell.css')
+    expect(css).not.toMatch(/@container viewport \(min-width: 1440px\) \{\s*\.dock \.docklabel/)
+    expect(css).toContain('.dock .dockwork[data-labels="all"] .docklabel')
+    expect(read('./Dock.tsx')).toContain('data-labels={labels}')
   })
 })

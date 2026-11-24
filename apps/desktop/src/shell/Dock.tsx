@@ -28,7 +28,7 @@
  * menu, which the same query reveals.
  */
 import { useDismiss } from './dismiss.js'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ScaleRegion, Scope } from '@redbeam/domain'
 import {
   SCALE_PRESETS, feetPerPointForPreset, matchPreset, presetGroups, scaleLabel,
@@ -39,8 +39,9 @@ import { PRODUCT_TYPE_LABEL, readProductType } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
-  RotateSheetCcw, RotateSheetCw, StretchHorizontal, Type,
+  OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, Type, ZoomBox,
 } from './icons.js'
+import { shortcutFor } from './sheetKeys.js'
 import type { Icon } from './icons.js'
 import { useClampedPopover } from './popover.js'
 import { CalibrationEntry, type CalibrationEntryProps } from './CalibrationEntry.js'
@@ -54,14 +55,14 @@ import { ScalePicker } from '../scale/ScalePicker.js'
  * scale, the other a scope's orientation, and neither leaves a markup behind.
  * Mixing them in implied that calibrating draws something.
  */
-const TOOLS: Array<{ id: Tool; label: string; icon: Icon }> = [
-  { id: 'area', label: 'Area', icon: Area },
+const TOOLS: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
+  { id: 'area', label: 'Area', title: 'Area: click the corners, or drag a rectangle', icon: Area },
   // Beside Area: a cutout is the other half of an area takeoff, and it sat
   // three buttons away from it.
-  { id: 'cutout', label: 'Cutout', icon: Cutout },
-  { id: 'polyline', label: 'Linear', icon: Polyline },
-  { id: 'count', label: 'Count', icon: Count },
-  { id: 'shape', label: 'Highlight', icon: Highlighter },
+  { id: 'cutout', label: 'Cutout', title: 'Cutout: take a hole out of an area', icon: Cutout },
+  { id: 'polyline', label: 'Linear', title: 'Linear: click along a run, Enter to finish', icon: Polyline },
+  { id: 'count', label: 'Count', title: 'Count: one click per item', icon: Count },
+  { id: 'shape', label: 'Highlight', title: 'Highlight: drag across what to mark', icon: Highlighter },
 ]
 
 /**
@@ -78,12 +79,12 @@ const TOOLS: Array<{ id: Tool; label: string; icon: Icon }> = [
  */
 export type ReadTool = 'pan' | 'select' | 'dimension' | 'text'
 const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
-  { id: 'pan', label: 'Pan', title: 'Move the sheet (H)', icon: Hand },
+  { id: 'pan', label: 'Pan', title: 'Move the sheet', icon: Hand },
   // Marquee selection existed as Shift+drag in Pan and nobody found it.
   // Kenneth, 2026-09-10: "I need a select tool for marquee selections".
-  { id: 'select', label: 'Select', title: 'Select markups: click one, or drag a box around several (V)', icon: Cursor },
+  { id: 'select', label: 'Select', title: 'Select markups: click one, or drag a box around several', icon: Cursor },
   { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: Ruler },
-  { id: 'text', label: 'Text', title: 'Select text: drag a box around it, then Ctrl+C (T)', icon: Type },
+  { id: 'text', label: 'Text', title: 'Select text: drag a box around it, then Ctrl+C', icon: Type },
 ]
 
 /**
@@ -112,7 +113,46 @@ const SETUP: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
     title: 'Set the orientation the material runs, for the active scope',
     icon: Compass,
   },
+  /*
+   * Where an area's pattern starts: its 0,0. It was only a right-click on the
+   * area ("Start the pattern here"), with no snapping to what is drawn. Aaron
+   * (#69): "I want to be able to use an actual tool with snap functionality
+   * to select that point instead." The right-click stays.
+   */
+  {
+    id: 'origin',
+    label: 'Origin',
+    title: 'Set where an area\'s pattern starts: click its corner, an edge or a point inside it',
+    icon: OriginPin,
+  },
 ]
+
+/**
+ * How the dock names its tools (#71): beside each icon when the row has room,
+ * in a small caption under it when it does not, then with the sheet controls
+ * moved up a row to give the tools the whole width, and icons alone only
+ * when even that overflows.
+ */
+export type LabelTier = 'all' | 'stacked' | 'wrapped' | 'none'
+
+/** The next tier down when a row overflows. */
+export function nextLabelTier(t: LabelTier): LabelTier {
+  return t === 'all' ? 'stacked' : t === 'stacked' ? 'wrapped' : 'none'
+}
+
+/** Whether any group of the dock is narrower than what it holds. */
+export function dockOverflows(dock: Element): boolean {
+  for (const g of Array.from(dock.children)) {
+    if (g instanceof HTMLElement && g.scrollWidth > g.clientWidth + 1) return true
+  }
+  return false
+}
+
+/** A tooltip with the key that arms the tool, when it has one (#68). */
+export function toolTitle(id: string, title: string): string {
+  const key = shortcutFor(id)
+  return key === null ? title : `${title} (${key})`
+}
 
 // --------------------------------------------------------------- menus --
 
@@ -163,6 +203,14 @@ export interface ToolPillProps {
    * keeps its shape in every state so the hand learns one layout.
    */
   documentOpen?: boolean
+  /**
+   * Zoom to a box, as a button beside Pan and Select (#70). It was Z and an
+   * item in the zoom menu, and a report asked for marquee zoom a week after
+   * it shipped. Absent in a harness without it.
+   */
+  onZoomBox?: () => void
+  /** Whether a zoom box is armed, so the button reads as pressed. */
+  zoomBoxArmed?: boolean
 }
 
 /**
@@ -196,7 +244,7 @@ export interface ToolPillProps {
 export function ToolPill({
   tool, onTool, scopes, activeScope, onScope, takeoff, onTakeoff,
   estimates = [], fileMode = false, openEstimateId = null, onEstimate, onAddScope, markupCountFor, onOpenEstimates,
-  documentOpen = true,
+  documentOpen = true, onZoomBox, zoomBoxArmed = false,
 }: ToolPillProps) {
   const [scopeOpen, setScopeOpen] = useState(false)
   /*
@@ -218,19 +266,56 @@ export function ToolPill({
   const switchable = onEstimate !== undefined && estimates.length > 0
 
   /*
-   * A tool button: the glyph, Filled when in hand, and a label the Spacious
-   * tier shows. `collapse` names the tier that hides it. Pan, Select and the
+   * LABELS WHEREVER THEY FIT (#71).
+   *
+   * The names showed only when the drawing itself was 1440px wide — a window
+   * of about 2100px with both panes open — so nobody ever saw them: "toolbar
+   * buttons need labels". Whether they fit depends on the scope's name, the
+   * scale's label and whether takeoff is on, none of which a width breakpoint
+   * knows, so the dock is measured instead. Labels beside the icons first;
+   * if the row overflows, a caption under each icon, which costs about a
+   * third of the width and none of the height; if it still does, icons.
+   * Each step is decided before paint, so the row never shows clipped.
+   * Tooltips name every tool either way.
+   */
+  const workRef = useRef<HTMLDivElement>(null)
+  const [resized, setResized] = useState(0)
+  // Anything that changes what the row holds, or the room it has, starts
+  // again from every label. Derived during render rather than reset in an
+  // effect: a reset and a step in the same commit cancel out, and React then
+  // skips the render that would have measured again.
+  const fitKey = `${takeoff}|${activeScope}|${documentOpen}|${scopes.length}|${resized}`
+  const [fit, setFit] = useState<{ key: string; tier: LabelTier }>({ key: fitKey, tier: 'all' })
+  const labels: LabelTier = fit.key === fitKey ? fit.tier : 'all'
+  useLayoutEffect(() => {
+    const dock = workRef.current?.parentElement
+    if (!dock) return
+    if (labels !== 'none' && dockOverflows(dock)) setFit({ key: fitKey, tier: nextLabelTier(labels) })
+    else if (fit.key !== fitKey) setFit({ key: fitKey, tier: labels })
+  })
+  useEffect(() => {
+    const room = workRef.current?.parentElement?.parentElement
+    if (!room || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setResized((n) => n + 1))
+    ro.observe(room)
+    return () => ro.disconnect()
+  }, [])
+
+  /*
+   * A tool button: the glyph, Filled when in hand, and a label when the row
+   * has room for it (above). `collapse` names the tier that hides it. Pan, Select and the
    * takeoff tools are never hidden; Dimension folds at Compact when it is not
    * in hand, which the stylesheet decides from `aria-pressed`.
    */
-  const toolButton = (t: { id: Tool | ReadTool; label: string; icon: Icon; title?: string }, collapse?: string) => (
+  const toolButton = (t: { id: Tool | ReadTool; label: string; icon: Icon; title?: string }, collapse?: string, takeoffTool = false) => (
     <button
       key={t.id}
       className="dockbtn docktool"
       data-collapse={collapse}
+      data-takeoff={takeoffTool || undefined}
       aria-pressed={tool === t.id}
       aria-label={t.label}
-      title={documentOpen ? (t.title ?? t.label) : 'Open a drawing first'}
+      title={documentOpen ? toolTitle(t.id, t.title ?? t.label) : 'Open a drawing first'}
       disabled={!documentOpen}
       onClick={() => onTool(t.id as Tool)}
     >
@@ -256,14 +341,31 @@ export function ToolPill({
      * which put the answer to "where does this measurement go" at the far
      * end of the row from the tool about to make one.
      */
-    <div className="dockgroup dockwork" role="toolbar" aria-label="Read the sheet and take off">
+    <div ref={workRef} className="dockgroup dockwork" data-labels={labels} role="toolbar" aria-label="Read the sheet and take off">
       {/*
         Pan and Select never fold: they are how you get around the sheet and
         how you pick a markup, and below 900px they vanished whenever the
         other one was in hand, with no way back except the H and V keys (#31).
         Dimension still folds there when it is not in hand.
       */}
-      {READ_TOOLS.map((t) => toolButton(t, t.id === 'dimension' ? 'read' : undefined))}
+      {READ_TOOLS.map((t) => (
+        <Fragment key={t.id}>
+          {toolButton(t, t.id === 'dimension' ? 'read' : undefined)}
+          {t.id === 'select' && onZoomBox !== undefined && (
+            <button
+              className="dockbtn docktool"
+              aria-pressed={zoomBoxArmed}
+              aria-label="Zoom"
+              title={documentOpen ? 'Zoom to a box: drag around the part to fill the window (Z)' : 'Open a drawing first'}
+              disabled={!documentOpen}
+              onClick={onZoomBox}
+            >
+              <Glyph icon={ZoomBox} role="inline" filled={zoomBoxArmed} />
+              <span className="docklabel">Zoom</span>
+            </button>
+          )}
+        </Fragment>
+      ))}
       <span className="dockrule" aria-hidden="true" />
 
       <div ref={scopeRef} className="dockscopewrap" style={{ position: 'relative' }}>
@@ -410,10 +512,10 @@ export function ToolPill({
 
       {takeoff && <span className="dockrule" aria-hidden="true" />}
       {/* Never shed: they are what the mode is for. */}
-      {takeoff && TOOLS.map((t) => toolButton(t))}
+      {takeoff && TOOLS.map((t) => toolButton(t, undefined, true))}
 
       {takeoff && <span className="dockrule" data-collapse="setup" aria-hidden="true" />}
-      {takeoff && SETUP.map((t) => toolButton(t, 'setup'))}
+      {takeoff && SETUP.map((t) => toolButton(t, 'setup', true))}
 
       {takeoff && (
         <button

@@ -5,7 +5,7 @@
 
 export type ToolKey =
   | 'select' | 'pan' | 'area' | 'polyline' | 'count' | 'cutout' | 'shape'
-  | 'calibrate' | 'scale-region' | 'text'
+  | 'calibrate' | 'scale-region' | 'text' | 'dimension' | 'origin'
 
 export interface KeyMods {
   ctrlKey: boolean
@@ -16,6 +16,23 @@ export interface KeyMods {
 const TOOL_KEYS: Record<string, ToolKey> = {
   v: 'select', h: 'pan', a: 'area', l: 'polyline', c: 'count', x: 'cutout',
   s: 'shape', k: 'calibrate', K: 'scale-region', t: 'text',
+  // Dimension had no key at all, and the Origin tool is new (#68, #69).
+  d: 'dimension', o: 'origin',
+}
+
+/**
+ * The key that arms a tool, as a tooltip writes it: "A", or "Shift+K".
+ *
+ * Read off the same table the listener uses, so a tooltip cannot name a key
+ * that does something else. The dock's tooltips named the shortcut for Pan,
+ * Select and Text only; nobody could find the other seven (#68).
+ */
+export function shortcutFor(tool: string): string | null {
+  for (const [key, t] of Object.entries(TOOL_KEYS)) {
+    if (t !== tool) continue
+    return key === key.toLowerCase() ? key.toUpperCase() : `Shift+${key}`
+  }
+  return null
 }
 
 /**

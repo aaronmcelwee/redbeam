@@ -142,6 +142,10 @@ export const WindowNew = family('WindowNew', 16, 20, 24)
 export const X = family('Dismiss', 12, 16, 20, 24)
 export const ZoomIn = family('ZoomIn', 16, 20, 24)
 export const ZoomOut = family('ZoomOut', 16, 20, 24)
+/** Zoom to a box (#70). */
+export const ZoomBox = family('ZoomFit', 16, 20, 24)
+/** The pattern origin, the area's 0,0 (#69). */
+export const OriginPin = family('Pin', 16, 20, 24)
 
 /*
  * The dictionary (docs/design/prompt-settings-icons-2026-09-18, board 3):
