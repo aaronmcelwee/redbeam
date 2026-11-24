@@ -163,6 +163,12 @@ export class Viewer {
   /** Annotation indexes hidden on a page. The token is part of the tile key. */
   private hiddenByPage = new Map<number, readonly number[]>()
   private hiddenTokens = new Map<number, string>()
+  /** The PDF's own annotations drawn at all. Off is part of the tile key. */
+  private annotsOn = true
+  /** REDBEAM's own markup overlay drawn. */
+  private overlayOn = true
+  private regionWaiters = new Map<string, { resolve: (b: ImageBitmap) => void; reject: (e: Error) => void }>()
+  private regionSeq = 0
   private pendingThumbs = new Map<string, number>()
   private page: PageInfo = { width: 0, height: 0 }
   private activeIndex = -1
@@ -360,6 +366,12 @@ export class Viewer {
       this.pending.delete(m.key)
       this.tiles.set(m.key, m.page, m.bmp)
       this.opts.onTile?.(m.ms)
+    } else if (m.type === 'region') {
+      const w = this.regionWaiters.get(m.key)
+      this.regionWaiters.delete(m.key)
+      if (w === undefined) { m.bmp?.close(); return }
+      if (m.error !== undefined || m.bmp === undefined) w.reject(new Error(m.error ?? 'the region did not render'))
+      else w.resolve(m.bmp)
     } else if (m.type === 'thumb') {
       this.pendingThumbs.delete(m.key)
       this.thumbs.set(m.key, m.page, m.bmp)
@@ -506,6 +518,76 @@ export class Viewer {
     return true
   }
 
+  /**
+   * Draw the PDF's own annotations (markups made in Bluebeam or anywhere
+   * else), or none of them. Nothing is written to the file. Returns whether
+   * anything changed, in which case the visible tiles need asking for again.
+   */
+  setAnnotationsVisible(on: boolean): boolean {
+    if (on === this.annotsOn) return false
+    this.annotsOn = on
+    // The other setting's tiles stay valid under their own keys, so turning
+    // it back costs nothing that is still cached. Nothing in flight is
+    // cancelled for the same reason.
+    return true
+  }
+
+  get annotationsVisible(): boolean { return this.annotsOn }
+
+  /** Draw REDBEAM's markup overlay, or leave the sheet bare. */
+  setOverlayVisible(on: boolean): void { this.overlayOn = on }
+
+  get overlayVisible(): boolean { return this.overlayOn }
+
+  /**
+   * Render a box of the CURRENT page at an exact pixel size, independent of
+   * the window: what a close-up should be, rather than a crop of a screenshot
+   * that is only as sharp as the screen. `box` is normalized [0,1], y down.
+   * `width` fixes the height from the box's proportions.
+   *
+   * The PDF's annotations follow the viewer's own setting unless `annots`
+   * says otherwise. With `overlay`, REDBEAM's markups are drawn on top at the
+   * same scale.
+   */
+  async renderRegion(
+    box: { x0: number; y0: number; x1: number; y1: number },
+    width: number,
+    opts: { annots?: boolean; overlay?: boolean } = {},
+  ): Promise<{ canvas: HTMLCanvasElement; width: number; height: number; pointsPerPixel: number }> {
+    const page = this.activeIndex
+    if (page < 0 || this.page.width === 0) throw new Error('no page is showing')
+    const x0 = clamp01(Math.min(box.x0, box.x1)), x1 = clamp01(Math.max(box.x0, box.x1))
+    const y0 = clamp01(Math.min(box.y0, box.y1)), y1 = clamp01(Math.max(box.y0, box.y1))
+    if (!(x1 - x0 > 0) || !(y1 - y0 > 0)) throw new Error('the region has no area')
+    const regionW = (x1 - x0) * this.page.width
+    const regionH = (y1 - y0) * this.page.height
+    const w = Math.max(16, Math.round(width))
+    const h = Math.max(16, Math.round((w * regionH) / regionW))
+    const annots = opts.annots ?? this.annotsOn
+    const hidden = this.hiddenByPage.get(page) ?? []
+    const key = `region/${++this.regionSeq}`
+    const bmp = await new Promise<ImageBitmap>((resolve, reject) => {
+      this.regionWaiters.set(key, { resolve, reject })
+      this.send({
+        type: 'region', key, page, x0, y0, x1, y1, width: w, height: h, annots,
+        ...(hidden.length > 0 ? { hidden: [...hidden] } : {}),
+      })
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = bmp.width
+    canvas.height = bmp.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { bmp.close(); throw new Error('no 2D context for the region') }
+    ctx.drawImage(bmp, 0, 0)
+    bmp.close()
+    const zoom = w / regionW
+    if (opts.overlay ?? this.overlayOn) {
+      const view: Viewport = { zoom, ox: x0 * this.page.width * zoom, oy: y0 * this.page.height * zoom, vw: w, vh: h }
+      drawOverlay(ctx, this.overlaySet, view, this.page.width, this.page.height, this.opts.overlay)
+    }
+    return { canvas, width: w, height: h, pointsPerPixel: 1 / zoom }
+  }
+
   requestVisible(cssView: Viewport) {
     if (this.page.width === 0 || this.activeIndex < 0) return
     const v = toDevice(cssView, this.deviceScale())
@@ -530,6 +612,7 @@ export class Viewer {
   }
 
   private tileIdentity(page: number, zoom: number, tx: number, ty: number): string {
+    if (!this.annotsOn) return tileKey(page, zoom, tx, ty, 'off')
     const hidden = this.hiddenByPage.get(page) ?? []
     return tileKey(page, zoom, tx, ty, hidden.length > 0 ? hidden.join(',') : '')
   }
@@ -547,6 +630,7 @@ export class Viewer {
         this.send({
           type: 'tile', key, page, tx, ty, tile, zoom, priority,
           ...(hidden.length > 0 ? { hidden: [...hidden] } : {}),
+          ...(this.annotsOn ? {} : { annots: false as const }),
         })
       }
       return false
@@ -555,6 +639,7 @@ export class Viewer {
     this.send({
       type: 'tile', key, page, tx, ty, tile, zoom, priority,
       ...(hidden.length > 0 ? { hidden: [...hidden] } : {}),
+      ...(this.annotsOn ? {} : { annots: false as const }),
     })
     return true
   }
@@ -981,7 +1066,9 @@ export class Viewer {
     // raster — otherwise every markup sits up to half a device pixel off the
     // geometry it annotates.
     const cssSnapped: Viewport = { ...cssView, ox: snapped.ox / d, oy: snapped.oy / d }
-    const stats = drawOverlay(oc, this.overlaySet, cssSnapped, this.page.width, this.page.height, this.opts.overlay)
+    const stats = this.overlayOn
+      ? drawOverlay(oc, this.overlaySet, cssSnapped, this.page.width, this.page.height, this.opts.overlay)
+      : { drawn: 0, culled: 0 }
     const t2 = performance.now()
 
     return { rasterMs: t1 - t0, overlayMs: t2 - t1, tilesBlitted: blitted, tilesStale: stale, overlay: stats }
@@ -1136,4 +1223,8 @@ function clampAxis(offset: number, scaled: number, viewport: number, slack = 0):
 export function zoomAbout(v: Viewport, nextZoom: number, sx: number, sy: number): Viewport {
   const k = nextZoom / v.zoom
   return { ...v, zoom: nextZoom, ox: (v.ox + sx) * k - sx, oy: (v.oy + sy) * k - sy }
+}
+
+function clamp01(n: number): number {
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Viewer, clampViewport, linkAt, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation, type PageLink } from '@redbeam/viewer'
+import { PRIORITY_THUMBNAIL, Viewer, clampViewport, linkAt, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation, type PageLink } from '@redbeam/viewer'
 import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
   calibrationFromReference, calculateScopeQuantities, parseNumberOrFraction, parseLengthInput, isLengthUnit,
@@ -126,6 +126,7 @@ import { renderEstimatePdf } from './export/estimatePdf.js'
 import { saveFile, saveOutcomeText } from './export/saveFile.js'
 import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/snapshots.js'
 import { indexProject, type IndexProgress } from './search/indexer.js'
+import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
 import { hitTestDimension } from './tools/dimension.js'
 import { drawPatternItems, type PatternOriginItem } from './tools/pattern.js'
@@ -965,6 +966,20 @@ export default function Workspace({
    */
   const ownAnnotsRef = useRef<Set<number>>(new Set())
   const [hiddenAnnotCount, setHiddenAnnotCount] = useState(0)
+  /**
+   * Markups off, to see the drawing underneath (Aaron, 2026-11-24: "hide
+   * embedded markups as well as REDBEAM markups for the purpose of visual
+   * analysis so it doesn't obscure things"). Two switches because they are
+   * two layers: the PDF's own annotations, rasterized with the sheet, and
+   * REDBEAM's takeoff, drawn over it. For the whole window and this session
+   * only; nothing is written, and the warning bar says while either is off.
+   */
+  const [embeddedHidden, setEmbeddedHidden] = useState(false)
+  const [redbeamHidden, setRedbeamHidden] = useState(false)
+  const embeddedHiddenRef = useRef(false)
+  const redbeamHiddenRef = useRef(false)
+  embeddedHiddenRef.current = embeddedHidden
+  redbeamHiddenRef.current = redbeamHidden
   const [asideAsk, setAsideAsk] = useState(false)
   const closeDbRef = useRef<(() => Promise<void>) | null>(null)
   const [selectedAnnots, setSelectedAnnots] = useState<number[]>([])
@@ -1173,7 +1188,8 @@ export default function Workspace({
        * offset witness line, a label), so it belongs with the scale regions on
        * the annotation layer.
        */
-      for (const m of markupsRef.current) {
+      const bare = redbeamHiddenRef.current
+      for (const m of bare ? [] : markupsRef.current) {
         if (m.kind !== 'dimension') continue
         // A dimension written before content was carried has none; skip it
         // rather than let one row take the whole overlay down.
@@ -1189,7 +1205,7 @@ export default function Workspace({
       const regionsHere = regionsRef.current.get(
         pageIdFor(docIdRef.current, pageIndexRef.current),
       )
-      if (regionsHere !== undefined && regionsHere.length > 0) {
+      if (!bare && regionsHere !== undefined && regionsHere.length > 0) {
         drawScaleRegions(oc, regionsHere, viewRef.current, {
           pageWidth: page.width,
           pageHeight: page.height,
@@ -1234,6 +1250,7 @@ export default function Workspace({
          */
         const here = pageIdFor(docIdRef.current, pageIndexRef.current)
         for (const entry of piecesRef.current) {
+          if (bare) break
           const opts = {
             color: entry.scope.color,
             pageWidth: page.width,
@@ -1270,7 +1287,7 @@ export default function Workspace({
         if (point === undefined) continue
         origins.push({ kind: 'origin', id: m.id, point, color: sc.color })
       }
-      if (origins.length > 0) {
+      if (origins.length > 0 && !bare) {
         drawPatternItems(oc, origins, viewRef.current, page.width, page.height, { labels: true })
       }
       const ids = new Set(selectedRef.current)
@@ -1322,6 +1339,23 @@ export default function Workspace({
    */
   const paintRef = useRef(paint)
   paintRef.current = paint
+
+  /** Show or hide either markup layer; see `embeddedHidden`. Returns what is now in force. */
+  const setMarkupVisibility = useCallback((next: { embedded?: boolean; redbeam?: boolean }) => {
+    const v = viewerRef.current
+    if (next.embedded !== undefined) {
+      embeddedHiddenRef.current = !next.embedded
+      setEmbeddedHidden(!next.embedded)
+      if (v !== null && v.setAnnotationsVisible(next.embedded)) v.requestVisible(viewRef.current)
+    }
+    if (next.redbeam !== undefined) {
+      redbeamHiddenRef.current = !next.redbeam
+      setRedbeamHidden(!next.redbeam)
+      v?.setOverlayVisible(next.redbeam)
+    }
+    requestPaint()
+    return { embedded: !embeddedHiddenRef.current, redbeam: !redbeamHiddenRef.current }
+  }, [requestPaint])
 
   /*
    * QUICK VIEW's gate. A drawing open for viewing has no project, so the
@@ -2125,6 +2159,9 @@ export default function Workspace({
       },
     })
     viewerRef.current = viewer
+    // Markups switched off stay off across a document switch.
+    viewer.setAnnotationsVisible(!embeddedHiddenRef.current)
+    viewer.setOverlayVisible(!redbeamHiddenRef.current)
     viewer.boot('/pdfium.wasm', docUrl)
     // A pending page (a search hit into this document) is loaded from onReady
     // instead, once the count is known.
@@ -5320,6 +5357,26 @@ export default function Workspace({
    * is told is what a person would see — a separate reporting path is how a
    * bridge starts describing an app that no longer exists.
    */
+  /**
+   * Show a page for an agent and wait until it is the one on screen, so the
+   * next step (a close-up, a zoom) acts on it and not on the sheet before.
+   */
+  const showPageForAgent = async (n: number): Promise<void> => {
+    if (!Number.isInteger(n) || n < 0 || n >= pageCount) throw new Error(`page ${n} out of range (0..${pageCount - 1})`)
+    if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
+    goToPage(n)
+    const until = performance.now() + 10_000
+    while (performance.now() < until) {
+      await new Promise((r) => setTimeout(r, 50))
+      if (pageIndexRef.current === n && (viewerRef.current?.pageInfo.width ?? 0) > 0) {
+        // One more beat for the fit that follows a page change.
+        await new Promise((r) => setTimeout(r, 150))
+        return
+      }
+    }
+    throw new Error(`page ${n} did not show within 10s`)
+  }
+
   useBridgeRequests({
     query: async (sql, params) => {
       const db = dbRef.current
@@ -5392,9 +5449,38 @@ export default function Workspace({
         blockers: p.result.blockers,
       })),
       ingestNote,
+      /*
+       * What the sheet is called, from the same index the sheet list shows:
+       * the PDF's bookmarks, then its page labels, then the title block.
+       * Null when none of them names it.
+       */
+      sheet: activeDocId === null ? null : (() => {
+        const n = sheetLabelFor(pageIndex)
+        return n === `Page ${pageIndex + 1}` ? null : { number: n, title: sheetTitleFor(pageIndex) }
+      })(),
+      markupVisibility: { embedded: !embeddedHidden, redbeam: !redbeamHidden },
     }),
 
-    screenshot: (params) => {
+    screenshot: async (params) => {
+      /*
+       * A close-up: one box of the sheet, rendered by PDFium at the size
+       * asked for rather than cropped out of the window, which is only as
+       * sharp as the screen (Aaron, 2026-11-24: "I worked around it by
+       * cropping, which came out low-res").
+       */
+      const region = bridgeRect(params['region'] ?? params['rect'])
+      if (region === null) throw new Error('region must be {x0,y0,x1,y1} in normalized [0,1] page coordinates')
+      if (region !== undefined) {
+        const v = viewerRef.current
+        if (!v) return null
+        if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? 2000) || 2000))
+        const out = await v.renderRegion(region, width, {
+          ...(typeof params['annotations'] === 'boolean' ? { annots: params['annotations'] } : {}),
+          ...(typeof params['overlay'] === 'boolean' ? { overlay: params['overlay'] } : {}),
+        })
+        return out.canvas.toDataURL('image/png')
+      }
       // The raster and the overlay are separate canvases; a screenshot that
       // showed only one would be a picture of half the app.
       const raster = rasterRef.current
@@ -5457,12 +5543,157 @@ export default function Workspace({
           return { activeScope: id }
         }
         case 'go_to_page': {
+          if (typeof params['sheet'] === 'string' && params['page'] === undefined) {
+            const rows = sheetGroups.flatMap((g) => g.rows)
+            const at = pageForSheet(rows, params['sheet'])
+            if (at === null) return { error: `no single sheet is called ${params['sheet']} in this document; list_sheets has every sheet` }
+            void goToPage(at)
+            return { page: at, sheet: sheetLabelFor(at) }
+          }
           const n = Number(params['page'])
           if (!Number.isInteger(n) || n < 0 || n >= pageCount) {
             return { error: `page ${params['page']} out of range (0..${pageCount - 1})` }
           }
           void goToPage(n)
           return { page: n }
+        }
+        /*
+         * The sheet index, as the sheet list shows it: number and title per
+         * page, from the PDF's bookmarks, its page labels, or the title block
+         * when the set has neither. `sheet` is null where nothing names it.
+         */
+        case 'list_sheets': {
+          if (activeDocId === null) return { error: 'no document is open' }
+          const doc = documents.find((d) => d.id === activeDocId)
+          const sheets = sheetGroups.flatMap((g) => g.rows.map((r) => {
+            const unnamed = r.number === `Page ${r.page + 1}` && r.title === ''
+            return {
+              page: r.page,
+              sheet: unnamed ? null : r.number,
+              title: r.title,
+              ...(g.label !== null ? { group: g.label } : {}),
+            }
+          })).sort((a, b) => a.page - b.page)
+          return {
+            documentId: activeDocId,
+            document: doc === undefined ? null : (doc.displayName || doc.relativePath),
+            pageCount,
+            named: sheets.filter((x) => x.sheet !== null).length,
+            sheets,
+          }
+        }
+        /*
+         * Where text is on the sheets: every occurrence with its box, so an
+         * agent can zoom to a tag or render a close-up of it. Reads PDFium's
+         * word boxes, the ones Select text uses; nothing is stored for it.
+         */
+        case 'find_text': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          const query = String(params['query'] ?? '').trim()
+          if (query === '') return { error: 'find_text needs `query`' }
+          const wanted = bridgePages(params, pageCount)
+          if (typeof wanted === 'string') return { error: wanted }
+          // The search index already knows which sheets cannot contain it.
+          let candidates = wanted
+          const db = dbRef.current
+          if (db !== null) {
+            try {
+              const rows = await db.all<{ page_id: string; hit: number }>(
+                'SELECT page_id, instr(lower(content), lower(?)) > 0 AS hit FROM page_text WHERE document_id = ?',
+                [query, activeDocId],
+              )
+              const known = new Map(rows.map((r) => [r.page_id, r.hit !== 0]))
+              candidates = wanted.filter((sweepPage) => known.get(pageIdFor(activeDocId, sweepPage)) !== false)
+            } catch { candidates = wanted }
+          }
+          const limit = Math.max(1, Math.min(2000, Number(params['limit'] ?? 300) || 300))
+          const deadline = performance.now() + 14_000
+          const matches: Array<TextMatch & { page: number; sheet: string | null }> = []
+          const notRead: number[] = []
+          let read = 0
+          for (const p of candidates) {
+            if (matches.length >= limit) break
+            if (performance.now() > deadline) { notRead.push(p); continue }
+            const pt = await v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null)
+            if (pt === null) { notRead.push(p); continue }
+            read++
+            const label = sheetLabelFor(p)
+            for (const m of findInPageText(pt, query, {
+              caseSensitive: params['caseSensitive'] === true,
+              wholeWord: params['wholeWord'] === true,
+              limit: limit - matches.length,
+            })) matches.push({ page: p, sheet: label === `Page ${p + 1}` ? null : label, ...m })
+          }
+          return {
+            query,
+            matches,
+            pagesSearched: read + (wanted.length - candidates.length),
+            ...(matches.length >= limit ? { truncated: true } : {}),
+            ...(notRead.length > 0 ? { notSearched: notRead, note: 'out of time; ask again with `pages` set to these' } : {}),
+          }
+        }
+        /* Every word on a page with its box, or only those inside `rect`. */
+        case 'get_words': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          const p = params['page'] === undefined ? pageIndex : Number(params['page'])
+          if (!Number.isInteger(p) || p < 0 || p >= pageCount) return { error: `page ${params['page']} out of range (0..${pageCount - 1})` }
+          const within = bridgeRect(params['rect'])
+          if (within === null) return { error: 'rect must be {x0,y0,x1,y1} in normalized [0,1] page coordinates' }
+          const pt = await v.requestText(p, { priority: PRIORITY_THUMBNAIL })
+          const all = wordsOnPage(pt, within)
+          const limit = Math.max(1, Math.min(20_000, Number(params['limit'] ?? 3000) || 3000))
+          return {
+            page: p,
+            sheet: sheetLabelFor(p),
+            scanned: pt.scanned,
+            words: all.slice(0, limit),
+            ...(all.length > limit ? { truncated: true, total: all.length } : {}),
+          }
+        }
+        /*
+         * Frame a box of the sheet in the window, the way the zoom box does,
+         * and mark it the way a search hit is marked. With `page`, that sheet
+         * is shown first.
+         */
+        case 'zoom_to_region': {
+          const rect = bridgeRect(params['rect'])
+          if (rect === undefined || rect === null) return { error: 'zoom_to_region needs `rect` {x0,y0,x1,y1}, normalized [0,1]' }
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          const { width: pw, height: ph } = v.pageInfo
+          const x0 = Math.min(rect.x0, rect.x1) * pw, x1 = Math.max(rect.x0, rect.x1) * pw
+          const y0 = Math.min(rect.y0, rect.y1) * ph, y1 = Math.max(rect.y0, rect.y1) * ph
+          // A little room around it, so a tag is seen with what it points at.
+          const margin = Math.max(0, Number(params['margin'] ?? 0.15) || 0)
+          const bw = Math.max(1, (x1 - x0) * (1 + 2 * margin)), bh = Math.max(1, (y1 - y0) * (1 + 2 * margin))
+          const zoom = Math.min(MAX_ZOOM, stage.width / bw, stage.height / bh)
+          const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+          showView({ ...viewRef.current, zoom, ox: cx * zoom - stage.width / 2, oy: cy * zoom - stage.height / 2 })
+          if (params['highlight'] !== false) {
+            hitHighlightRef.current = {
+              pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+              boxes: [{ x0: rect.x0, y0: rect.y0, x1: rect.x1, y1: rect.y1 }],
+            }
+            requestPaint()
+          }
+          return { page: pageIndexRef.current, zoom: viewRef.current.zoom }
+        }
+        /*
+         * Markups off for a clean look at the drawing, the palette's "Hide
+         * the PDF's own markups" and "Hide REDBEAM markups". Nothing is
+         * written; the warning bar tells the person while either is off.
+         */
+        case 'set_markup_visibility': {
+          const next: { embedded?: boolean; redbeam?: boolean } = {}
+          if (typeof params['embedded'] === 'boolean') next.embedded = params['embedded']
+          if (typeof params['redbeam'] === 'boolean') next.redbeam = params['redbeam']
+          if (next.embedded === undefined && next.redbeam === undefined) {
+            return { error: 'set_markup_visibility needs `embedded` and/or `redbeam` (true shows, false hides)' }
+          }
+          return { markupVisibility: setMarkupVisibility(next) }
         }
         case 'set_layout_preview': {
           const on = params['on'] !== false
@@ -6771,6 +7002,14 @@ export default function Workspace({
       })
     }
     if (toolWarning !== null) out.push(toolWarning)
+    if (embeddedHidden || redbeamHidden) {
+      const which = embeddedHidden && redbeamHidden ? 'All markups are'
+        : embeddedHidden ? 'The PDF\u2019s own markups are' : 'REDBEAM markups are'
+      out.push({
+        text: `${which} hidden, so you see the drawing on its own.`,
+        action: { label: 'Show markups', run: () => { setMarkupVisibility({ embedded: true, redbeam: true }) } },
+      })
+    }
     /*
      * A cutout subtracts only from an area of ITS OWN scope on the same sheet
      * that it overlaps. One drawn beside an area, or into the wrong scope,
@@ -6784,7 +7023,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents, embeddedHidden, redbeamHidden, setMarkupVisibility])
 
   // ------------------------------------------------------------ view math --
 
@@ -7691,6 +7930,30 @@ export default function Workspace({
       },
       { id: 'rotate-cw', kind: 'command', title: 'Rotate sheet clockwise', keywords: ['rotate', 'turn', 'orientation', 'landscape', 'portrait'], ...stuck(noSheet), run: () => { void rotateSheet(1) } },
       { id: 'rotate-ccw', kind: 'command', title: 'Rotate sheet counterclockwise', keywords: ['rotate', 'turn', 'orientation', 'landscape', 'portrait'], ...stuck(noSheet), run: () => { void rotateSheet(-1) } },
+      {
+        id: 'toggle-embedded-markups', kind: 'command',
+        title: embeddedHidden ? 'Show the PDF\u2019s own markups' : 'Hide the PDF\u2019s own markups',
+        detail: 'Markups saved in the PDF, from Bluebeam or anyone else. Nothing is changed in the file',
+        keywords: ['hide', 'show', 'markups', 'annotations', 'bluebeam', 'embedded', 'clean', 'clear', 'declutter'],
+        ...stuck(noSheet), run: () => { setMarkupVisibility({ embedded: embeddedHidden }) },
+      },
+      {
+        id: 'toggle-redbeam-markups', kind: 'command',
+        title: redbeamHidden ? 'Show REDBEAM markups' : 'Hide REDBEAM markups',
+        detail: 'Your takeoff, dimensions and layout drawn over the sheet. The takeoff is kept',
+        keywords: ['hide', 'show', 'markups', 'takeoff', 'overlay', 'clean', 'clear', 'declutter'],
+        ...stuck(noSheet), run: () => { setMarkupVisibility({ redbeam: redbeamHidden }) },
+      },
+      {
+        id: 'toggle-all-markups', kind: 'command',
+        title: embeddedHidden && redbeamHidden ? 'Show all markups' : 'Hide all markups',
+        detail: 'See the drawing on its own',
+        keywords: ['hide', 'show', 'markups', 'annotations', 'clean', 'bare', 'declutter'],
+        ...stuck(noSheet), run: () => {
+          const on = embeddedHidden && redbeamHidden
+          setMarkupVisibility({ embedded: on, redbeam: on })
+        },
+      },
       { id: 'select-text', kind: 'command', title: 'Select text', shortcut: 'T', keywords: ['copy text', 'text', 'clipboard'], ...stuck(noSheet), run: () => setTool('text') },
       ...[50, 100, 200, 400].map((pct): Command => ({
         id: `zoom-${pct}`, kind: 'command', title: `Zoom to ${pct}%`, keywords: ['zoom', 'actual size'],
@@ -8410,7 +8673,7 @@ export default function Workspace({
     ])
   }, [
     documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
-    pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen,
+    pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen, embeddedHidden, redbeamHidden, setMarkupVisibility,
     openSearch, openSettings, openReport, refreshFiles, convertSheetAnnotations, closeProjectSavingTakeoff, saveTakeoffIntoDrawing, activeDocId, undoState, doUndo, doRedo, cal, applyPreset,
     regionsOnThisSheet, removeRegion, createEstimate, renameEstimateBy, duplicateEstimate,
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
@@ -9377,4 +9640,38 @@ function scrollsInside(target: EventTarget | null, stage: HTMLElement): boolean 
     if (y === 'auto' || y === 'scroll') return true
   }
   return false
+}
+
+/**
+ * A normalized box from a bridge argument. Undefined when absent; null when
+ * present but not a box, so the caller can say so rather than act on the
+ * whole sheet. Accepts a stringified object, as MCP clients often send one.
+ */
+function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: number } | undefined | null {
+  if (v === undefined || v === null) return undefined
+  let o: unknown = v
+  if (typeof v === 'string') { try { o = JSON.parse(v) } catch { return null } }
+  if (typeof o !== 'object' || o === null) return null
+  const r = o as Record<string, unknown>
+  const n = (k: string) => Number(r[k])
+  const box = { x0: n('x0'), y0: n('y0'), x1: n('x1'), y1: n('y1') }
+  if (![box.x0, box.y0, box.x1, box.y1].every((x) => Number.isFinite(x) && x >= -0.001 && x <= 1.001)) return null
+  if (box.x0 === box.x1 || box.y0 === box.y1) return null
+  return box
+}
+
+/** Pages an agent asked for (`page`, `pages`, or `fromPage`..`toPage`), or every page. */
+function bridgePages(params: Record<string, unknown>, pageCount: number): number[] | string {
+  const ok = (n: number) => Number.isInteger(n) && n >= 0 && n < pageCount
+  let list: number[]
+  if (Array.isArray(params['pages'])) list = params['pages'].map(Number)
+  else if (params['page'] !== undefined) list = [Number(params['page'])]
+  else if (params['fromPage'] !== undefined || params['toPage'] !== undefined) {
+    const a = Number(params['fromPage'] ?? 0), b = Number(params['toPage'] ?? pageCount - 1)
+    list = []
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) list.push(i)
+  } else list = Array.from({ length: pageCount }, (_, i) => i)
+  const bad = list.find((n) => !ok(n))
+  if (bad !== undefined) return `page ${bad} out of range (0..${pageCount - 1})`
+  return [...new Set(list)]
 }

@@ -282,6 +282,25 @@ const STEPS = [
     if (await page.locator('.palette-panel').count() > 0) problems.push('Escape left the palette open')
     return problems
   }],
+  ['hide-markups', async (page) => {
+    await page.locator('.viewport').click({ position: { x: 200, y: 200 } })
+    await page.keyboard.press('Control+k')
+    await page.waitForTimeout(300)
+    await page.keyboard.type('Hide all markups')
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(800)
+    const problems = await inspect(page)
+    const shown = await page.getByRole('button', { name: 'Show markups' }).count()
+    if (shown === 0) problems.push('hide-markups: no "Show markups" button says markups are hidden')
+    else {
+      await page.screenshot({ path: join(out, `${shotPrefix}hide-markups-bar.png`) })
+      await page.getByRole('button', { name: 'Show markups' }).first().click()
+      await page.waitForTimeout(300)
+      if (await page.getByRole('button', { name: 'Show markups' }).count() > 0) problems.push('hide-markups: "Show markups" did not bring them back')
+    }
+    return problems
+  }],
   ['settings', async (page) => {
     await button(page, 'Settings').last().click()
     await page.waitForTimeout(400)
