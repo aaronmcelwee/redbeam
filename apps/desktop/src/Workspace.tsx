@@ -119,6 +119,7 @@ import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './
 import {
   cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts,
   type GeometryEdit,
+  CUT_PREFIX,
 } from './cutouts.js'
 import { ExportSheet } from './export/ExportSheet.js'
 import {
@@ -468,6 +469,9 @@ export default function Workspace({
   const dragRef = useRef<{ x: number; y: number } | null>(null)
   const dbRef = useRef<SqlDriver | null>(null)
   const saveRef = useRef<() => void>(() => {})
+  /** Changes made, and the count the last save into the PDF had seen. */
+  const changeTickRef = useRef(0)
+  const lastSaveRef = useRef<{ tick: number; kind: string; at: string } | null>(null)
   const undoRef = useRef<UndoStack | null>(null)
   // geometry as it was when a drag began, so the edit can be undone as one step
   const dragOriginRef = useRef<Array<{ x: number; y: number }> | null>(null)
@@ -1453,7 +1457,11 @@ export default function Workspace({
       held = opened
       closeDbRef.current = () => opened.close()
       dbRef.current = opened.driver
-      saveRef.current = debounceSave(opened.save)
+      {
+        const debounced = debounceSave(opened.save)
+        // Every change passes here; the tick says whether the PDF is behind (round 3 P1-4).
+        saveRef.current = () => { changeTickRef.current++; debounced() }
+      }
       setBackend(opened.backend)
       // Which database opened is for whoever is debugging a project. A PDF
       // opened to view or take off has no database to speak of, and every
@@ -2701,18 +2709,18 @@ export default function Workspace({
     return true
   }, [syncMarkups, identity.projectId])
 
-  const doUndo = useCallback(async () => {
+  const doUndo = useCallback(async (): Promise<{ label: string; op: string } | { error: string } | null> => {
     const db = dbRef.current, u = undoRef.current
-    if (!db || !u) return
+    if (!db || !u) return null
     let cmd: Awaited<ReturnType<UndoStack['undo']>>
     // The core refuses an undo that would overwrite newer work, and says why
     // in words written to be shown. Unhandled, that reason was lost.
     try { cmd = await u.undo() } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err))
       setUndoState(await u.fetchState().catch(() => u.state))
-      return
+      return { error: err instanceof Error ? err.message : String(err) }
     }
-    if (!cmd) return
+    if (!cmd) return null
     selectedRef.current = []
     // Read first, then set with the markups: one render for the undo, not three.
     const c = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
@@ -2723,18 +2731,19 @@ export default function Workspace({
       setStatus(`undid ${cmd.label}`)
     })
     saveRef.current()
+    return { label: cmd.label, op: cmd.op }
   }, [syncMarkups, page.width, page.height])
 
-  const doRedo = useCallback(async () => {
+  const doRedo = useCallback(async (): Promise<{ label: string; op: string } | { error: string } | null> => {
     const db = dbRef.current, u = undoRef.current
-    if (!db || !u) return
+    if (!db || !u) return null
     let cmd: Awaited<ReturnType<UndoStack['redo']>>
     try { cmd = await u.redo() } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err))
       setUndoState(await u.fetchState().catch(() => u.state))
-      return
+      return { error: err instanceof Error ? err.message : String(err) }
     }
-    if (!cmd) return
+    if (!cmd) return null
     const c = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
     await syncMarkups(() => {
       setUndoState(u.state)
@@ -2742,6 +2751,7 @@ export default function Workspace({
       setStatus(`redid ${cmd.label}`)
     })
     saveRef.current()
+    return { label: cmd.label, op: cmd.op }
   }, [syncMarkups, page.width, page.height])
 
 
@@ -4844,6 +4854,7 @@ export default function Workspace({
       specifications: { ...src.specifications },
     }
     await createScope(copy)
+    return { id: copy.id, label }
   }, [scopes, createScope])
 
   const archiveScope = useCallback(async (id: string, archived: boolean) => {
@@ -4946,6 +4957,7 @@ export default function Workspace({
     const doc = documents.find((d) => d.id === docId)
     if (!db || !doc || !projectBridge.desktop) return Promise.resolve({ kind: 'nothing-to-embed' })
     const name = doc.displayName || doc.relativePath
+    const tickAtStart = changeTickRef.current
     const run = async (): Promise<EmbedOutcome> => {
       if (light) {
         const load = fileLoadRef.current.get(docId)
@@ -4967,6 +4979,10 @@ export default function Workspace({
         ...(light && seenStampRef.current.has(docId) ? { expectStamp: seenStampRef.current.get(docId) ?? null } : {}),
       })
       if ((out.kind === 'written' || out.kind === 'unchanged') && out.stamp !== undefined) seenStampRef.current.set(docId, out.stamp)
+      lastSaveRef.current = {
+        tick: out.kind === 'written' || out.kind === 'unchanged' ? tickAtStart : (lastSaveRef.current?.tick ?? -1),
+        kind: out.kind, at: new Date().toISOString(),
+      }
       // A window that only looked has nothing to save over theirs, and nothing to say about it.
       if (out.kind === 'elsewhere' && (undoRef.current?.state.depth ?? 0) === 0) return { kind: 'unchanged' }
       const text = embedStatus(out, name)
@@ -5347,28 +5363,32 @@ export default function Workspace({
    * specifications come across; the markups do not. Saved into this PDF with
    * the next save, like any scope made here.
    */
-  const importScopesFromPdf = useCallback(async () => {
+  const importScopesFromPdf = useCallback(async (fromPath?: string): Promise<string> => {
     const db = dbRef.current
-    if (!db) return
-    const pick = await projectBridge.pickFile()
+    if (!db) return 'no document is open'
+    const pick = fromPath !== undefined ? { path: fromPath, supported: true, reason: null } : await projectBridge.pickFile()
     if (pick.path === null) {
       if (!pick.supported && pick.reason !== null) setStatus(pick.reason)
-      return
+      return pick.reason ?? 'no file was chosen'
     }
     const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
     const folder = pick.path.slice(0, cut)
     const name = pick.path.slice(cut + 1)
     try {
       const reading = await readSheetEmbed(await projectBridge.readDocument(folder, name))
-      if (reading.slice === null) { setStatus(`${name} carries no REDBEAM scopes`); return }
+      if (reading.slice === null) { const none = `${name} carries no REDBEAM scopes`; setStatus(none); return none }
       const result = await importScopesFromSlice(db, reading.slice)
       await linkFileRound()
       await refreshScopes()
       saveRef.current?.()
       setWorkOpen(true)
-      setStatus(scopeImportStatus(result, name))
+      const said = scopeImportStatus(result, name)
+      setStatus(said)
+      return said
     } catch (err) {
-      setStatus(`could not read scopes from ${name}: ${err instanceof Error ? err.message : String(err)}`)
+      const said = `could not read scopes from ${name}: ${err instanceof Error ? err.message : String(err)}`
+      setStatus(said)
+      return said
     }
   }, [linkFileRound, refreshScopes, setStatus])
 
@@ -5380,21 +5400,21 @@ export default function Workspace({
    * estimate in Pro mode." A markup lands on the sheet with the same number
    * when that sheet is the same size here; the rest are counted and left.
    */
-  const startFromPdf = useCallback(async () => {
+  const startFromPdf = useCallback(async (fromPath?: string): Promise<string> => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === activeDocId)
-    if (!db || !doc) return
-    const pick = await projectBridge.pickFile()
+    if (!db || !doc) return 'no document is open'
+    const pick = fromPath !== undefined ? { path: fromPath, supported: true, reason: null } : await projectBridge.pickFile()
     if (pick.path === null) {
       if (!pick.supported && pick.reason !== null) setStatus(pick.reason)
-      return
+      return pick.reason ?? 'no file was chosen'
     }
     const cut = Math.max(pick.path.lastIndexOf('\\'), pick.path.lastIndexOf('/'))
     const folder = pick.path.slice(0, cut)
     const name = pick.path.slice(cut + 1)
     try {
       const reading = await readSheetEmbed(await projectBridge.readDocument(folder, name))
-      if (reading.slice === null) { setStatus(`${name} carries no REDBEAM takeoff`); return }
+      if (reading.slice === null) { const none = `${name} carries no REDBEAM takeoff`; setStatus(none); return none }
       const sizes = await sheetSizes(await projectBridge.readDocument(projectPath, doc.relativePath))
       const result = await importTakeoffFromSlice(db, doc.id, reading.slice, sizes)
       await linkFileRound()
@@ -5402,9 +5422,13 @@ export default function Workspace({
       await syncMarkups()
       saveRef.current?.()
       setWorkOpen(true)
-      setStatus(takeoffImportStatus(result, name))
+      const said = takeoffImportStatus(result, name)
+      setStatus(said)
+      return said
     } catch (err) {
-      setStatus(`could not copy the takeoff from ${name}: ${err instanceof Error ? err.message : String(err)}`)
+      const said = `could not copy the takeoff from ${name}: ${err instanceof Error ? err.message : String(err)}`
+      setStatus(said)
+      return said
     }
   }, [documents, activeDocId, projectPath, linkFileRound, refreshScopes, syncMarkups, setStatus])
 
@@ -5500,6 +5524,11 @@ export default function Workspace({
   }
 
   /** The areas an agent's call is about: by id, by a point, or every area of the scope on this sheet. */
+  /** A refusal that names the scopes there are, so the next call can be right. */
+  const noScope = (id: string | null): { error: string; scopes: Array<{ scopeId: string; label: string }> } => ({
+    error: `no such scope: ${id === null || id === '' ? '(none given, and none is active)' : id}. Use a scopeId from \`scopes\`, or create_scope`,
+    scopes: scopesRef.current.slice(0, 60).map((x) => ({ scopeId: x.id, label: x.label })),
+  })
   const agentAreas = (params: Record<string, unknown>): { scope: Scope; areas: Markup[] } | { error: string } => {
     const sid = String(params['scopeId'] ?? activeScopeRef.current ?? '')
     const ids = Array.isArray(params['markupIds']) ? (params['markupIds'] as unknown[]).map(String)
@@ -5568,7 +5597,7 @@ export default function Workspace({
     const min = closed ? 3 : kind === 'count' ? 1 : 2
     if (rings[0]!.length < min) return { error: `${kind} needs at least ${min} vertices` }
     const scopeId = typeof spec['scopeId'] === 'string' ? spec['scopeId'] : activeScopeRef.current
-    if (scopeId !== null && !scopesRef.current.some((sc) => sc.id === scopeId)) return { error: `no such scope: ${scopeId}` }
+    if (scopeId !== null && !scopesRef.current.some((sc) => sc.id === scopeId)) return noScope(scopeId)
     return { markup: { id: uid(), documentId: docId, pageId, scopeId, kind, rings } }
   }
 
@@ -5579,6 +5608,15 @@ export default function Workspace({
       return db.all<Record<string, unknown>>(sql, params)
     },
     uiState: () => ({
+      /*
+       * Whether the PDF holds everything (round 3 P1-4): false while a change
+       * has not been written into it yet. `lastSave` is the last attempt.
+       */
+      saved: (lastSaveRef.current?.tick ?? 0) >= changeTickRef.current,
+      lastSave: lastSaveRef.current === null ? null : { outcome: lastSaveRef.current.kind, at: lastSaveRef.current.at },
+      // What the warning bar is saying, word for word (P1-9).
+      warnings: warningsRef.current.map((w) => (typeof w === 'string' ? w : w.text)),
+      appVersion: APP_VERSION,
       // The PDF this window is showing and the others open as tabs.
       ...(light && quickView !== undefined
         ? { file: quickView.file, tabs: quickView.tabs?.list.map((t) => t.file) ?? [quickView.file] }
@@ -5693,7 +5731,49 @@ export default function Workspace({
 
     invoke: async (action, params) => {
       actorRef.current = 'agent'
-      try { return await invokeAction(action, params) } finally { actorRef.current = 'user' }
+      try {
+        const doc = documents.find((d) => d.id === activeDocId)
+        const fileName = doc === undefined ? null : (doc.displayName || doc.relativePath)
+        /*
+         * Which file a call is about (P1-3). With `file` (a path or a document
+         * id) a call that would land in a different file than the one showing
+         * is refused, naming both, rather than written into the wrong one.
+         */
+        const want = typeof params['file'] === 'string' ? params['file'].trim() : ''
+        if (want !== '') {
+          const norm = (x: string) => x.replace(/\\/g, '/').toLowerCase()
+          const base = (x: string) => norm(x).replace(/^.*\//, '')
+          const showing = light && quickView !== undefined ? quickView.file : null
+          const same = want === activeDocId
+            || (showing !== null && norm(showing) === norm(want))
+            || (doc !== undefined && (norm(doc.relativePath) === norm(want) || base(doc.relativePath) === base(want)))
+          if (!same) {
+            return { error: `this window is showing ${showing ?? fileName ?? 'no file'}, not ${want}; open it with redbeam_open_file first`, showing: showing ?? fileName }
+          }
+        }
+        /*
+         * One page input (P3-4): a ZERO-based number, or the sheet's code as
+         * the set prints it ("A4.0"). A code that names no single sheet is
+         * refused rather than guessed.
+         */
+        const given = params['page']
+        if (typeof given === 'string' && given.trim() !== '') {
+          let at: number | null = /^\d+$/.test(given.trim()) ? Number(given.trim()) : null
+          if (at === null) at = pageForSheet(sheetGroups.flatMap((g) => g.rows), given)
+          if (at === null) return { error: `no single sheet is called ${given} in this document; redbeam_list_sheets has every sheet` }
+          params = { ...params, page: at }
+        }
+        // A write that names a page lands on that page, after it shows (P1-2).
+        if (PAGE_BOUND.has(action) && params['page'] !== undefined) {
+          const n = Number(params['page'])
+          if (!Number.isInteger(n) || n < 0 || n >= pageCount) return { error: `page ${String(params['page'])} out of range (0..${pageCount - 1})` }
+          await showPageForAgent(n)
+        }
+        const out = await invokeAction(action, params)
+        return fileName !== null && out['file'] === undefined ? { ...out, file: fileName } : out
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) }
+      } finally { actorRef.current = 'user' }
     },
   })
   async function invokeAction(action: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -5739,7 +5819,7 @@ export default function Workspace({
         }
         case 'set_active_scope': {
           const id = String(params['scopeId'] ?? '')
-          if (!scopes.some((sc) => sc.id === id)) return { error: `no such scope: ${id}` }
+          if (!scopes.some((sc) => sc.id === id)) return noScope(id)
           setActiveScope(id)
           return { activeScope: id }
         }
@@ -5748,15 +5828,16 @@ export default function Workspace({
             const rows = sheetGroups.flatMap((g) => g.rows)
             const at = pageForSheet(rows, params['sheet'])
             if (at === null) return { error: `no single sheet is called ${params['sheet']} in this document; list_sheets has every sheet` }
-            void goToPage(at)
+            await showPageForAgent(at)
             return { page: at, sheet: sheetLabelFor(at) }
           }
           const n = Number(params['page'])
           if (!Number.isInteger(n) || n < 0 || n >= pageCount) {
             return { error: `page ${params['page']} out of range (0..${pageCount - 1})` }
           }
-          void goToPage(n)
-          return { page: n }
+          // Waits for the sheet: a write right after must land on it (P1-2).
+          await showPageForAgent(n)
+          return { page: n, sheet: sheetLabelFor(n) }
         }
         /*
          * The sheet index, as the sheet list shows it: number and title per
@@ -6089,6 +6170,11 @@ export default function Workspace({
             needsAttention: bom.needsAttention,
             // The bill is project-wide; so is this.
             calibrated: projectCalibrations.size > 0,
+            // Settings that change the counts (P1-6); set_setting changes them.
+            layoutSettings: {
+              'takeoff.patternStart': prefs['takeoff.patternStart'] ?? null,
+              'takeoff.perAreaOrigin': prefs['takeoff.perAreaOrigin'] === true,
+            },
           }
         }
         /*
@@ -6183,7 +6269,7 @@ export default function Workspace({
         case 'commit_scope': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
+          if (!sc) return noScope(id)
           const p = piecesRef.current.find((x) => x.scope.id === id)
           if (!p) return { error: `no calculation for ${sc.label} yet` }
           if (p.result.blockers.length > 0) {
@@ -6225,7 +6311,7 @@ export default function Workspace({
 
           const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : activeScope
           if (scopeId !== null && !scopes.some((sc) => sc.id === scopeId)) {
-            return { error: `no such scope: ${scopeId}` }
+            return noScope(scopeId)
           }
           const docId = docIdRef.current
           const pageId = pageIdFor(docId, pageIndexRef.current)
@@ -6234,7 +6320,8 @@ export default function Workspace({
             const edits = cutEdits(markupsRef.current, pageId, ring as Array<{ x: number; y: number }>)
             if (edits.length === 0) return { error: 'the cutout crosses no area on this sheet' }
             await runCommand(editsCommand(edits, 'cut area')!)
-            return { cut: edits.map((e) => e.id), kind, pageId }
+            // Each hole's id, which delete_markup takes to remove that one hole.
+            return { cut: edits.map((e) => e.id), holes: edits.map((e) => `${CUT_PREFIX}${e.id}:${e.after.length - 1}`), kind, pageId }
           }
           const id = uid()
           // Awaited: an id reported before the write lands is a markup the next call cannot find.
@@ -6246,27 +6333,40 @@ export default function Workspace({
             // drew a markup, and a review gate cannot filter what it cannot see.
             origin: 'agent', reviewState: 'accepted',
           }))
-          return { id, kind, scopeId, pageId }
+          const notes: string[] = []
+          if (scopeId === null && kind !== 'shape') notes.push('it has no scope, so it counts toward nothing; reassign_markup gives it one')
+          if (cal === null && !(projectRegions.get(pageId) ?? []).length) notes.push(`${sheetLabelFor(pageIndexRef.current)} has no scale, so this measures nothing yet; set_page_scale or read_scale`)
+          return { id, kind, scopeId, pageId, page: pageIndexRef.current, ...(notes.length > 0 ? { warnings: notes } : {}) }
         }
 
         case 'delete_markup': {
           const id = String(params['id'] ?? '')
-          if (!markupsRef.current.some((m) => m.id === id)) return { error: `no such markup: ${id}` }
-          void removeMarkup(id)
+          const m = docMarkupsRef.current.find((x) => x.id === id)
+          if (!m) return { error: `no such markup: ${id}` }
+          if (!markupsRef.current.some((x) => x.id === id)) {
+            const pg = pageNumberFrom(m.pageId, docIdRef.current)
+            if (pg !== null) await showPageForAgent(pg)
+          }
+          await removeMarkup(id)
           return { deleted: id }
         }
 
         case 'set_calibration': {
           const value = String(params['value'] ?? '')
           const unit = String(params['unit'] ?? 'ft')
-          const lengthPoints = Number(params['lengthPdfPoints'])
+          // Two normalized points along the known length, or its length in PDF points.
+          const ends = Array.isArray(params['points']) ? (params['points'] as unknown[]).map(bridgePoint) : []
+          const lengthPoints = ends.length === 2 && ends[0] !== null && ends[1] !== null
+            ? Math.hypot((ends[1]!.x - ends[0]!.x) * page.width, (ends[1]!.y - ends[0]!.y) * page.height)
+            : Number(params['lengthPdfPoints'])
           if (!Number.isFinite(lengthPoints) || lengthPoints <= 0) {
-            return { error: 'set_calibration needs a positive lengthPdfPoints' }
+            return { error: 'set_calibration needs `points` (the two ends of the known length, normalized) or a positive lengthPdfPoints' }
           }
           const c = calibrationFromReference(lengthPoints, Number(parseNumberOrFraction(value) ?? NaN), unit, page.width, page.height)
           if (!c) return { error: `could not read "${value}" ${unit} over ${lengthPoints}pt` }
-          void commitCalibration(c, 'agent', 'agent')
-          return { feetPerPoint: c.feetPerPoint }
+          const previous = cal?.feetPerPoint ?? null
+          await commitCalibration(c, 'agent', 'agent')
+          return { feetPerPoint: c.feetPerPoint, scale: scaleLabel(c.feetPerPoint), previousFeetPerPoint: previous, page: pageIndexRef.current }
         }
 
         case 'set_scope_direction': {
@@ -6275,14 +6375,14 @@ export default function Workspace({
           // can draw takeoff it can never turn into a piece count.
           const id = String(params['scopeId'] ?? activeScope ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
+          if (!sc) return noScope(id)
           const n = (k: string) => Number(params[k])
           const [x1, y1, x2, y2] = ['x1', 'y1', 'x2', 'y2'].map(n)
           if ([x1, y1, x2, y2].some((v) => !Number.isFinite(v))) {
             return { error: 'set_scope_direction needs x1,y1,x2,y2 in NORMALIZED [0,1] coords' }
           }
           if (x1 === x2 && y1 === y2) return { error: 'a zero-length vector is not a direction' }
-          void saveScope({
+          await saveScope({
             ...sc,
             specifications: {
               ...sc.specifications,
@@ -6363,7 +6463,7 @@ export default function Workspace({
         case 'update_scope': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
+          if (!sc) return noScope(id)
           const specs = objectParam(params['specifications'])
           if (specs === null) return { error: 'specifications must be an object' }
           /*
@@ -6433,22 +6533,17 @@ export default function Workspace({
         case 'duplicate_scope': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
-          await duplicateScope(id)
-          /*
-           * No id: the copy's label is disambiguated against the shelf inside
-           * the handler and the refreshed scope list has not reached this
-           * closure yet. Reporting a guessed id would be worse than saying
-           * where to look for the real one.
-           */
-          return { duplicated: sc.label, note: 'call redbeam_list_scopes for the copy\'s id' }
+          if (!sc) return noScope(id)
+          const made = await duplicateScope(id)
+          if (made === undefined) return { error: `could not copy ${sc.label}` }
+          return { duplicated: sc.label, scopeId: made.id, label: made.label }
         }
 
         case 'archive_scope': {
           const id = String(params['scopeId'] ?? '')
           const known = scopesRef.current.some((x) => x.id === id)
             || archivedScopes.some((x) => x.id === id)
-          if (!known) return { error: `no such scope: ${id}` }
+          if (!known) return noScope(id)
           const archived = params['archived'] !== false
           await archiveScope(id, archived)
           // Archived, never destroyed: the markups stay, and un-archiving
@@ -6519,9 +6614,21 @@ export default function Workspace({
             return { error: `page(s) out of range (0..${pageCount - 1}): ${bad.join(', ')}` }
           }
           if (pages.length === 0) return { error: 'set_page_scale needs at least one page' }
+          // What each sheet measured at before: this write has no undo.
+          const was = new Map<string, number>()
+          try {
+            const rows = await dbRef.current?.all<{ page_id: string; f: number }>(
+              'SELECT page_id, feet_per_pdf_point AS f FROM calibrations WHERE document_id = ?1', [docIdRef.current]) ?? []
+            for (const r of rows) was.set(r.page_id, r.f)
+          } catch { /* a missing "before" is not a reason to refuse the write */ }
+          const previous = pages.map((targetPage) => {
+            const f = was.get(pageIdFor(docIdRef.current, targetPage)) ?? null
+            return { page: targetPage, feetPerPoint: f, scale: f === null ? null : scaleLabel(f) }
+          })
           await applyScaleToSelection(pages, feetPerPoint, source)
           return {
             pages,
+            previous,
             documentId: docIdRef.current,
             feetPerPoint,
             scale: scaleLabel(feetPerPoint),
@@ -6624,13 +6731,209 @@ export default function Workspace({
         case 'reassign_markup': {
           const id = String(params['id'] ?? '')
           const target = params['scopeId'] === null ? null : String(params['scopeId'] ?? '')
-          const m = markupsRef.current.find((x) => x.id === id)
+          const m = docMarkupsRef.current.find((x) => x.id === id)
           if (!m) return { error: `no such markup: ${id}` }
           if (target !== null && !scopes.some((sc) => sc.id === target)) {
-            return { error: `no such scope: ${target}` }
+            return noScope(target)
           }
-          void runCommand(cmdReassign(id, m.scopeId, target, undefined, 'agent'))
+          await runCommand(cmdReassign(id, m.scopeId, target, undefined, 'agent'))
           return { id, scopeId: target }
+        }
+        /*
+         * Save the takeoff into the PDF now, and say how it went (P1-4):
+         * written, unchanged, held (the file's takeoff is not loaded), elsewhere
+         * (someone else saved since), busy (open in another app) or failed.
+         */
+        case 'save': {
+          if (activeDocId === null) return { error: 'no document is open' }
+          const out = await saveTakeoffIntoDrawing(activeDocId)
+          const ok = out.kind === 'written' || out.kind === 'unchanged' || out.kind === 'nothing-to-embed'
+          return {
+            saved: ok, outcome: out.kind,
+            ...(out.kind === 'failed' ? { message: out.message } : {}),
+            ...(out.kind === 'held' && out.reason !== null ? { message: out.reason } : {}),
+            ...(out.kind === 'busy' ? { message: 'the PDF is open in another app; close it there, or save_copy' } : {}),
+            ...(out.kind === 'elsewhere' ? { message: 'someone else saved a takeoff into this PDF since it was opened; nothing was written. save_copy keeps this one' } : {}),
+          }
+        }
+        /* Undo or redo the latest change, the person's or an AI app's (P1-5). */
+        case 'undo':
+        case 'redo': {
+          const r = action === 'undo' ? await doUndo() : await doRedo()
+          if (r === null) return { error: `nothing to ${action}` }
+          if ('error' in r) return r
+          return { [action === 'undo' ? 'undid' : 'redid']: r.label, op: r.op, undo: undoRef.current?.state ?? null }
+        }
+        /* The app's settings, as the Settings page shows them (P1-6). */
+        case 'get_settings': {
+          return {
+            settings: SETTINGS.filter((d) => !LIGHT_HIDDEN_SETTINGS.includes(d.id)).map((d) => ({
+              id: d.id, label: d.label, value: prefs[d.id] ?? d.default, default: d.default, type: d.type,
+              ...(d.type === 'enum' ? { choices: d.choices.map((c) => c.value) } : {}),
+              ...(d.type === 'int' ? { min: d.min, max: d.max } : {}),
+            })),
+          }
+        }
+        case 'set_setting': {
+          const sid = String(params['setting'] ?? '')
+          const d = SETTINGS.find((x) => x.id === sid)
+          if (d === undefined || LIGHT_HIDDEN_SETTINGS.includes(sid)) return { error: `no setting ${sid}; get_settings lists them` }
+          const why = settings.set(sid, params['value'])
+          if (why !== null) return { error: why }
+          return { setting: sid, value: settings.all()[sid] }
+        }
+        /*
+         * ---- agent usability study, priority 2 ----
+         */
+        /* Move or reshape a markup, keeping its id. */
+        case 'update_markup': {
+          const id = String(params['id'] ?? '')
+          const m = docMarkupsRef.current.find((x) => x.id === id)
+          if (!m) return { error: `no such markup: ${id}` }
+          let after: Markup['rings']
+          if (params['rings'] !== undefined) {
+            const built = agentMarkup({ kind: m.kind, rings: params['rings'], ...(m.scopeId !== null ? { scopeId: m.scopeId } : {}) }, m.documentId, m.pageId)
+            if ('error' in built) return built
+            after = built.markup.rings
+          } else {
+            const dx = Number(params['dx'] ?? 0), dy = Number(params['dy'] ?? 0)
+            if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) {
+              return { error: 'update_markup needs `rings` (the new shape) or `dx`/`dy` (a move, normalized)' }
+            }
+            after = m.rings.map((r) => r.map((p) => ({ x: p.x + dx, y: p.y + dy })))
+            if (after.some((r) => r.some((p) => p.x < -0.05 || p.x > 1.05 || p.y < -0.05 || p.y > 1.05))) return { error: 'that move takes it off the sheet' }
+          }
+          await runCommand(cmdEditGeometry(id, m.rings, after, params['rings'] !== undefined ? 'reshape' : 'move', { documentId: m.documentId, pageId: m.pageId }, 'agent'))
+          return { id, kind: m.kind, vertices: after[0]?.length ?? 0, holes: Math.max(0, after.length - 1) }
+        }
+        /* Bring scopes, or the whole takeoff, in from another PDF by path. */
+        case 'import_scopes': {
+          const from = typeof params['path'] === 'string' ? params['path'].trim() : ''
+          if (from === '') return { error: 'import_scopes needs `path`: the PDF to read scopes from' }
+          const said = await (params['withMarkups'] === true ? startFromPdf(from) : importScopesFromPdf(from))
+          return /^could not|carries no/.test(said) ? { error: said } : { imported: said }
+        }
+        /* The PDF's own markups on a sheet: notes, callouts, clouds, measurements, with author and text. */
+        case 'list_annotations': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          const pages = agentPageList(params, pageIndexRef.current)
+          if ('error' in pages) return pages
+          const out: Array<Record<string, unknown>> = []
+          const r5 = (n: number) => Math.round(n * 1e5) / 1e5
+          for (const sweepPage of pages.pages.slice(0, 60)) {
+            let all: PageAnnotation[] = []
+            try { all = await v.requestAnnotations(sweepPage) } catch { all = [] }
+            for (const a of all) {
+              if (isRedbeamNm(a.name)) continue
+              out.push({
+                page: sweepPage, type: a.subtypeName, ...(a.subject !== '' ? { subject: a.subject } : {}),
+                ...(a.contents !== '' ? { text: a.contents } : {}), ...(a.author !== '' ? { author: a.author } : {}),
+                ...(a.name !== '' ? { name: a.name } : {}), ...(a.color !== null ? { color: a.color } : {}),
+                rect: { x0: r5(a.rect.x0), y0: r5(a.rect.y0), x1: r5(a.rect.x1), y1: r5(a.rect.y1) },
+                ...(a.vertices.length > 0 ? { vertices: a.vertices.length } : {}),
+              })
+            }
+          }
+          return { annotations: out, pages: pages.pages.slice(0, 60), ...(pages.pages.length > 60 ? { truncated: true } : {}) }
+        }
+        /* Accept imported (pending) markups: by id, on the sheet showing, or all. */
+        case 'accept_imported': {
+          const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String)
+            : params['all'] === true ? [...pendingIdsRef.current]
+              : docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current)).map((m) => m.id)
+          const n = await acceptImported(ids)
+          return { accepted: n, stillPending: pendingIdsRef.current.size }
+        }
+        /* A sheet's links, and the PDF's bookmark tree. */
+        case 'list_links': {
+          const v = viewerRef.current
+          if (!v) return { error: 'no document is open' }
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          try { await v.requestAnnotations(pageIndexRef.current) } catch { /* links ride with the annotations */ }
+          return {
+            page: pageIndexRef.current,
+            links: v.getLinks(pageIndexRef.current).map((l) => ({ rect: l.rect, ...(l.page !== undefined ? { toPage: l.page, toSheet: sheetLabelFor(l.page) } : {}), ...(l.uri !== undefined ? { uri: l.uri } : {}) })),
+          }
+        }
+        case 'list_bookmarks': {
+          type Node = { title: string; page: number | null; children: Node[] }
+          let count = 0
+          const walkOut = (nodes: readonly Node[], depth: number): Array<Record<string, unknown>> => nodes.flatMap((n) => {
+            if (count >= 2000) return []
+            count++
+            return [{ title: n.title, page: n.page, depth }, ...walkOut(n.children, depth + 1)]
+          })
+          return { bookmarks: walkOut(docIndex.outline as readonly Node[], 0), ...(count >= 2000 ? { truncated: true } : {}) }
+        }
+        case 'close_tab': {
+          if (lightTabs === undefined || quickView === undefined) return { error: 'this window has no tabs' }
+          const want = typeof params['path'] === 'string' && params['path'].trim() !== '' ? params['path'].trim() : quickView.file
+          const tab = lightTabs.list.find((t) => t.file === want || t.name === want)
+          if (tab === undefined) return { error: `no open tab ${want}`, tabs: lightTabs.list.map((t) => t.file) }
+          // Saved first when it is the one showing, as closing by hand does.
+          if (tab.file === quickView.file && activeDocId !== null) await saveTakeoffIntoDrawing(activeDocId, { quiet: true })
+          lightTabs.onClose(tab.file)
+          return { closed: tab.file }
+        }
+        case 'rotate_pages': {
+          const pages = agentPageList(params, pageIndexRef.current)
+          if ('error' in pages) return pages
+          const deg = Number(params['degrees'] ?? 90)
+          const turns = (((Math.round(deg / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3
+          if (turns === 0 || Math.abs(deg % 90) > 1e-9) return { error: 'degrees must be 90, 180 or 270 (clockwise), or -90' }
+          await rotatePages(pages.pages, turns)
+          return { rotated: pages.pages, degreesClockwise: turns * 90 }
+        }
+        /* A dimension between two points: an annotation, not takeoff. */
+        case 'create_dimension': {
+          const pts = Array.isArray(params['points']) ? (params['points'] as unknown[]).map(bridgePoint) : []
+          if (pts.length !== 2 || pts[0] === null || pts[1] === null) return { error: 'create_dimension needs `points`: two {x,y}, normalized' }
+          const frozen = commitDimension({ ...emptyDimensionDraft('none'), a: pts[0]!, b: pts[1]!, cursor: pts[1]! }, page.width, page.height)
+          if (frozen === null) return { error: 'the two points are the same point' }
+          const id = uid()
+          await runCommand(cmdCreate({
+            id, scopeId: null, documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+            kind: 'dimension', rings: frozen.rings, origin: 'agent', reviewState: 'accepted',
+            content: frozen.content as unknown as Record<string, unknown>,
+          }))
+          const fpp = calRef.current?.feetPerPoint ?? null
+          const lenPts = Math.hypot((pts[1]!.x - pts[0]!.x) * page.width, (pts[1]!.y - pts[0]!.y) * page.height)
+          return { id, lengthFeet: fpp === null ? null : Math.round(lenPts * fpp * 1000) / 1000, length: fpp === null ? null : formatFeetInches(lenPts * fpp) }
+        }
+        /* Copies of markups, on their own sheet or another one. */
+        case 'duplicate_markups': {
+          const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String) : typeof params['id'] === 'string' ? [params['id']] : []
+          const src = ids.map((i) => docMarkupsRef.current.find((m) => m.id === i))
+          const missing = ids.filter((_, k) => src[k] === undefined)
+          if (ids.length === 0 || missing.length > 0) return { error: ids.length === 0 ? 'duplicate_markups needs `ids`' : `no such markup: ${missing.join(', ')}` }
+          const toPage = params['toPage']
+          const sameSheet = toPage === undefined
+          const targetPage = sameSheet ? -1 : Number(toPage)
+          if (!sameSheet && (!Number.isInteger(targetPage) || targetPage < 0 || targetPage >= pageCount)) return { error: `toPage ${String(toPage)} out of range (0..${pageCount - 1})` }
+          const dx = Number(params['dx'] ?? (sameSheet ? 0.01 : 0)), dy = Number(params['dy'] ?? (sameSheet ? 0.01 : 0))
+          const made: Array<{ id: string; from: string; page: number | null }> = []
+          const cmds = (src as Markup[]).map((m) => {
+            const id = uid()
+            const pageId = sameSheet ? m.pageId : pageIdFor(docIdRef.current, targetPage)
+            made.push({ id, from: m.id, page: pageNumberFrom(pageId, docIdRef.current) })
+            const content = (m as Markup & { content?: Record<string, unknown> }).content
+            return cmdCreate({
+              id, documentId: m.documentId, pageId, scopeId: m.scopeId, kind: m.kind,
+              rings: m.rings.map((r) => r.map((p) => ({ x: p.x + dx, y: p.y + dy }))),
+              origin: 'agent', reviewState: 'accepted',
+              ...(content !== undefined ? { content: structuredClone(content) } : {}),
+            })
+          })
+          await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`duplicate ${cmds.length} markups`, cmds))
+          return { duplicated: made }
+        }
+        case 'select_markups': {
+          const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String) : []
+          const here = ids.filter((i) => markupsRef.current.some((m) => m.id === i))
+          setSelectedIds(here); selectedRef.current = here
+          requestPaint()
+          return { selected: here, ...(here.length < ids.length ? { notOnThisSheet: ids.filter((i) => !here.includes(i)) } : {}) }
         }
         /*
          * ---- round 3 (Aaron, 2026-11-24): agent takeoffs ----
@@ -6693,7 +6996,7 @@ export default function Workspace({
         case 'set_pattern_direction': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
+          if (!sc) return noScope(id)
           let x1 = Number(params['x1']), y1 = Number(params['y1']), x2 = Number(params['x2']), y2 = Number(params['y2'])
           const angle = params['angle']
           if (angle !== undefined) {
@@ -6731,7 +7034,7 @@ export default function Workspace({
         case 'get_pattern': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
+          if (!sc) return noScope(id)
           const specs = sc.specifications
           const dirOut = (d: ReturnType<typeof scopeDirectionOf>) => d === null ? null : { x1: d[0].x, y1: d[0].y, x2: d[1].x, y2: d[1].y }
           const pageDirs = pageDirectionsFrom(specs), areaDirs = areaDirectionsFrom(specs), origins = areaOriginsFrom(specs)
@@ -6970,7 +7273,7 @@ export default function Workspace({
         case 'get_piece_list': {
           const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
-          if (!sc) return { error: `no such scope: ${id}` }
+          if (!sc) return noScope(id)
           const p = piecesRef.current.find((x) => x.scope.id === id)
           if (!p) return { error: `no calculation for ${sc.label} yet` }
           if (p.result.blockers.length > 0) {
@@ -7025,8 +7328,84 @@ export default function Workspace({
             })),
           }
         }
+        /*
+         * The takeoff as objects (P3-3): each markup with its sheet, scope
+         * name, quantity at the sheet's scale, holes and whether it is still
+         * waiting to be accepted. Nothing here needs a second call to read.
+         */
+        case 'list_markups': {
+          const db = dbRef.current
+          if (db === null || activeDocId === null) return { error: 'no document is open' }
+          const dims = new Map<string, { n: number; w: number | null; h: number | null; f: number | null }>()
+          const rows = await db.all<{ id: string; n: number; w: number | null; h: number | null; f: number | null }>(
+            `SELECT p.id AS id, p.page_number AS n, p.width_pdf_points AS w, p.height_pdf_points AS h, c.feet_per_pdf_point AS f
+               FROM pages p LEFT JOIN calibrations c ON c.page_id = p.id WHERE p.document_id = ?1`, [activeDocId])
+          for (const r of rows) dims.set(r.id, { n: r.n, w: r.w, h: r.h, f: r.f })
+          const showing = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const targetPage = Number(params['page'])
+          const onlyPage = params['page'] === undefined ? null : pageIdFor(docIdRef.current, targetPage)
+          const onlyScope = typeof params['scopeId'] === 'string' ? params['scopeId'] : null
+          const onlyKind = typeof params['kind'] === 'string' ? params['kind'] : null
+          const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 500) || 500))
+          const r3 = (x: number) => Math.round(x * 1000) / 1000
+          const all = docMarkupsRef.current.filter((m) => !isCutId(m.id)
+            && (onlyPage === null || m.pageId === onlyPage)
+            && (onlyScope === null || m.scopeId === onlyScope)
+            && (onlyKind === null || m.kind === onlyKind))
+          const unscaled = new Set<number>()
+          const markups = all.slice(0, limit).map((m) => {
+            const d = dims.get(m.pageId)
+            const size = m.pageId === showing ? { width: page.width, height: page.height }
+              : d !== undefined && d.w !== null && d.h !== null ? { width: d.w, height: d.h } : null
+            const sc = m.scopeId === null ? null : scopesRef.current.find((x) => x.id === m.scopeId) ?? null
+            const closed = m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape'
+            let quantity: number | null = null
+            let unit: string | null = null
+            if (m.kind === 'count') { quantity = m.rings[0]?.length ?? 0; unit = 'ea' }
+            else if (size !== null && (m.rings[0]?.length ?? 0) >= 2) {
+              const opts = { closed, regions: projectRegions.get(m.pageId) ?? [], pageFeetPerPoint: d?.f ?? (m.pageId === showing ? calRef.current?.feetPerPoint ?? null : null) }
+              const outer = measurePoints(m.rings[0]!, size, opts)
+              if (closed) {
+                let a = outer.areaSquareFeet ?? null
+                if (a !== null) for (const hole of m.rings.slice(1)) a -= measurePoints(hole, size, opts).areaSquareFeet ?? 0
+                quantity = a === null ? null : r3(Math.max(0, a)); unit = 'sq ft'
+              } else { quantity = outer.lengthFeet; unit = 'ft' }
+              if (quantity === null && d !== undefined) unscaled.add(d.n)
+            }
+            return {
+              id: m.id, kind: m.kind,
+              page: d?.n ?? null, sheet: d === undefined ? null : sheetLabelFor(d.n),
+              scopeId: m.scopeId, scope: sc?.label ?? null,
+              quantity, unit,
+              vertices: m.rings[0]?.length ?? 0, holes: closed ? Math.max(0, m.rings.length - 1) : 0,
+              pending: pendingIdsRef.current.has(m.id),
+              ...(params['withGeometry'] === true ? { rings: m.rings } : {}),
+            }
+          })
+          return {
+            count: all.length, truncated: all.length > markups.length, markups,
+            // Sheets holding takeoff that measures nothing yet (P3-10).
+            unscaledSheets: [...unscaled].sort((a, b) => a - b).map((n) => ({ page: n, sheet: sheetLabelFor(n) })),
+          }
+        }
+        case 'list_scopes': {
+          const live = scopesRef.current.map((x) => ({ x, archived: false }))
+          const old = params['includeArchived'] === true ? archivedScopes.map((x) => ({ x, archived: true })) : []
+          const counts = new Map<string, number>()
+          for (const m of docMarkupsRef.current) if (m.scopeId !== null && !isCutId(m.id)) counts.set(m.scopeId, (counts.get(m.scopeId) ?? 0) + 1)
+          const scopes = [...live, ...old].map(({ x, archived }) => {
+            const type = typeof x.specifications['productType'] === 'string' ? x.specifications['productType'] : null
+            return {
+              scopeId: x.id, label: x.label, scopeType: x.scopeType, color: x.color,
+              productType: type, specifications: x.specifications,
+              ...(type !== null ? { needs: missingKeys(readProductType(x.specifications), x.specifications) } : {}),
+              markups: counts.get(x.id) ?? 0, archived, active: x.id === activeScopeRef.current,
+            }
+          })
+          return { count: scopes.length, scopes }
+        }
         default:
-          return { error: `unknown action: ${action}` }
+          return { error: `unknown action: ${action}. Every action is listed in redbeam_invoke_ui_action's \`action\` input, and most have a tool of their own (redbeam_${action.replace(/[^a-z_]/g, '')} if it exists)` }
       }
     }
   }
@@ -7736,6 +8115,7 @@ export default function Workspace({
     }
   }, [quantities, commitStateFor])
 
+  const warningsRef = useRef<PanelWarning[]>([])
   const warnings = useMemo(() => {
     const out: PanelWarning[] = []
     /* Quick view: said first, with the one way out of it. */
@@ -7806,6 +8186,7 @@ export default function Workspace({
     if (textNote !== null) out.push(textNote)
     return out
   }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents, embeddedHidden, redbeamHidden, setMarkupVisibility])
+  warningsRef.current = warnings
 
   // ------------------------------------------------------------ view math --
 
@@ -10465,6 +10846,12 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
   if (box.x0 === box.x1 || box.y0 === box.y1) return null
   return box
 }
+
+/** Writes that act on the sheet showing: a `page` input shows that sheet first. */
+const PAGE_BOUND = new Set([
+  'create_markup', 'set_calibration', 'set_scope_direction', 'set_pattern_origin', 'set_pattern_direction',
+  'begin_scale_region', 'zoom_to_region', 'get_words',
+])
 
 /** A normalized point from a bridge argument, or null. */
 function bridgePoint(v: unknown): { x: number; y: number } | null {

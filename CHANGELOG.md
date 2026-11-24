@@ -18,6 +18,14 @@ SmartScreen will ask once.
 - **Output.** A piece list gives every run's pieces with their cut lengths (including pieces cut to fit), stock use and parts, and can be exported as a spreadsheet. Exports can be written to a chosen file. The PDF now keeps a history of who changed each markup and scope (a person or an AI app) and when.
 
 
+### AI apps work more surely
+
+- **A change is confirmed once it has happened.** When an AI app draws, deletes, rescopes or sets a scale, it is told the result after the change has landed, with the measure and any warning, such as no scope or no scale on the sheet.
+- **The right sheet and the right file.** A change can name its sheet (by page or sheet number) and its PDF. It lands there, and is refused if a different PDF is showing.
+- **Saving and undo.** An app can save the takeoff into the PDF and learn how it went, see whether everything is saved, and undo or redo.
+- **More it can do.** Reshape or move a markup, copy markups to another sheet, draw a dimension, rotate sheets, bring scopes in from another PDF, accept imported markups, read the PDF's notes, links and bookmarks, close a tab, and read or change settings.
+- **Clearer tools.** Each action has its own tool with its own inputs, lists of markups and scopes come back with quantities and names, and errors say what would have worked.
+
 ## 0.3.58 — 2026-11-24
 
 ### AI apps can measure, and keep a client's file clean
