@@ -60,7 +60,7 @@ export default function App() {
    * PDF), by file. Several are mounted at once now: the one showing, and the
    * ones agents are working in behind it.
    */
-  const beforeRef = useRef(new Map<string, (leave: () => void) => Promise<boolean>>())
+  const beforeRef = useRef(new Map<string, (leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>>())
   /**
    * The listener that hears every close of this window. One, for the
    * window's whole life: it used to come and go with the open file, and a
@@ -78,7 +78,7 @@ export default function App() {
     void destroyThisWindow(stop).then((gone) => { if (!gone) closingRef.current = false })
   }, [])
   /** Set below, once the tabs exist: save every mounted PDF, then say whether the window may go. */
-  const saveAllRef = useRef<(leave: () => void) => Promise<boolean>>(() => Promise.resolve(true))
+  const saveAllRef = useRef<(leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>>(() => Promise.resolve(true))
   /**
    * Every close goes through here: the X button, Alt+F4, the taskbar,
    * Windows shutting down. Light saves into the PDF first, and stays open
@@ -88,7 +88,8 @@ export default function App() {
     // Already saving to close: that save asks within seconds if it cannot finish.
     if (closeAskingRef.current) return
     closeAskingRef.current = true
-    void saveAllRef.current(closeNow)
+    // `closing`: only a closing window asks while a slow save runs (Workspace saveBeforeLeaving).
+    void saveAllRef.current(closeNow, { closing: true })
       .then((ok) => { if (ok) closeNow() }, (err: unknown) => {
         console.error('[window] saving before close failed; closing.', err)
         closeNow()
@@ -392,7 +393,7 @@ export default function App() {
    * One behind it that cannot be saved is brought up, so its question is on
    * screen rather than asked where nobody can see it.
    */
-  saveAllRef.current = (leave) => {
+  saveAllRef.current = (leave, opts) => {
     const showing = quickRef.current?.file ?? null
     const order = [...(showing === null ? [] : [showing]), ...liveRef.current.filter((f) => showing === null || !samePath(f, showing))]
     const step = async (i: number): Promise<boolean> => {
@@ -402,7 +403,7 @@ export default function App() {
       const ask = async (): Promise<boolean> => {
         const before = beforeRef.current.get(foldPath(file))
         if (before === undefined) return step(i + 1)
-        return (await before(resume)) ? step(i + 1) : false
+        return (await before(resume, opts)) ? step(i + 1) : false
       }
       if (showing !== null && samePath(file, showing)) return ask()
       if (await quietSave(file, 6000)) return step(i + 1)

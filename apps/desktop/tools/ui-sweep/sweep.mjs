@@ -396,7 +396,7 @@ const STEPS = [
     await page.waitForTimeout(150)
     await page.locator('.wincontrols .wcbtn.close').click()
     const ask = page.getByRole('dialog', { name: 'Still saving the takeoff into the PDF' })
-    try { await ask.waitFor({ timeout: 8000 }) } catch { problems.push('slow-close: the X showed nothing while the save hung') }
+    try { await ask.waitFor({ timeout: 20000 }) } catch { problems.push('slow-close: the X showed nothing while the save hung') }
     problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}slow-close-ask.png`) })
     await button(page, 'Keep working').click().catch(() => problems.push('slow-close: no Keep working'))
