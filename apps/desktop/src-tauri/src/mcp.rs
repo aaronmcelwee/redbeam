@@ -33,6 +33,7 @@ struct Spec {
     tools: Value,
     method_of: Value,
     action_of: Value,
+    instructions: Value,
 }
 
 fn spec() -> Spec {
@@ -41,6 +42,7 @@ fn spec() -> Spec {
         tools: v["tools"].clone(),
         method_of: v["methodOf"].clone(),
         action_of: v["actionOf"].clone(),
+        instructions: v["instructions"].clone(),
     }
 }
 
@@ -176,10 +178,7 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "REDBEAM is a PDF takeoff app: there are no projects, and each PDF holds its own takeoff. \
-Open a drawing with redbeam_open_file, then poll redbeam_get_ui_state until pageCount > 0. \
-Look before you draw: redbeam_screenshot shows the sheet. Writes go through \
-redbeam_invoke_ui_action and land on REDBEAM's undo stack, so the person can undo them.",
+            "instructions": spec.instructions,
         })),
         "ping" => ok(json!({})),
         "tools/list" => ok(json!({ "tools": spec.tools })),

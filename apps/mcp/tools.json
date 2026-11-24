@@ -1,12 +1,10 @@
 {
   "methodOf": {
     "redbeam_get_state": "get_state",
-    "redbeam_project_summary": "project_summary",
     "redbeam_open_file": "open_file",
-    "redbeam_list_documents": "list_documents",
     "redbeam_list_pages": "list_pages",
-    "redbeam_list_scopes": "list_scopes",
-    "redbeam_list_markups": "list_markups",
+    "redbeam_list_scopes": "invoke_ui_action",
+    "redbeam_list_markups": "invoke_ui_action",
     "redbeam_get_calibration": "get_calibration",
     "redbeam_execute_query": "execute_query",
     "redbeam_get_ui_state": "get_ui_state",
@@ -19,7 +17,57 @@
     "redbeam_set_markup_visibility": "invoke_ui_action",
     "redbeam_measure": "invoke_ui_action",
     "redbeam_get_lines": "invoke_ui_action",
-    "redbeam_save_copy": "invoke_ui_action"
+    "redbeam_save_copy": "invoke_ui_action",
+    "redbeam_describe_product": "invoke_ui_action",
+    "redbeam_set_pattern_origin": "invoke_ui_action",
+    "redbeam_set_pattern_direction": "invoke_ui_action",
+    "redbeam_get_pattern": "invoke_ui_action",
+    "redbeam_trace_area": "invoke_ui_action",
+    "redbeam_detect_pattern": "invoke_ui_action",
+    "redbeam_read_scale": "invoke_ui_action",
+    "redbeam_track_addenda": "invoke_ui_action",
+    "redbeam_create_markups": "invoke_ui_action",
+    "redbeam_get_piece_list": "invoke_ui_action",
+    "redbeam_get_history": "invoke_ui_action",
+    "redbeam_set_tool": "invoke_ui_action",
+    "redbeam_set_active_scope": "invoke_ui_action",
+    "redbeam_go_to_page": "invoke_ui_action",
+    "redbeam_set_layout_preview": "invoke_ui_action",
+    "redbeam_open_panel": "invoke_ui_action",
+    "redbeam_get_scale_presets": "invoke_ui_action",
+    "redbeam_create_markup": "invoke_ui_action",
+    "redbeam_delete_markup": "invoke_ui_action",
+    "redbeam_set_calibration": "invoke_ui_action",
+    "redbeam_reassign_markup": "invoke_ui_action",
+    "redbeam_set_scope_direction": "invoke_ui_action",
+    "redbeam_create_scope": "invoke_ui_action",
+    "redbeam_update_scope": "invoke_ui_action",
+    "redbeam_duplicate_scope": "invoke_ui_action",
+    "redbeam_archive_scope": "invoke_ui_action",
+    "redbeam_set_page_scale": "invoke_ui_action",
+    "redbeam_begin_scale_region": "invoke_ui_action",
+    "redbeam_set_region_scale": "invoke_ui_action",
+    "redbeam_cancel_scale_region": "invoke_ui_action",
+    "redbeam_delete_scale_region": "invoke_ui_action",
+    "redbeam_commit_scope": "invoke_ui_action",
+    "redbeam_get_words": "invoke_ui_action",
+    "redbeam_zoom_to_region": "invoke_ui_action",
+    "redbeam_save": "invoke_ui_action",
+    "redbeam_undo": "invoke_ui_action",
+    "redbeam_redo": "invoke_ui_action",
+    "redbeam_get_settings": "invoke_ui_action",
+    "redbeam_set_setting": "invoke_ui_action",
+    "redbeam_update_markup": "invoke_ui_action",
+    "redbeam_import_scopes": "invoke_ui_action",
+    "redbeam_list_annotations": "invoke_ui_action",
+    "redbeam_accept_imported": "invoke_ui_action",
+    "redbeam_list_links": "invoke_ui_action",
+    "redbeam_list_bookmarks": "invoke_ui_action",
+    "redbeam_close_tab": "invoke_ui_action",
+    "redbeam_rotate_pages": "invoke_ui_action",
+    "redbeam_create_dimension": "invoke_ui_action",
+    "redbeam_duplicate_markups": "invoke_ui_action",
+    "redbeam_select_markups": "invoke_ui_action"
   },
   "actionOf": {
     "redbeam_get_bom": "get_bom",
@@ -29,52 +77,94 @@
     "redbeam_set_markup_visibility": "set_markup_visibility",
     "redbeam_measure": "measure",
     "redbeam_get_lines": "get_lines",
-    "redbeam_save_copy": "save_copy"
+    "redbeam_save_copy": "save_copy",
+    "redbeam_describe_product": "describe_product",
+    "redbeam_set_pattern_origin": "set_pattern_origin",
+    "redbeam_set_pattern_direction": "set_pattern_direction",
+    "redbeam_get_pattern": "get_pattern",
+    "redbeam_trace_area": "trace_area",
+    "redbeam_detect_pattern": "detect_pattern",
+    "redbeam_read_scale": "read_scale",
+    "redbeam_track_addenda": "track_addenda",
+    "redbeam_create_markups": "create_markups",
+    "redbeam_get_piece_list": "get_piece_list",
+    "redbeam_get_history": "get_history",
+    "redbeam_set_tool": "set_tool",
+    "redbeam_set_active_scope": "set_active_scope",
+    "redbeam_go_to_page": "go_to_page",
+    "redbeam_set_layout_preview": "set_layout_preview",
+    "redbeam_open_panel": "open_panel",
+    "redbeam_get_scale_presets": "get_scale_presets",
+    "redbeam_create_markup": "create_markup",
+    "redbeam_delete_markup": "delete_markup",
+    "redbeam_set_calibration": "set_calibration",
+    "redbeam_reassign_markup": "reassign_markup",
+    "redbeam_set_scope_direction": "set_scope_direction",
+    "redbeam_create_scope": "create_scope",
+    "redbeam_update_scope": "update_scope",
+    "redbeam_duplicate_scope": "duplicate_scope",
+    "redbeam_archive_scope": "archive_scope",
+    "redbeam_set_page_scale": "set_page_scale",
+    "redbeam_begin_scale_region": "begin_scale_region",
+    "redbeam_set_region_scale": "set_region_scale",
+    "redbeam_cancel_scale_region": "cancel_scale_region",
+    "redbeam_delete_scale_region": "delete_scale_region",
+    "redbeam_commit_scope": "commit_scope",
+    "redbeam_get_words": "get_words",
+    "redbeam_zoom_to_region": "zoom_to_region",
+    "redbeam_save": "save",
+    "redbeam_undo": "undo",
+    "redbeam_redo": "redo",
+    "redbeam_get_settings": "get_settings",
+    "redbeam_set_setting": "set_setting",
+    "redbeam_update_markup": "update_markup",
+    "redbeam_import_scopes": "import_scopes",
+    "redbeam_list_annotations": "list_annotations",
+    "redbeam_accept_imported": "accept_imported",
+    "redbeam_list_links": "list_links",
+    "redbeam_list_bookmarks": "list_bookmarks",
+    "redbeam_close_tab": "close_tab",
+    "redbeam_rotate_pages": "rotate_pages",
+    "redbeam_create_dimension": "create_dimension",
+    "redbeam_duplicate_markups": "duplicate_markups",
+    "redbeam_select_markups": "select_markups",
+    "redbeam_list_markups": "list_markups",
+    "redbeam_list_scopes": "list_scopes"
   },
   "tools": [
     {
       "name": "redbeam_get_state",
-      "description": "What REDBEAM has open: `file` is the PDF showing (`fileOpen` false on the start screen), `tabs` the PDFs open beside it, and `note` says what to do next. REDBEAM has no projects, so `projectOpen` is always false; that is not a fault.",
+      "description": "What REDBEAM has open: `file` is the PDF showing (`fileOpen` false on the start screen), `tabs` the PDFs open beside it, `appVersion` the running version, and `note` says what to do next.",
       "inputSchema": {
         "type": "object",
         "properties": {}
-      }
-    },
-    {
-      "name": "redbeam_project_summary",
-      "description": "Counts of documents, pages, scopes, markups and calibrated pages for the PDF showing in the window, whose takeoff is read from the PDF itself. Fails, rather than counting zeros, when no PDF is open.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_open_file",
-      "description": "Open a PDF drawing set in REDBEAM, the way double-clicking it in Explorer does: it comes forward in the window already showing it, fills an empty window, or gets a window of its own. Its takeoff is read from the PDF itself. Returns {accepted:true} — NOT \"opened\": rendering a large set takes a few seconds, so poll redbeam_get_ui_state until activeDocumentId is set and pageCount is above zero before drawing or reading quantities.",
+      "description": "Open a PDF drawing set in REDBEAM, the way double-clicking it in Explorer does: it comes forward in the window already showing it, fills an empty window, or gets a window of its own. Its takeoff is read from the PDF itself. Returns {accepted:true} — NOT \"opened\": rendering a large set takes a few seconds, so poll redbeam_get_ui_state until activeDocumentId is set and pageCount is above zero before drawing or reading quantities. Pass wait:true to be answered once it is showing. REDBEAM does not come to the front or take focus when you open a file: the person may be working in something else.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
             "description": "Absolute path to a .pdf on this computer."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Answer once the PDF is showing ({opened:true, pageCount}) instead of at once. Waits up to about 20 seconds; a very large set may still answer opened:false, then poll redbeam_get_ui_state."
           }
         },
         "required": [
           "path"
         ]
-      }
-    },
-    {
-      "name": "redbeam_list_documents",
-      "description": "Documents in the PDF showing in the window (Light: one document, the PDF). Capped; `truncated` says when there are more.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "integer",
-            "description": "Max rows (1-5000, default 500)."
-          }
-        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
       }
     },
     {
@@ -90,42 +180,64 @@
             "type": "integer"
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_list_scopes",
-      "description": "Scopes in the PDF showing in the window. Archived scopes are hidden unless asked for.",
+      "description": "The scopes as objects: scopeId, label, type, colour, productType, the specification as an object, what the product still needs before it can be calculated, how many markups each holds, and which is active.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "includeArchived": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "For list_scopes: also list archived scopes."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_list_markups",
-      "description": "Markups, filterable by page, scope or document. Soft-deleted markups are excluded unless includeDeleted is set — they are kept for audit and are not live takeoff.",
+      "description": "The takeoff as objects: each markup with its id, kind, sheet (page and sheet code), scope name, quantity at the sheet's scale with its unit, holes, and `pending` when it still waits to be accepted. Filter by page, scopeId or kind. `unscaledSheets` lists sheets holding markups that measure nothing because the sheet has no scale.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "pageId": {
-            "type": "string"
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
           },
           "scopeId": {
-            "type": "string"
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
           },
-          "documentId": {
-            "type": "string"
-          },
-          "includeDeleted": {
-            "type": "boolean"
+          "kind": {
+            "type": "string",
+            "description": "For create_markup: area, cutout, polyline, count or shape. For list_markups: only this kind."
           },
           "limit": {
-            "type": "integer"
+            "type": "integer",
+            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines). get_history: default 200 events. get_piece_list: default 1000 runs. list_markups: default 500."
+          },
+          "withGeometry": {
+            "type": "boolean",
+            "description": "For list_markups: include each markup's rings. Default false."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -138,11 +250,14 @@
             "type": "string"
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_execute_query",
-      "description": "Run one read-only SELECT against the takeoff of the PDF showing in the window (the same tables a project database has). Writes are refused: a write here would change a takeoff with no undo entry and no activity row.",
+      "description": "Run one read-only SELECT against the takeoff of the PDF showing in the window (the same tables a project database has). Writes are refused: a write here would change a takeoff with no undo entry and no activity row. Useful tables: scopes (id, label, scope_type, color, specifications_json, archived_at); markups (id, page_id, scope_id, kind, geometry_json, content_json, origin, review_state, created_at, updated_at, deleted_at); pages (id, page_number ZERO-based, label, width_pdf_points, height_pdf_points, rotation); calibrations (page_id, feet_per_pdf_point, source); scale_regions; activity (event_type, entity_type, entity_id, origin, details_json, created_at): the change history; undo_log (label, op, origin, state). A page id is \"<documentId>-p<page_number>\".",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -158,14 +273,20 @@
         "required": [
           "sql"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_get_ui_state",
-      "description": "What the window is showing: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open.",
+      "description": "What the window is showing: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open. ABOUT THE SHEET SHOWING: pageIndex, pageWidth, pageHeight, zoom, viewport, calibration, scaleRegions, selection, tool. ABOUT THE WHOLE FILE: file, tabs, pageCount, scopes, quantities and piece counts, `saved` (false while a change is not yet in the PDF), `lastSave` (how the last save went), `warnings` (the warning bar, word for word), appVersion. Sheets with markups but no scale are listed by redbeam_list_markups as unscaledSheets.",
       "inputSchema": {
         "type": "object",
         "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -195,6 +316,9 @@
             "description": "For a region: draw the PDF's own markups. Defaults to what the window shows."
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -202,7 +326,15 @@
       "description": "Every page of the open document with its sheet number and title (\"A4.0\", \"FLOOR PLAN - LEVEL 03\"), from the PDF's bookmarks, then its page labels, then the title block printed on the sheet. `sheet` is null where none of them names the page. Use the page numbers here (ZERO-based) for go_to_page, find_text and screenshot. Needs a window.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -243,11 +375,18 @@
           "limit": {
             "type": "integer",
             "description": "Most matches returned. Default 300."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         },
         "required": [
           "query"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -263,8 +402,16 @@
           "redbeam": {
             "type": "boolean",
             "description": "false hides, true shows. Omit to leave as is."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
       }
     },
     {
@@ -295,16 +442,23 @@
           "page": {
             "type": "integer",
             "description": "ZERO-based page to show first. Defaults to the open sheet."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         },
         "required": [
           "points"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_get_lines",
-      "description": "The drawing's own line segments inside a box of the open sheet, longest first: each segment's ends (NORMALIZED [0,1], y down) and its length in PDF points and, when the sheet has a scale, in feet. Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Keep the box small. Needs a window.",
+      "description": "The drawing's own line segments inside a box of the open sheet, longest first (or sorted by position): each segment's ends (NORMALIZED [0,1], y down) and its length in PDF points and, when the sheet has a scale, in feet. Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Filter to lines fully inside the box, horizontal or vertical, or a length range; a segment drawn twice is returned once. Keep the box small. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -323,11 +477,60 @@
           "page": {
             "type": "integer",
             "description": "ZERO-based page to show first."
+          },
+          "inside": {
+            "type": "boolean",
+            "description": "For get_lines: only lines with both ends inside rect. Default false (lines crossing it are included)."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "horizontal",
+              "vertical",
+              "any"
+            ],
+            "description": "For get_lines. Within angleTolerance degrees."
+          },
+          "angleTolerance": {
+            "type": "number",
+            "description": "For get_lines orientation, in degrees. Default 1."
+          },
+          "dedupe": {
+            "type": "boolean",
+            "description": "For get_lines: merge a segment drawn twice, in either direction. Default true."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "length",
+              "x",
+              "y"
+            ],
+            "description": "For get_lines: longest first (default), left to right, or top to bottom."
+          },
+          "maxLengthPoints": {
+            "type": "number",
+            "description": "For get_lines: leave out longer segments, in PDF points."
+          },
+          "minLengthFeet": {
+            "type": "number",
+            "description": "For get_lines on a scaled sheet: shortest length kept, in feet."
+          },
+          "maxLengthFeet": {
+            "type": "number",
+            "description": "For get_lines on a scaled sheet: longest length kept, in feet."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         },
         "required": [
           "rect"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -339,8 +542,20 @@
           "name": {
             "type": "string",
             "description": "File name for the copy. Defaults to \"<name> (takeoff).pdf\"."
+          },
+          "withoutEmbeddedMarkups": {
+            "type": "boolean",
+            "description": "For save_copy: leave every other app's markups (Bluebeam's, anyone's) out of the copy. Links stay. Default false."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
       }
     },
     {
@@ -348,12 +563,20 @@
       "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
       "name": "redbeam_export",
-      "description": "Produce the takeoff package. `tsv` is the pricing sheet and `report` is the branded self-contained HTML; both come back as TEXT in the reply rather than as a saved file, because the buttons hand a blob to the browser's downloader and put it somewhere an agent can neither read nor choose — write the string yourself if you want a file. `marked-pdf` is the exception: it writes the OPEN drawing with its markups on it and lands in the user's downloads, so it reports only whether it was written, and it covers one document, not the project. Needs a window. The ESTIMATE exports — `csv`, `estimate-tsv` and `pdf` — cover one round: every scope with its measured quantity and its components. csv and estimate-tsv return content; pdf renders the branded document with a picture of every sheet that carries takeoff and saves it to downloads.",
+      "description": "Produce the takeoff package. `tsv` is the pricing sheet and `report` is the branded self-contained HTML; both come back as TEXT in the reply rather than as a saved file, because the buttons hand a blob to the browser's downloader and put it somewhere an agent can neither read nor choose — write the string yourself if you want a file. `marked-pdf` is the exception: it writes the OPEN drawing with its markups on it and lands in the user's downloads, so it reports only whether it was written, and it covers one document, not the project. Needs a window. The ESTIMATE exports — `csv`, `estimate-tsv` and `pdf` — cover one round: every scope with its measured quantity and its components. csv and estimate-tsv return content; pdf renders the branded document with a picture of every sheet that carries takeoff and saves it to downloads. With `path`, any format is written to that file instead (its folder must exist; nothing is replaced unless overwrite, never a PDF). pieces-csv is the piece list of every run product.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -365,23 +588,1481 @@
               "marked-pdf",
               "csv",
               "estimate-tsv",
-              "pdf"
+              "pdf",
+              "pieces-csv"
             ],
             "description": "tsv, report, csv and estimate-tsv return content; marked-pdf and pdf save a file to the user's downloads and return {saved:true}."
           },
           "estimateId": {
             "type": "string",
             "description": "For csv, estimate-tsv and pdf: which round. Defaults to the open one."
+          },
+          "path": {
+            "type": "string",
+            "description": "For export: an absolute path to write the file to, e.g. C:\\\\Users\\\\me\\\\Desktop\\\\takeoff.csv. Its folder must exist. Without it, text formats come back in the reply."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "For export with path: replace a file already there. A PDF is never replaced."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
           }
         },
         "required": [
           "what"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_describe_product",
+      "description": "Every input a product needs before it can be counted: for each field its key, the key its unit goes in, label, whether it is required, the units or values allowed, and the default; plus an example specification. Without productType, all products. A blocked BOM line also lists the missing keys under `missing`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "productType": {
+            "type": "string",
+            "description": "For create_scope, update_scope and describe_product: panels, planks, baffle_cassette, baffle, linear_parts or custom_assembly. Decides what the scope is measured as, so create_scope needs no scopeType with it. describe_product without it lists every product."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_set_pattern_origin",
+      "description": "Set where an area's pattern starts: at a point, a corner, the nearest point on an edge or line, the centre, or back to automatic. Applies to the area at `point`, to markupId(s), or to every area of the scope on the sheet showing. Read it back with redbeam_get_pattern. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "markupId": {
+            "type": "string",
+            "description": "For set_pattern_origin and set_pattern_direction (applyTo area): the area. Without it, `point` picks the area, else every area of the scope on the sheet showing."
+          },
+          "markupIds": {
+            "type": "array",
+            "description": "Several areas, as markupId."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "point",
+              "corner",
+              "edge",
+              "center",
+              "auto"
+            ],
+            "description": "For set_pattern_origin: point (start exactly at `point`, inside the area), corner (the area's corner named by `corner`, or the one nearest `point`), edge (the point on the area's edge nearest `point`, so the first member sits on that edge or line), center (the middle of the area), auto (clear it; the layout chooses the best start)."
+          },
+          "point": {
+            "type": "object",
+            "description": "{x,y}, normalized. For set_pattern_origin (where, and which area: the area containing it), set_pattern_direction with applyTo area, and trace_area (a point inside the field to trace)."
+          },
+          "corner": {
+            "type": "string",
+            "enum": [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right"
+            ],
+            "description": "For set_pattern_origin mode corner."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_set_pattern_direction",
+      "description": "Set the direction the members run, for the whole scope, the sheet showing, or one area, as two points along a member (x1,y1,x2,y2, normalized) or an angle. Area beats sheet beats scope. Laid-out products count nothing until a direction is set. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "applyTo": {
+            "type": "string",
+            "enum": [
+              "scope",
+              "page",
+              "area"
+            ],
+            "description": "For set_pattern_direction: the whole scope (default), every area of the scope on the sheet showing, or one area (markupId or point). Area beats page beats scope."
+          },
+          "markupId": {
+            "type": "string",
+            "description": "For set_pattern_origin and set_pattern_direction (applyTo area): the area. Without it, `point` picks the area, else every area of the scope on the sheet showing."
+          },
+          "markupIds": {
+            "type": "array",
+            "description": "Several areas, as markupId."
+          },
+          "point": {
+            "type": "object",
+            "description": "{x,y}, normalized. For set_pattern_origin (where, and which area: the area containing it), set_pattern_direction with applyTo area, and trace_area (a point inside the field to trace)."
+          },
+          "x1": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "y1": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "x2": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "y2": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "angle": {
+            "type": "number",
+            "description": "For set_pattern_direction instead of x1..y2: the direction members run, in degrees on the sheet: 0 across, 90 up it."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_get_pattern",
+      "description": "A scope's pattern set-up: product type, scope direction, sheet directions, and for each area the direction it uses (and where from) and its origin (placed or automatic). Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_trace_area",
+      "description": "The closed boundary around a point inside a field (a hatched ceiling, a room), read from the drawing's own lines, as normalized rings ready for create_markup, with its area. create:true places it as an area. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "point": {
+            "type": "object",
+            "description": "{x,y}, normalized. For set_pattern_origin (where, and which area: the area containing it), set_pattern_direction with applyTo area, and trace_area (a point inside the field to trace)."
+          },
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based. For go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area and read_scale; for track_addenda, the addendum sheet when linking by hand."
+          },
+          "create": {
+            "type": "boolean",
+            "description": "For trace_area: also place the outline as an area of scopeId (or the active scope). Default false: the rings are returned for create_markup."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "bridgeGapFeet": {
+            "type": "number",
+            "description": "For trace_area: the widest gap in the linework still treated as closed, in feet. Default 3.5."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "sizeFeet": {
+            "type": "number",
+            "description": "For trace_area: roughly how wide the field is, in feet. Give it for anything smaller than a room: the sheet is read finer and small gaps stay open."
+          },
+          "snap": {
+            "type": "boolean",
+            "description": "For trace_area: move the outline onto the drawing's own lines. Default true."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_detect_pattern",
+      "description": "Read a drawn pattern of parallel members (baffles, planks, slats) in a box: direction (and a directionLine for set_pattern_direction), on-centre spacing, member length, runs across and rows along, and how regular it is. Needs a window. The box must hold whole members: lines cut by its edge are not counted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rect": {
+            "type": "object",
+            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside. For get_lines, the box to read linework from; keep it small."
+          },
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based. For go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area and read_scale; for track_addenda, the addendum sheet when linking by hand."
+          },
+          "minLengthPoints": {
+            "type": "number",
+            "description": "For get_lines: leave out segments shorter than this, in PDF points. Default 2 (hatching and text strokes)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_read_scale",
+      "description": "The scales the sheets state (title block and under each drawing title), each with its preset id for set_page_scale/set_region_scale and where it is printed, beside the scale set on the sheet and its regions. With `points` and `dimension`, checks the set scale against a written dimension and gives the scale it implies. Defaults to the sheet showing. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based. For go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area and read_scale; for track_addenda, the addendum sheet when linking by hand."
+          },
+          "pages": {
+            "type": "array",
+            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
+          },
+          "fromPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
+          },
+          "toPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range."
+          },
+          "points": {
+            "type": "array",
+            "description": "For measure: two or more {x,y} in NORMALIZED [0,1] page coordinates, y down. Nothing is drawn or written."
+          },
+          "dimension": {
+            "type": "string",
+            "description": "For read_scale: a written dimension, e.g. 12'-6\", to check the sheet's scale against; give the two ends it spans as `points`."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_track_addenda",
+      "description": "Sheets of the open set replaced by a later issue (the same sheet number later in the set, or linked by hand with page and replaces), and the scopes with takeoff on a replaced sheet. Links are kept in the PDF. Needs a window. Links made by hand are saved in the PDF with the takeoff.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based. For go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area and read_scale; for track_addenda, the addendum sheet when linking by hand."
+          },
+          "replaces": {
+            "type": "integer",
+            "description": "For track_addenda with `page`: the ZERO-based page this addendum sheet replaces, to link the two by hand."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_create_markups",
+      "description": "Add several markups in one call and one undo step: each {kind, rings, scopeId?, page?} as create_markup takes them, including holes, arcs (bulge) and circles. A cutout cuts the areas under it, including ones made earlier in the same call. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "markups": {
+            "type": "array",
+            "description": "For create_markups: up to 500 entries, each {kind, rings, scopeId?, page?} as create_markup takes them. One undo step."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_get_piece_list",
+      "description": "A run product's piece list: every run with its length and pieces, each piece's cut length and whether it is cut to fit at an edge or curve, the cutting list (identical cuts counted), stock lengths used by size, offcut, rails, and parts (connectors, end caps, joiners, trim). export what:\"pieces-csv\" writes it as a sheet. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines). get_history: default 200 events. get_piece_list: default 1000 runs."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_get_history",
+      "description": "Who changed what in this PDF's takeoff and when: markups drawn, edited, moved to a scope or deleted, scopes made and changed, scales set, each marked person or AI app. Kept in the PDF, so it covers earlier sessions. `id` narrows it to one markup or scope. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines). get_history: default 200 events. get_piece_list: default 1000 runs."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_set_tool",
+      "description": "Select a drawing tool, as clicking it on the toolbar does.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "description": "For set_tool."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "tool"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_set_active_scope",
+      "description": "Make a scope the active one: new markups go to it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "scopeId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_go_to_page",
+      "description": "Show a sheet, by ZERO-based page number or sheet code. Answers once the sheet is showing, so the next call can act on it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "sheet": {
+            "type": "string",
+            "description": "For go_to_page instead of page: the sheet number as the set prints it, e.g. \"A4.0\". Punctuation and case are ignored (\"A.4.0\" finds A4.0); a code that matches no sheet, or more than one, is refused rather than guessed."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_set_layout_preview",
+      "description": "Turn the layout preview (the pieces drawn over each area) on or off.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "For set_layout_preview."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "on"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_open_panel",
+      "description": "Open one of the side panels, or close them all with `none`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "panel": {
+            "type": "string",
+            "enum": [
+              "bom",
+              "browser",
+              "scope",
+              "settings",
+              "none"
+            ],
+            "description": "For open_panel: scope, settings, or none (closes them all). bom and browser are from the old project mode and are refused with what to use instead."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "panel"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_get_scale_presets",
+      "description": "The named title-block scales set_page_scale and set_region_scale accept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_create_markup",
+      "description": "Draw one markup on a sheet. Answers after it has landed, with its id, sheet, measure and any warning (no scope, or the sheet has no scale so it measures nothing yet). Give `page` to say which sheet; without it, the sheet showing. A cutout with scopeId cuts only that scope's areas; without one, every area it crosses.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "For create_markup: area, cutout, polyline, count or shape. For list_markups: only this kind."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "rings": {
+            "type": "array",
+            "description": "For create_markup: [[{x,y}, …]] in NORMALIZED [0,1] page coordinates, NOT PDF points. An area takes more rings as holes. A vertex may carry `bulge` (tan of a quarter of the arc's sweep, + counter-clockwise; 1 is a half circle) for a true arc to the next vertex, and a ring may be {circle:{cx,cy,r}} with r as a fraction of the page width. Page points are rejected rather than placed off the sheet. For update_markup: the new shape."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "kind",
+          "rings"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_delete_markup",
+      "description": "Delete one markup. Answers after it is gone; undo brings it back.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change. To remove one hole of an area, give the hole id a cutout answered with: cut:<area id>:<hole number, from 1>."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "redbeam_set_calibration",
+      "description": "Set the sheet's scale from a reference of known length: two `points` and the real length they span. Returns the new scale and the one it replaced.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lengthPdfPoints": {
+            "type": "number",
+            "description": "For set_calibration: measured length of the reference, in PDF points."
+          },
+          "points": {
+            "type": "array",
+            "description": "For measure: two or more {x,y} in NORMALIZED [0,1] page coordinates, y down. Nothing is drawn or written. For set_calibration: the two ends of the reference, instead of lengthPdfPoints. For create_dimension: its two ends."
+          },
+          "unit": {
+            "type": "string",
+            "description": "For set_calibration: in, ft, mm, cm, m."
+          },
+          "value": {
+            "description": "For set_calibration: the real length, e.g. \"10\" or \"7 1/2\". For set_setting: the new value."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "value",
+          "unit"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_reassign_markup",
+      "description": "Move a markup to another scope.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "id",
+          "scopeId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_set_scope_direction",
+      "description": "Set the direction a scope's pattern runs, from a line drawn on the sheet. redbeam_set_pattern_direction does the same by angle and per area.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "x1": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "y1": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "x2": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "y2": {
+            "type": "number",
+            "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_create_scope",
+      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "color": {
+            "type": "string",
+            "description": "For create_scope and update_scope. CSS hex."
+          },
+          "label": {
+            "type": "string",
+            "description": "For create_scope and update_scope, the name on the shelf — must be unique, because two scopes with one label are indistinguishable everywhere it matters and rescoping into the wrong one is silent. For set_region_scale, what the region IS (\"Detail 3 / head\")."
+          },
+          "productType": {
+            "type": "string",
+            "description": "For create_scope, update_scope and describe_product: panels, planks, baffle_cassette, baffle, linear_parts or custom_assembly. Decides what the scope is measured as, so create_scope needs no scopeType with it. describe_product without it lists every product."
+          },
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "area",
+              "linear",
+              "count"
+            ],
+            "description": "For create_scope and update_scope. A scope counts only the markup kind it is typed for, so changing it on a scope that already has takeoff does not convert that takeoff — it stops it reaching any quantity."
+          },
+          "specifications": {
+            "type": "object",
+            "description": "For create_scope and update_scope: the product spec. On update it is MERGED, never replaced — this same object also carries the pattern directions the direction tool writes, and replacing it would silently re-orient every piece count on the scope. Set a key to null to remove it."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_update_scope",
+      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "color": {
+            "type": "string",
+            "description": "For create_scope and update_scope. CSS hex."
+          },
+          "label": {
+            "type": "string",
+            "description": "For create_scope and update_scope, the name on the shelf — must be unique, because two scopes with one label are indistinguishable everywhere it matters and rescoping into the wrong one is silent. For set_region_scale, what the region IS (\"Detail 3 / head\")."
+          },
+          "productType": {
+            "type": "string",
+            "description": "For create_scope, update_scope and describe_product: panels, planks, baffle_cassette, baffle, linear_parts or custom_assembly. Decides what the scope is measured as, so create_scope needs no scopeType with it. describe_product without it lists every product."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "area",
+              "linear",
+              "count"
+            ],
+            "description": "For create_scope and update_scope. A scope counts only the markup kind it is typed for, so changing it on a scope that already has takeoff does not convert that takeoff — it stops it reaching any quantity."
+          },
+          "specifications": {
+            "type": "object",
+            "description": "For create_scope and update_scope: the product spec. On update it is MERGED, never replaced — this same object also carries the pattern directions the direction tool writes, and replacing it would silently re-orient every piece count on the scope. Set a key to null to remove it."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "scopeId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_duplicate_scope",
+      "description": "Copy a scope with its specification. Returns the copy's scopeId and label.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "scopeId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_archive_scope",
+      "description": "Archive a scope, or restore it with archived:false. Its markups are kept.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "type": "boolean",
+            "description": "For archive_scope; default true. Archiving hides a scope, it does not destroy it — its markups stay and un-archiving restores the quantities exactly."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "scopeId"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "description": "Set a stated scale on one sheet or a range, in one write. NOT undoable: the answer lists what each sheet measured at before, so it can be put back. Changing a scale re-measures every markup on those sheets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "feetPerPoint": {
+            "type": "number",
+            "description": "For set_page_scale and set_region_scale, instead of presetId: drawing feet per PDF point. Prefer presetId when the title block states a scale, so the stored source records that it was stated, not measured."
+          },
+          "fromPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
+          },
+          "pages": {
+            "type": "array",
+            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
+          },
+          "presetId": {
+            "type": "string",
+            "description": "For set_page_scale and set_region_scale: a named title-block scale, e.g. `arch-1-8`. Call get_scale_presets — the ids are not guessable and a stated scale needs no measuring, so this covers a whole sheet series where the reference-line tool covers one page."
+          },
+          "toPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "redbeam_begin_scale_region",
+      "description": "Draw a box on the sheet that will carry its own scale. It governs nothing until redbeam_set_region_scale answers it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rect": {
+            "type": "object",
+            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside. For get_lines, the box to read linework from; keep it small."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "rect"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_set_region_scale",
+      "description": "Give the waiting scale region its scale.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "feetPerPoint": {
+            "type": "number",
+            "description": "For set_page_scale and set_region_scale, instead of presetId: drawing feet per PDF point. Prefer presetId when the title block states a scale, so the stored source records that it was stated, not measured."
+          },
+          "label": {
+            "type": "string",
+            "description": "For create_scope and update_scope, the name on the shelf — must be unique, because two scopes with one label are indistinguishable everywhere it matters and rescoping into the wrong one is silent. For set_region_scale, what the region IS (\"Detail 3 / head\")."
+          },
+          "presetId": {
+            "type": "string",
+            "description": "For set_page_scale and set_region_scale: a named title-block scale, e.g. `arch-1-8`. Call get_scale_presets — the ids are not guessable and a stated scale needs no measuring, so this covers a whole sheet series where the reference-line tool covers one page."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "redbeam_cancel_scale_region",
+      "description": "Drop the scale region waiting for a scale.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_delete_scale_region",
+      "description": "Delete a scale region. Not undoable.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "redbeam_commit_scope",
+      "description": "Record a scope's answer now. The app also does this by itself once a change settles.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_get_words",
+      "description": "Every word on a sheet with its box, optionally inside a rect.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines). get_history: default 200 events. get_piece_list: default 1000 runs. list_markups: default 500."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "rect": {
+            "type": "object",
+            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside. For get_lines, the box to read linework from; keep it small."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_zoom_to_region",
+      "description": "Frame a box of the sheet in the window and mark it, so the person sees what you mean.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "highlight": {
+            "type": "boolean",
+            "description": "For zoom_to_region: mark the box the way a search hit is marked. Default true."
+          },
+          "margin": {
+            "type": "number",
+            "description": "For zoom_to_region: room left around the box, as a fraction of its size. Default 0.15."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "rect": {
+            "type": "object",
+            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside. For get_lines, the box to read linework from; keep it small."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "rect"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_save",
+      "description": "Write the takeoff into the PDF now and say how it went: saved, saved as a copy (and where), or not saved and why. redbeam_get_ui_state reports `saved` at any time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_undo",
+      "description": "Undo the last change, the person's or yours, as Ctrl+Z does. Says what was undone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_redo",
+      "description": "Redo the change last undone.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_get_settings",
+      "description": "The app's settings and their values, including the layout settings that change piece counts (patternStart, perAreaOrigin).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_set_setting",
+      "description": "Change one setting from redbeam_get_settings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "setting": {
+            "type": "string",
+            "description": "For set_setting: an id from get_settings (e.g. takeoff.patternStart); the last part alone (patternStart) works when it names one setting."
+          },
+          "value": {
+            "description": "For set_calibration: the real length, e.g. \"10\" or \"7 1/2\". For set_setting: the new value."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "setting",
+          "value"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_update_markup",
+      "description": "Reshape a markup with new `rings`, or move it by dx/dy. One undo step; the scope and id stay.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dx": {
+            "type": "number",
+            "description": "For update_markup (a move) and duplicate_markups (offset of the copies): normalized [0,1] of the page width, + right."
+          },
+          "dy": {
+            "type": "number",
+            "description": "As dx, of the page height, + down."
+          },
+          "id": {
+            "type": "string",
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change."
+          },
+          "rings": {
+            "type": "array",
+            "description": "For create_markup: [[{x,y}, …]] in NORMALIZED [0,1] page coordinates, NOT PDF points. An area takes more rings as holes. A vertex may carry `bulge` (tan of a quarter of the arc's sweep, + counter-clockwise; 1 is a half circle) for a true arc to the next vertex, and a ring may be {circle:{cx,cy,r}} with r as a fraction of the page width. Page points are rejected rather than placed off the sheet. For update_markup: the new shape."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_import_scopes",
+      "description": "Bring the scopes of another PDF's takeoff into this one by path; withMarkups also brings its markups.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "For export: an absolute path to write the file to, e.g. C:\\\\Users\\\\me\\\\Desktop\\\\takeoff.csv. Its folder must exist. Without it, text formats come back in the reply. For import_scopes: the PDF to read scopes from. For close_tab: the tab to close (default: the one showing)."
+          },
+          "withMarkups": {
+            "type": "boolean",
+            "description": "For import_scopes: also bring the other PDF's markups (start this takeoff from that one). Default false: scopes only."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_list_annotations",
+      "description": "The PDF's own markups on a sheet that are not takeoff: notes, callouts, clouds, with author and text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "pages": {
+            "type": "array",
+            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
+          },
+          "fromPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
+          },
+          "toPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_accept_imported",
+      "description": "Accept markups still waiting to be accepted (imported or proposed): by ids, or all.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "description": "For accept_imported: accept every markup still waiting."
+          },
+          "ids": {
+            "type": "array",
+            "description": "Markup ids. For accept_imported, duplicate_markups and select_markups."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_list_links",
+      "description": "The PDF's links on a sheet: where each is and the page or address it goes to.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_list_bookmarks",
+      "description": "The PDF's bookmark tree, with the page each entry opens.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_close_tab",
+      "description": "Close a tab: the one showing, or the one at `path`.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "For export: an absolute path to write the file to, e.g. C:\\\\Users\\\\me\\\\Desktop\\\\takeoff.csv. Its folder must exist. Without it, text formats come back in the reply. For import_scopes: the PDF to read scopes from. For close_tab: the tab to close (default: the one showing)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "redbeam_rotate_pages",
+      "description": "Rotate sheets by 90, 180 or 270 degrees; their takeoff turns with them.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "degrees": {
+            "type": "integer",
+            "description": "For rotate_pages: 90, 180 or 270, clockwise. Takeoff on the sheet turns with it."
+          },
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "pages": {
+            "type": "array",
+            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
+          },
+          "fromPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
+          },
+          "toPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "degrees"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_create_dimension",
+      "description": "Draw a dimension between two points; it shows the length at the sheet's scale.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "points": {
+            "type": "array",
+            "description": "For measure: two or more {x,y} in NORMALIZED [0,1] page coordinates, y down. Nothing is drawn or written. For set_calibration: the two ends of the reference, instead of lengthPdfPoints. For create_dimension: its two ends."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "points"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_duplicate_markups",
+      "description": "Copy markups, on their own sheet (offset by dx/dy) or onto another with toPage. Returns the new ids.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "dx": {
+            "type": "number",
+            "description": "For update_markup (a move) and duplicate_markups (offset of the copies): normalized [0,1] of the page width, + right."
+          },
+          "dy": {
+            "type": "number",
+            "description": "As dx, of the page height, + down."
+          },
+          "id": {
+            "type": "string",
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change."
+          },
+          "ids": {
+            "type": "array",
+            "description": "Markup ids. For accept_imported, duplicate_markups and select_markups."
+          },
+          "toPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_select_markups",
+      "description": "Select markups in the window, so the person sees which ones you mean.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Markup ids. For accept_imported, duplicate_markups and select_markups."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
       }
     },
     {
       "name": "redbeam_invoke_ui_action",
-      "description": "Drive the app the way a person would. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first.",
+      "description": "Drive the app the way a person would. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -418,7 +2099,36 @@
               "set_markup_visibility",
               "measure",
               "get_lines",
-              "save_copy"
+              "save_copy",
+              "describe_product",
+              "set_pattern_origin",
+              "set_pattern_direction",
+              "get_pattern",
+              "trace_area",
+              "detect_pattern",
+              "read_scale",
+              "track_addenda",
+              "create_markups",
+              "get_piece_list",
+              "get_history",
+              "save",
+              "undo",
+              "redo",
+              "get_settings",
+              "set_setting",
+              "update_markup",
+              "import_scopes",
+              "list_annotations",
+              "accept_imported",
+              "list_links",
+              "list_bookmarks",
+              "close_tab",
+              "rotate_pages",
+              "create_dimension",
+              "duplicate_markups",
+              "select_markups",
+              "list_markups",
+              "list_scopes"
             ]
           },
           "tool": {
@@ -430,8 +2140,7 @@
             "description": "For set_active_scope, create_markup, reassign_markup, set_scope_direction, update_scope, duplicate_scope, archive_scope and commit_scope. Defaults to the active scope where one makes sense."
           },
           "page": {
-            "type": "integer",
-            "description": "For go_to_page, get_words, find_text, zoom_to_region, measure and get_lines. ZERO-based."
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
           },
           "on": {
             "type": "boolean",
@@ -446,11 +2155,11 @@
               "settings",
               "none"
             ],
-            "description": "For open_panel. The panels exclude each other, so this closes whichever was open; `none` closes them all. It does NOT dismiss a calibration form — that holds a measurement and has its own Cancel."
+            "description": "For open_panel: scope, settings, or none (closes them all). bom and browser are from the old project mode and are refused with what to use instead."
           },
           "what": {
             "type": "string",
-            "description": "For export: tsv, report, marked-pdf, csv, estimate-tsv or pdf. See redbeam_export."
+            "description": "For export: tsv, report, marked-pdf, csv, estimate-tsv, pdf or pieces-csv. See redbeam_export."
           },
           "estimateId": {
             "type": "string",
@@ -499,7 +2208,7 @@
           },
           "toPage": {
             "type": "integer",
-            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range."
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
           },
           "rect": {
             "type": "object",
@@ -507,19 +2216,18 @@
           },
           "kind": {
             "type": "string",
-            "description": "For create_markup: area, cutout, polyline, count or shape."
+            "description": "For create_markup: area, cutout, polyline, count or shape. For list_markups: only this kind."
           },
           "rings": {
             "type": "array",
-            "description": "For create_markup: [[{x,y}, …]] in NORMALIZED [0,1] page coordinates, NOT PDF points. Page points are rejected rather than placed off the sheet."
+            "description": "For create_markup: [[{x,y}, …]] in NORMALIZED [0,1] page coordinates, NOT PDF points. An area takes more rings as holes. A vertex may carry `bulge` (tan of a quarter of the arc's sweep, + counter-clockwise; 1 is a half circle) for a true arc to the next vertex, and a ring may be {circle:{cx,cy,r}} with r as a fraction of the page width. Page points are rejected rather than placed off the sheet. For update_markup: the new shape."
           },
           "id": {
             "type": "string",
-            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else."
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change. To remove one hole of an area, give the hole id a cutout answered with: cut:<area id>:<hole number, from 1>."
           },
           "value": {
-            "type": "string",
-            "description": "For set_calibration, e.g. \"10\" or \"7 1/2\"."
+            "description": "For set_calibration: the real length, e.g. \"10\" or \"7 1/2\". For set_setting: the new value."
           },
           "unit": {
             "type": "string",
@@ -563,7 +2271,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines)."
+            "description": "For find_text (default 300 matches), get_words (default 3000 words) and get_lines (default 300 lines). get_history: default 200 events. get_piece_list: default 1000 runs. list_markups: default 500."
           },
           "margin": {
             "type": "number",
@@ -583,7 +2291,7 @@
           },
           "points": {
             "type": "array",
-            "description": "For measure: two or more {x,y} in NORMALIZED [0,1] page coordinates, y down. Nothing is drawn or written."
+            "description": "For measure: two or more {x,y} in NORMALIZED [0,1] page coordinates, y down. Nothing is drawn or written. For set_calibration: the two ends of the reference, instead of lengthPdfPoints. For create_dimension: its two ends."
           },
           "closed": {
             "type": "boolean",
@@ -596,12 +2304,189 @@
           "name": {
             "type": "string",
             "description": "For save_copy: the copy's file name. Defaults to \"<name> (takeoff).pdf\"; a free name is found if it is taken."
+          },
+          "productType": {
+            "type": "string",
+            "description": "For create_scope, update_scope and describe_product: panels, planks, baffle_cassette, baffle, linear_parts or custom_assembly. Decides what the scope is measured as, so create_scope needs no scopeType with it. describe_product without it lists every product."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "point",
+              "corner",
+              "edge",
+              "center",
+              "auto"
+            ],
+            "description": "For set_pattern_origin: point (start exactly at `point`, inside the area), corner (the area's corner named by `corner`, or the one nearest `point`), edge (the point on the area's edge nearest `point`, so the first member sits on that edge or line), center (the middle of the area), auto (clear it; the layout chooses the best start)."
+          },
+          "point": {
+            "type": "object",
+            "description": "{x,y}, normalized. For set_pattern_origin (where, and which area: the area containing it), set_pattern_direction with applyTo area, and trace_area (a point inside the field to trace)."
+          },
+          "corner": {
+            "type": "string",
+            "enum": [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right"
+            ],
+            "description": "For set_pattern_origin mode corner."
+          },
+          "markupId": {
+            "type": "string",
+            "description": "For set_pattern_origin and set_pattern_direction (applyTo area): the area. Without it, `point` picks the area, else every area of the scope on the sheet showing."
+          },
+          "markupIds": {
+            "type": "array",
+            "description": "Several areas, as markupId."
+          },
+          "applyTo": {
+            "type": "string",
+            "enum": [
+              "scope",
+              "page",
+              "area"
+            ],
+            "description": "For set_pattern_direction: the whole scope (default), every area of the scope on the sheet showing, or one area (markupId or point). Area beats page beats scope."
+          },
+          "angle": {
+            "type": "number",
+            "description": "For set_pattern_direction instead of x1..y2: the direction members run, in degrees on the sheet: 0 across, 90 up it."
+          },
+          "create": {
+            "type": "boolean",
+            "description": "For trace_area: also place the outline as an area of scopeId (or the active scope). Default false: the rings are returned for create_markup."
+          },
+          "bridgeGapFeet": {
+            "type": "number",
+            "description": "For trace_area: the widest gap in the linework still treated as closed, in feet. Default 3.5."
+          },
+          "dimension": {
+            "type": "string",
+            "description": "For read_scale: a written dimension, e.g. 12'-6\", to check the sheet's scale against; give the two ends it spans as `points`."
+          },
+          "replaces": {
+            "type": "integer",
+            "description": "For track_addenda with `page`: the ZERO-based page this addendum sheet replaces, to link the two by hand."
+          },
+          "markups": {
+            "type": "array",
+            "description": "For create_markups: up to 500 entries, each {kind, rings, scopeId?, page?} as create_markup takes them. One undo step."
+          },
+          "inside": {
+            "type": "boolean",
+            "description": "For get_lines: only lines with both ends inside rect. Default false (lines crossing it are included)."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "horizontal",
+              "vertical",
+              "any"
+            ],
+            "description": "For get_lines. Within angleTolerance degrees."
+          },
+          "angleTolerance": {
+            "type": "number",
+            "description": "For get_lines orientation, in degrees. Default 1."
+          },
+          "dedupe": {
+            "type": "boolean",
+            "description": "For get_lines: merge a segment drawn twice, in either direction. Default true."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "length",
+              "x",
+              "y"
+            ],
+            "description": "For get_lines: longest first (default), left to right, or top to bottom."
+          },
+          "maxLengthPoints": {
+            "type": "number",
+            "description": "For get_lines: leave out longer segments, in PDF points."
+          },
+          "minLengthFeet": {
+            "type": "number",
+            "description": "For get_lines on a scaled sheet: shortest length kept, in feet."
+          },
+          "maxLengthFeet": {
+            "type": "number",
+            "description": "For get_lines on a scaled sheet: longest length kept, in feet."
+          },
+          "withoutEmbeddedMarkups": {
+            "type": "boolean",
+            "description": "For save_copy: leave every other app's markups (Bluebeam's, anyone's) out of the copy. Links stay. Default false."
+          },
+          "path": {
+            "type": "string",
+            "description": "For export: an absolute path to write the file to, e.g. C:\\\\Users\\\\me\\\\Desktop\\\\takeoff.csv. Its folder must exist. Without it, text formats come back in the reply. For import_scopes: the PDF to read scopes from. For close_tab: the tab to close (default: the one showing)."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "For export with path: replace a file already there. A PDF is never replaced."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "setting": {
+            "type": "string",
+            "description": "For set_setting: an id from get_settings (e.g. takeoff.patternStart); the last part alone (patternStart) works when it names one setting."
+          },
+          "dx": {
+            "type": "number",
+            "description": "For update_markup (a move) and duplicate_markups (offset of the copies): normalized [0,1] of the page width, + right."
+          },
+          "dy": {
+            "type": "number",
+            "description": "As dx, of the page height, + down."
+          },
+          "withMarkups": {
+            "type": "boolean",
+            "description": "For import_scopes: also bring the other PDF's markups (start this takeoff from that one). Default false: scopes only."
+          },
+          "ids": {
+            "type": "array",
+            "description": "Markup ids. For accept_imported, duplicate_markups and select_markups."
+          },
+          "all": {
+            "type": "boolean",
+            "description": "For accept_imported: accept every markup still waiting."
+          },
+          "degrees": {
+            "type": "integer",
+            "description": "For rotate_pages: 90, 180 or 270, clockwise. Takeoff on the sheet turns with it."
+          },
+          "withGeometry": {
+            "type": "boolean",
+            "description": "For list_markups: include each markup's rings. Default false."
+          },
+          "includeArchived": {
+            "type": "boolean",
+            "description": "For list_scopes: also list archived scopes."
+          },
+          "sizeFeet": {
+            "type": "number",
+            "description": "For trace_area: roughly how wide the field is, in feet. Give it for anything smaller than a room: the sheet is read finer and small gaps stay open."
+          },
+          "snap": {
+            "type": "boolean",
+            "description": "For trace_area: move the outline onto the drawing's own lines. Default true."
           }
         },
         "required": [
           "action"
         ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
       }
     }
-  ]
+  ],
+  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. A TAKEOFF, START TO FINISH: 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn; redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom, redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on REDBEAM's undo stack as yours (redbeam_undo takes it back; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`."
 }

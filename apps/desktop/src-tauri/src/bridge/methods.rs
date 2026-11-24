@@ -167,8 +167,7 @@ fn light_state(app: &AppHandle) -> Value {
         "file": file,
         "pageCount": page_count,
         "tabs": tabs,
-        // Kept for agents written against the old project tools: always false.
-        "projectOpen": false,
+        "appVersion": env!("CARGO_PKG_VERSION"),
         "note": if file.is_some() {
             "The takeoff lives in the PDF. Reads answer for the PDF showing; writes go through redbeam_invoke_ui_action."
         } else {
@@ -332,19 +331,52 @@ fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
         return Err(format!("not a PDF: {path}"));
     }
     let path = p.display().to_string();
+    let waiter = app.clone();
     let app = app.clone();
     let routed = path.clone();
     // Off this thread and off the main one: building a window on the main
     // thread deadlocks on Windows (open_with.rs).
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = crate::open_with::route(&app, routed).await {
+        if let Err(e) = crate::open_with::route_quietly(&app, routed).await {
             eprintln!("bridge open_file failed: {e}");
         }
     });
+    // `wait`: answer once the PDF is showing, so the next call can be a
+    // read or a write rather than a poll. Bounded under the caller's timeout.
+    if params.get("wait").and_then(Value::as_bool) == Some(true) {
+        let same = |a: &str, b: &str| a.replace('\\', "/").eq_ignore_ascii_case(&b.replace('\\', "/"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(22);
+        let asked = std::time::Instant::now();
+        let mut again = false;
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            // Sent once more if the window has not turned to it: a window
+            // busy changing tabs can miss the first.
+            if !again && asked.elapsed() > std::time::Duration::from_secs(5) {
+                again = true;
+                let (app, routed) = (waiter.clone(), path.clone());
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::open_with::route_quietly(&app, routed).await;
+                });
+            }
+            let Ok(ui) = super::ui::request_within(&waiter, "get_ui_state", &json!({}), std::time::Duration::from_secs(2)) else { continue };
+            let showing = ui.get("file").and_then(Value::as_str).unwrap_or("");
+            let pages = ui.get("pageCount").and_then(Value::as_i64).unwrap_or(0);
+            if pages > 0 && same(showing, &path) {
+                return Ok(json!({ "accepted": true, "opened": true, "path": path, "pageCount": pages }));
+            }
+        }
+        return Ok(json!({
+            "accepted": true,
+            "opened": false,
+            "path": path,
+            "note": "still opening after 22 seconds; poll get_ui_state until pageCount > 0 and `file` is this path",
+        }));
+    }
     Ok(json!({
         "accepted": true,
         "path": path,
-        "note": "poll get_ui_state until activeDocumentId is set and pageCount > 0",
+        "note": "poll get_ui_state until pageCount > 0, or pass wait:true to be answered once it is showing",
     }))
 }
 

@@ -792,3 +792,43 @@ describe('cuts that are part of the area', () => {
     expect(cutouts[0]!.rings[0]![0]!.x).toBeCloseTo(0.25, 4)
   })
 })
+
+describe('a slice row the database refuses', () => {
+  /*
+   * Found testing 0.3.61 on a PDF whose slice rows carried only an id:
+   * INSERT OR IGNORE dropped them without an error, the import counted them
+   * as loaded, the window showed no takeoff, and the next save removed the
+   * file's REDBEAM markups.
+   */
+  it('is counted as not loaded, so the file is not saved into', async () => {
+    const { db, docId } = await freshDb()
+    const slice = {
+      format: SLICE_FORMAT, version: SLICE_VERSION, documentId: 'd', relativePath: '', displayName: '',
+      annots: {}, contentHash: '',
+      tables: { markups: [{ id: 'm1' }], scopes: [{ id: 's', specifications_json: '{}' }] },
+    } as unknown as NonNullable<SheetEmbedReading['slice']>
+    const imported = await importSlice(db, docId, slice)
+    expect(imported).toEqual({ markups: 0, scopes: 0, skipped: 2 })
+    const reading = { slice, privateDataLost: false, sliceTooNew: false } as unknown as SheetEmbedReading
+    expect(fileLoadVerdict(reading, imported, 'old.pdf').state).toBe('blocked')
+  })
+})
+
+describe('addenda links made by hand', () => {
+  it('travel in a Light file and come back on import', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    await db.run("INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES('addenda_links', ?)", [JSON.stringify([{ replaced: 0, by: 1, source: 'linked' }])])
+    await db.run("INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES('something_else', 'x')")
+    const tables = await sliceTables(db, docId, { allScopes: true })
+    expect(tables['redbeam_meta']).toEqual([{ key: 'addenda_links', value: JSON.stringify([{ replaced: 0, by: 1, source: 'linked' }]) }])
+    expect((await sliceTables(db, docId))['redbeam_meta']).toBeUndefined()
+
+    const other = await freshDb()
+    const slice = { format: SLICE_FORMAT, version: SLICE_VERSION, documentId: docId, relativePath: '', displayName: '', annots: {}, contentHash: '',
+      tables: { ...tables, redbeam_meta: [...tables['redbeam_meta']!, { key: 'not_the_files', value: 'y' }] } } as unknown as NonNullable<SheetEmbedReading['slice']>
+    await importSlice(other.db, other.docId, slice)
+    const rows = await other.db.all<{ key: string, value: string }>("SELECT key, value FROM redbeam_meta WHERE key IN ('addenda_links','not_the_files')")
+    expect(rows).toEqual([{ key: 'addenda_links', value: JSON.stringify([{ replaced: 0, by: 1, source: 'linked' }]) }])
+  })
+})

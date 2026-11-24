@@ -27,6 +27,9 @@ import type { WritableScaleRegion } from './pdfMarkup.js'
  * the scopes on this sheet, with their quantity results (the counts) and only
  * THIS drawing's layout components.
  */
+/** redbeam_meta keys that belong to the file and travel in it. */
+export const FILE_META_KEYS = ['addenda_links'] as const
+
 const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
   ['documents', 'SELECT * FROM documents WHERE id = ?1'],
   ['pages', 'SELECT * FROM pages WHERE document_id = ?1'],
@@ -41,6 +44,13 @@ const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
      SELECT id FROM calculation_runs WHERE scope_id IN (
        SELECT scope_id FROM markups WHERE document_id = ?1 AND deleted_at IS NULL AND scope_id IS NOT NULL))`],
   ['layout_components', 'SELECT * FROM layout_components WHERE document_id = ?1'],
+  /*
+   * Who changed what, and when (Aaron, 2026-11-24: "That would have answered
+   * straight away who deleted the markup from Dave's file"). The trail rides
+   * in the PDF with the takeoff, so it survives the session; the newest 5000
+   * entries, which is years of a busy estimate.
+   */
+  ['activity', 'SELECT * FROM activity ORDER BY created_at DESC LIMIT 5000'],
 ]
 
 /**
@@ -53,7 +63,7 @@ const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
  * keeps those queries: there the scopes are the whole job's, and every sheet
  * carrying all of them would be wrong.
  */
-const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = SLICE_QUERIES.map(([table, sql]) => {
+const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [...SLICE_QUERIES.map(([table, sql]) => {
   if (table === 'scopes') return [table, 'SELECT * FROM scopes WHERE archived_at IS NULL'] as const
   if (table === 'calculation_runs') {
     return [table, 'SELECT * FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL)'] as const
@@ -63,7 +73,14 @@ const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = SLICE_QUER
        SELECT id FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL))`] as const
   }
   return [table, sql] as const
-})
+}),
+  /*
+   * Addenda links made by hand (which sheet replaces which). Light only: the
+   * store there is this one PDF's, so the links are the file's. They were
+   * kept in the window's memory alone, and were gone on reopening.
+   */
+  ['redbeam_meta', `SELECT key, value FROM redbeam_meta WHERE key = '${FILE_META_KEYS[0]}'`],
+]
 
 /** Volatile columns that change without the takeoff changing. */
 const VOLATILE = new Set(['modified_at_observed', 'content_fingerprint', 'size_bytes', 'availability',
@@ -381,7 +398,10 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
   }
 
   try {
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0) {
+    // The file's own notes (hand-made addenda links) are worth a save with no takeoff at all.
+    const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
+      .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) {
@@ -431,6 +451,8 @@ export async function embedCopy(opts: {
   read: () => Promise<Uint8Array>
   allScopes?: boolean
   pageRotations?: ReadonlyMap<number, number>
+  /** Leave every other app's markups out of the copy. */
+  withoutForeign?: boolean
 }): Promise<Uint8Array> {
   const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
@@ -441,6 +463,7 @@ export async function embedCopy(opts: {
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
     ...(retire.length === 0 ? {} : { retire }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
+    ...(opts.withoutForeign === true ? { retireForeign: true } : {}),
   })
   return result.bytes ?? source
 }
@@ -553,7 +576,7 @@ export function migrationStatus(result: MigrationResult): string | null {
 
 /** Order matters: a row's parents go in before it does. */
 const IMPORT_ORDER = ['scopes', 'calibrations', 'scale_regions', 'markups',
-  'calculation_runs', 'quantity_results', 'layout_components'] as const
+  'calculation_runs', 'quantity_results', 'layout_components', 'activity', 'redbeam_meta'] as const
 
 const IDENT = /^[a-z_][a-z0-9_]*$/
 
@@ -795,6 +818,7 @@ export async function importSlice(
     for (const [table, rows] of tables) {
       for (const raw of rows) {
         const row = rekey(raw, slice.documentId, documentId)
+        if (table === 'redbeam_meta' && !(FILE_META_KEYS as readonly unknown[]).includes(row['key'])) continue
         const cols = Object.keys(row).filter((c) => IDENT.test(c))
         if (cols.length === 0) continue
         const sql = `INSERT OR IGNORE INTO ${table}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`
@@ -807,6 +831,17 @@ export async function importSlice(
           // saved without it; runs and layouts are worked out again anyway.
           if (HAND_MADE.has(table)) skipped++
           continue
+        }
+        /*
+         * OR IGNORE also swallows a row the table refuses (a NOT NULL column
+         * the slice does not carry), with no error. Counted as loaded, such a
+         * row was then missing from the window, and the next save took its
+         * markup out of the PDF. A hand-made row that is not there afterwards
+         * was not loaded, and the file is not saved into.
+         */
+        if (HAND_MADE.has(table) && typeof row['id'] === 'string') {
+          const there = await db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE id = ?`, [row['id']])
+          if ((there[0]?.n ?? 0) === 0) { skipped++; continue }
         }
         if (table === 'markups') markups++
         if (table === 'scopes') scopes++

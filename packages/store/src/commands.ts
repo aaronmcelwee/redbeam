@@ -214,7 +214,7 @@ export function editGeometry(
       await updateMarkupGeometry(db, id, after)
       await logActivity(db, {
         eventType: 'markup.geometry_changed', entityType: 'markup', entityId: id,
-        origin: 'user', details: { what },
+        origin, details: { what },
       })
     },
     async revert(db) {
@@ -225,7 +225,7 @@ export function editGeometry(
       // clobber a peer. See `src-tauri/src/undo/apply.rs :: guard`.
       await updateMarkupGeometry(db, id, before)
       await logActivity(db, {
-        eventType: 'markup.geometry_reverted', entityType: 'markup', entityId: id, origin: 'user',
+        eventType: 'markup.geometry_reverted', entityType: 'markup', entityId: id, origin,
       })
     },
   }
@@ -255,7 +255,7 @@ export function reassignScope(
       await assignMarkupScope(db, id, after)
       await logActivity(db, {
         eventType: 'markup.scope_changed', entityType: 'markup', entityId: id,
-        origin: 'user', details: { from: before, to: after },
+        origin, details: { from: before, to: after },
       })
     },
     async revert(db) {
@@ -602,13 +602,13 @@ export class UndoStack {
   /**
    * Put a command on the in-memory stack.
    *
-   * Agent-origin commands are applied but never recorded, matching the core:
-   * an agent's proposal is reversed by rejecting it at the review gate, and
-   * mixing the two would let Ctrl+Z revert an accepted proposal while the
-   * `change_sets` decision row goes on asserting a decision whose effect is gone.
+   * Agent-origin commands are recorded like anyone's. They used to be applied
+   * and left off the stack, because in Pro an agent's proposal was reversed at
+   * the review gate. Light has no gate: an AI app's write is accepted as it
+   * lands, so leaving it off the stack meant neither the app nor the person
+   * could take it back (found testing 0.3.59 on a scratch copy).
    */
   private remember(cmd: Command): void {
-    if (cmd.record.origin !== USER) return
     this.done.push(cmd)
     this.undone = []
     if (this.done.length > this.limit) this.done.shift()

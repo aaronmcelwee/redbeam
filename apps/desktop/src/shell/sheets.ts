@@ -312,6 +312,32 @@ export function sheetFromText(text: string): { number: string, title: string } |
   const lines = text.split(/\r?\n/).map((l) => l.trim())
 
   /*
+   * A labelled field beats everything: "SHEET NUMBER" (or SHEET NO., DWG NO.,
+   * DRAWING NUMBER) with the code beside it or on the next line. Title blocks
+   * that print the name ABOVE the code (Revit's default) are found here when
+   * they label it, and by the reversed pair below when they do not.
+   */
+  const LABEL = /^(?:SHEET|DRAWING|DWG)\.?\s*(?:NO|NUMBER|NUM|#)\.?\s*:?\s*(.*)$/i
+  const TITLE_LABEL = /^(?:SHEET|DRAWING|DWG)\.?\s*(?:TITLE|NAME)\s*:?\s*(.*)$/i
+  let labelled: { number: string, title: string } | null = null
+  for (let i = 0; i < lines.length; i++) {
+    const m = LABEL.exec(lines[i]!)
+    if (m === null) continue
+    const inline = m[1]!.trim()
+    const candidate = inline !== '' ? inline : (lines.slice(i + 1).find((l) => l !== '') ?? '')
+    if (candidate.length > 12 || !CODE_LINE.test(candidate)) continue
+    let title = ''
+    for (let j = 0; j < lines.length; j++) {
+      const t = TITLE_LABEL.exec(lines[j]!)
+      if (t === null) continue
+      const v = t[1]!.trim() !== '' ? t[1]!.trim() : (lines.slice(j + 1).find((l) => l !== '') ?? '')
+      if (looksLikeName(v)) { title = v.slice(0, 60); break }
+    }
+    labelled = { number: candidate, title }
+  }
+  if (labelled !== null) return labelled
+
+  /*
    * A code ALONE is not enough — it has to be introducing a name.
    *
    * Revision clouds stamp `R2` on its own line, once per cloud, and a sheet
@@ -324,12 +350,63 @@ export function sheetFromText(text: string): { number: string, title: string } |
    * code is more likely to be a detail callout.
    */
   let found: { number: string, title: string } | null = null
+  let reversed: { number: string, title: string } | null = null
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
     if (line.length > 12 || !CODE_LINE.test(line)) continue
     const next = lines.slice(i + 1).find((l) => l !== '') ?? ''
-    if (!looksLikeName(next)) continue
-    found = { number: line, title: next.slice(0, 60) }
+    if (looksLikeName(next)) { found = { number: line, title: next.slice(0, 60) }; continue }
+    /*
+     * The other order: the name, then the code, and nothing after the code
+     * that reads as a name. Only used when no code introduces a name anywhere
+     * on the sheet, so a set that prints code-then-name is read as before.
+     */
+    const prev = [...lines.slice(0, i)].reverse().find((l) => l !== '') ?? ''
+    if (looksLikeName(prev) && !/^R\d{1,2}$/.test(line)) reversed = { number: line, title: prev.slice(0, 60) }
   }
-  return found
+  return found ?? reversed ?? specPageFromText(lines)
+}
+
+/**
+ * A page of a specification book or an addendum, which has no title block:
+ * "SECTION 09 51 13 - ACOUSTICAL PANEL CEILINGS", or "ADDENDUM NO. 01".
+ * Read from the top of the page, where a spec section heads every page.
+ */
+function specPageFromText(lines: string[]): { number: string, title: string } | null {
+  const head = lines.filter((l) => l !== '').slice(0, 25)
+  for (let i = 0; i < head.length; i++) {
+    const m = /^SECTION\s+(\d{2}\s?\d{2}\s?\d{2}(?:\.\d{1,2})?)\b\s*[-–—:]?\s*(.*)$/i.exec(head[i]!)
+    if (m === null) continue
+    const code = m[1]!.replace(/\s+/g, '').replace(/^(\d{2})(\d{2})(\d{2})/, '$1 $2 $3')
+    let title = m[2]!.trim()
+    if (title === '') title = head[i + 1] !== undefined && looksLikeName(head[i + 1]!) ? head[i + 1]! : ''
+    return { number: code, title: title.slice(0, 60) }
+  }
+  for (const l of head) {
+    const m = /^ADDENDUM\s*(?:NO\.?|NUMBER|#)?\s*0*(\d{1,3})\b/i.exec(l)
+    if (m !== null) return { number: `Addendum ${m[1]}`, title: '' }
+  }
+  return null
+}
+
+/**
+ * A page label that names nothing: "1", "33", "iv". The document's own labels
+ * beat a title block only when they say more than the page's position.
+ */
+export function isOrdinalLabel(label: string | null | undefined): boolean {
+  if (label === null || label === undefined) return true
+  const t = label.trim()
+  return t === '' || /^\d+$/.test(t) || /^[ivxlcdm]+$/i.test(t) || /^page\s*\d+$/i.test(t)
+}
+
+/** Each page's label: the document's own, unless it is only an ordinal, then the title block's. */
+export function mergeSheetLabels(
+  own: ReadonlyArray<string | null>, derived: ReadonlyArray<string | null>, pageCount: number,
+): Array<string | null> {
+  const out: Array<string | null> = []
+  for (let i = 0; i < pageCount; i++) {
+    const o = own[i] ?? null
+    out.push(!isOrdinalLabel(o) ? o : (derived[i] ?? o))
+  }
+  return out
 }

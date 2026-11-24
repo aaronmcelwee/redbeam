@@ -163,6 +163,18 @@ fn bring_forward(window: &WebviewWindow) {
 
 /// Where a PDF from outside goes. See the module note.
 pub async fn route(app: &AppHandle, path: String) -> Result<(), String> {
+    route_with(app, path, true).await
+}
+
+/// The same, for an AI app: the PDF opens where it would have, but REDBEAM
+/// does not come to the front or take focus from what the person is doing
+/// (Aaron, 2026-11-24: "make sure when the agent is working in Red Beam that
+/// it doesn't steal focus").
+pub async fn route_quietly(app: &AppHandle, path: String) -> Result<(), String> {
+    route_with(app, path, false).await
+}
+
+async fn route_with(app: &AppHandle, path: String, focus: bool) -> Result<(), String> {
     let state = app.state::<LaunchState>();
     let wanted = fold(&path);
     // Decide under the lock, act after it: a window being built must not
@@ -193,13 +205,15 @@ pub async fn route(app: &AppHandle, path: String) -> Result<(), String> {
                 // To that window only: `emit` would reach every window.
                 app.emit_to(label.as_str(), OPEN_EVENT, &path).map_err(|e| e.to_string())?;
             }
-            bring_forward(&window);
+            if focus {
+                bring_forward(&window);
+            }
             Ok(())
         }
         None => {
             let n = state.windows.fetch_add(1, Ordering::Relaxed) + 1;
             let label = format!("view-{n}");
-            crate::window::open_view_window(app, &label, &path)
+            crate::window::open_view_window(app, &label, &path, focus)
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         }
