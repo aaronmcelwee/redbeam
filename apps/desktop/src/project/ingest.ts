@@ -7,7 +7,7 @@
  * to reconcile against, and — because page boxes come from PDFium and PDFium
  * runs here, not in the core — knows how to measure a document's pages.
  */
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import type { PageInfo, WorkerRequest, WorkerResponse } from '@redbeam/viewer'
 import type { ScanResult, ScannedFile } from './types.js'
 
@@ -168,30 +168,39 @@ export function createWorkerPageProbe(
 }
 
 /**
- * A `resolveUrl` that pulls the file's bytes through the core and wraps them in
- * a blob URL.
+ * A `resolveUrl` for a drawing in the project folder.
  *
- * This is the option that costs no new Tauri permission —
- * `project_read_document` is an application command, and the ACL does not gate
- * those. The price is that the file is resident in memory on both sides while
- * it is read, which is why the Rust side caps it. For a build willing to grant
- * `core:asset:default` and set `app.security.assetProtocol`, `convertFileSrc`
- * is cheaper; this exists so ingest works before that decision is made.
+ * First choice is a byte-range stream (`project_stream_document`, served as
+ * `rbdoc:`): the PDF worker hands PDFium a loader that reads only the ranges
+ * it asks for, so a 500 MB, 1,000-sheet set opens without the file being read
+ * whole, and there is no size limit. If the core cannot stream (an older core,
+ * or the UI sweep's stand-in), the bytes come through `project_read_document`
+ * into a blob URL as before.
  *
- * Blob URLs are revoked as soon as the probe finishes — a 200-sheet set would
- * otherwise pin every file it ever measured for the life of the window.
+ * Every URL is released as soon as its user is done: a stream holds the file
+ * open, and a blob holds the whole file in memory.
  */
-export function createCoreBlobUrlResolver(projectPath: string): {
+export function createCoreDocumentUrlResolver(projectPath: string): {
   resolveUrl: (doc: IngestDocumentLike) => Promise<string | null>
   releaseUrl: (url: string) => void
-  /** Revoke anything still outstanding — e.g. an ingest that was abandoned. */
+  /** Release anything still outstanding — e.g. an ingest that was abandoned. */
   release: () => void
 } {
-  const issued = new Set<string>()
+  /** URL to how to let it go. */
+  const issued = new Map<string, () => void>()
 
   return {
     async resolveUrl(doc) {
       try {
+        const stream = await invoke<{ token: string, size: number } | null>(
+          'project_stream_document',
+          { path: projectPath, relativePath: doc.relativePath },
+        ).catch(() => null)
+        if (stream != null && typeof stream.token === 'string') {
+          const url = convertFileSrc(stream.token, 'rbdoc')
+          issued.set(url, () => { void invoke('project_stream_release', { token: stream.token }).catch(() => {}) })
+          return url
+        }
         const bytes = await invoke<ArrayBuffer | Uint8Array | number[]>(
           'project_read_document',
           { path: projectPath, relativePath: doc.relativePath },
@@ -199,7 +208,7 @@ export function createCoreBlobUrlResolver(projectPath: string): {
         const url = URL.createObjectURL(
           new Blob([toArrayBuffer(bytes)], { type: 'application/pdf' }),
         )
-        issued.add(url)
+        issued.set(url, () => URL.revokeObjectURL(url))
         return url
       } catch (err) {
         console.warn(`[ingest] could not read ${doc.relativePath}:`, err)
@@ -207,11 +216,13 @@ export function createCoreBlobUrlResolver(projectPath: string): {
       }
     },
     releaseUrl(url) {
-      if (!issued.delete(url)) return
-      URL.revokeObjectURL(url)
+      const release = issued.get(url)
+      if (release === undefined) return
+      issued.delete(url)
+      release()
     },
     release() {
-      for (const url of issued) URL.revokeObjectURL(url)
+      for (const release of issued.values()) release()
       issued.clear()
     },
   }

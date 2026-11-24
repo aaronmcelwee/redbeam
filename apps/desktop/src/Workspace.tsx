@@ -78,7 +78,7 @@ import {
 } from './shell/RightWorkspace.js'
 import { renderTakeoffReport } from './export/report.js'
 import { projectBridge, projectNameFromPath } from './project/bridge.js'
-import { createCoreBlobUrlResolver } from './project/ingest.js'
+import { createCoreDocumentUrlResolver } from './project/ingest.js'
 import { openProjectDocuments, type ProjectScanner } from './project/openProject.js'
 import { SearchPanel, type SearchScope } from './search/SearchPanel.js'
 import { CommandPalette } from './palette/CommandPalette.js'
@@ -1907,8 +1907,8 @@ export default function Workspace({
 
   // Resolve the active document to something the worker can fetch.
   //
-  // Project PDFs live outside the web root, so the core hands back raw bytes
-  // and we wrap them in a blob URL. Browser mode has no filesystem, so it falls
+  // Project PDFs live outside the web root, so the core streams them by byte
+  // range (or, failing that, hands back the bytes for a blob URL). Browser mode has no filesystem, so it falls
   // back to the bundled sample — the app stays usable for iteration rather than
   // showing an empty stage.
   useEffect(() => {
@@ -1917,7 +1917,7 @@ export default function Workspace({
     if (!isTauri()) { setDocUrl('/sample.pdf'); return }
 
     let cancelled = false
-    const resolver = createCoreBlobUrlResolver(projectPath)
+    const resolver = createCoreDocumentUrlResolver(projectPath)
     void resolver.resolveUrl({ relativePath: doc.relativePath }).then((url) => {
       if (cancelled || !url) { if (url) resolver.releaseUrl(url); return }
       setDocUrl(url)
@@ -1951,7 +1951,7 @@ export default function Workspace({
         try { localStorage.setItem(key, JSON.stringify(done)) } catch { /* a lost marker costs one re-read */ }
       },
     }
-    const resolver = createCoreBlobUrlResolver(projectPath)
+    const resolver = createCoreDocumentUrlResolver(projectPath)
     void indexProject({
       db,
       documents,

@@ -1453,10 +1453,11 @@ pub fn set_aside_project_data_as(root: &Path, label: &str) -> Result<usize, Stri
 /// hop once and the frontend makes a blob URL out of them, with no new
 /// permission at all.
 ///
-/// It is not free. The file is fully resident in memory on both sides for the
-/// duration, which is why [`MAX_DOCUMENT_READ_BYTES`] exists and why the asset
-/// protocol is still the better answer for a build that is willing to widen the
-/// grant. `tauri::ipc::Response` carries the bytes raw rather than as
+/// It is not free: the file is fully resident in memory on both sides for the
+/// duration. There is deliberately no size cap, because tender sets run past
+/// 500 MB and 1,000 sheets. The viewer does not come through here: it reads
+/// only the byte ranges PDFium asks for, through the `rbdoc:` protocol
+/// (docstream.rs). `tauri::ipc::Response` carries the bytes raw rather than as
 /// base64-in-JSON, so the cost is the copy and not much more.
 ///
 /// `relative_path` is resolved **under** the project root and rejected if it
@@ -1473,13 +1474,6 @@ pub async fn project_read_document(
     let metadata = fs::metadata(&target).map_err(|e| format!("{relative_path}: {e}"))?;
     if !metadata.is_file() {
         return Err(format!("{relative_path} is not a file"));
-    }
-    if metadata.len() > MAX_DOCUMENT_READ_BYTES {
-        return Err(format!(
-            "{relative_path} is {} MB. REDBEAM opens PDFs up to {} MB.",
-            metadata.len() / (1024 * 1024),
-            MAX_DOCUMENT_READ_BYTES / (1024 * 1024)
-        ));
     }
 
     let bytes = fs::read(&target).map_err(|e| format!("{relative_path}: {e}"))?;
@@ -1835,20 +1829,12 @@ fn append_document_if_unchanged(
     Ok(DocumentWrite::Written { fingerprint: hex(&hasher.finalize()) })
 }
 
-/// Cap on [`project_read_document`].
-///
-/// This was 256 MB, and real tender files are bigger: an addendum set of 288 MB,
-/// a 301 MB construction set and a 470 MB specifications book were all refused.
-/// The bytes end up in PDFium's WebAssembly heap, which tops out at 4 GiB, and
-/// the page tiles and parsed objects need room beside them, so the cap sits at
-/// half of that. A JavaScript ArrayBuffer of this size is fine in WebView2.
-pub const MAX_DOCUMENT_READ_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Join a project-relative path onto its root, refusing anything that escapes.
 ///
 /// Checked before touching the filesystem AND again after canonicalizing, so a
 /// symlink inside the project cannot be used to step outside it.
-fn resolve_inside(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_inside(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
     let candidate = Path::new(relative_path);
     if candidate.is_absolute() {
         return Err(format!("{relative_path} is not a project-relative path"));
