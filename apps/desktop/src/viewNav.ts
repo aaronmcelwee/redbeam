@@ -45,8 +45,10 @@ export interface ViewPlace {
   oy: number
 }
 
-/** Most places kept either way. Older ones fall off the end. */
-export const HISTORY_LIMIT = 50
+/*
+ * Every place is kept, both ways, for as long as the document is open
+ * (Aaron, 2026-11-24: no arbitrary caps). A place is four numbers.
+ */
 
 /**
  * Back and forward through the sheets visited, like a browser.
@@ -65,7 +67,6 @@ export class ViewHistory {
     const last = this.back[this.back.length - 1]
     if (last !== undefined && last.page === from.page) this.back[this.back.length - 1] = from
     else this.back.push(from)
-    if (this.back.length > HISTORY_LIMIT) this.back.shift()
     this.fwd = []
   }
 
@@ -77,7 +78,6 @@ export class ViewHistory {
     const to = this.back.pop()
     if (to === undefined) return null
     this.fwd.push(here)
-    if (this.fwd.length > HISTORY_LIMIT) this.fwd.shift()
     return to
   }
 
@@ -86,7 +86,6 @@ export class ViewHistory {
     const to = this.fwd.pop()
     if (to === undefined) return null
     this.back.push(here)
-    if (this.back.length > HISTORY_LIMIT) this.back.shift()
     return to
   }
 

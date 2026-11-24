@@ -19,7 +19,7 @@ import { WhatsNewHost } from './whatsnew/WhatsNew.js'
 import { setBeforeQuit } from './update/session.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 import { projectBridge } from './project/bridge.js'
-import { SESSION_LIMIT, lightFileOf, readSession, samePath, stepTab, withoutTab, withTab, writeSession, type LightFile } from './lightTabs.js'
+import { lightFileOf, readSession, samePath, stepTab, withoutTab, withTab, writeSession, type LightFile } from './lightTabs.js'
 import {
   choosePdfHandler, defaultOfferDismissed, dismissDefaultOffer, onOpenFile, openElsewhere,
   reportShowing, takeLaunchFile, usePdfHandlerStatus,
@@ -179,7 +179,7 @@ export default function App() {
   /** Light: close a tab. The one showing is saved first, and its neighbour shows; the last goes to the start page. */
   const closeTab = useCallback((file: string) => {
     const remember = () => {
-      closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file].slice(-SESSION_LIMIT)
+      closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file]
     }
     const now = quickRef.current
     if (now === null || !samePath(now.file, file)) {

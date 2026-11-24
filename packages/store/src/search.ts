@@ -111,11 +111,17 @@ export interface SearchOptions {
    * search results to a certain folder as opposed to the entire project".
    */
   pathPrefix?: string
-  /** Hard cap on hits. Clamped to 1..500, matching the Qt build. */
+  /**
+   * Hits in this page of results; `truncated` says whether more follow, and
+   * `offset` fetches them. No ceiling: a 1,800-sheet set can match on every
+   * sheet, and a UI pages through them rather than stopping at a number.
+   */
   limit?: number
+  /** Hits to skip, for the next page of results. */
+  offset?: number
   /** Target snippet length in characters. */
   snippetChars?: number
-  /** Cap on highlight spans reported per page. */
+  /** Highlight spans reported per page. Every one by default. */
   maxSpansPerPage?: number
   /**
    * Resolve a page's run geometry so hits carry boxes. Called only for pages
@@ -398,7 +404,7 @@ export function findSpans(
   content: string,
   term: string,
   wholeWord: boolean,
-  limit = 200,
+  limit = Infinity,
 ): TextSpan[] {
   if (!term) return []
   const body = escapeRe(term)
@@ -550,9 +556,10 @@ export async function searchProjectText(
   query: string,
   opts: SearchOptions = {},
 ): Promise<SearchReport> {
-  const limit = Math.min(500, Math.max(1, Math.floor(opts.limit ?? 100)))
+  const limit = Math.max(1, Math.floor(opts.limit ?? 100))
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0))
   const snippetChars = Math.max(24, Math.floor(opts.snippetChars ?? 140))
-  const maxSpans = Math.max(1, Math.floor(opts.maxSpansPerPage ?? 50))
+  const maxSpans = Math.max(1, Math.floor(opts.maxSpansPerPage ?? Infinity))
   const wantMode: SearchMode = opts.mode ?? ((await hasFts5(db)) ? 'fts5' : 'like')
   const ftsAvailable = await hasFts5(db)
   const mode: SearchMode = wantMode === 'fts5' && ftsAvailable ? 'fts5' : 'like'
@@ -608,14 +615,14 @@ export async function searchProjectText(
     // document's path first is what makes a project search readable; within a
     // document it is identical to ordering by page number.
     const order = opts.orderBy === 'relevance' ? 'rank' : 'd.relative_path, p.page_number'
-    params.push(limit + 1)
+    params.push(limit + 1, offset)
     rows = await db.all<RawRow>(
       `SELECT f.page_id, f.document_id, p.page_number, d.relative_path, f.content
        FROM page_text_fts f
        JOIN pages p ON p.id = f.page_id
        JOIN documents d ON d.id = f.document_id
        WHERE ${where.join(' AND ')}
-       ORDER BY ${order} LIMIT ?`,
+       ORDER BY ${order} LIMIT ? OFFSET ?`,
       params,
     )
   } else {
@@ -639,14 +646,14 @@ export async function searchProjectText(
       where.push("d.relative_path LIKE ? ESCAPE '\\'")
       params.push(folderPattern(opts.pathPrefix))
     }
-    params.push(limit + 1)
+    params.push(limit + 1, offset)
     rows = await db.all<RawRow>(
       `SELECT t.page_id, t.document_id, p.page_number, d.relative_path, t.content
        FROM page_text t
        JOIN pages p ON p.id = t.page_id
        JOIN documents d ON d.id = t.document_id
        WHERE ${where.join(' AND ')}
-       ORDER BY d.relative_path, p.page_number LIMIT ?`,
+       ORDER BY d.relative_path, p.page_number LIMIT ? OFFSET ?`,
       params,
     )
   }
