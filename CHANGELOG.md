@@ -12,6 +12,10 @@ SmartScreen will ask once.
 - **Working copies go in the folder you name.** An AI app asked to save a copy as `Red Beam Test\set.pdf` got a file called "Red Beam Test-set.pdf". The folder is now kept as a folder beside the open PDF, and made if it is not there. A full path works too.
 - **Text search finishes on long sets.** Searching a 171-sheet set for one word stopped after 70 sheets. A search now has 40 seconds instead of 14, and if a set is longer than that, the remaining sheets keep being read so asking again answers right away.
 - **No empty answer while a PDF is still opening.** A search sent too early said it found nothing; it now says the document is still opening.
+### Big PDFs open
+
+- **No more 256 MB limit.** REDBEAM refused any PDF over 256 MB, so large tender sets and specification books would not open, for you or for an AI app. PDFs up to 2 GB now open, and a 500 MB, 360-sheet set opens in a few seconds.
+- **Less memory for big files.** The PDF is now read straight into the viewer instead of being held twice while it opens.
 
 
 ## 0.3.69 — 2026-11-24
