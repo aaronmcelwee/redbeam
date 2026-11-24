@@ -47,6 +47,15 @@ export async function sheetsPdf(bytes: Uint8Array, indices: readonly number[]): 
   const src = await PDFDocument.load(bytes, { updateMetadata: false, ignoreEncryption: true, throwOnInvalidObject: false })
   const count = src.getPageCount()
   if (indices.length === count && indices.every((p, i) => p === i)) return bytes
+  return sheetsPdfFrom(src, indices)
+}
+
+/**
+ * `sheetsPdf` from a document already open (a big drawing read by range):
+ * always a new PDF of just these sheets, so only their objects are read.
+ */
+export async function sheetsPdfFrom(src: PDFDocument, indices: readonly number[]): Promise<Uint8Array> {
+  const count = src.getPageCount()
   const out = await PDFDocument.create({ updateMetadata: false })
   const pages = await out.copyPages(src, indices.filter((i) => i >= 0 && i < count))
   for (const p of pages) out.addPage(p)

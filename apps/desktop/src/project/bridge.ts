@@ -154,7 +154,18 @@ export interface ProjectBridge {
   releaseStream?(token: string): Promise<void>
   /** SHA-256 of the file a stream reads, hashed by the core through the stream's own handle. */
   streamFingerprint?(token: string): Promise<string>
+  /**
+   * Copy a stream's file with `tail` appended (project_stream_copy). The path
+   * written, or null when the person cancelled a Save As.
+   */
+  streamCopy?(token: string, dest: StreamCopyDest, tail: Uint8Array): Promise<string | null>
 }
+
+/** See `ProjectBridge.streamCopy`. */
+export type StreamCopyDest =
+  | { kind: 'dialog', defaultName: string, filter?: { name: string, extensions: string[] } }
+  | { kind: 'project', projectPath: string, relativePath: string }
+  | { kind: 'path', path: string, overwrite: boolean }
 
 /** See `ProjectBridge.findOldProject`. */
 export interface OldProject { root: string, prefix: string }
@@ -571,6 +582,25 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
     async streamFingerprint(token) {
       if (!desktop) throw new Error(BROWSER_NO_READ)
       return invoke<string>('project_stream_fingerprint', { token })
+    },
+
+    async streamCopy(token, dest, tail) {
+      if (!desktop) throw new Error(BROWSER_NO_READ)
+      const headers: Record<string, string> = { 'x-redbeam-token': encodeURIComponent(token), 'x-redbeam-dest': dest.kind }
+      if (dest.kind === 'dialog') {
+        headers['x-redbeam-default-name'] = encodeURIComponent(dest.defaultName)
+        if (dest.filter !== undefined) {
+          headers['x-redbeam-filter-name'] = encodeURIComponent(dest.filter.name)
+          headers['x-redbeam-extensions'] = encodeURIComponent(dest.filter.extensions.join(','))
+        }
+      } else if (dest.kind === 'project') {
+        headers['x-redbeam-path'] = encodeURIComponent(dest.projectPath)
+        headers['x-redbeam-relative-path'] = encodeURIComponent(dest.relativePath)
+      } else {
+        headers['x-redbeam-target'] = encodeURIComponent(dest.path)
+        headers['x-redbeam-overwrite'] = dest.overwrite ? '1' : '0'
+      }
+      return invoke<string | null>('project_stream_copy', tail, { headers })
     },
 
     async appendDocument(projectPath, relativePath, tail, expectedSha256, expectedLength): Promise<DocumentWrite> {

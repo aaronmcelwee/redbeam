@@ -1270,7 +1270,11 @@ function embedInto(
  * the viewer. A sheet that cannot be measured is null.
  */
 export async function sheetSizes(bytes: Uint8Array): Promise<Array<{ width: number, height: number } | null>> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false, throwOnInvalidObject: false })
+  return sheetSizesOf(await PDFDocument.load(bytes, { updateMetadata: false, throwOnInvalidObject: false }))
+}
+
+/** `sheetSizes` of a document already open (a big drawing read by range). */
+export function sheetSizesOf(doc: PDFDocument): Array<{ width: number, height: number } | null> {
   return doc.getPages().map((p) => {
     try {
       const box = p.getCropBox()

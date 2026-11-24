@@ -30,7 +30,7 @@
  */
 import {
   PDFDocument, PDFName, PDFString, PDFArray,
-  type PDFContext, type PDFDict, type PDFPage, type PDFRef,
+  PDFRef, type PDFContext, type PDFDict, type PDFPage,
 } from 'pdf-lib'
 
 export interface WritablePoint { x: number, y: number }
@@ -380,6 +380,23 @@ export async function writeMarkupsToPdf(
   options: WriteOptions = {},
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.load(source)
+  writeMarkupsInto(doc, markups, options)
+  if (options.producer !== undefined) doc.setProducer(options.producer)
+  return doc.save()
+}
+
+/**
+ * `writeMarkupsToPdf` on a document already open (a big drawing read by
+ * range, lazyPdf.ts). Returns the existing objects it changed, for an
+ * incremental update; objects it made are past the document's old largest
+ * object number.
+ */
+export function writeMarkupsInto(
+  doc: PDFDocument,
+  markups: readonly WritableMarkup[],
+  options: WriteOptions = {},
+): PDFRef[] {
+  const changed: PDFRef[] = []
   const pages = doc.getPages()
   const alpha = options.fillOpacity ?? 0.28
   const ctx = doc.context
@@ -475,14 +492,19 @@ export async function writeMarkupsToPdf(
     })
     const ref: PDFRef = ctx.register(annot)
 
-    let annots = page.node.get(PDFName.of('Annots'))
+    // /Annots may be the page's own array or an object of its own; the
+    // markups already there are kept either way.
+    const raw = page.node.get(PDFName.of('Annots'))
+    let annots = page.node.lookup(PDFName.of('Annots'))
     if (!(annots instanceof PDFArray)) {
       annots = ctx.obj([])
       page.node.set(PDFName.of('Annots'), annots)
+    } else if (raw instanceof PDFRef) {
+      changed.push(raw)
     }
     ;(annots as PDFArray).push(ref)
+    changed.push(page.ref)
   }
 
-  if (options.producer !== undefined) doc.setProducer(options.producer)
-  return doc.save()
+  return changed
 }
