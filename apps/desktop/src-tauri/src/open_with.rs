@@ -29,6 +29,8 @@ pub const PROG_ID: &str = "REDBEAM.pdf";
 /// The name under `Software\RegisteredApplications`, which is also what the
 /// Default apps page is opened to.
 pub const REGISTERED_NAME: &str = "REDBEAM";
+/// How an AI app's server starts REDBEAM (mcp.rs): never a reason to come forward.
+pub const FROM_AI_APP: &str = "--from-ai-app";
 /// The event a start-screen window receives to open a file.
 pub const OPEN_EVENT: &str = "redbeam://open-file";
 
@@ -248,6 +250,10 @@ async fn route_with(app: &AppHandle, path: String, focus: bool) -> Result<(), St
 /// A second `REDBEAM.exe` was started. Its window never appears; this one
 /// does what it was asked.
 pub fn on_second_launch(app: &AppHandle, argv: Vec<String>, cwd: String) {
+    // An AI app's server looking for the app: it is here, and stays put.
+    if argv.iter().any(|a| a == FROM_AI_APP) {
+        return;
+    }
     match pdf_from_args(&argv, Path::new(&cwd)) {
         Some(pdf) => {
             let app = app.clone();
