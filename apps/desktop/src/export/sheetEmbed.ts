@@ -30,6 +30,11 @@
  *    another application's private data, and the reader takes whichever copy
  *    survived.
  *
+ * Since 0.3.59 each sheet with takeoff also carries its own part of the
+ * slice in the page's /PieceInfo, so pages merged, inserted, reordered or
+ * extracted in Bluebeam take their takeoff along; sliceAssemble.ts puts the
+ * file's takeoff back together from where the sheets are now.
+ *
  * redbeam.db stays the record. The embedded slice is a copy for the drawing to
  * carry: it is read back only when the database has nothing for that drawing,
  * which is the case of a sheet emailed into another job folder.
@@ -47,6 +52,7 @@ import {
 } from 'pdf-lib'
 import { areaRegion } from '@redbeam/domain'
 import { appendIncrementalUpdate, newRefsSince, reserveExistingNumbers } from './pdfIncremental.js'
+import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, regionAt, shapeForKind,
   toPdfColor, toUserSpace,
@@ -79,6 +85,11 @@ export interface SheetSlice {
   annots: Record<string, SliceAnnot>
   /** Hash of everything the write depended on; equal hash, nothing to write. */
   contentHash: string
+  /**
+   * The `pageHash` of every page slice written in the same save (see
+   * sliceAssemble.ts). A page copy not listed is stale. Absent before 0.3.59.
+   */
+  pageHashes?: string[]
 }
 
 /** What the slice remembers about one annotation REDBEAM wrote. */
@@ -484,7 +495,7 @@ export interface SheetFacts {
 export interface SheetEmbedReading {
   slice: SheetSlice | null
   /** Which carrier the slice came from. */
-  source: 'catalog' | 'annotation' | null
+  source: 'catalog' | 'annotation' | 'page' | null
   redbeamAnnots: RedbeamAnnot[]
   /** Every sheet that carries a REDBEAM annotation or a REDBEAM scale. */
   sheets: SheetFacts[]
@@ -506,6 +517,11 @@ export interface SheetEmbedReading {
    * not read, because reading part of it and saving would drop the rest.
    */
   sliceTooNew: boolean
+  /**
+   * Set when the takeoff had to be matched to the sheets again: pages were
+   * merged, inserted, deleted or moved in another app since REDBEAM saved.
+   */
+  rebound?: Rebound | null
 }
 
 const NOT_MARKUP = new Set(['Link', 'Popup', 'Widget'])
@@ -637,11 +653,38 @@ function adoptShape(a: PDFDict): { kind: 'area' | 'polyline', flat: number[] } |
   return null
 }
 
+/** The object number of the slice stream a PieceInfo points at, to read each stream once. */
+function sliceRefOf(holder: PDFDict): string | null {
+  const pi = holder.lookup(PDFName.of('PieceInfo'))
+  const ours = pi instanceof PDFDict ? pi.lookup(PDFName.of(KEY)) : null
+  const priv = ours instanceof PDFDict ? ours.lookup(PDFName.of('Private')) : null
+  const ref = priv instanceof PDFDict ? priv.get(PDFName.of('Slice')) : null
+  return ref instanceof PDFRef ? ref.toString() : null
+}
+
+function pageSliceOn(page: PDFPage): PageSlice | typeof TOO_NEW | null {
+  const pi = page.node.lookup(PDFName.of('PieceInfo'))
+  if (!(pi instanceof PDFDict)) return null
+  const ours = pi.lookup(PDFName.of(KEY))
+  if (!(ours instanceof PDFDict)) return null
+  const priv = ours.lookup(PDFName.of('Private'))
+  if (!(priv instanceof PDFDict)) return null
+  return parsePageSlice(streamText(priv.lookup(PDFName.of('Slice'))))
+}
+
 function readDoc(doc: PDFDocument): SheetEmbedReading {
   const fromCatalog = sliceFromPieceInfo(doc.catalog)
   let sliceTooNew = fromCatalog === TOO_NEW
-  let slice = fromCatalog === TOO_NEW ? null : fromCatalog
+  const catalog = fromCatalog === TOO_NEW ? null : fromCatalog
+  let slice: SheetSlice | null = catalog
   let source: SheetEmbedReading['source'] = slice === null ? null : 'catalog'
+  // Every file-wide copy an annotation points at, read once per stream.
+  const fileSlices: SheetSlice[] = []
+  const streamsRead = new Set<string>()
+  const catalogRef = sliceRefOf(doc.catalog)
+  if (catalogRef !== null && catalog !== null) streamsRead.add(catalogRef)
+  const pageSlices = new Map<number, PageSlice>()
+  const allSheets: Array<{ width: number, height: number, scales: SheetScale[] }> = []
   const redbeamAnnots: RedbeamAnnot[] = []
   const sheets: SheetFacts[] = []
   let foreignAnnots = 0
@@ -650,6 +693,9 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     const box = page.getCropBox() as PageBox
     const rotation = page.getRotation().angle
     const oursBefore = redbeamAnnots.length
+    const ps = pageSliceOn(page)
+    if (ps === TOO_NEW) sliceTooNew = true
+    else if (ps !== null) pageSlices.set(pageIndex, ps)
     const toRing = (flat: number[]) => {
       const ring: Array<{ x: number, y: number }> = []
       for (let i = 0; i + 1 < flat.length; i += 2) ring.push(fromUserSpace({ x: flat[i]!, y: flat[i + 1]! }, box, rotation))
@@ -674,10 +720,18 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
       }
       const own = a.lookup(PDFName.of(KEY))
       const markupId = own instanceof PDFDict ? textOf(own, 'MarkupId') || null : null
-      if (slice === null && own instanceof PDFDict) {
-        const s = parseSlice(streamText(own.lookup(PDFName.of('Slice'))))
-        if (s === TOO_NEW) sliceTooNew = true
-        else if (s !== null) { slice = s; source = 'annotation' }
+      if (own instanceof PDFDict) {
+        const ref = own.get(PDFName.of('Slice'))
+        const key = ref instanceof PDFRef ? ref.toString() : null
+        if (key === null || !streamsRead.has(key)) {
+          if (key !== null) streamsRead.add(key)
+          const s = parseSlice(streamText(own.lookup(PDFName.of('Slice'))))
+          if (s === TOO_NEW) sliceTooNew = true
+          else if (s !== null) {
+            fileSlices.push(s)
+            if (slice === null) { slice = s; source = 'annotation' }
+          }
+        }
       }
       redbeamAnnots.push({
         pageIndex,
@@ -701,14 +755,26 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
       })
     }
     const scales = scalesOn(page, box, rotation)
-    if (redbeamAnnots.length > oursBefore || scales.length > 0) {
-      const turned = Math.abs(Math.round(rotation / 90)) % 2 === 1
-      sheets.push({ pageIndex, width: turned ? box.height : box.width, height: turned ? box.width : box.height, scales })
-    }
+    const turned = Math.abs(Math.round(rotation / 90)) % 2 === 1
+    const facts = { width: turned ? box.height : box.width, height: turned ? box.width : box.height, scales }
+    allSheets.push(facts)
+    if (redbeamAnnots.length > oursBefore || scales.length > 0) sheets.push({ pageIndex, ...facts })
   })
-  if (slice !== null) {
-    for (const r of redbeamAnnots) {
-      if (r.markupId === null) r.markupId = slice.annots[r.nm]?.markupId ?? null
+  // An annotation that does not name its markup is named by whichever slice wrote it.
+  for (const r of redbeamAnnots) {
+    if (r.markupId !== null) continue
+    const own = pageSlices.get(r.pageIndex)?.annots[r.nm]
+      ?? [...(catalog === null ? [] : [catalog]), ...fileSlices].map((s) => s.annots[r.nm]).find((a) => a !== undefined)
+    r.markupId = own?.markupId ?? null
+  }
+  let rebound: Rebound | null = null
+  if (!sliceTooNew && (slice !== null || pageSlices.size > 0)) {
+    const found: FoundAnnot[] = redbeamAnnots.map((r) => ({ pageIndex: r.pageIndex, nm: r.nm, markupId: r.markupId }))
+    const assembled = assembleSlice({ catalog, fileSlices, pageSlices, annots: found, sheets: allSheets })
+    if (assembled.slice !== null) {
+      if (slice === null) source = 'page'
+      slice = assembled.slice
+      rebound = assembled.rebound
     }
   }
   return {
@@ -721,6 +787,7 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     privateDataLost: slice === null && redbeamAnnots.length > 0,
     // An older copy that still reads does not make the newer one safe to drop.
     sliceTooNew,
+    rebound,
   }
 }
 
@@ -1088,18 +1155,41 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     changed.push(page.ref)
   }
 
-  // 3. The private slice.
+  // 3. Each sheet's own copy of its takeoff, so it goes wherever the sheet goes.
+  const writtenAt = (input.now?.() ?? new Date()).toISOString()
+  const perPage = pageSlicesFor({
+    documentId: input.documentId, tables: input.tables, annots, pageCount: pages.length,
+    writtenAt, appVersion: input.appVersion,
+  })
+  pages.forEach((page, i) => {
+    const ps = perPage.get(i)
+    const pi = page.node.lookup(PDFName.of('PieceInfo'))
+    const had = pi instanceof PDFDict && pi.lookup(PDFName.of(KEY)) !== undefined
+    if (ps === undefined && !had) return
+    const next = ps === undefined
+      ? ctx.obj({}) as PDFDict
+      : pieceInfo(ctx, when, ctx.register(ctx.flateStream(JSON.stringify(ps), { Type: 'REDBEAM#20PageSlice' })))
+    if (pi instanceof PDFDict) {
+      for (const [k, v] of pi.entries()) if (k.decodeText() !== KEY) next.set(k, v)
+    }
+    if (next.entries().length === 0) page.node.delete(PDFName.of('PieceInfo'))
+    else page.node.set(PDFName.of('PieceInfo'), next)
+    changed.push(page.ref)
+  })
+
+  // 4. The private slice.
   const slice: SheetSlice = {
     format: SLICE_FORMAT,
     version: SLICE_VERSION,
     documentId: input.documentId,
     relativePath: input.relativePath,
     displayName: input.displayName,
-    writtenAt: (input.now?.() ?? new Date()).toISOString(),
+    writtenAt,
     appVersion: input.appVersion,
     tables: input.tables,
     annots,
     contentHash,
+    pageHashes: [...perPage.values()].map((p) => p.pageHash),
   }
   const sliceRef = privateStream(ctx, JSON.stringify(slice))
 
