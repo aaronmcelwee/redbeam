@@ -10,7 +10,6 @@ SmartScreen will ask once.
 ### AI apps stay in one window
 
 - **No extra windows.** When an AI app opened a PDF just as REDBEAM was starting, or opened two PDFs one after the other, each could land in a new window. They now open as tabs in the window that's already there.
-- **Closing a tab answers properly.** An AI app closing the tab on screen was sometimes told it had timed out although the tab did close.
 
 
 ## 0.3.63 — 2026-11-24
