@@ -149,7 +149,10 @@ import {
 } from './tools/foreignMarkups.js'
 import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
-import { useBridgeRequests } from './bridge/useBridgeRequests.js'
+import { HandoverNeeded, UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
+import { keepingFocus } from './agents/focusGuard.js'
+import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
+import { AgentBar, AgentStrip } from './agents/AgentTabs.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -236,13 +239,25 @@ export interface WorkspaceProps {
      * one showing before it shows another, so these only say what to do.
      */
     tabs?: {
-      list: { file: string; name: string }[]
+      /** `owner`: the agent whose tab it is (agents/roster.ts); absent on the person's own. */
+      list: { file: string; name: string; owner?: string }[]
       onSelect: (file: string) => void
       onClose: (file: string) => void
       onStep: (step: 1 | -1) => void
       onReopen: () => void
+      /** The person's answer to an agent asking to work in a tab of theirs (agents/handover.ts). */
+      onHandOver?: (file: string, agentId: string, yes: boolean) => void
+      /** Take an agent's tab back as the person's own. */
+      onTakeOver?: (file: string) => void
     }
   }
+  /**
+   * Whether this is the PDF the person is looking at. False for one live
+   * behind it, where an agent is working (App.tsx `LiveWorkspace`): that one
+   * answers the bridge and paints its canvas, and leaves the window's keys,
+   * title and focus alone. Defaults to true.
+   */
+  showing?: boolean
   /** Name this job, as the switcher's header offers. */
   onRenameProject?: (name: string) => void
   /** Show this job's folder in Explorer. Desktop only. */
@@ -463,10 +478,18 @@ const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF ma
 
 export default function Workspace({
   projectPath, onCloseProject, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged, onRenameProject, onRevealProject, quickView,
-  initialDocumentPath, onBeforeClose,
+  initialDocumentPath, onBeforeClose, showing = true,
 }: WorkspaceProps) {
   /** Light mode: a PDF on its own, its takeoff saved inside it. */
   const light = quickView?.light === true
+  /**
+   * Whether the person is looking at this PDF, for the listeners bound to
+   * the window. Several workspaces are mounted at once now, and the window's
+   * keys belong to the one showing: a Delete pressed in the person's tab
+   * must not also delete the selection in the tab an agent is working in.
+   */
+  const showingRef = useRef(showing)
+  showingRef.current = showing
   const stageRef = useRef<HTMLDivElement>(null)
   const rasterRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -1218,6 +1241,15 @@ export default function Workspace({
     return () => window.removeEventListener(THEME_CHANGED, requestPaint)
   }, [requestPaint])
 
+  /** Agents' cursors over the sheet (agents/AgentCursors.tsx). */
+  const cursorsRef = useRef<AgentCursorsHandle | null>(null)
+  /** A normalized point of the sheet showing, in the stage's pixels. Stable: it reads refs. */
+  const placeAgentPoint = useCallback((p: { x: number; y: number }) => {
+    const size = pageSizeRef.current
+    if (size.width <= 0) return null
+    return normalizedToScreen(p.x, p.y, viewRef.current, size.width, size.height)
+  }, [])
+
   const paint = useCallback(() => {
     const v = viewerRef.current
     if (!v) return
@@ -1370,6 +1402,8 @@ export default function Workspace({
       drawDraft(oc, draftRef.current, viewRef.current, page.width, page.height)
       drawSnapIndicator(oc, snapRef.current)
     }
+    // The view may have moved: agents' cursors stay on their points.
+    cursorsRef.current?.sync()
     perfRef.current.record('frame', performance.now() - t0)
   }, [page.width, page.height, layoutOn])
 
@@ -2428,6 +2462,8 @@ export default function Workspace({
    * taskbar, and every window reading "REDBEAM — 3f9c1a" made that a guess.
    */
   useEffect(() => {
+    // The window is named after the PDF showing, not one live behind it.
+    if (!showing) return
     const title = windowTitle(projectName, identity.role === 'context' ? 'context' : 'main')
     document.title = title
     if (!isTauri()) return
@@ -2440,7 +2476,7 @@ export default function Workspace({
         // render over it would not be.
       }
     })()
-  }, [projectName, identity.role])
+  }, [projectName, identity.role, showing])
 
   // ------------------------------------------------------------- scale ----
 
@@ -3205,6 +3241,8 @@ export default function Workspace({
   // ------------------------------------------------------------- interaction --
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The window's keys belong to the PDF showing.
+      if (!showingRef.current) return
       shiftRef.current = e.shiftKey
       altRef.current = e.altKey
       const d = draftRef.current
@@ -3349,6 +3387,7 @@ export default function Workspace({
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
+      if (!showingRef.current) return
       shiftRef.current = e.shiftKey
       altRef.current = e.altKey
       if (e.key === ' ') {
@@ -5541,6 +5580,7 @@ export default function Workspace({
   useEffect(() => {
     if (!light) return
     const onKey = (e: KeyboardEvent) => {
+      if (!showingRef.current) return
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return
       const k = e.key.toLowerCase()
       // Tabs, as a browser and Bluebeam have them.
@@ -5585,9 +5625,24 @@ export default function Workspace({
    * Show a page for an agent and wait until it is the one on screen, so the
    * next step (a close-up, a zoom) acts on it and not on the sheet before.
    */
+  /**
+   * Who the bridge call being answered is from, and whether it may move this
+   * PDF's view (bridge/useBridgeRequests.ts `CallContext`). Calls for one PDF
+   * run one at a time (agents/router.ts), so one ref is enough.
+   */
+  const agentCtxRef = useRef<CallContext>(UNNAMED_CALL)
   const showPageForAgent = async (n: number): Promise<void> => {
     if (!Number.isInteger(n) || n < 0 || n >= pageCount) throw new Error(`page ${n} out of range (0..${pageCount - 1})`)
     if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
+    /*
+     * Turning the page of a PDF the caller does not drive: not done. Aaron,
+     * 2026-11-24: "agent actions should NEVER steal focus ... even within
+     * the app." The person is asked (agents/handover.ts), and the call is
+     * tried again if they hand the tab over.
+     */
+    if (!agentCtxRef.current.drives) {
+      throw new HandoverNeeded(`sheet ${sheetLabelFor(n)} is not the one showing, and turning to it would move the view of a PDF someone else is using`)
+    }
     goToPage(n)
     const until = performance.now() + 10_000
     while (performance.now() < until) {
@@ -5679,7 +5734,7 @@ export default function Workspace({
     return { markup: { id: uid(), documentId: docId, pageId, scopeId, kind, rings } }
   }
 
-  useBridgeRequests({
+  useBridgeHost(quickView?.file ?? '', {
     query: async (sql, params) => {
       const db = dbRef.current
       if (db === null) throw new Error('the PDF is still opening; poll redbeam_get_ui_state until pageCount > 0')
@@ -5773,7 +5828,8 @@ export default function Workspace({
       markupVisibility: { embedded: !embeddedHidden, redbeam: !redbeamHidden },
     }),
 
-    screenshot: async (params) => {
+    screenshot: async (params, ctx) => {
+      agentCtxRef.current = ctx
       /*
        * A close-up: one box of the sheet, rendered by PDFium at the size
        * asked for rather than cropped out of the window, which is only as
@@ -5801,16 +5857,25 @@ export default function Workspace({
       const out = document.createElement('canvas')
       out.width = raster.width
       out.height = raster.height
-      const ctx = out.getContext('2d')
-      if (!ctx) return null
-      ctx.drawImage(raster, 0, 0)
-      if (overlay && params['overlay'] !== false) ctx.drawImage(overlay, 0, 0)
+      const g = out.getContext('2d')
+      if (!g) return null
+      g.drawImage(raster, 0, 0)
+      if (overlay && params['overlay'] !== false) g.drawImage(overlay, 0, 0)
       return out.toDataURL('image/png')
     },
 
-    invoke: async (action, params) => {
+    invoke: async (action, params, ctx) => {
       actorRef.current = 'agent'
+      agentCtxRef.current = ctx
       try {
+        /*
+         * A call that moves the view (the tool in hand, the zoom, the
+         * selection, a panel, the undo stack) in a PDF its caller does not
+         * drive: asked of the person first, like a page turn.
+         */
+        if (!ctx.drives && VIEW_ACTIONS.has(action)) {
+          throw new HandoverNeeded(`${action} would change the view of a PDF someone else is using`)
+        }
         const doc = documents.find((d) => d.id === activeDocId)
         const fileName = doc === undefined ? null : (doc.displayName || doc.relativePath)
         /*
@@ -5848,11 +5913,20 @@ export default function Workspace({
           if (!Number.isInteger(n) || n < 0 || n >= pageCount) return { error: `page ${String(params['page'])} out of range (0..${pageCount - 1})` }
           await showPageForAgent(n)
         }
-        const out = await invokeAction(action, params)
+        /*
+         * Whatever the action opens or selects, the keyboard stays where the
+         * person had it. Only the PDF showing can take it at all: one live
+         * behind it is inert.
+         */
+        const out = showingRef.current
+          ? await keepingFocus(() => invokeAction(action, params))
+          : await invokeAction(action, params)
         return fileName !== null && out['file'] === undefined ? { ...out, file: fileName } : out
       } catch (err) {
+        // The router asks the person, and calls again if they say yes.
+        if (err instanceof HandoverNeeded) throw err
         return { error: err instanceof Error ? err.message : String(err) }
-      } finally { actorRef.current = 'user' }
+      } finally { actorRef.current = 'user'; agentCtxRef.current = UNNAMED_CALL }
     },
   })
   async function invokeAction(action: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -6304,6 +6378,13 @@ export default function Workspace({
               }
             }
             return toFile('pieces-csv', rowsOut.join('\r\n') + '\r\n')
+          }
+          /*
+           * Never a Save dialog for an AI app: it would come up over
+           * whatever the person is doing, in whatever app, and wait there.
+           */
+          if (target === undefined && projectBridge.desktop && (what === 'marked-pdf' || what === 'pdf')) {
+            return { error: `export ${what} needs \`path\`: where to write the file. REDBEAM does not open a Save dialog for an AI app.` }
           }
           if (what === 'marked-pdf') {
             // Awaited: the write-back can fail on a source file it cannot
@@ -8237,7 +8318,9 @@ export default function Workspace({
    */
   const lastInputRef = useRef(0)
   useEffect(() => {
-    const seen = () => { lastInputRef.current = performance.now() }
+    // The person's input in another tab is not work in this one: a PDF live
+    // behind it saves on the agent's own pauses.
+    const seen = () => { if (showingRef.current) lastInputRef.current = performance.now() }
     const opts = { capture: true, passive: true } as const
     const kinds = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
     for (const k of kinds) window.addEventListener(k, seen, opts)
@@ -8666,6 +8749,7 @@ export default function Workspace({
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!showingRef.current) return
       if (!e.ctrlKey || e.altKey) return
       // '+' needs Shift on most layouts, so shift is allowed through for the
       // zoom keys and only the shift-free ones check for it.
@@ -10137,13 +10221,24 @@ export default function Workspace({
         onToggleWork={() => setWorkOpen((v) => !v)}
       >
         {light && lightTabs !== undefined ? (
-          <DocumentTabStrip
-            tabs={lightTabs.list.map((t) => ({ id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file }))}
-            activeId={quickView!.file}
-            onSelect={lightTabs.onSelect}
-            onClose={lightTabs.onClose}
-            {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
-          />
+          <>
+            {/* The person's tabs keep the strip; each agent's fold into its chip beside it. */}
+            <DocumentTabStrip
+              tabs={lightTabs.list.filter((t) => t.owner === undefined).map((t) => ({ id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file }))}
+              activeId={quickView!.file}
+              onSelect={lightTabs.onSelect}
+              onClose={lightTabs.onClose}
+              {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
+            />
+            <AgentStrip
+              tabs={lightTabs.list}
+              activeFile={quickView!.file}
+              onSelect={lightTabs.onSelect}
+              onClose={lightTabs.onClose}
+              {...(lightTabs.onHandOver !== undefined ? { onHandOver: lightTabs.onHandOver } : {})}
+              {...(lightTabs.onTakeOver !== undefined ? { onTakeOver: lightTabs.onTakeOver } : {})}
+            />
+          </>
         ) : (
         <DocumentTabStrip
           tabs={openTabs}
@@ -10407,7 +10502,19 @@ export default function Workspace({
               pixels, and a React-managed `width` would fight that. */}
           <canvas ref={rasterRef} />
           <canvas ref={overlayRef} />
+          {light && quickView !== undefined && (
+            <AgentCursors ref={cursorsRef} file={quickView.file} page={pageIndex} place={placeAgentPoint} />
+          )}
         </div>
+
+        {light && quickView !== undefined && lightTabs !== undefined && (
+          <AgentBar
+            file={quickView.file}
+            owner={lightTabs.list.find((t) => t.file === quickView.file)?.owner}
+            {...(lightTabs.onHandOver !== undefined ? { onHandOver: lightTabs.onHandOver } : {})}
+            {...(lightTabs.onTakeOver !== undefined ? { onTakeOver: lightTabs.onTakeOver } : {})}
+          />
+        )}
 
         {annotMenu !== null && (
           <>
@@ -11058,6 +11165,18 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
   if (box.x0 === box.x1 || box.y0 === box.y1) return null
   return box
 }
+
+/**
+ * Calls that change how a PDF is being looked at rather than what is in it:
+ * the tool in hand, the zoom, the selection, the panels, and undo (which
+ * takes back the latest change, whoever made it). An agent makes them freely
+ * in a tab it drives; in someone else's, the person is asked first.
+ */
+const VIEW_ACTIONS = new Set([
+  'set_tool', 'set_active_scope', 'zoom_to_region', 'set_layout_preview', 'open_panel',
+  'begin_scale_region', 'cancel_scale_region', 'select_markups', 'set_markup_visibility',
+  'undo', 'redo',
+])
 
 /** Writes that act on the sheet showing: a `page` input shows that sheet first. */
 const PAGE_BOUND = new Set([

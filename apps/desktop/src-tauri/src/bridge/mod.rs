@@ -78,6 +78,11 @@ struct Request {
     token: String,
     #[serde(default)]
     params: Value,
+    /// Who is calling: `{id, client, label}` from the MCP server (mcp.rs).
+    /// Absent from a script or an older server, which is then nobody in
+    /// particular and acts on the PDF showing, as every call once did.
+    #[serde(default)]
+    agent: Value,
 }
 
 pub fn discovery_path() -> PathBuf {
@@ -207,6 +212,9 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
                 json!({ "id": req.id, "ok": false, "error":
                     "AI control is off. Turn on Settings > Claude and ChatGPT > Let AI apps use REDBEAM." })
             } else {
+                // One connection, one thread, one call: whatever this call
+                // asks of a window carries who asked (ui.rs).
+                ui::set_caller(req.agent.clone());
                 match methods::dispatch(app, &req.method, &req.params) {
                     Ok(result) => json!({ "id": req.id, "ok": true, "result": result }),
                     Err(e) => json!({ "id": req.id, "ok": false, "error": e }),

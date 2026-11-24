@@ -1,0 +1,383 @@
+/*
+ * Agents in the window: their chips and tabs in the title bar, their card on
+ * the start page, the bar over a sheet they share with the person, and their
+ * cursors on the sheet.
+ *
+ * Every agent surface takes its colour from `--agent`, set inline from the
+ * roster (agents/roster.ts AGENT_COLORS). Each of those eight holds 4.5:1
+ * under white text, so a filled surface is always `--agent` under #fff, in
+ * Light and in Dark. Where the colour is only an accent (a dot, an underline,
+ * a wash behind a tab) the text keeps the window's own ink.
+ */
+
+/* ---- several PDFs live at once ---- */
+/*
+ * The PDF showing and the ones agents work in behind it are all mounted, one
+ * `.shellapp` each, stacked over the window. Only one is seen. The others
+ * keep their layout (an agent's close-up needs a canvas with a size) but
+ * draw nothing and take no pointer; `inert` on the host keeps the keyboard
+ * out. `*` and !important because a descendant that sets
+ * `visibility: visible` would otherwise show through its hidden ancestors.
+ */
+.wshost { display: contents; }
+.wshost[data-showing="false"],
+.wshost[data-showing="false"] * {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ---- the title bar ---- */
+/*
+ * Takes the width its chips need, up to most of the bar: the person's strip
+ * beside it (flex 1 1 auto) folds its own tabs into its overflow menu rather
+ * than squeeze the agents, and past the cap the chips give up their words
+ * before their names.
+ */
+.agentstrip {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 72%;
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  overflow: hidden;
+}
+.agentgroup {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid var(--rb-line);
+  /* The whole group is underlined in its agent's colour: chip, tabs and ask. */
+  box-shadow: inset 0 -2px 0 var(--agent);
+}
+.agentgroup[data-state="gone"] { box-shadow: inset 0 -2px 0 var(--rb-line); }
+
+.agentchip {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 44ch;
+  padding-inline: var(--ads-sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-3);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agentchip:hover { background: var(--rb-hover); color: var(--rb-ink-2); }
+.agentchip:focus-visible {
+  outline: 2px solid var(--rb-focus-outer);
+  outline-offset: -2px;
+}
+.agentgroup[data-showing="true"] > .agentchip { background: var(--rb-hover); }
+.agentchip > svg { flex: none; color: var(--rb-ink-4); }
+
+.agentdot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--agent);
+}
+[data-state="working"] > .agentchip > .agentdot,
+[data-state="working"] > header > .agentdot {
+  animation: agentpulse 1.4s var(--rb-ease-decel) infinite;
+}
+[data-state="gone"] .agentdot { background: var(--rb-ink-4); }
+@keyframes agentpulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--agent) 55%, transparent); }
+  100% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--agent) 0%, transparent); }
+}
+
+.agentname {
+  flex: 0 1 auto;
+  min-width: 6ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--rb-ink);
+  font-weight: 600;
+}
+.agentcount {
+  flex: none;
+  min-width: 16px;
+  padding: 2px 4px;
+  border-radius: 8px;
+  background: var(--agent);
+  color: #fff;
+  font-size: var(--ads-text-2xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+[data-state="gone"] .agentcount { background: var(--rb-ink-4); }
+.agentdoing {
+  flex: 0 100 auto;
+  min-width: 0;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--rb-ink-3);
+}
+/* Unfolded, the tabs beside the chip say where it is; the words stay for the one working. */
+.agentgroup[data-open="true"]:not([data-state="working"]) .agentdoing { display: none; }
+/* A crowd of agents: only the ones working this second keep their words. */
+.agentstrip[data-many="true"] .agentgroup:not([data-state="working"]) .agentdoing { display: none; }
+
+/* An agent's tab: a tab like the person's, washed and marked in its colour. */
+.tab.agenttab {
+  flex: 0 2 auto;
+  min-width: 12ch;
+  max-width: 24ch;
+  border-right: 0;
+  border-left: 1px solid var(--rb-line);
+  background: color-mix(in srgb, var(--agent) 9%, transparent);
+  font-size: var(--ads-text-xs);
+}
+.tab.agenttab:first-child { border-left: 1px solid var(--rb-line); }
+.tab.agenttab:hover { background: color-mix(in srgb, var(--agent) 16%, transparent); }
+.tab.agenttab.active {
+  background: color-mix(in srgb, var(--agent) 22%, transparent);
+  box-shadow: inset 0 -3px 0 var(--agent);
+  color: var(--rb-ink);
+}
+.tab.agenttab > svg,
+.tab.agenttab.active > svg { color: var(--agent); }
+
+/* "wants to work in <PDF>  [Allow] [Not now]" beside the chip. */
+.agentask {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding-inline: var(--ads-sp-2) var(--ads-sp-3);
+  background: color-mix(in srgb, var(--agent) 14%, transparent);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+  white-space: nowrap;
+}
+.agentasktext { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
+.agentasktext > strong { color: var(--rb-ink); font-weight: 600; }
+
+.agentaskbtn {
+  flex: none;
+  height: 24px;
+  padding-inline: var(--ads-sp-3);
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-flyout-solid);
+  color: var(--rb-ink);
+  font: inherit;
+  font-size: var(--ads-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agentaskbtn:hover { background: var(--rb-hover); }
+.agentaskbtn.primary { border-color: var(--agent); background: var(--agent); color: #fff; }
+.agentaskbtn.primary:hover { background: color-mix(in srgb, var(--agent) 86%, #000); }
+.agentaskbtn:focus-visible {
+  outline: 2px solid var(--rb-focus-outer);
+  outline-offset: 1px;
+}
+
+/* ---- the start page ---- */
+.agentsonstart {
+  position: fixed;
+  right: var(--ads-sp-5);
+  bottom: var(--ads-sp-5);
+  z-index: 20;
+  width: 340px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  padding: var(--ads-sp-3);
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-flyout-solid);
+  box-shadow: var(--rb-shadow-flyout);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+}
+.agentsonstart > h2 {
+  margin: 0 0 var(--ads-sp-2);
+  color: var(--rb-ink);
+  font-size: var(--ads-text-xs);
+  font-weight: 600;
+}
+.agentsonstart-agent {
+  padding-left: var(--ads-sp-2);
+  border-left: 2px solid var(--agent);
+}
+.agentsonstart-agent + .agentsonstart-agent { margin-top: var(--ads-sp-3); }
+.agentsonstart-agent > header {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: 24px;
+}
+.agentsonstart-agent > ul { margin: 0; padding: 0; list-style: none; }
+.agentsonstart-agent > ul > li {
+  display: flex;
+  align-items: center;
+  border-radius: var(--ads-radius-s);
+}
+.agentsonstart-agent > ul > li:hover { background: var(--rb-hover); }
+.agentsonstart-agent > ul > li .tabclose { opacity: 1; flex: none; }
+.agentsonstart-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: 28px;
+  padding-inline: var(--ads-sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agentsonstart-open > svg { flex: none; color: var(--agent); }
+.agentsonstart-open:hover { color: var(--rb-ink); }
+.agentsonstart-open:focus-visible {
+  outline: 2px solid var(--rb-focus-outer);
+  outline-offset: -2px;
+}
+
+/* ---- over the sheet ---- */
+.agentbar {
+  position: absolute;
+  top: var(--ads-sp-3);
+  left: 0;
+  right: 0;
+  z-index: 6;
+  width: fit-content;
+  max-width: min(760px, calc(100% - 2 * var(--ads-sp-4)));
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-1);
+  pointer-events: none;
+}
+.agentbar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: 36px;
+  padding: var(--ads-sp-1) var(--ads-sp-2) var(--ads-sp-1) var(--ads-sp-3);
+  border: 1px solid var(--rb-surface-stroke);
+  border-left: 3px solid var(--agent);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-flyout-solid);
+  box-shadow: var(--rb-shadow-flyout);
+  color: var(--rb-ink-2);
+  font-size: var(--ads-text-xs);
+  pointer-events: auto;
+}
+.agentbar-text { flex: 1 1 auto; min-width: 0; }
+.agentbar-text > strong { color: var(--rb-ink); font-weight: 600; }
+
+/* ---- cursors on the sheet ---- */
+/* A picture of what agents are doing. It never takes the pointer. */
+.agentcursors {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+}
+.agentcursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+  transition: transform 380ms var(--rb-ease-decel), opacity var(--rb-motion-base) linear;
+}
+.agentcursor[data-quiet="true"] { opacity: .62; }
+.agentcursor-arrow {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
+}
+.agentcursor-arrow > path {
+  fill: var(--agent);
+  stroke: #fff;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+.agentcursor-label {
+  position: absolute;
+  left: 14px;
+  top: 18px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 260px;
+  padding: 3px 8px 4px;
+  border-radius: 3px 9px 9px 9px;
+  background: var(--agent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  color: #fff;
+  font-size: var(--ads-text-xs);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.agentcursor-name { flex: none; font-weight: 600; }
+.agentcursor-doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Near the right edge the label sits to the left of the arrow; near the bottom, above it. */
+.agentcursor[data-flip="true"] > .agentcursor-label {
+  left: auto;
+  right: 4px;
+  border-radius: 9px 3px 9px 9px;
+}
+.agentcursor[data-up="true"] > .agentcursor-label {
+  top: auto;
+  bottom: 6px;
+  border-radius: 9px 9px 9px 3px;
+}
+.agentcursor[data-flip="true"][data-up="true"] > .agentcursor-label { border-radius: 9px 9px 3px 9px; }
+/* Held at the edge: the agent is off that way. Smaller, and no arrow claiming a point. */
+.agentcursor[data-mode="edge"] > .agentcursor-arrow { display: none; }
+.agentcursor[data-mode="edge"] > .agentcursor-label { left: 0; top: 0; opacity: .9; border-radius: 9px; }
+.agentcursor[data-mode="edge"][data-flip="true"] > .agentcursor-label { left: auto; right: 0; }
+.agentcursor[data-mode="edge"][data-up="true"] > .agentcursor-label { top: auto; bottom: 0; }
+/* Nowhere in particular yet: the label alone, in the corner. */
+.agentcursor[data-mode="docked"] > .agentcursor-arrow { display: none; }
+.agentcursor[data-mode="docked"] > .agentcursor-label { left: 0; top: 0; border-radius: 9px; }
+/* Working this second: a ring breathes around the point. */
+.agentcursor[data-busy="true"][data-mode="on"]::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--agent);
+  border-radius: 50%;
+  animation: agentring 1.2s var(--rb-ease-decel) infinite;
+}
+@keyframes agentring {
+  0% { transform: scale(.4); opacity: .9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentcursor { transition: none; }
+  .agentcursor[data-busy="true"][data-mode="on"]::before { animation: none; opacity: .5; }
+  [data-state="working"] > .agentchip > .agentdot,
+  [data-state="working"] > header > .agentdot { animation: none; }
+}

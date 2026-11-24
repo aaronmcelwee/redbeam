@@ -17,7 +17,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -126,10 +126,99 @@ Settings > Claude and ChatGPT, then try again."
         .into())
 }
 
-fn bridge_call(method: &str, params: &Value) -> Result<Value, String> {
+// ------------------------------------------------------------- identity --
+
+/// This server process, told apart from every other one talking to the same
+/// REDBEAM: its pid and the moment it started.
+fn session() -> &'static str {
+    static S: OnceLock<String> = OnceLock::new();
+    S.get_or_init(|| {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{:x}-{:x}", std::process::id(), nanos & 0xffff_ffff_ffff)
+    })
+}
+
+/// The AI app on the other end, as it named itself in `initialize`.
+static CLIENT: Mutex<Option<String>> = Mutex::new(None);
+/// Every identity this server has called REDBEAM as, to say goodbye for.
+static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The input every tool takes so several agents can share one connection.
+const AGENT_ARG: &str = "agent";
+
+/// Who a call is from: this server, or the named worker inside it.
+///
+/// Several agents work in REDBEAM at once, each in tabs of its own with its
+/// own colour and cursor (Aaron, 2026-11-24). One AI app is one server
+/// process, so the process is the agent — unless the app runs several
+/// workers over one connection, which then say which one is calling.
+fn identity(label: Option<&str>) -> Value {
+    let label = label.map(str::trim).filter(|l| !l.is_empty());
+    let id = match label {
+        Some(l) => format!("{}/{}", session(), l.to_lowercase()),
+        None => session().to_string(),
+    };
+    {
+        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        if !seen.contains(&id) {
+            seen.push(id.clone());
+        }
+    }
+    let client = CLIENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    json!({ "id": id, "client": client, "label": label })
+}
+
+/// The tool list with the shared `agent` input added to every tool.
+fn tools_with_agent(tools: &Value) -> Value {
+    let mut tools = tools.clone();
+    if let Some(list) = tools.as_array_mut() {
+        for tool in list {
+            let schema = &mut tool["inputSchema"];
+            if !schema.is_object() {
+                *schema = json!({ "type": "object", "properties": {} });
+            }
+            if !schema["properties"].is_object() {
+                schema["properties"] = json!({});
+            }
+            if schema["properties"].get(AGENT_ARG).is_none() {
+                schema["properties"][AGENT_ARG] = json!({
+                    "type": "string",
+                    "description": "Only when several agents share this connection (sub-agents, parallel workers): a short name of your own, the same on every call. Each name gets its own tabs, colour and cursor in REDBEAM.",
+                });
+            }
+        }
+    }
+    tools
+}
+
+/// Tell REDBEAM this server's agents are gone, if it is running. Never
+/// starts it: a goodbye is not a reason to open a window.
+fn say_goodbye() {
+    let ids = SEEN.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if ids.is_empty() {
+        return;
+    }
+    let Some((port, token)) = discovery() else { return };
+    let client = CLIENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    for id in ids {
+        let Ok(mut stream) = connect(port) else { return };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+        let line = json!({ "id": 1, "method": "agent_bye", "token": token, "params": {},
+            "agent": { "id": id, "client": client } });
+        if stream.write_all(format!("{line}\n").as_bytes()).is_ok() {
+            let mut reply = String::new();
+            let _ = BufReader::new(stream).read_line(&mut reply);
+        }
+    }
+}
+
+fn bridge_call(method: &str, params: &Value, agent: &Value) -> Result<Value, String> {
     let (mut stream, token) = reach()?;
     let _ = stream.set_read_timeout(Some(CALL_TIMEOUT));
-    let line = json!({ "id": 1, "method": method, "token": token, "params": params });
+    let line = json!({ "id": 1, "method": method, "token": token, "params": params, "agent": agent });
     stream
         .write_all(format!("{line}\n").as_bytes())
         .map_err(|e| format!("could not reach REDBEAM: {e}"))?;
@@ -150,10 +239,15 @@ fn call_tool(spec: &Spec, name: &str, args: &Value) -> Result<Value, String> {
     let method = spec.method_of.get(name).and_then(Value::as_str)
         .ok_or_else(|| format!("Unknown REDBEAM tool: {name}"))?;
     let mut params = if args.is_object() { args.clone() } else { json!({}) };
+    // Who is calling is not an input of the tool: it rides beside them.
+    let label = params
+        .as_object_mut()
+        .and_then(|o| o.remove(AGENT_ARG))
+        .and_then(|v| v.as_str().map(str::to_owned));
     if let Some(action) = spec.action_of.get(name).and_then(Value::as_str) {
         params["action"] = json!(action);
     }
-    let result = bridge_call(method, &params)?;
+    let result = bridge_call(method, &params, &identity(label.as_deref()))?;
 
     // A screenshot goes back as an image, not a 2 MB data URL in text.
     if name == "redbeam_screenshot" {
@@ -174,14 +268,21 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
     let params = req.get("params").cloned().unwrap_or(Value::Null);
     let ok = |result: Value| json!({ "jsonrpc": "2.0", "id": id, "result": result });
     Some(match method {
-        "initialize" => ok(json!({
+        "initialize" => {
+            // "claude-ai", "claude-code", "codex-mcp-client": what REDBEAM
+            // names this agent after.
+            if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
+                *CLIENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string());
+            }
+            ok(json!({
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
             "instructions": spec.instructions,
-        })),
+            }))
+        }
         "ping" => ok(json!({})),
-        "tools/list" => ok(json!({ "tools": spec.tools })),
+        "tools/list" => ok(json!({ "tools": tools_with_agent(&spec.tools) })),
         "resources/list" => ok(json!({ "resources": [] })),
         "prompts/list" => ok(json!({ "prompts": [] })),
         "tools/call" => {
@@ -231,6 +332,9 @@ pub fn serve_stdio() {
             }
         });
     }
+    // The AI app closed the connection: its agents' tabs stay open in
+    // REDBEAM, marked as finished rather than as still at work.
+    say_goodbye();
 }
 
 #[cfg(test)]
@@ -259,6 +363,32 @@ mod tests {
         let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).unwrap();
         assert!(r["result"]["tools"].as_array().unwrap().len() >= 14);
         assert!(handle(&s, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
+    }
+
+    #[test]
+    fn every_tool_takes_an_agent_name() {
+        let s = spec();
+        let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).unwrap();
+        for t in r["result"]["tools"].as_array().unwrap() {
+            assert_eq!(t["inputSchema"]["properties"]["agent"]["type"], "string", "{}", t["name"]);
+        }
+        // tools.json itself stays as it was: the Node server adds its own.
+        assert!(s.tools.as_array().unwrap().iter().all(|t| t["inputSchema"]["properties"].get("agent").is_none()));
+    }
+
+    #[test]
+    fn a_named_worker_is_its_own_agent() {
+        let whole = identity(None);
+        let a = identity(Some("Framing"));
+        let b = identity(Some(" framing "));
+        let c = identity(Some("ceilings"));
+        assert_eq!(whole["id"], session());
+        assert_ne!(a["id"], whole["id"]);
+        // The same worker, however it capitalized its name this time.
+        assert_eq!(a["id"], b["id"]);
+        assert_ne!(a["id"], c["id"]);
+        assert_eq!(a["label"], "Framing");
+        assert!(identity(Some("  "))["label"].is_null());
     }
 
     #[test]

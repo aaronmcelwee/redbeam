@@ -45,7 +45,7 @@ function readDiscovery() {
  * handle would fail with a confusing connection error long after the real
  * cause (a restart) had scrolled away.
  */
-function bridgeCall(method, params = {}) {
+function bridgeCall(method, params = {}, agent = null) {
   const d = readDiscovery()
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(d.port, '127.0.0.1')
@@ -56,7 +56,7 @@ function bridgeCall(method, params = {}) {
     }, CALL_TIMEOUT_MS)
 
     socket.on('connect', () =>
-      socket.write(JSON.stringify({ id: 1, method, token: d.token, params }) + '\n'))
+      socket.write(JSON.stringify({ id: 1, method, token: d.token, params, ...(agent ? { agent } : {}) }) + '\n'))
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8')
       const nl = buffer.indexOf('\n')
@@ -105,11 +105,47 @@ const METHOD_OF = SPEC.methodOf
 /** Named tools that are one invoke_ui_action under a clearer name. */
 const ACTION_OF = SPEC.actionOf
 
+/**
+ * Who a call is from. Several agents work in REDBEAM at once, each in tabs of
+ * its own with its own colour and cursor; the app tells them apart by this.
+ * One server process is one agent, unless the AI app runs several workers
+ * over one connection and each passes `agent` (mcp.rs does the same).
+ */
+const SESSION = `${process.pid.toString(16)}-${Date.now().toString(16)}`
+let clientName = null
+const AGENT_ARG = 'agent'
+function identity(label) {
+  const l = typeof label === 'string' && label.trim() !== '' ? label.trim() : null
+  return { id: l === null ? SESSION : `${SESSION}/${l.toLowerCase()}`, client: clientName, label: l }
+}
+/** The tool list with the shared `agent` input on every tool. */
+function toolsWithAgent() {
+  return tools.map((t) => {
+    const schema = t.inputSchema ?? { type: 'object', properties: {} }
+    if (schema.properties?.[AGENT_ARG] !== undefined) return t
+    return {
+      ...t,
+      inputSchema: {
+        ...schema,
+        properties: {
+          ...(schema.properties ?? {}),
+          [AGENT_ARG]: {
+            type: 'string',
+            description: 'Only when several agents share this connection (sub-agents, parallel workers): a short name of your own, the same on every call. Each name gets its own tabs, colour and cursor in REDBEAM.',
+          },
+        },
+      },
+    }
+  })
+}
+
 async function callTool(name, args = {}) {
   const method = METHOD_OF[name]
   if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
-  const bound = ACTION_OF[name] ? { ...args, action: ACTION_OF[name] } : args
-  const result = await bridgeCall(method, bound)
+  // Who is calling is not an input of the tool: it rides beside them.
+  const { [AGENT_ARG]: label, ...inputs } = args ?? {}
+  const bound = ACTION_OF[name] ? { ...inputs, action: ACTION_OF[name] } : inputs
+  const result = await bridgeCall(method, bound, identity(label))
 
   // A screenshot is returned as an image block, not as a data URL in text: a
   // 2 MB base64 string pasted into a transcript is unreadable and expensive.
@@ -134,6 +170,7 @@ async function handleRequest(req) {
   const { id, method, params } = req
   try {
     if (method === 'initialize') {
+      if (typeof params?.clientInfo?.name === 'string') clientName = params.clientInfo.name
       send({
         jsonrpc: '2.0',
         id,
@@ -148,7 +185,7 @@ async function handleRequest(req) {
     }
     if (method === 'notifications/initialized') return
     if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} })
-    if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools } })
+    if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools: toolsWithAgent() } })
     if (method === 'tools/call') {
       const result = await callTool(params?.name, params?.arguments ?? {})
       return send({ jsonrpc: '2.0', id, result })
@@ -190,6 +227,6 @@ function startServer() {
   process.stderr.write(`REDBEAM MCP server ready. Discovery: ${DISCOVERY_FILE}\n`)
 }
 
-export { bridgeCall, callTool, tools, METHOD_OF, ACTION_OF, startServer }
+export { bridgeCall, callTool, tools, toolsWithAgent, identity, METHOD_OF, ACTION_OF, startServer }
 
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/')) startServer()
