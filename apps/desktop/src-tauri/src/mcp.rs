@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 const TOOLS_JSON: &str = include_str!("../../../mcp/tools.json");
 
 /// How long one bridge call may take. UI calls time out at 20 s in the app.
-const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long to wait for a freshly started REDBEAM to bring its bridge up.
 const LAUNCH_WAIT: Duration = Duration::from_secs(30);
 

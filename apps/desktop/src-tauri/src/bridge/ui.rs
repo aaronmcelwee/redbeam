@@ -46,15 +46,13 @@ fn next_id() -> u64 {
     N.fetch_add(1, Ordering::Relaxed)
 }
 
-/// `find_text` reads every sheet's text, a fifth of a second each on heavy
-/// sheets, and answers by itself after 40 s (Workspace.tsx FIND_TEXT_MS) with
-/// what it has. Twenty seconds cut a 171-sheet set off at sheet 70.
-const FIND_TEXT_TIMEOUT: Duration = Duration::from_secs(50);
-
 /// Ask the frontend to do something and wait for its answer.
+///
+/// Long work does not get a longer wait: an action that reads a whole set
+/// (find_text, read_scale, list_annotations) answers inside this with what it
+/// has and where to carry on, while the reading continues in the window.
 pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, String> {
-    let slow = params.get("action").and_then(Value::as_str) == Some("find_text");
-    request_within(app, action, params, if slow { FIND_TEXT_TIMEOUT } else { UI_TIMEOUT })
+    request_within(app, action, params, UI_TIMEOUT)
 }
 
 /// [`request`] with its own deadline.

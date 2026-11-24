@@ -133,6 +133,7 @@ import { takeoffFor } from './export/estimatePackage.js'
 import { estimatePdfInWorker } from './export/estimatePdfInWorker.js'
 import { indexProject, type IndexProgress } from './search/indexer.js'
 import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
+import type { PageText } from '@redbeam/viewer'
 import { detectPattern, linesFromSegments, measurePoints } from './search/measure.js'
 import { describeAllProducts, describeProduct, measuresAsText, missingKeys, unknownSpecKeys } from './agent/products.js'
 import { ringsAreaPoints, snapToLinework } from './agent/snapTrace.js'
@@ -479,8 +480,14 @@ function rememberRebuiltDismissed(key: string): void {
  * while an agent switched tabs put the ask up mid-work (Aaron, 2026-11-24).
  */
 const SLOW_SAVE_MS = 15000
-/** How long find_text reads sheets before answering with what it has. Under ui.rs FIND_TEXT_TIMEOUT. */
-const FIND_TEXT_MS = 40_000
+/**
+ * How long one answer to an AI app waits for sheets that are still being read
+ * before it reports what it has and where to carry on. It is NOT a limit on
+ * the work (Aaron, 2026-11-24: no arbitrary caps; sets pass a thousand
+ * sheets): the reading goes on in the background until it is finished, and
+ * the next call picks up where this one stopped. Under ui.rs UI_TIMEOUT.
+ */
+const AGENT_REPLY_MS = 8000
 const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF may be busy in another app, or on a slow or syncing drive.'
 
 export default function Workspace({
@@ -6028,49 +6035,79 @@ export default function Workspace({
               candidates = wanted.filter((sweepPage) => known.get(pageIdFor(activeDocId, sweepPage)) !== false)
             } catch { candidates = wanted }
           }
-          const limit = Math.max(1, Math.min(2000, Number(params['limit'] ?? 300) || 300))
           /*
-           * Reading a heavy sheet's text takes PDFium a fifth of a second, so
-           * a 171-sheet set did not fit the old 14 s (Aaron, 2026-11-24: "timed
-           * out after 70 of 171 sheets" on one word). Three things now:
-           * every sheet is asked for up front; the budget is
-           * FIND_TEXT_MS (the bridge waits longer for this action, ui.rs); and
-           * whatever is left keeps being read after the answer, so asking
-           * again for `notSearched` returns at once.
+           * No time limit and no cap on what can be found (Aaron, 2026-11-24:
+           * a search "timed out after 70 of 171 sheets", then "don't give the
+           * system arbitrary caps"). The work and the answer are separate:
+           *
+           *   - every sheet not yet read is asked for now, and the worker
+           *     reads them to the end in the background, off the UI thread,
+           *     whatever happens to this call;
+           *   - this call walks the sheets in order and answers with the
+           *     matches it reaches, either a page of `limit` of them or as
+           *     far as the reading has got after AGENT_REPLY_MS;
+           *   - `cursor` says where it stopped (sheet and match), so the next
+           *     call carries on from there. Nothing is kept between calls but
+           *     the sheets' text, which the viewer holds anyway.
            */
-          const deadline = performance.now() + FIND_TEXT_MS
+          const pageSize = Math.max(1, Math.min(2000, Number(params['limit'] ?? 300) || 300))
+          let fromPage = -1, fromMatch = 0
+          if (params['cursor'] !== undefined && params['cursor'] !== null && params['cursor'] !== '') {
+            const c = /^(\d+):(\d+)$/.exec(String(params['cursor']))
+            if (c === null) return { error: '`cursor` is the value a previous find_text returned, passed back unchanged' }
+            fromPage = Number(c[1]); fromMatch = Number(c[2])
+          }
+          const todo = [...candidates].sort((x, y) => x - y).filter((p) => p >= fromPage)
+          const read = (p: number): Promise<PageText | null> => v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null)
+          const reads = new Map<number, Promise<PageText | null>>()
+          for (const p of todo) if (v.getText(p) === undefined) reads.set(p, read(p))
+          const replyBy = performance.now() + AGENT_REPLY_MS
+          const within = <T,>(job: Promise<T>): Promise<T | undefined> => {
+            const left = replyBy - performance.now()
+            if (left <= 0) return Promise.resolve(undefined)
+            return Promise.race([job, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), left))])
+          }
           const matches: Array<TextMatch & { page: number; sheet: string | null }> = []
-          const notRead: number[] = []
-          let read = 0
-          const take = (p: number, pt: Parameters<typeof findInPageText>[0]): void => {
-            read++
-            const label = sheetLabelFor(p)
-            for (const m of findInPageText(pt, query, {
+          const unreadable: number[] = []
+          let cursor: string | null = null
+          let waitingOn: number | null = null
+          let breath = performance.now()
+          for (const p of todo) {
+            const skip = p === fromPage ? fromMatch : 0
+            let pt: PageText | null | undefined = v.getText(p)
+            if (pt === undefined) {
+              pt = await within(reads.get(p) ?? read(p))
+              // Navigation drops queued reads; one that was dropped is asked for again.
+              if (pt === null) pt = await within(read(p))
+              if (pt === undefined) { cursor = `${p}:${skip}`; waitingOn = p; break }
+              if (pt === null) { unreadable.push(p); continue }
+            }
+            const room = pageSize - matches.length
+            const found = findInPageText(pt, query, {
               caseSensitive: params['caseSensitive'] === true,
               wholeWord: params['wholeWord'] === true,
-              limit: limit - matches.length,
-            })) matches.push({ page: p, sheet: label === `Page ${p + 1}` ? null : label, ...m })
+              skip, limit: room + 1,
+            })
+            const label = sheetLabelFor(p)
+            for (const m of found.slice(0, room)) matches.push({ page: p, sheet: label === `Page ${p + 1}` ? null : label, ...m })
+            if (found.length > room) { cursor = `${p}:${skip + room}`; break }
+            // Let the window draw and take input between sheets.
+            if (performance.now() - breath > 12) { await new Promise((resolve) => setTimeout(resolve, 0)); breath = performance.now() }
           }
-          // Every sheet is asked for at once: the worker reads them in turn
-          // either way, and this saves a round trip per sheet.
-          const pending = candidates.map((p) => ({ p, text: v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null) }))
-          for (const { p, text } of pending) {
-            if (matches.length >= limit) break
-            const left = deadline - performance.now()
-            const cached = v.getText(p)
-            const pt = cached ?? (left <= 0 ? undefined : await Promise.race([
-              text,
-              new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), left)),
-            ]))
-            if (pt === null || pt === undefined) { notRead.push(p); continue }
-            take(p, pt)
-          }
+          const sheetsRead = candidates.filter((p) => v.hasText(p)).length + (wanted.length - candidates.length)
           return {
             query,
             matches,
-            pagesSearched: read + (wanted.length - candidates.length),
-            ...(matches.length >= limit ? { truncated: true } : {}),
-            ...(notRead.length > 0 ? { notSearched: notRead, note: 'these sheets were still being read when time ran out; they are being read now, so ask again with `pages` set to them and it returns quickly' } : {}),
+            done: cursor === null,
+            ...(cursor !== null ? {
+              cursor,
+              note: waitingOn !== null
+                ? 'the remaining sheets are still being read (it continues in the background); call find_text again with the same arguments plus this `cursor` for the rest'
+                : 'more matches follow; call find_text again with the same arguments plus this `cursor`',
+            } : {}),
+            sheetsRead,
+            sheets: wanted.length,
+            ...(unreadable.length > 0 ? { unreadable, unreadableNote: 'these sheets could not be read' } : {}),
           }
         }
         /* Every word on a page with its box, or only those inside `rect`. */
@@ -6084,12 +6121,15 @@ export default function Workspace({
           const pt = await v.requestText(p, { priority: PRIORITY_THUMBNAIL })
           const all = wordsOnPage(pt, within)
           const limit = Math.max(1, Math.min(20_000, Number(params['limit'] ?? 3000) || 3000))
+          const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           return {
             page: p,
             sheet: sheetLabelFor(p),
             scanned: pt.scanned,
-            words: all.slice(0, limit),
-            ...(all.length > limit ? { truncated: true, total: all.length } : {}),
+            words: all.slice(offset, offset + limit),
+            total: all.length,
+            // Nothing is dropped: the rest comes with `offset`.
+            ...(all.length > offset + limit ? { nextOffset: offset + limit, note: 'more words follow; ask again with `offset` set to nextOffset' } : {}),
           }
         }
         /*
@@ -6180,6 +6220,7 @@ export default function Workspace({
           }
           const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
           const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 300) || 300))
+          const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           const fpp = calRef.current?.feetPerPoint ?? null
           const feetToPts = (k: string): number | undefined => {
             const f = Number(params[k])
@@ -6198,14 +6239,15 @@ export default function Workspace({
             ...(Number.isFinite(Number(params['angleTolerance'])) ? { angleTolerance: Number(params['angleTolerance']) } : {}),
             dedupe: params['dedupe'] !== false,
             ...(sort === 'x' || sort === 'y' || sort === 'length' ? { sort } : {}),
-            limit,
+            limit: offset + limit,
           })
           return {
             page: pageIndexRef.current,
-            lines,
+            lines: lines.slice(offset),
             total,
             ...(duplicatesRemoved > 0 ? { duplicatesRemoved } : {}),
-            ...(total > lines.length ? { truncated: true } : {}),
+            // Nothing is dropped: the rest comes with `offset`.
+            ...(total > lines.length ? { nextOffset: lines.length, note: 'more lines follow; ask again with `offset` set to nextOffset' } : {}),
             ...(g.truncated ? { note: 'the box holds more geometry than was read; use a smaller box' } : {}),
           }
         }
@@ -7024,9 +7066,20 @@ export default function Workspace({
           if ('error' in pages) return pages
           const out: Array<Record<string, unknown>> = []
           const r5 = (n: number) => Math.round(n * 1e5) / 1e5
-          for (const sweepPage of pages.pages.slice(0, 60)) {
-            let all: PageAnnotation[] = []
-            try { all = await v.requestAnnotations(sweepPage) } catch { all = [] }
+          // No cap on how many sheets: the answer covers as many as are read
+          // in AGENT_REPLY_MS and names the rest, which carry on being read.
+          const reads = new Map(pages.pages.map((p) => [p, v.requestAnnotations(p).catch(() => [] as PageAnnotation[])] as const))
+          const replyBy = performance.now() + AGENT_REPLY_MS
+          const covered: number[] = []
+          const stillReading: number[] = []
+          for (const sweepPage of pages.pages) {
+            const left = replyBy - performance.now()
+            const all = left <= 0 ? undefined : await Promise.race([
+              reads.get(sweepPage)!,
+              new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), left)),
+            ])
+            if (all === undefined) { stillReading.push(sweepPage); continue }
+            covered.push(sweepPage)
             for (const a of all) {
               if (isRedbeamNm(a.name)) continue
               out.push({
@@ -7038,7 +7091,10 @@ export default function Workspace({
               })
             }
           }
-          return { annotations: out, pages: pages.pages.slice(0, 60), ...(pages.pages.length > 60 ? { truncated: true } : {}) }
+          return {
+            annotations: out, pages: covered,
+            ...(stillReading.length > 0 ? { stillReading, note: 'these sheets are still being read (it continues in the background); ask again with `pages` set to them' } : {}),
+          }
         }
         /* Accept imported (pending) markups: by id, on the sheet showing, or all. */
         case 'accept_imported': {
@@ -7063,11 +7119,17 @@ export default function Workspace({
           type Node = { title: string; page: number | null; children: Node[] }
           let count = 0
           const walkOut = (nodes: readonly Node[], depth: number): Array<Record<string, unknown>> => nodes.flatMap((n) => {
-            if (count >= 2000) return []
             count++
             return [{ title: n.title, page: n.page, depth }, ...walkOut(n.children, depth + 1)]
           })
-          return { bookmarks: walkOut(docIndex.outline as readonly Node[], 0), ...(count >= 2000 ? { truncated: true } : {}) }
+          // Every bookmark is reachable: a page of them, and `offset` for the next.
+          const every = walkOut(docIndex.outline as readonly Node[], 0)
+          const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 2000) || 2000))
+          const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
+          return {
+            bookmarks: every.slice(offset, offset + limit), total: count,
+            ...(count > offset + limit ? { nextOffset: offset + limit, note: 'more bookmarks follow; ask again with `offset` set to nextOffset' } : {}),
+          }
         }
         case 'close_tab': {
           if (lightTabs === undefined || quickView === undefined) return { error: 'this window has no tabs' }
@@ -7375,11 +7437,20 @@ export default function Workspace({
           const pages = agentPageList(params, pageIndexRef.current)
           if ('error' in pages) return pages
           const out: Array<Record<string, unknown>> = []
-          const t0 = performance.now()
+          // Every sheet is read, to the end, in the background; this answer
+          // waits AGENT_REPLY_MS for them and names the ones still to come.
+          const reads = new Map(pages.pages.map((p) => [p, v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null)] as const))
+          const replyBy = performance.now() + AGENT_REPLY_MS
+          const stillReading: number[] = []
           for (const p of pages.pages) {
-            if (performance.now() - t0 > 14_000) { out.push({ page: p, notRead: true }); continue }
             const sweepPage = p
-            const pt = await v.requestText(sweepPage, { priority: PRIORITY_THUMBNAIL })
+            const left = replyBy - performance.now()
+            const pt = v.getText(p) ?? (left <= 0 ? undefined : await Promise.race([
+              reads.get(p)!,
+              new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), left)),
+            ]))
+            if (pt === undefined) { stillReading.push(p); continue }
+            if (pt === null) { out.push({ page: p, error: 'this sheet could not be read' }); continue }
             const stated = statedScales({ text: pt.text, runs: pt.runs })
             const pid = pageIdFor(docIdRef.current, sweepPage)
             const set = projectCalibrations.get(pid) ?? null
@@ -7407,7 +7478,10 @@ export default function Workspace({
             const checked = reg?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
             return { sheets: out, check: { page: pageIndexRef.current, ...(reg !== undefined ? { region: reg.id } : {}), ...checkScale(pts[0]!, pts[1]!, dim, { width: page.width, height: page.height }, checked) } }
           }
-          return { sheets: out }
+          return {
+            sheets: out,
+            ...(stillReading.length > 0 ? { stillReading, note: 'these sheets are still being read (it continues in the background); ask again with `pages` set to them' } : {}),
+          }
         }
         /*
          * Addenda (round 3 #9): which sheets of this set are replaced by a
@@ -7592,7 +7666,8 @@ export default function Workspace({
             && (onlyScope === null || m.scopeId === onlyScope)
             && (onlyKind === null || m.kind === onlyKind))
           const unscaled = new Set<number>()
-          const markups = all.slice(0, limit).map((m) => {
+          const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
+          const markups = all.slice(offset, offset + limit).map((m) => {
             const d = dims.get(m.pageId)
             const size = m.pageId === showing ? { width: page.width, height: page.height }
               : d !== undefined && d.w !== null && d.h !== null ? { width: d.w, height: d.h } : null
@@ -7622,7 +7697,9 @@ export default function Workspace({
             }
           })
           return {
-            count: all.length, truncated: all.length > markups.length, markups,
+            count: all.length, markups,
+            // Nothing is dropped: the rest comes with `offset`.
+            ...(all.length > offset + limit ? { nextOffset: offset + limit, note: 'more markups follow; ask again with `offset` set to nextOffset' } : {}),
             // Sheets holding takeoff that measures nothing yet (P3-10).
             unscaledSheets: [...unscaled].sort((a, b) => a - b).map((n) => ({ page: n, sheet: sheetLabelFor(n) })),
           }

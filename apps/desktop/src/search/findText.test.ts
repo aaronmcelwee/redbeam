@@ -39,6 +39,31 @@ describe('findInPageText', () => {
     expect(findInPageText(page, 'c', { limit: 1 })).toHaveLength(1)
   })
 
+  it('carries on from where a previous answer stopped', () => {
+    const all = findInPageText(page, 'c')
+    expect(all.length).toBeGreaterThan(1)
+    expect(findInPageText(page, 'c', { limit: 1 })).toEqual([all[0]])
+    expect(findInPageText(page, 'c', { skip: 1 })).toEqual(all.slice(1))
+    expect(findInPageText(page, 'c', { skip: all.length })).toEqual([])
+  })
+
+  it('reads runs that arrive out of text order', () => {
+    const shuffled = { text, runs: [...runs].reverse() }
+    expect(findInPageText(shuffled, 'c-7')).toEqual(findInPageText(page, 'c-7'))
+    expect(findInPageText(shuffled, 'door type')).toEqual(findInPageText(page, 'door type'))
+  })
+
+  it('stays quick on a sheet with tens of thousands of matches', () => {
+    const n = 40000
+    const big = {
+      text: Array.from({ length: n }, () => 'ab').join(' '),
+      runs: Array.from({ length: n }, (_, i) => ({ start: i * 3, length: 2, x0: 0, y0: 0, x1: 0.1, y1: 0.1 })),
+    }
+    const t = performance.now()
+    expect(findInPageText(big, 'a', { limit: n + 1 }).length).toBe(n)
+    expect(performance.now() - t).toBeLessThan(1500)
+  })
+
   it('finds nothing in an empty query or page', () => {
     expect(findInPageText(page, '  ')).toEqual([])
     expect(findInPageText({ text: '', runs: [] }, 'x')).toEqual([])

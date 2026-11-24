@@ -207,7 +207,7 @@
     },
     {
       "name": "redbeam_list_markups",
-      "description": "The takeoff as objects: each markup with its id, kind, sheet (page and sheet code), scope name, quantity at the sheet's scale with its unit, holes, and `pending` when it still waits to be accepted. Filter by page, scopeId or kind. `unscaledSheets` lists sheets holding markups that measure nothing because the sheet has no scale.",
+      "description": "The takeoff as objects: each markup with its id, kind, sheet (page and sheet code), scope name, quantity at the sheet's scale with its unit, holes, and `pending` when it still waits to be accepted. Filter by page, scopeId or kind. `unscaledSheets` lists sheets holding markups that measure nothing because the sheet has no scale. When there are more than `limit`, `nextOffset` is returned; pass it as `offset` for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -233,6 +233,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many markups: the `nextOffset` a previous call returned."
           }
         }
       },
@@ -339,7 +343,7 @@
     },
     {
       "name": "redbeam_find_text",
-      "description": "Where text is on the sheets of the open document: every match with its page (ZERO-based), sheet number and box in NORMALIZED [0,1] page coordinates, y down. Pass a box to redbeam_screenshot `region` for a close-up, or to zoom_to_region to show it. Searches every page unless `page`, `pages` or `fromPage`/`toPage` narrow it; it can take up to 40 seconds on a long set. If it still comes back with `notSearched` pages, ask again with `pages` set to them: they are read in the background meanwhile, so the second call is quick. Needs a window.",
+      "description": "Where text is on the sheets of the open document: every match with its page (ZERO-based), sheet number and box in NORMALIZED [0,1] page coordinates, y down. Pass a box to redbeam_screenshot `region` for a close-up, or to zoom_to_region to show it. Searches every page unless `page`, `pages` or `fromPage`/`toPage` narrow it, with no limit on the size of the set. An answer comes back within a few seconds with the matches reached so far and `done`. When `done` is false, call again with the same arguments plus the returned `cursor` for the rest: the sheets go on being read in the background meanwhile, and `sheetsRead` of `sheets` shows how far that has got. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -374,11 +378,15 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Most matches returned. Default 300."
+            "description": "Matches per answer. Default 300. More come with `cursor`; nothing is dropped."
           },
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Where to carry on: the `cursor` a previous find_text returned, with the same other arguments."
           }
         },
         "required": [
@@ -458,7 +466,7 @@
     },
     {
       "name": "redbeam_get_lines",
-      "description": "The drawing's own line segments inside a box of the open sheet, longest first (or sorted by position): each segment's ends (NORMALIZED [0,1], y down) and its length in PDF points and, when the sheet has a scale, in feet. Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Filter to lines fully inside the box, horizontal or vertical, or a length range; a segment drawn twice is returned once. Keep the box small. Needs a window.",
+      "description": "The drawing's own line segments inside a box of the open sheet, longest first (or sorted by position): each segment's ends (NORMALIZED [0,1], y down) and its length in PDF points and, when the sheet has a scale, in feet. Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Filter to lines fully inside the box, horizontal or vertical, or a length range; a segment drawn twice is returned once. Keep the box small. Needs a window. When more lines match than `limit`, `nextOffset` is returned; pass it as `offset` for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -523,6 +531,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many lines: the `nextOffset` a previous call returned."
           }
         },
         "required": [
@@ -850,7 +862,7 @@
     },
     {
       "name": "redbeam_read_scale",
-      "description": "The scales the sheets state (title block and under each drawing title), each with its preset id for set_page_scale/set_region_scale and where it is printed, beside the scale set on the sheet and its regions. With `points` and `dimension`, checks the set scale against a written dimension and gives the scale it implies. Defaults to the sheet showing. Needs a window.",
+      "description": "The scales the sheets state (title block and under each drawing title), each with its preset id for set_page_scale/set_region_scale and where it is printed, beside the scale set on the sheet and its regions. With `points` and `dimension`, checks the set scale against a written dimension and gives the scale it implies. Defaults to the sheet showing. Needs a window. Any number of sheets can be asked for: sheets not read within a few seconds come back in `stillReading` and go on being read in the background, so ask again with `pages` set to them.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1602,7 +1614,7 @@
     },
     {
       "name": "redbeam_get_words",
-      "description": "Every word on a sheet with its box, optionally inside a rect.",
+      "description": "Every word on a sheet with its box, optionally inside a rect. A sheet with more words than `limit` returns `nextOffset`; pass it as `offset` for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1620,6 +1632,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many words: the `nextOffset` a previous call returned."
           }
         }
       },
@@ -1823,7 +1839,7 @@
     },
     {
       "name": "redbeam_list_annotations",
-      "description": "The PDF's own markups on a sheet that are not takeoff: notes, callouts, clouds, with author and text.",
+      "description": "The PDF's own markups on a sheet that are not takeoff: notes, callouts, clouds, with author and text. Any number of sheets can be asked for: sheets not read within a few seconds come back in `stillReading` and go on being read in the background, so ask again with `pages` set to them.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1898,13 +1914,21 @@
     },
     {
       "name": "redbeam_list_bookmarks",
-      "description": "The PDF's bookmark tree, with the page each entry opens.",
+      "description": "The PDF's bookmark tree, with the page each entry opens. A very long tree returns `nextOffset`; pass it as `offset` for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many bookmarks: the `nextOffset` a previous call returned."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Bookmarks per answer. Default 2000."
           }
         }
       },
@@ -2476,6 +2500,14 @@
           "snap": {
             "type": "boolean",
             "description": "For trace_area: move the outline onto the drawing's own lines. Default true."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "For find_text: the `cursor` a previous call returned, to carry on from there."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "For get_words, get_lines, list_markups and list_bookmarks: the `nextOffset` a previous call returned."
           }
         },
         "required": [
