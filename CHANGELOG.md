@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.73 — 2026-11-24
+## 0.3.75 — 2026-11-24
 
 ### AI apps: copies into folders, and searches with no limit
 
@@ -13,6 +13,14 @@ SmartScreen will ask once.
 - **Text search has no time limit.** Searching a 171-sheet set for one word stopped after 70 sheets, because a search was given 14 seconds. There is no limit now, on time or on the size of the set. The sheets are read in the background until the whole set is done, the AI app gets the matches found so far within a few seconds, and it asks for the rest from where it left off. REDBEAM stays usable while this runs.
 - **Nothing is cut off.** Reading scales and the PDF's own markups across a whole set, and long lists of words, lines, markups and bookmarks, used to stop at a fixed count or time. They now hand back everything, a part at a time.
 - **No empty answer while a PDF is still opening.** A search sent too early said it found nothing; it now says the document is still opening.
+
+
+## 0.3.74 — 2026-11-24
+
+### PDFs of any size
+
+- **No size limit.** REDBEAM had a limit on how big a PDF could be. It's gone: a 2.5 GB, 1,800-sheet set opens, for you and for AI apps.
+- **Big sets open without being loaded whole.** REDBEAM now reads only the parts of the PDF it needs from disk, so a large set shows its first sheet in seconds and uses far less memory. The search index reads sets the same way.
 
 
 ## 0.3.71 — 2026-11-24

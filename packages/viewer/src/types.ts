@@ -404,5 +404,6 @@ export type WorkerResponse =
       error?: string
     }
   /** Page-handle bookkeeping, for leak assertions. `opened - closed === open`. */
-  | { type: 'stats'; opened: number; closed: number; open: number; pages: number[]; queued: number }
+  /** `rangeReads`: blocks read from disk, when the PDF was opened by byte ranges. */
+  | { type: 'stats'; opened: number; closed: number; open: number; pages: number[]; queued: number; rangeReads?: number }
   | { type: 'error'; message: string }
