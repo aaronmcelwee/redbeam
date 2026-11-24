@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ProjectStartScreen, useProject } from './project/index.js'
-import { closeThisWindow, getWindowRole, guardWindowClose, isTauri } from './tauri/window.js'
+import { destroyThisWindow, getWindowRole, guardWindowClose, isTauri } from './tauri/window.js'
 import { useWindowControls } from './tauri/useWindowControls.js'
 import Workspace from './Workspace.js'
 import { WindowControls } from './shell/Shell.js'
@@ -47,43 +47,55 @@ export default function App() {
   const win = useWindowControls()
   /** What the open workspace must finish before this window closes (Light: save into the PDF). */
   const beforeCloseRef = useRef<((leave: () => void) => Promise<boolean>) | null>(null)
-  /** The listener that holds the window open while a file needs saving first. */
+  /**
+   * The listener that hears every close of this window. One, for the
+   * window's whole life: it used to come and go with the open file, and a
+   * close that arrived while it was coming back was held by nobody.
+   */
   const closeGuardRef = useRef<Promise<() => Promise<void>> | null>(null)
   const closeAskingRef = useRef(false)
-  /** Close for real: stop holding the window, then close it. */
+  const closingRef = useRef(false)
+  /** Close for real: the window goes without being asked again. */
   const closeNow = useCallback(() => {
+    if (closingRef.current) return
+    closingRef.current = true
     const guard = closeGuardRef.current
-    closeGuardRef.current = null
-    void (guard === null ? Promise.resolve() : guard.then((stop) => stop()))
-      .catch(() => undefined)
-      .then(() => closeThisWindow())
+    const stop = () => (guard === null ? Promise.resolve() : guard.then((s) => s()))
+    void destroyThisWindow(stop).then((gone) => { if (!gone) closingRef.current = false })
   }, [])
   /**
    * Every close goes through here: the X button, Alt+F4, the taskbar,
    * Windows shutting down. Light saves into the PDF first, and stays open
-   * (asking) when that save is refused.
+   * (asking) when that save is refused or is slow to answer.
    */
   const requestClose = useCallback(() => {
     const before = beforeCloseRef.current
     if (before === null) { closeNow(); return }
+    // Already saving to close: that save asks within seconds if it cannot finish.
     if (closeAskingRef.current) return
     closeAskingRef.current = true
     void before(closeNow)
-      .then((ok) => { if (ok) closeNow() }, closeNow)
+      .then((ok) => { if (ok) closeNow() }, (err: unknown) => {
+        console.error('[window] saving before close failed; closing.', err)
+        closeNow()
+      })
       .finally(() => { closeAskingRef.current = false })
   }, [closeNow])
+  const requestCloseRef = useRef(requestClose)
+  requestCloseRef.current = requestClose
+  useEffect(() => {
+    const guard = guardWindowClose(() => requestCloseRef.current())
+    closeGuardRef.current = guard
+    return () => {
+      if (closeGuardRef.current === guard) closeGuardRef.current = null
+      void guard.then((stop) => stop())
+    }
+  }, [])
   const registerBeforeClose = useCallback((fn: ((leave: () => void) => Promise<boolean>) | null) => {
     beforeCloseRef.current = fn
     // An update that installs or restarts ends the app without closing the window.
     setBeforeQuit(fn)
-    if (fn !== null && closeGuardRef.current === null) {
-      closeGuardRef.current = guardWindowClose(requestClose)
-    } else if (fn === null && closeGuardRef.current !== null) {
-      const guard = closeGuardRef.current
-      closeGuardRef.current = null
-      void guard.then((stop) => stop())
-    }
-  }, [requestClose])
+  }, [])
   useEffect(() => {
     document.documentElement.toggleAttribute('data-frameless', win.frameless)
   }, [win.frameless])

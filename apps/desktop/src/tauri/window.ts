@@ -221,6 +221,30 @@ export async function closeWindow(label: string): Promise<boolean> {
 }
 
 /**
+ * End this window for good, without asking it first.
+ *
+ * `close()` raises a close request, and while REDBEAM listens for those
+ * (`guardWindowClose`) a request only reports and waits. The window used to
+ * stop listening and then call `close()`, but the listener comes and goes as
+ * the open file's save changes, so one could be back by the time the request
+ * arrived: the window then held itself open, reported to nobody, and the X,
+ * Alt+F4 and Windows' own Close all did nothing. Destroying skips the request.
+ * If destroying is refused, the guard is stopped and the window closed.
+ */
+export async function destroyThisWindow(stopGuard: () => Promise<void>): Promise<boolean> {
+  const w = await thisWindow()
+  if (w === null) return false
+  try {
+    await w.destroy()
+    return true
+  } catch (err) {
+    console.error('[window] destroy was refused; check core:window:allow-destroy. Closing instead.', err)
+    await stopGuard().catch(() => undefined)
+    return windowAction('close', () => w.close())
+  }
+}
+
+/**
  * Hear every request to close this window, however it was made.
  *
  * The app's own X button was the only close that saved a Light file first.
@@ -228,8 +252,8 @@ export async function closeWindow(label: string): Promise<boolean> {
  * restart all went straight to the window, and a Light file's takeoff lives
  * in memory until it is written into the PDF. While a listener for this
  * event exists the window does not close by itself: it reports the request
- * and waits, so `onRequest` must end in the returned release followed by
- * `closeThisWindow()`, or the window can no longer be closed.
+ * and waits, so `onRequest` must end in `destroyThisWindow()`, or the window
+ * can no longer be closed. Listen once, for the window's whole life.
  *
  * Resolves a function that stops listening; after it, a close is immediate
  * again. Outside Tauri, or if listening is refused, there is nothing to stop.
