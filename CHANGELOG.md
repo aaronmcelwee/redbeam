@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.64 — 2026-11-24
+## 0.3.65 — 2026-11-24
 
 ### Copy and paste markups between PDFs
 
