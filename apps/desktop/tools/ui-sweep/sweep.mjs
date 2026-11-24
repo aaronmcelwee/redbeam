@@ -188,6 +188,25 @@ function ownContrast() {
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 const row = (page, number) => page.locator('.sheetrow', { hasText: number }).first()
 
+// AI agents: three of them, as three apps' MCP servers would name themselves.
+const AGENTS = [{ id: 'sweep-1', client: 'claude-ai' }, { id: 'sweep-2', client: 'claude-code' }, { id: 'sweep-3', client: 'chatgpt' }]
+const AGENT_FILES = ['C:\\Jobs\\Agents\\Tower A.pdf', 'C:\\Jobs\\Agents\\Tower B.pdf', 'C:\\Jobs\\Agents\\Clinic.pdf']
+/** One bridge call from an agent, answered by the window (tauri-mock.js). */
+const agentCall = (page, agent, action, params) => page.evaluate(([a, b, c]) => window.__sweepAgent(a, b, c), [agent, action, params ?? {}])
+const agentAct = (page, agent, name, params) => agentCall(page, agent, 'invoke_ui_action', { action: name, ...params })
+/** The PDF showing: with agents about, others are mounted behind it. */
+const shown = (page) => page.locator('.wshost[data-showing="true"]')
+/** What the person has in front of them: which tab, which sheet, where the keyboard is. */
+const person = (page) => page.evaluate(() => {
+  const ws = document.querySelector('.wshost[data-showing="true"]')
+  const a = document.activeElement
+  return {
+    tab: ws?.querySelector('.tab.active .tabname')?.textContent ?? null,
+    sheet: ws?.querySelector('.sheetrow[aria-current], .sheetrow.active, .sheetrow[aria-selected="true"]')?.textContent ?? null,
+    focus: a === null || a === document.body ? 'body' : `${a.tagName}.${String(a.className).split(' ')[0]}`,
+  }
+})
+
 /** Open something, check it, and check Escape takes it away again. */
 async function opensAndEscapes(page, open, gone, label) {
   await open()
@@ -425,6 +444,148 @@ const STEPS = [
   ['broken-file', async (page) => {
     await page.goto(view('C:\\Jobs\\Sweep\\Broken.pdf'))
     await page.waitForTimeout(3000)
+  }],
+  /*
+   * AI agents beside the person (Aaron, 2026-11-24: "MULTIPLE agents ...
+   * ALONGSIDE a human ... agent actions should NEVER steal focus"). Three
+   * agents call at once through the mock's bridge while the sweep is the
+   * person. Each step holds the promise as well as the look: the tab showing,
+   * the sheet showing and the keyboard are the person's throughout.
+   */
+  ['agents', async (page) => {
+    await page.goto(view(FILE))
+    await shown(page).locator('.sheetrow').first().waitFor({ timeout: 20000 })
+    await page.waitForTimeout(1200)
+    const problems = []
+    const before = await person(page)
+    const opened = await Promise.all(AGENTS.map((a, i) => agentCall(page, a, 'open_file', { path: AGENT_FILES[i], wait: true })))
+    for (const [i, o] of opened.entries()) {
+      if (o.opened !== true || o.yours !== true) problems.push(`agents: ${AGENTS[i].client} could not open its own PDF: ${JSON.stringify(o).slice(0, 160)}`)
+    }
+    const moved = await Promise.all([
+      agentAct(page, AGENTS[0], 'go_to_page', { page: 4 }),
+      agentAct(page, AGENTS[1], 'go_to_page', { page: 6 }),
+      agentAct(page, AGENTS[2], 'zoom_to_region', { page: 2, rect: { x0: 0.1, y0: 0.1, x1: 0.5, y1: 0.5 } }),
+      agentCall(page, AGENTS[0], 'screenshot', {}),
+    ])
+    if (moved[0].page !== 4 || moved[1].page !== 6) problems.push(`agents: each agent's page turn should land in its own PDF: ${JSON.stringify(moved.slice(0, 2)).slice(0, 200)}`)
+    if (!/Tower A/.test(String(moved[0].file)) || !/Tower B/.test(String(moved[1].file))) problems.push('agents: a call went to the wrong PDF')
+    if (typeof moved[3].dataUrl !== 'string') problems.push('agents: no picture of a PDF open in the background')
+    await page.waitForTimeout(400)
+    const after = await person(page)
+    if (JSON.stringify(after) !== JSON.stringify(before)) problems.push(`agents: the person's view moved: ${JSON.stringify(before)} became ${JSON.stringify(after)}`)
+    const seen = await page.evaluate(() => ({
+      chips: [...document.querySelectorAll('.wshost[data-showing="true"] .agentgroup .agentname')].map((n) => n.textContent),
+      colours: [...document.querySelectorAll('.wshost[data-showing="true"] .agentgroup')].map((g) => g.style.getPropertyValue('--agent')),
+      behind: document.querySelectorAll('.wshost[data-showing="false"]').length,
+      inert: document.querySelectorAll('.wshost[data-showing="false"][inert]').length,
+      tabs: [...document.querySelectorAll('.wshost[data-showing="true"] [data-tab][role="tab"] .tabname')].map((n) => n.textContent),
+    }))
+    if (seen.chips.join() !== 'Claude,Claude Code,ChatGPT') problems.push(`agents: expected a chip each for Claude, Claude Code and ChatGPT, saw ${seen.chips.join() || 'none'}`)
+    if (new Set(seen.colours).size !== 3) problems.push('agents: the three agents do not have three colours')
+    if (seen.behind !== 3 || seen.inert !== 3) problems.push(`agents: ${seen.behind} PDFs live behind the one showing, ${seen.inert} of them inert (want 3 and 3)`)
+    if (seen.tabs.join() !== 'Sweep set') problems.push(`agents: the person's strip should hold only their tab, holds ${seen.tabs.join()}`)
+    return problems
+  }],
+  ['agents-typing', async (page) => {
+    // The person types a sheet number while three agents act, one of them opening a panel.
+    const problems = []
+    // Earlier steps left the sidebar on another panel; the window remembers it.
+    await button(page, 'Contents').click()
+    await page.getByRole('tab', { name: 'Sheets', exact: true }).click()
+    const input = shown(page).getByPlaceholder('Find a sheet')
+    await input.click()
+    await page.keyboard.type('A6')
+    const acting = Promise.all([
+      agentAct(page, AGENTS[0], 'open_panel', { panel: 'search' }),
+      agentAct(page, AGENTS[1], 'set_tool', { tool: 'select' }),
+      agentAct(page, AGENTS[2], 'go_to_page', { page: 8 }),
+      agentAct(page, AGENTS[0], 'create_scope', { label: 'ACT-1', scopeType: 'area' }),
+    ])
+    await page.keyboard.type('.0', { delay: 70 })
+    await acting
+    await page.keyboard.type('1', { delay: 70 })
+    await page.waitForTimeout(450)
+    const typed = await input.inputValue()
+    if (typed !== 'A6.01') problems.push(`agents-typing: typed "A6.01" while agents worked, the field holds "${typed}"`)
+    const focused = await page.evaluate(() => document.activeElement?.getAttribute('placeholder'))
+    if (focused !== 'Find a sheet') problems.push(`agents-typing: the keyboard left the field the person was typing in (now ${focused ?? 'nowhere'})`)
+    problems.push(...await inspect(page))
+    await input.fill('')
+    await page.keyboard.press('Escape')
+    return problems
+  }],
+  ['agent-ask', async (page) => {
+    // An agent wants to turn the pages of the person's own PDF: they are asked, and nothing moves.
+    const problems = []
+    const before = await person(page)
+    const going = agentAct(page, AGENTS[1], 'go_to_page', { page: 5, file: FILE })
+    const bar = shown(page).locator('.agentbar')
+    try { await bar.getByRole('button', { name: 'Let it work here' }).waitFor({ timeout: 4000 }) } catch { problems.push('agent-ask: no question on the sheet when an agent asked to work in the person\'s PDF') }
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-question.png`) })
+    if (JSON.stringify(await person(page)) !== JSON.stringify(before)) problems.push('agent-ask: the person\'s sheet moved before they answered')
+    await bar.getByRole('button', { name: 'Not now' }).click().catch(() => problems.push('agent-ask: no Not now'))
+    const told = await going
+    if (told.handover !== 'refused') problems.push(`agent-ask: the agent was not told the person said not now: ${JSON.stringify(told).slice(0, 160)}`)
+    await page.waitForTimeout(200)
+    if (await bar.count() > 0) problems.push('agent-ask: the question stayed up after Not now')
+    // Reading the person's PDF, and drawing on the sheet they are on, needs no asking.
+    const settled = await person(page)
+    const read = await agentAct(page, AGENTS[1], 'find_text', { query: 'CEILING', file: FILE })
+    if (!Array.isArray(read.matches)) problems.push(`agent-ask: an agent could not read the person's PDF: ${JSON.stringify(read).slice(0, 160)}`)
+    if (JSON.stringify(await person(page)) !== JSON.stringify(settled)) problems.push(`agent-ask: reading the person's PDF moved their view: ${JSON.stringify(settled)} became ${JSON.stringify(await person(page))}`)
+    return problems
+  }],
+  ['agent-watch', async (page) => {
+    // The person looks in on an agent: its tabs unfold, its PDF shows, its cursor says what it is doing.
+    const problems = []
+    await shown(page).locator('.agentchip').first().click()
+    await page.waitForTimeout(250)
+    await shown(page).locator('.agenttab').first().click()
+    await page.waitForTimeout(1200)
+    const showing = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agenttab.active .tabname')?.textContent)
+    if (showing !== 'Tower A') problems.push(`agent-watch: clicking Claude's tab should show Tower A, shows ${showing ?? 'nothing'}`)
+    const made = await agentAct(page, AGENTS[0], 'create_markup', {
+      kind: 'area', scope: 'ACT-1', rings: [[{ x: 0.2, y: 0.25 }, { x: 0.55, y: 0.25 }, { x: 0.55, y: 0.6 }, { x: 0.2, y: 0.6 }]],
+    })
+    await page.waitForTimeout(700)
+    const cursor = await page.evaluate(() => {
+      const c = document.querySelector('.wshost[data-showing="true"] .agentcursor')
+      return c === null ? null : { mode: c.dataset.mode, text: c.textContent, colour: c.style.getPropertyValue('--agent') }
+    })
+    if (cursor === null) problems.push(`agent-watch: no cursor on the sheet after the agent drew (${JSON.stringify(made).slice(0, 140)})`)
+    else {
+      if (!/^Claude/.test(cursor.text ?? '')) problems.push(`agent-watch: the cursor's label should start with the agent's name, reads "${cursor.text}"`)
+      if (typeof made.error !== 'string' && cursor.mode !== 'on') problems.push(`agent-watch: the cursor should sit on the point drawn, is ${cursor.mode}`)
+    }
+    if (await shown(page).locator('.agentbar', { hasText: 'is working in this PDF' }).count() === 0) problems.push('agent-watch: nothing on the sheet says an agent drives this tab')
+    const hit = await page.evaluate(() => {
+      const c = document.querySelector('.wshost[data-showing="true"] .agentcursor-label')
+      if (c === null) return null
+      const r = c.getBoundingClientRect()
+      return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.agentcursors') !== null
+    })
+    if (hit === true) problems.push('agent-watch: the cursor label takes the pointer')
+    return problems
+  }],
+  ['agents-start', async (page) => {
+    // One agent finishes; the person goes back to their own PDF and closes it. The agents keep working.
+    const problems = []
+    await agentCall(page, AGENTS[1], 'agent_bye', {})
+    await shown(page).locator('[data-tab][role="tab"]').first().click()
+    await page.waitForTimeout(900)
+    await shown(page).locator('[data-tab][role="tab"] .tabclose').first().click({ force: true })
+    await page.waitForTimeout(1500)
+    const card = page.locator('.agentsonstart')
+    if (await card.count() === 0) problems.push('agents-start: the start page does not list the agents still at work')
+    else if (await card.locator('.agentsonstart-open').count() !== 3) problems.push('agents-start: the card should list the three PDFs agents have open')
+    const still = await agentAct(page, AGENTS[0], 'list_markups', {})
+    if (typeof still.error === 'string') problems.push(`agents-start: an agent's PDF stopped answering once the person had no tab: ${still.error.slice(0, 120)}`)
+    const closed = await agentAct(page, AGENTS[2], 'close_tab', {})
+    if (closed.closed === undefined) problems.push(`agents-start: an agent could not close its own tab: ${JSON.stringify(closed).slice(0, 140)}`)
+    await page.waitForTimeout(400)
+    return problems
   }],
 ]
 
