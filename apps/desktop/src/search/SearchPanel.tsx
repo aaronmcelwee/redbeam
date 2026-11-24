@@ -245,7 +245,8 @@ export function SearchPanel({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { if (report === null) void run(query); else step(e.shiftKey ? -1 : 1) }
+            // Enter on words typed since the last search runs them, rather than walking the old hits.
+            if (e.key === 'Enter') { if (report === null || report.query !== query.trim()) void run(query); else step(e.shiftKey ? -1 : 1) }
             // Escape clears first and closes second — the same two-step every
             // find field uses, so a mistyped query is not a lost pane.
             if (e.key === 'Escape') { if (choosing) setChoosing(false); else if (query !== '') setQuery(''); else onClose() }

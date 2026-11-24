@@ -31,6 +31,18 @@ describe('pieceList', () => {
     expect(list.runs[0]!.pieces.some((p) => p.cutToFit)).toBe(true)
   })
 
+  it('pages through runs with no cap: pages join up to the whole list', () => {
+    const r = calculatePieces(scope, area([outer]), cal, opts)
+    const all = pieceList(r).runs
+    expect(pieceList(r).truncated).toBeUndefined()
+    const first = pieceList(r, { maxRuns: 4 })
+    expect(first.runs.length).toBe(4)
+    expect(first.nextOffset).toBe(4)
+    const rest = pieceList(r, { offset: first.nextOffset })
+    expect(rest.nextOffset).toBeUndefined()
+    expect([...first.runs, ...rest.runs].map((x) => x.lengthFeet)).toEqual(all.map((x) => x.lengthFeet))
+  })
+
   it('takes a cutout out of the members that cross it (round 3 #11)', () => {
     const whole = pieceList(calculatePieces(scope, area([outer]), cal, opts))
     const holed = pieceList(calculatePieces(scope, area([outer, hole]), cal, opts))

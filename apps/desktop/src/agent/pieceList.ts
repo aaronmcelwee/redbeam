@@ -52,6 +52,8 @@ export interface PieceList {
   /** Connectors, end caps, joiners, trim and the rest, from the same roll-up as the BOM. */
   parts: Array<{ itemKey: string; label: string; quantity: number; unit: string }>
   truncated?: boolean
+  /** Where the next page of runs starts, when there is one. */
+  nextOffset?: number
 }
 
 const len = (s: Segment) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y)
@@ -68,14 +70,20 @@ function onSegment(p: Point, s: Segment): number {
   return Math.abs((p.x - s.a.x) * dy - (p.y - s.a.y) * dx) / Math.sqrt(L2)
 }
 
-export function pieceList(result: PieceResult, opts: { maxRuns?: number } = {}): PieceList {
+/**
+ * `maxRuns` runs from `offset` on; `nextOffset` says where the next page
+ * starts. Totals (cut list, stock, parts) always cover the whole scope.
+ */
+export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?: number } = {}): PieceList {
   const runs: RunList[] = []
   const cuts = new Map<string, { cut: string; cutFeet: number; count: number; cutToFit: boolean }>()
   const byFamily: Record<string, number> = {}
   let placed = 0, stockUsed = 0, installed = 0, offcut = 0, railPieces = 0, railFeet = 0
   let fpp: number | null = null
   const areaOnPage = new Map<string, number>()
-  const maxRuns = opts.maxRuns ?? 2000
+  const maxRuns = opts.maxRuns ?? Infinity
+  const skip = Math.max(0, Math.floor(opts.offset ?? 0))
+  let seen = 0
   let truncated = false
   for (const entry of result.runs) {
     fpp = entry.feetPerPoint
@@ -111,7 +119,8 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number } = {}):
     for (const r of entry.layout.railPieces) { railPieces++; railFeet += len(r.insideSegment) * entry.feetPerPoint }
     for (const l of lists) {
       if (l.pieces.length === 0) continue
-      if (runs.length >= maxRuns) { truncated = true; break }
+      if (seen++ < skip) continue
+      if (runs.length >= maxRuns) { truncated = true; continue }
       runs.push(l)
     }
   }
@@ -126,6 +135,6 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number } = {}):
     },
     rails: { pieces: railPieces, installedFeet: r3(railFeet) },
     parts: result.quantities.map((q) => ({ ...q })),
-    ...(truncated ? { truncated: true } : {}),
+    ...(truncated ? { truncated: true, nextOffset: skip + runs.length } : {}),
   }
 }

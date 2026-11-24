@@ -136,6 +136,7 @@ pub fn run() {
             window::open_context_window,
             window::close_window,
             bridge::ui::bridge_reply,
+            bridge::ui::bridge_alive,
             crash::crash_report,
             crash::crash_reports,
             crash::crash_dir,

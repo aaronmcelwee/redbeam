@@ -699,14 +699,23 @@ export async function logActivity(db: SqlDriver, a: ActivityRow): Promise<void> 
   )
 }
 
-export async function listActivity(db: SqlDriver, limit = 100): Promise<Array<ActivityRow & { createdAt: string }>> {
+/**
+ * Newest first, a page at a time: `offset` skips the rows already read, and
+ * `entityId` keeps one thing's history (filtered here, so an old markup's
+ * trail is found however much has happened since).
+ */
+export async function listActivity(
+  db: SqlDriver, limit = 100, opts: { offset?: number; entityId?: string } = {},
+): Promise<Array<ActivityRow & { createdAt: string }>> {
+  const where = opts.entityId !== undefined ? 'WHERE entity_id = ?' : ''
+  const args: unknown[] = opts.entityId !== undefined ? [opts.entityId] : []
   const rows = await db.all<{
     event_type: string; entity_type: string; entity_id: string | null
     origin: string; details_json: string; created_at: string
   }>(
     `SELECT event_type, entity_type, entity_id, origin, details_json, created_at
-     FROM activity ORDER BY created_at DESC, rowid DESC LIMIT ?`,
-    [limit],
+     FROM activity ${where} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+    [...args, limit, Math.max(0, Math.floor(opts.offset ?? 0))],
   )
   return rows.map((r) => ({
     eventType: r.event_type,

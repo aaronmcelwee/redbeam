@@ -5,6 +5,18 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.80 — 2026-11-24
+
+### AI apps keep going on long work
+
+- **Long jobs from Claude and ChatGPT no longer time out.** A call used to give up after 20 or 60 seconds even while REDBEAM was still busy, so a big export or search on a 1,000-sheet set could fail halfway. REDBEAM now tells the AI app it is still working, and the call waits as long as the work takes.
+- **Every page, markup and history entry.** Lists for AI apps stopped at 5,000 items, history at 2,000 events, the piece list at 5,000 runs and a batch of markups at 500. They now hand back everything, a page at a time.
+- **Save a copy keeps numbering.** It used to give up after "name 20.pdf".
+- **Auto-trace keeps every hole.** Tracing an area kept at most 16 column holes; it now keeps them all.
+- **Search fixes.** The zoom readout keeps up while you zoom, the match count no longer shows early while a big set is still being read, and pressing Enter after changing the words runs the new search instead of stepping through the old matches.
+- **Long sheet titles in full.** Sheet names were cut at 60 characters.
+
+
 ## 0.3.77 — 2026-11-24
 
 ### No more hidden ceilings

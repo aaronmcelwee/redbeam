@@ -933,7 +933,7 @@
         "properties": {
           "markups": {
             "type": "array",
-            "description": "For create_markups: up to 500 entries, each {kind, rings, scopeId?, page?} as create_markup takes them. One undo step."
+            "description": "For create_markups: any number of entries, each {kind, rings, scopeId?, page?} as create_markup takes them. One undo step."
           },
           "file": {
             "type": "string",
@@ -963,6 +963,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many runs: the `nextOffset` a previous call returned."
           }
         }
       },
@@ -987,6 +991,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many events: the `nextOffset` a previous call returned."
           }
         }
       },

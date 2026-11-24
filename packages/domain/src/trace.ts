@@ -199,9 +199,17 @@ export const TRACE_DEFAULTS = {
   minAreaCells: 40,
   maxFillFraction: 0.85,
   simplifyPoints: 2,
-  maxVertices: 240,
+  /*
+   * No vertex or hole budget (Aaron, 2026-11-24: no arbitrary caps). A ring
+   * is simplified to within `simplifyPoints` of the drawn edge and no
+   * further: forcing it under 240 points coarsened big curved rooms, and
+   * stopping at 16 rings dropped the 16th column and after, so a floor full
+   * of columns came out over-measured. Tiny specks are still left out by
+   * `minHoleFraction`.
+   */
+  maxVertices: Infinity,
   recoverCells: 1,
-  maxRings: 16,
+  maxRings: Infinity,
   minHoleFraction: 0.005,
 } as const
 
