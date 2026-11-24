@@ -448,9 +448,9 @@ function ColumnGrip({ side, onDrag, onReset }: {
 }
 
 /** Area geometry edits as one undo step, or null when there are none. */
-function editsCommand(edits: readonly GeometryEdit[], what: string) {
+function editsCommand(edits: readonly GeometryEdit[], what: string, origin: string = 'user') {
   if (edits.length === 0) return null
-  const cmds = edits.map((e) => cmdEditGeometry(e.id, e.before, e.after, what))
+  const cmds = edits.map((e) => cmdEditGeometry(e.id, e.before, e.after, what, undefined, origin))
   return cmds.length === 1 ? cmds[0]! : cmdBatch(what, cmds)
 }
 
@@ -5655,7 +5655,8 @@ export default function Workspace({
       selectedIds,
       calibrated: cal !== null,
       feetPerPoint: cal?.feetPerPoint ?? null,
-      undo: undoState,
+      // From the stack itself: the rendered state is a frame behind a write.
+      undo: undoRef.current?.state ?? undoState,
       // The names predate the dialogs' rehoming and are kept for the agents
       // that read them: "scope editor open" is a scope's page in the sidebar,
       // "browser open" is the Files pane.
@@ -6117,8 +6118,12 @@ export default function Workspace({
         case 'open_panel': {
           const which = String(params['panel'] ?? '')
           switch (which) {
-            case 'bom': openParts(); return { panel: 'bom' }
-            case 'browser': openBrowser(); return { panel: 'browser' }
+            case 'bom':
+              if (light) return { error: 'there is no parts panel to open now; redbeam_get_bom and redbeam_get_piece_list give the parts, and redbeam_export writes them to a file' }
+              openParts(); return { panel: 'bom' }
+            case 'browser':
+              if (light) return { error: 'there is no file browser panel now; redbeam_open_file opens a PDF and redbeam_list_sheets lists its sheets' }
+              openBrowser(); return { panel: 'browser' }
             case 'scope': openScopeEditor(); return { panel: 'scope' }
             case 'settings': openSettings(); return { panel: 'settings' }
             case 'none': closeModals(); return { panel: 'none' }
@@ -6318,9 +6323,13 @@ export default function Workspace({
           const pageId = pageIdFor(docId, pageIndexRef.current)
           // A cutout cuts the areas under it, as the canvas's cutter does.
           if (kind === 'cutout') {
+            // With a scope named, only that scope's areas are cut: an opening
+            // drawn for one product is not an opening in the one beside it.
+            const named = typeof params['scopeId'] === 'string' ? params['scopeId'] : null
             const edits = cutEdits(markupsRef.current, pageId, ring as Array<{ x: number; y: number }>)
-            if (edits.length === 0) return { error: 'the cutout crosses no area on this sheet' }
-            await runCommand(editsCommand(edits, 'cut area')!)
+              .filter((e) => named === null || markupsRef.current.find((m) => m.id === e.id)?.scopeId === named)
+            if (edits.length === 0) return { error: named === null ? 'the cutout crosses no area on this sheet' : 'the cutout crosses no area of that scope on this sheet' }
+            await runCommand(editsCommand(edits, 'cut area', 'agent')!)
             // Each hole's id, which delete_markup takes to remove that one hole.
             return { cut: edits.map((e) => e.id), holes: edits.map((e) => `${CUT_PREFIX}${e.id}:${e.after.length - 1}`), kind, pageId }
           }
@@ -6352,6 +6361,13 @@ export default function Workspace({
 
         case 'delete_markup': {
           const id = String(params['id'] ?? '')
+          // One hole of an area, by the id a cutout answers with ("cut:<area>:<n>").
+          if (isCutId(id)) {
+            const cmd = editsCommand(uncutEdits(docMarkupsRef.current, id), 'delete cutout', 'agent')
+            if (cmd === null) return { error: `no such cutout: ${id}. list_markups gives each area's id and how many holes it has; a hole is cut:<area id>:<1-based hole number>` }
+            await runCommand(cmd)
+            return { deleted: id, area: cutOwner(docMarkupsRef.current, id)?.id ?? null }
+          }
           const m = docMarkupsRef.current.find((x) => x.id === id)
           if (!m) return { error: `no such markup: ${id}` }
           if (!markupsRef.current.some((x) => x.id === id)) {
@@ -6791,11 +6807,13 @@ export default function Workspace({
         }
         case 'set_setting': {
           const sid = String(params['setting'] ?? '')
-          const d = SETTINGS.find((x) => x.id === sid)
-          if (d === undefined || LIGHT_HIDDEN_SETTINGS.includes(sid)) return { error: `no setting ${sid}; get_settings lists them` }
-          const why = settings.set(sid, params['value'])
+          // The full id, or its last part when that names one setting ("patternStart").
+          const tails = SETTINGS.filter((x) => x.id.split('.').pop() === sid)
+          const d = SETTINGS.find((x) => x.id === sid) ?? (tails.length === 1 ? tails[0] : undefined)
+          if (d === undefined || LIGHT_HIDDEN_SETTINGS.includes(d.id)) return { error: `no setting ${sid}; get_settings lists them` }
+          const why = settings.set(d.id, params['value'])
           if (why !== null) return { error: why }
-          return { setting: sid, value: settings.all()[sid] }
+          return { setting: d.id, value: settings.all()[d.id] }
         }
         /*
          * ---- agent usability study, priority 2 ----
@@ -6884,7 +6902,8 @@ export default function Workspace({
         case 'close_tab': {
           if (lightTabs === undefined || quickView === undefined) return { error: 'this window has no tabs' }
           const want = typeof params['path'] === 'string' && params['path'].trim() !== '' ? params['path'].trim() : quickView.file
-          const tab = lightTabs.list.find((t) => t.file === want || t.name === want)
+          const slashes = (x: string) => x.replace(/\\/g, '/').toLowerCase()
+          const tab = lightTabs.list.find((t) => slashes(t.file) === slashes(want) || t.name.toLowerCase() === want.toLowerCase())
           if (tab === undefined) return { error: `no open tab ${want}`, tabs: lightTabs.list.map((t) => t.file) }
           // Saved first when it is the one showing, as closing by hand does.
           if (tab.file === quickView.file && activeDocId !== null) await saveTakeoffIntoDrawing(activeDocId, { quiet: true })
@@ -7230,6 +7249,8 @@ export default function Workspace({
             }
             links = [...links.filter((l) => l.replaced !== older), { replaced: older, by: newer, source: 'linked' }]
             await writeAddendaLinks(db, links)
+            // Into the PDF with the next save: the links are the file's.
+            saveRef.current()
           }
           // Same sheet number printed twice: the later page in the set replaces the earlier.
           const seen = new Map<string, number>()

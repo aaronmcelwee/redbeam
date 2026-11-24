@@ -890,7 +890,7 @@
     },
     {
       "name": "redbeam_track_addenda",
-      "description": "Sheets of the open set replaced by a later issue (the same sheet number later in the set, or linked by hand with page and replaces), and the scopes with takeoff on a replaced sheet. Links are kept in the PDF. Needs a window.",
+      "description": "Sheets of the open set replaced by a later issue (the same sheet number later in the set, or linked by hand with page and replaces), and the scopes with takeoff on a replaced sheet. Links are kept in the PDF. Needs a window. Links made by hand are saved in the PDF with the takeoff.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1093,7 +1093,7 @@
               "settings",
               "none"
             ],
-            "description": "For open_panel. The panels exclude each other, so this closes whichever was open; `none` closes them all. It does NOT dismiss a calibration form — that holds a measurement and has its own Cancel."
+            "description": "For open_panel: scope, settings, or none (closes them all). bom and browser are from the old project mode and are refused with what to use instead."
           },
           "file": {
             "type": "string",
@@ -1127,7 +1127,7 @@
     },
     {
       "name": "redbeam_create_markup",
-      "description": "Draw one markup on a sheet. Answers after it has landed, with its id, sheet, measure and any warning (no scope, or the sheet has no scale so it measures nothing yet). Give `page` to say which sheet; without it, the sheet showing.",
+      "description": "Draw one markup on a sheet. Answers after it has landed, with its id, sheet, measure and any warning (no scope, or the sheet has no scale so it measures nothing yet). Give `page` to say which sheet; without it, the sheet showing. A cutout with scopeId cuts only that scope's areas; without one, every area it crosses.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1169,7 +1169,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change."
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change. To remove one hole of an area, give the hole id a cutout answered with: cut:<area id>:<hole number, from 1>."
           },
           "file": {
             "type": "string",
@@ -1737,7 +1737,7 @@
         "properties": {
           "setting": {
             "type": "string",
-            "description": "For set_setting: a key from get_settings, e.g. patternStart or perAreaOrigin."
+            "description": "For set_setting: an id from get_settings (e.g. takeoff.patternStart); the last part alone (patternStart) works when it names one setting."
           },
           "value": {
             "description": "For set_calibration: the real length, e.g. \"10\" or \"7 1/2\". For set_setting: the new value."
@@ -2155,7 +2155,7 @@
               "settings",
               "none"
             ],
-            "description": "For open_panel. The panels exclude each other, so this closes whichever was open; `none` closes them all. It does NOT dismiss a calibration form — that holds a measurement and has its own Cancel."
+            "description": "For open_panel: scope, settings, or none (closes them all). bom and browser are from the old project mode and are refused with what to use instead."
           },
           "what": {
             "type": "string",
@@ -2224,7 +2224,7 @@
           },
           "id": {
             "type": "string",
-            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change."
+            "description": "For delete_markup, reassign_markup and delete_scale_region. Region ids are reported as `scaleRegions` by redbeam_get_ui_state and nowhere else. For get_history: only this markup or scope. For update_markup: the markup to change. To remove one hole of an area, give the hole id a cutout answered with: cut:<area id>:<hole number, from 1>."
           },
           "value": {
             "description": "For set_calibration: the real length, e.g. \"10\" or \"7 1/2\". For set_setting: the new value."
@@ -2435,7 +2435,7 @@
           },
           "setting": {
             "type": "string",
-            "description": "For set_setting: a key from get_settings, e.g. patternStart or perAreaOrigin."
+            "description": "For set_setting: an id from get_settings (e.g. takeoff.patternStart); the last part alone (patternStart) works when it names one setting."
           },
           "dx": {
             "type": "number",

@@ -27,6 +27,9 @@ import type { WritableScaleRegion } from './pdfMarkup.js'
  * the scopes on this sheet, with their quantity results (the counts) and only
  * THIS drawing's layout components.
  */
+/** redbeam_meta keys that belong to the file and travel in it. */
+export const FILE_META_KEYS = ['addenda_links'] as const
+
 const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
   ['documents', 'SELECT * FROM documents WHERE id = ?1'],
   ['pages', 'SELECT * FROM pages WHERE document_id = ?1'],
@@ -60,7 +63,7 @@ const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
  * keeps those queries: there the scopes are the whole job's, and every sheet
  * carrying all of them would be wrong.
  */
-const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = SLICE_QUERIES.map(([table, sql]) => {
+const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [...SLICE_QUERIES.map(([table, sql]) => {
   if (table === 'scopes') return [table, 'SELECT * FROM scopes WHERE archived_at IS NULL'] as const
   if (table === 'calculation_runs') {
     return [table, 'SELECT * FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL)'] as const
@@ -70,7 +73,14 @@ const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = SLICE_QUER
        SELECT id FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL))`] as const
   }
   return [table, sql] as const
-})
+}),
+  /*
+   * Addenda links made by hand (which sheet replaces which). Light only: the
+   * store there is this one PDF's, so the links are the file's. They were
+   * kept in the window's memory alone, and were gone on reopening.
+   */
+  ['redbeam_meta', `SELECT key, value FROM redbeam_meta WHERE key = '${FILE_META_KEYS[0]}'`],
+]
 
 /** Volatile columns that change without the takeoff changing. */
 const VOLATILE = new Set(['modified_at_observed', 'content_fingerprint', 'size_bytes', 'availability',
@@ -563,7 +573,7 @@ export function migrationStatus(result: MigrationResult): string | null {
 
 /** Order matters: a row's parents go in before it does. */
 const IMPORT_ORDER = ['scopes', 'calibrations', 'scale_regions', 'markups',
-  'calculation_runs', 'quantity_results', 'layout_components', 'activity'] as const
+  'calculation_runs', 'quantity_results', 'layout_components', 'activity', 'redbeam_meta'] as const
 
 const IDENT = /^[a-z_][a-z0-9_]*$/
 
@@ -805,6 +815,7 @@ export async function importSlice(
     for (const [table, rows] of tables) {
       for (const raw of rows) {
         const row = rekey(raw, slice.documentId, documentId)
+        if (table === 'redbeam_meta' && !(FILE_META_KEYS as readonly unknown[]).includes(row['key'])) continue
         const cols = Object.keys(row).filter((c) => IDENT.test(c))
         if (cols.length === 0) continue
         const sql = `INSERT OR IGNORE INTO ${table}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`
@@ -817,6 +828,17 @@ export async function importSlice(
           // saved without it; runs and layouts are worked out again anyway.
           if (HAND_MADE.has(table)) skipped++
           continue
+        }
+        /*
+         * OR IGNORE also swallows a row the table refuses (a NOT NULL column
+         * the slice does not carry), with no error. Counted as loaded, such a
+         * row was then missing from the window, and the next save took its
+         * markup out of the PDF. A hand-made row that is not there afterwards
+         * was not loaded, and the file is not saved into.
+         */
+        if (HAND_MADE.has(table) && typeof row['id'] === 'string') {
+          const there = await db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE id = ?`, [row['id']])
+          if ((there[0]?.n ?? 0) === 0) { skipped++; continue }
         }
         if (table === 'markups') markups++
         if (table === 'scopes') scopes++
