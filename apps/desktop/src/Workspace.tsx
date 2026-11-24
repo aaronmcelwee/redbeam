@@ -6910,7 +6910,9 @@ export default function Workspace({
           if (tab === undefined) return { error: `no open tab ${want}`, tabs: lightTabs.list.map((t) => t.file) }
           // Saved first when it is the one showing, as closing by hand does.
           if (tab.file === quickView.file && activeDocId !== null) await saveTakeoffIntoDrawing(activeDocId, { quiet: true })
-          lightTabs.onClose(tab.file)
+          // Answered first: closing the tab showing takes this workspace, and the answer, with it.
+          const close = lightTabs.onClose
+          setTimeout(() => close(tab.file), 60)
           return { closed: tab.file }
         }
         case 'rotate_pages': {
