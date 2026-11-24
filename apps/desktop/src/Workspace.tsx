@@ -61,7 +61,8 @@ import {
   type PanelFile, type ProjectMenuEntry, type RailPanel, type ShellTab,
 } from './shell/Shell.js'
 import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
-import { newScope, SCOPE_PALETTE } from './shell/scopeFactory.js'
+import { newScope, nextScopeColor, SCOPE_PALETTE } from './shell/scopeFactory.js'
+import { clipOf, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
 import { SheetIndex } from './shell/SheetIndex.js'
 import { useClampedPopover } from './shell/popover.js'
 import { pageStepForKey, steppedPage, toolForKey } from './shell/sheetKeys.js'
@@ -149,7 +150,7 @@ import {
   type ReportDraft, type ReportKind,
 } from './report/report.js'
 import { APP_VERSION } from './update/updates.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
@@ -510,6 +511,9 @@ export default function Workspace({
     setStatusEntry({ text, at })
   }, [])
   const [page, setPage] = useState({ width: 0, height: 0 })
+  /** Latest value, for copy and paste, which run from the key listener. */
+  const pageSizeRef = useRef(page)
+  pageSizeRef.current = page
   const [documents, setDocuments] = useState<DocumentRow[]>([])
   /*
    * Whether the folder scan has finished. Until it has, an empty `documents`
@@ -607,6 +611,7 @@ export default function Workspace({
   const [tool, setTool] = useState<Tool>('pan')
   const [scopes, setScopes] = useState<Scope[]>([])
   const [archivedScopes, setArchivedScopes] = useState<Scope[]>([])
+  const archivedScopesRef = useRef<Scope[]>([])
   const [activeScope, setActiveScope] = useState<string | null>(null)
   const [markups, setMarkups] = useState<Markup[]>([])
   /**
@@ -1014,7 +1019,6 @@ export default function Workspace({
   const [selectedAnnots, setSelectedAnnots] = useState<number[]>([])
   const selectedAnnotsRef = useRef<number[]>([])
   const selectAnnots = useCallback((next: number[]) => { selectedAnnotsRef.current = next; setSelectedAnnots(next) }, [])
-  const clipboardRef = useRef<Markup[]>([])
   const hoverRef = useRef<Hit | null>(null)
   const editRef = useRef<
     | { mode: 'vertex'; id: string; index: number }
@@ -3039,43 +3043,59 @@ export default function Workspace({
     }
   }, [runCommand, markupsFor, deselect])
 
-  /** Copy the selection. Geometry only — ids are minted fresh on paste. */
+  /**
+   * Copy the selection, to a clipboard every tab of the window shares, so it
+   * pastes into another open PDF too. Ids are minted fresh on paste.
+   */
   const copySelection = useCallback(() => {
     const ids = new Set(selectedRef.current)
-    clipboardRef.current = markupsRef.current.filter((m) => ids.has(m.id) && !isCutId(m.id)).map((m) => ({
-      ...m, rings: m.rings.map((r) => r.map((p) => ({ ...p }))),
+    const picked = markupsRef.current.filter((m) => ids.has(m.id) && !isCutId(m.id))
+    if (picked.length === 0) return
+    const size = pageSizeRef.current
+    if (size.width <= 0 || size.height <= 0) return
+    const docId = docIdRef.current
+    writeClip(clipOf(picked, [...scopesRef.current, ...archivedScopesRef.current], {
+      documentId: docId, pageId: pageIdFor(docId, pageIndexRef.current), width: size.width, height: size.height,
     }))
-    if (clipboardRef.current.length > 0) {
-      setStatus(`copied ${clipboardRef.current.length} markup${clipboardRef.current.length === 1 ? '' : 's'}`)
-    }
+    setStatus(`copied ${picked.length} markup${picked.length === 1 ? '' : 's'}`)
   }, [])
 
+  /** Make the scopes a paste from another PDF needs. Set once the round helpers exist, below. */
+  const addPastedScopesRef = useRef<(scopes: Scope[]) => Promise<void>>(async () => {})
+
   /**
-   * Paste onto the CURRENT page, nudged so the copy is visibly distinct.
+   * Paste onto the CURRENT page.
    *
    * Pasting onto the current page rather than the source page is the point:
    * the same detail repeats across sheets, and re-tracing it on each one is the
-   * work this is meant to remove.
+   * work this is meant to remove. From another sheet or another PDF it lands
+   * where it was on its own sheet; onto the sheet it came from it is nudged so
+   * the copy is visibly distinct. From another PDF, each markup goes to the
+   * scope of the same name here, made when this file has none.
    */
   const pasteClipboard = useCallback(async () => {
-    const src = clipboardRef.current
-    if (src.length === 0) return
-    const NUDGE = 0.01
+    const clip = readClip()
+    if (clip === null || clip.items.length === 0) return
+    const size = pageSizeRef.current
+    if (size.width <= 0 || size.height <= 0) return
     const docId = docIdRef.current
     const pageId = pageIdFor(docId, pageIndexRef.current)
-    const created: Markup[] = []
-    const cmds = src.map((m) => {
-      const rings = m.rings.map((r) => r.map((p) => ({ x: p.x + NUDGE, y: p.y + NUDGE })))
+    const plan = planPaste(clip, { documentId: docId, pageId, width: size.width, height: size.height },
+      scopesRef.current, () => newScope('', []).id, (taken) => nextScopeColor(taken))
+    if (plan.newScopes.length > 0) await addPastedScopesRef.current(plan.newScopes)
+    const created: string[] = []
+    const cmds = plan.markups.map((m) => {
       const id = uid()
-      created.push({ id, scopeId: m.scopeId, documentId: docId, pageId, kind: m.kind, rings })
+      created.push(id)
       return cmdCreate({
         id, documentId: docId, pageId, scopeId: m.scopeId,
-        kind: m.kind, rings, origin: 'user', reviewState: 'accepted',
+        kind: m.kind as MarkupKind, rings: m.rings, origin: 'user', reviewState: 'accepted',
+        ...(m.content !== undefined ? { content: m.content } : {}),
       })
     })
-    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`paste ${cmds.length} markups`, cmds))
-    const ids = created.map((m) => m.id)
-    setSelectedIds(ids); selectedRef.current = ids
+    if (!await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`paste ${cmds.length} markups`, cmds))) return
+    setSelectedIds(created); selectedRef.current = created
+    setStatus(pasteStatus(plan, clip.documentId !== docId))
   }, [runCommand])
 
   /** Move markups to another scope (or none), as one undo step. Any sheet, any drawing. */
@@ -3313,6 +3333,7 @@ export default function Workspace({
    */
   pageIndexRef.current = pageIndex
   scopesRef.current = scopes
+  archivedScopesRef.current = archivedScopes
   // The painter runs outside render and needs both: which regions govern this
   // sheet, and whether the scale tool is in hand (regions dim when it is not).
   regionsRef.current = projectRegions
@@ -4948,6 +4969,25 @@ export default function Workspace({
     await refreshEstimates(id)
     setOpenEstimateId((cur) => cur ?? id)
   }, [light, projectName, refreshEstimates])
+  addPastedScopesRef.current = async (made: Scope[]) => {
+    const db = dbRef.current
+    if (!db) return
+    for (const sc of made) {
+      await upsertScope(db, {
+        id: sc.id, label: sc.label, scopeType: sc.scopeType,
+        color: sc.color, specifications: sc.specifications, archivedAt: null,
+      })
+    }
+    // Light: the file's one round takes every scope not in a round yet.
+    if (light) await linkFileRound()
+    else {
+      const round = openEstimateIdRef.current
+      if (round !== null) for (const sc of made) await addScopeToEstimate(db, round, sc.id)
+      await refreshEstimates(round)
+    }
+    await refreshScopes()
+    void broadcastChange('scopes', identity.projectId ?? 'default')
+  }
   const roundMadeRef = useRef(false)
   useEffect(() => {
     if (!light || backend === null || roundMadeRef.current) return
@@ -8562,6 +8602,18 @@ export default function Workspace({
         },
       },
       {
+        id: 'copy-markup', kind: 'command', title: 'Copy selected markup', shortcut: 'Ctrl+C',
+        detail: 'pastes onto any sheet, in this PDF or another open one', keywords: ['clipboard', 'selection', 'other pdf', 'tab'],
+        ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
+        run: () => copySelection(),
+      },
+      {
+        id: 'paste-markup', kind: 'command', title: 'Paste markups', shortcut: 'Ctrl+V',
+        detail: 'onto this sheet, with their scopes', keywords: ['clipboard', 'other pdf', 'tab', 'copy'],
+        ...stuck(noSheet),
+        run: () => void pasteClipboard(),
+      },
+      {
         id: 'duplicate-markup', kind: 'command', title: 'Duplicate selected markup', shortcut: 'Ctrl+D',
         detail: `${selectedIds.length} selected`, keywords: ['copy', 'clone', 'selection'],
         ...stuck(selectedIds.length === 0 ? 'nothing selected' : undefined),
@@ -9507,12 +9559,24 @@ export default function Workspace({
                   className="menuitem"
                   role="menuitem"
                   onClick={() => {
+                    if (selectedRef.current.length === 0) { setSelectedIds([m.id]); selectedRef.current = [m.id] }
+                    copySelection()
+                    setMarkupMenu(null)
+                  }}
+                >
+                  <Glyph icon={Copy} role="row" />
+                  <span className="grow">Copy markup{plural}</span>
+                </button>
+                <button
+                  className="menuitem"
+                  role="menuitem"
+                  onClick={() => {
                     const ids = selectedRef.current.length > 0 ? selectedRef.current : [m.id]
                     void duplicateMarkups(ids)
                     setMarkupMenu(null)
                   }}
                 >
-                  <Glyph icon={Copy} role="row" />
+                  <Glyph icon={Duplicate} role="row" />
                   <span className="grow">Duplicate markup{plural}</span>
                 </button>
                 <button
