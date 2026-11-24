@@ -266,7 +266,7 @@ export interface WorkspaceProps {
    * resolves false when the window should stay open (it has then asked the
    * person, and calls `leave` itself if they choose to go).
    */
-  onBeforeClose?: (fn: ((leave: () => void) => Promise<boolean>) | null) => void
+  onBeforeClose?: (fn: ((leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>) | null) => void
 }
 
 /**
@@ -457,8 +457,12 @@ function editsCommand(edits: readonly GeometryEdit[], what: string, origin: stri
   return cmds.length === 1 ? cmds[0]! : cmdBatch(what, cmds)
 }
 
-/** How long a save before leaving may take before the person is asked. */
-const SLOW_SAVE_MS = 4000
+/**
+ * How long a save before closing the window may take before the person is
+ * asked. 0.3.66 asked after 4 s, and on every leave: an 80 MB set saving
+ * while an agent switched tabs put the ask up mid-work (Aaron, 2026-11-24).
+ */
+const SLOW_SAVE_MS = 15000
 const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF may be busy in another app, or on a slow or syncing drive.'
 
 export default function Workspace({
@@ -5158,15 +5162,28 @@ export default function Workspace({
    * refused: this is the way out when the PDF itself cannot be written.
    * Resolves true once a copy exists.
    */
+  const copyingRef = useRef(false)
+  const [copying, setCopying] = useState(false)
   const saveCopyOfFile = useCallback(async (): Promise<boolean> => {
+    /*
+     * One copy at a time. A copy of an 80 MB set is built in memory; clicks
+     * made while one was building each started another, with its own Save
+     * window, until the window ran out of memory (0.3.66).
+     */
+    if (copyingRef.current) return false
     const db = dbRef.current
     const doc = documents.find((d) => d.id === leftDocRef.current)
     if (!db || !doc) return false
     const name = doc.displayName || doc.relativePath
+    copyingRef.current = true
+    setCopying(true)
     try {
+      setStatus(`saving a copy of ${name}…`)
       const bytes = await embedCopy({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
         read: () => projectBridge.readDocument(projectPath, doc.relativePath),
+        // Built off the window's thread, so the window keeps answering.
+        embed: embedInWorker,
         allScopes: light,
         ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
       })
@@ -5178,14 +5195,25 @@ export default function Workspace({
     } catch (err) {
       setStatus(`could not save a copy: ${err instanceof Error ? err.message : String(err)}`)
       return false
+    } finally {
+      copyingRef.current = false
+      setCopying(false)
     }
   }, [documents, projectPath, light, setStatus])
   /** Save the open file, then say whether it is safe to leave it. Pro: always, redbeam.db has it. */
-  const saveBeforeLeaving = useCallback(async (leave: () => void): Promise<boolean> => {
+  const saveBeforeLeaving = useCallback(async (leave: () => void, opts?: { closing?: boolean }): Promise<boolean> => {
     const id = leftDocRef.current
     if (id === null) return true
     const saving = saveTakeoffIntoDrawing(id)
-    if (!light) { await saving; return true }
+    // Only a closing window asks while it waits; a tab change simply waits for its save.
+    if (!light || opts?.closing !== true) {
+      const out = await saving
+      if (!light) return true
+      const lost = unsavedReason(out, undoRef.current?.state.depth ?? 0)
+      if (lost === null) return true
+      setUnsavedAsk({ why: lost, leave })
+      return false
+    }
     let answered!: () => void
     const answer = new Promise<'answered'>((resolve) => { answered = () => resolve('answered') })
     const slow = { answered }
@@ -10771,8 +10799,9 @@ export default function Workspace({
                 : 'Save a copy to keep the takeoff now, or close the PDF in the other app and try again.'}</p>
               <div className="nesting-actions">
                 <button
-                  type="button" className="st-btn"
+                  type="button" className="st-btn" disabled={copying}
                   onClick={() => {
+                    if (copyingRef.current) return
                     const { leave } = unsavedAsk
                     // A slow save finishing meanwhile must not leave as well.
                     const slow = slowLeaveRef.current
@@ -10780,7 +10809,7 @@ export default function Workspace({
                     slow?.answered()
                     void saveCopyOfFile().then((saved) => { if (saved) { setUnsavedAsk(null); leave?.() } })
                   }}
-                >Save a copy…</button>
+                >{copying ? 'Saving a copy…' : 'Save a copy…'}</button>
                 {unsavedAsk.saving !== true && (
                   <button
                     type="button" className="st-btn"

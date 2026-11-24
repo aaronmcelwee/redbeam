@@ -453,18 +453,25 @@ export async function embedCopy(opts: {
   pageRotations?: ReadonlyMap<number, number>
   /** Leave every other app's markups out of the copy. */
   withoutForeign?: boolean
+  /** Where the PDF is built; the app passes its worker so an 80 MB set does not freeze the window. */
+  embed?: SheetEmbedder
 }): Promise<Uint8Array> {
   const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
   const source = await opts.read()
-  const result = await embedSheet(source, {
+  const input: EmbedInput = {
     documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
     ...(retire.length === 0 ? {} : { retire }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
     ...(opts.withoutForeign === true ? { retireForeign: true } : {}),
-  })
+  }
+  if (opts.embed !== undefined) {
+    const built = await opts.embed(source, input)
+    return built.result.bytes ?? built.source
+  }
+  const result = await embedSheet(source, input)
   return result.bytes ?? source
 }
 
