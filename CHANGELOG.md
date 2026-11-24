@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.67 — 2026-11-24
+
+### No more pile of save-a-copy prompts
+
+- **The saving prompt only comes up when you close the window.** 0.3.66 asked after 4 seconds whenever a save was slow, even while you or an AI app changed tabs. Now switching tabs just waits for the save, and the prompt only appears when you close the window and the save hasn't finished after 15 seconds.
+- **Save a copy runs once at a time.** It now builds the copy in the background, so the window keeps responding. The button says "Saving a copy…" while it works, and extra clicks do nothing instead of opening another save window each.
+
+
 ## 0.3.66 — 2026-11-24
 
 ### Closing the window always does something
