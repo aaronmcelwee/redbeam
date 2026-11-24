@@ -30,7 +30,7 @@ import type { Point, Region } from './geometry.js'
 import type { Segment } from './pattern.js'
 import { buildRunLayout, type Piece, type RegionLayout } from './pieces.js'
 import { fractionApproximately, orderStockPieceCount, roundUpQuantity } from './panels.js'
-import { regionArea, regionEdgeLengths, trimPiecesForEdges } from './geometry.js'
+import { regionArea, trimEdgeLengths, trimPiecesForEdges } from './geometry.js'
 import {
   measureToFeet, readBool, readString, type ProductType, type Specifications,
 } from './specs.js'
@@ -314,7 +314,7 @@ export function summarizeRuns(
     // (Aaron, 2026-09-18), the same rule the panels follow.
     if (inputs.perimeterTrimLengthFeet > 0) {
       summary.perimeterTrimPieces += trimPiecesForEdges(
-        regionEdgeLengths(entry.region).map((d) => d * feetPerPoint),
+        trimEdgeLengths(entry.region).map((d) => d * feetPerPoint),
         inputs.perimeterTrimLengthFeet,
       )
     }

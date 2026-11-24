@@ -19,8 +19,8 @@
  */
 
 import { resolveScaleForRings, type ScaleRegion } from './scaleRegion.js'
-import { perimeterTrimPieces, ringToPoints, type Calibration, type Markup, type Scope } from './scope.js'
-import { polylineLength, type Point, type Polygon, type Region } from './geometry.js'
+import { ringToPoints, type Calibration, type Markup, type Scope } from './scope.js'
+import { polylineLength, trimEdgeLengths, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
 import { ringsOverlap, subtractRings } from './clip.js'
 import { areaRegion } from './cuts.js'
 import {
@@ -37,6 +37,41 @@ import {
   measureToFeet, missingRequiredMeasures, readGranularity,
   readProductType, type ProductType, type Specifications,
 } from './specs.js'
+
+/**
+ * The length a scope's perimeter trim is cut in, feet, or null when it has
+ * none: Trim Len for panels and planks; for a baffle cassette its width,
+ * which is its trim convention. Other products order no trim.
+ */
+export function perimeterTrimLengthFeet(specs: Specifications): number | null {
+  const product = readProductType(specs)
+  const feet = product === 'baffle_cassette'
+    ? measureToFeet(specs, { valueKey: 'cassetteWidth', unitKey: 'cassetteWidthUnit', label: 'Cassette W' })
+    : product === 'panels' || product === 'planks'
+      ? measureToFeet(specs, { valueKey: 'perimeterTrimLength', unitKey: 'perimeterTrimLengthUnit', label: 'Trim Len' })
+      : null
+  return feet !== null && feet > 0 ? feet : null
+}
+
+/**
+ * Perimeter trim for laid-out areas: every edge of every area, cutouts
+ * included, rounded up to whole lengths on its own, each area measured at
+ * ITS sheet's scale. A scope spans sheets drawn at different scales; counted
+ * at one sheet's, the same room came out at twice or half its trim depending
+ * on which sheet happened to be open.
+ */
+function groupTrimPieces(
+  groups: readonly PanelLayoutGroup[], trimLengthFeet: number, fallbackFeetPerPoint: number,
+): number {
+  let pieces = 0
+  for (const g of groups) {
+    // The fallback is the layout's own: a group without a scale of its own is the single-sheet case.
+    const feetPerPoint = g.feetPerPoint ?? fallbackFeetPerPoint
+    if (!(feetPerPoint > 0)) continue
+    pieces += trimPiecesForEdges(trimEdgeLengths(g.region).map((d) => d * feetPerPoint), trimLengthFeet)
+  }
+  return pieces
+}
 
 /** One orderable line. `unit` is EA for pieces, matching the Qt BOM. */
 export interface PieceQuantity {
@@ -633,7 +668,7 @@ export function calculatePieces(
          */
         ...(trimLength === null
           ? []
-          : [{ itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: perimeterTrimPieces(mine, cal, trimLength), unit: 'EA' }]),
+          : [{ itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: groupTrimPieces(groups, trimLength, cal.feetPerPoint), unit: 'EA' }]),
       ].filter((q) => q.quantity > 0),
     }
   }
@@ -693,7 +728,7 @@ export function calculatePieces(
         { itemKey: 'cassette_count', label: 'Cassettes', quantity: cassettes, unit: 'EA' },
         { itemKey: 'primary_stock', label: 'Baffles', quantity: baffles, unit: 'EA' },
         { itemKey: 'end_caps', label: 'End caps', quantity: baffles * 2, unit: 'EA' },
-        { itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: perimeterTrimPieces(mine, cal, cassetteWidth), unit: 'EA' },
+        { itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: groupTrimPieces(groups, cassetteWidth, cal.feetPerPoint), unit: 'EA' },
       ].filter((q) => q.quantity > 0),
     }
   }

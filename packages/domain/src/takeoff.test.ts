@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { calculatePieces, layoutGroupsFor, scopeDefaultDirectionFrom } from './takeoff.js'
+import { calculatePieces, layoutGroupsFor, perimeterTrimLengthFeet, scopeDefaultDirectionFrom } from './takeoff.js'
 import { regionArea } from './geometry.js'
 import type { Calibration, Markup, Scope } from './scope.js'
 import type { NormalizedDirection } from './pattern.js'
@@ -481,6 +481,51 @@ describe('layout geometry across sheets', () => {
     expect(r.cells.length).toBeGreaterThan(0)
     const pages = new Set(r.cells.map((c) => c.pageId))
     expect(pages).toEqual(new Set(['d-p0', 'd-p8']))
+  })
+})
+
+/**
+ * Perimeter trim on a scope whose areas sit on sheets drawn at different
+ * scales. It was counted at the scale of the sheet that happened to be open:
+ * the same room came out at twice or half its trim depending on which.
+ */
+describe('perimeter trim across sheets at different scales', () => {
+  const direction = [{ x: 0.1, y: 0.5 }, { x: 0.9, y: 0.5 }] as unknown as NormalizedDirection
+  // 360 x 180 points: at 1/8" (1/9 ft per point) a 40' x 20' room, at 1/4" a 20' x 10' one.
+  const ring = [{ x: 0.1, y: 0.1 }, { x: 0.4, y: 0.1 }, { x: 0.4, y: 0.25 }, { x: 0.1, y: 0.25 }]
+  const box = { width: 1200, height: 1200 }
+  const eighth = { feetPerPoint: 1 / 9, pageWidth: 1200, pageHeight: 1200 }
+  const quarter = { feetPerPoint: 1 / 18, pageWidth: 1200, pageHeight: 1200 }
+  const on = (pageId: string, id: string) => ({
+    id, scopeId: 's1', documentId: 'd', pageId, kind: 'area', rings: [ring],
+  }) as unknown as Markup
+  const scope = {
+    id: 's1', label: 'S', scopeType: 'area', color: '#000',
+    specifications: {
+      productType: 'panels', panelWidth: '2', panelWidthUnit: 'ft', panelLength: '2', panelLengthUnit: 'ft',
+      perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft',
+    },
+  } as unknown as Scope
+  const trim = (markups: Markup[], open: Calibration) => calculatePieces(scope, markups, open, {
+    scopeDirection: direction,
+    pageSize: box,
+    calibrations: new Map([['d-p0', eighth], ['d-p1', quarter]]),
+    pageSizes: new Map([['d-p0', box], ['d-p1', box]]),
+  }).quantities.find((q) => q.itemKey === 'perimeter_trim')?.quantity
+
+  it('counts each sheet at its own scale, whichever sheet is open', () => {
+    // 40 + 20 + 40 + 20 in 10' lengths, and 20 + 10 + 20 + 10.
+    expect(trim([on('d-p0', 'a')], eighth)).toBe(12)
+    expect(trim([on('d-p1', 'b')], quarter)).toBe(6)
+    expect(trim([on('d-p0', 'a'), on('d-p1', 'b')], eighth)).toBe(18)
+    expect(trim([on('d-p0', 'a'), on('d-p1', 'b')], quarter)).toBe(18)
+  })
+
+  it('reads the trim length the way the engine does, per product', () => {
+    expect(perimeterTrimLengthFeet(scope.specifications)).toBe(10)
+    expect(perimeterTrimLengthFeet({ productType: 'baffle_cassette', cassetteWidth: '24', cassetteWidthUnit: 'in' })).toBe(2)
+    expect(perimeterTrimLengthFeet({ productType: 'baffle', perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft' })).toBeNull()
+    expect(perimeterTrimLengthFeet({ productType: 'panels' })).toBeNull()
   })
 })
 

@@ -40,6 +40,11 @@ export interface ExportScope {
   markupCount: number
   /** Sheets the scope's takeoff sits on, by label, in the order first seen. */
   sheets: string[]
+  /**
+   * Sheets with takeoff of this scope that nothing gave a scale: drawn, and
+   * in none of the quantities above, which the export has to say.
+   */
+  unscaledSheets?: string[]
 }
 
 export interface EstimateExport {
@@ -53,7 +58,10 @@ export interface EstimateExport {
   generatedAt: Date
 }
 
-export interface BuildEstimateExportInput {
+/** What the export reads off a markup; the workspace's own markups carry more. */
+export interface ExportMarkup { scopeId: string | null; documentId: string; pageId: string; kind: string }
+
+export interface BuildEstimateExportInput<M extends ExportMarkup = ExportMarkup> {
   projectName: string
   estimateName: string
   /** The round's scopes, in the round's order. */
@@ -63,7 +71,13 @@ export interface BuildEstimateExportInput {
   /** Piece results per scope; the bill is built from these. */
   pieces: readonly ScopePieces[]
   /** Every markup in the project, so a scope's sheets and counts can be read off. */
-  markups: ReadonlyArray<{ scopeId: string | null; documentId: string; pageId: string; kind: string }>
+  markups: ReadonlyArray<M>
+  /**
+   * Whether a markup could be measured: its sheet, or a detail on it, has a
+   * scale. The quantities leave out one that could not, so the export names
+   * its sheet. Left out, every markup counts as measured.
+   */
+  measured?: (markup: M) => boolean
   /** Sheet label for a page id — "A-101", or "Page 3" — used for the sheet list. */
   sheetLabelFor: (pageId: string) => string
   documents: readonly string[]
@@ -73,7 +87,7 @@ export interface BuildEstimateExportInput {
 /** Only the markup kinds that reach a quantity. A dimension on a sheet is not takeoff. */
 const TAKEOFF = new Set(['area', 'cutout', 'polyline', 'count'])
 
-export function buildEstimateExport(input: BuildEstimateExportInput): EstimateExport {
+export function buildEstimateExport<M extends ExportMarkup>(input: BuildEstimateExportInput<M>): EstimateExport {
   const inRound = new Set(input.scopes.map((s) => s.id))
   const bom = buildBom(input.pieces.filter((p) => inRound.has(p.scope.id)))
 
@@ -81,9 +95,12 @@ export function buildEstimateExport(input: BuildEstimateExportInput): EstimateEx
     const rows = input.quantities.find((q) => q.scope.id === s.id)?.rows ?? []
     const mine = input.markups.filter((m) => m.scopeId === s.id && TAKEOFF.has(m.kind))
     const sheets: string[] = []
+    const unscaledSheets: string[] = []
     for (const m of mine) {
       const label = input.sheetLabelFor(m.pageId)
       if (!sheets.includes(label)) sheets.push(label)
+      // A count needs no scale.
+      if (m.kind !== 'count' && input.measured?.(m) === false && !unscaledSheets.includes(label)) unscaledSheets.push(label)
     }
     return {
       id: s.id,
@@ -100,6 +117,7 @@ export function buildEstimateExport(input: BuildEstimateExportInput): EstimateEx
         })),
       markupCount: mine.length,
       sheets,
+      unscaledSheets,
     }
   })
 

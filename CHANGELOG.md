@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.61 — 2026-11-24
+## 0.3.63 — 2026-11-24
 
 ### AI apps can do a whole takeoff
 
@@ -26,6 +26,24 @@ SmartScreen will ask once.
 - **More it can do.** Reshape or move a markup, copy markups to another sheet, draw a dimension, rotate sheets, bring scopes in from another PDF, accept imported markups, read the PDF's notes, links and bookmarks, close a tab, and read or change settings.
 - **No stolen focus.** When an AI app opens a PDF, REDBEAM stays where it is instead of jumping in front of what you're working in.
 - **Clearer tools.** Each action has its own tool with its own inputs, lists of markups and scopes come back with quantities and names, and errors say what would have worked.
+
+
+## 0.3.62 — 2026-11-24
+
+### A new estimate PDF, with a picture of every area
+
+- **White paper that prints.** The estimate PDF is redesigned on white: a cover with the totals and a key plan of the takeoff, then the quantities, then the pictures.
+- **A picture of every area, drawn from the sheet.** Each takeoff area gets its own snapshot, copied from the drawing itself rather than a screenshot, so it stays sharp when you zoom. The drawing is dimmed so the takeoff stands out: products inside the boundary are bold, and offcuts past it are faded.
+- **One scale, so rooms compare.** Rooms print at one scale even when their sheets were drawn at different scales, and small rooms print together at one larger detail scale. Every picture names its scale.
+- **Perimeter trim on the edge of the area.** Trim is drawn along each area's boundary with a tick at every joint, and the picture shows the same lengths the quantities count.
+- **Long names fit.** When the estimate and the file share a name, the cover says it once, and a long file or sheet name wraps after its hyphens instead of running off the page.
+- **Nothing left out quietly.** Takeoff on a sheet with no scale is listed as not measured, and a sheet the export can't read is noted.
+
+### Perimeter trim counts more carefully
+
+- **Each area is counted at its own sheet's scale.** A scope spread over sheets drawn at different scales could count a room's trim at twice or half its real length, depending on which sheet was open.
+- **A curved wall is one run.** A bend of less than 20° keeps a length going, and a corner starts a new one, so round and curved rooms drawn with many short sides count fewer lengths.
+
 
 ## 0.3.60 — 2026-11-24
 

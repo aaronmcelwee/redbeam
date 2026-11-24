@@ -10,7 +10,7 @@
  * and it is enforced here by `npm run check:domain-purity`.
  */
 
-import { regionArea, regionEdgeLengths, regionPerimeter, polylineLength, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
+import { regionArea, regionPerimeter, polylineLength, trimEdgeLengths, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
 import { clipRingToRings, cutAreas, ringsOverlap } from './clip.js'
 import { areaRegion } from './cuts.js'
 import { unitToFeet } from './units.js'
@@ -224,7 +224,7 @@ export function perimeterTrimPieces(markups: Markup[], cal: Calibration, trimLen
     if (m.kind !== 'area') continue
     for (const ring of areaRegion(m.rings)) rings.push(ringToPoints(ring, cal))
   }
-  return trimPiecesForEdges(regionEdgeLengths(rings).map((d) => d * cal.feetPerPoint), trimLengthFeet)
+  return trimPiecesForEdges(trimEdgeLengths(rings).map((d) => d * cal.feetPerPoint), trimLengthFeet)
 }
 
 /** Total length in linear feet across every polyline markup. */
