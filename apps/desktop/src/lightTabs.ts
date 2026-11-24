@@ -64,8 +64,11 @@ export function stepTab(tabs: readonly LightFile[], file: string, step: 1 | -1):
 // ------------------------------------------------------------ session --
 
 const SESSION_KEY = 'redbeam.light-tabs'
-/** Most tabs brought back at start. A session of fifty files is a mistake to repeat. */
-export const SESSION_LIMIT = 20
+/*
+ * Every tab comes back at start, however many (Aaron, 2026-11-24: no
+ * arbitrary caps). A restored tab is a name until it is shown: only the
+ * active one opens its PDF.
+ */
 
 export interface LightSession { files: string[]; active: string | null }
 
@@ -77,7 +80,7 @@ export function readSession(storage: Pick<Storage, 'getItem'> | null = safeStora
     const v = JSON.parse(raw) as unknown
     if (v === null || typeof v !== 'object') return { files: [], active: null }
     const o = v as Record<string, unknown>
-    const files = Array.isArray(o.files) ? o.files.filter((f): f is string => typeof f === 'string' && f !== '').slice(0, SESSION_LIMIT) : []
+    const files = Array.isArray(o.files) ? o.files.filter((f): f is string => typeof f === 'string' && f !== '') : []
     const active = typeof o.active === 'string' && files.some((f) => samePath(f, o.active as string)) ? o.active : (files[0] ?? null)
     return { files, active }
   } catch {
@@ -86,7 +89,7 @@ export function readSession(storage: Pick<Storage, 'getItem'> | null = safeStora
 }
 
 export function writeSession(s: LightSession, storage: Pick<Storage, 'setItem'> | null = safeStorage()): void {
-  try { storage?.setItem(SESSION_KEY, JSON.stringify({ files: s.files.slice(0, SESSION_LIMIT), active: s.active })) } catch { /* a convenience only */ }
+  try { storage?.setItem(SESSION_KEY, JSON.stringify({ files: s.files, active: s.active })) } catch { /* a convenience only */ }
 }
 
 function safeStorage(): Storage | null {

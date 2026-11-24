@@ -110,8 +110,6 @@ export interface PdfiumLinkLike extends WasmStrings {
   FPDFAction_GetURIPath(doc: number, action: number, buffer: number, buflen: number): number
 }
 
-/** Most links one page may report. A runaway enumeration stops here. */
-const MAX_LINKS = 5000
 
 export function createPdfiumLinkBackend(
   m: PdfiumLinkLike, doc: number, pageBox: (page: number) => PageBox,
@@ -125,7 +123,17 @@ export function createPdfiumLinkBackend(
       const found: number[] = []
       try {
         m.pdfium.HEAP32[pos >> 2] = 0
-        while (found.length < MAX_LINKS && m.FPDFLink_Enumerate(page, pos, out)) {
+        /*
+         * Every link on the page; there used to be a 5,000 ceiling (Aaron,
+         * 2026-11-24: no arbitrary caps). What ends a runaway instead is the
+         * cursor: PDFium moves `pos` past each link it returns, so a cursor
+         * that did not move means the enumeration is going nowhere.
+         */
+        let last = -1
+        while (m.FPDFLink_Enumerate(page, pos, out)) {
+          const at = m.pdfium.HEAP32[pos >> 2] ?? 0
+          if (at <= last) break
+          last = at
           const h = m.pdfium.HEAP32[out >> 2] ?? 0
           if (h !== 0) found.push(h)
         }

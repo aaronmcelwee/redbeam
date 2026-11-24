@@ -346,6 +346,26 @@ describe('search — FTS5 path on real SQLite', () => {
     expect(r.truncated).toBe(true)
   })
 
+  it('pages through every hit with offset, with no ceiling on the page size', async () => {
+    const first = await searchProjectText(db, 'ceiling', { limit: 2 })
+    expect(first.truncated).toBe(true)
+    const rest = await searchProjectText(db, 'ceiling', { limit: 2, offset: 2 })
+    expect(rest.truncated).toBe(false)
+    expect([...first.hits, ...rest.hits].map((h) => `${h.documentId}#${h.pageNumber}`)).toEqual([
+      'doc-1#1', 'doc-1#2', 'doc-2#1',
+    ])
+    // Once clamped to 500; a big page is now just a big page.
+    const all = await searchProjectText(db, 'ceiling', { limit: 100_000 })
+    expect(all.hits).toHaveLength(3)
+    expect(all.truncated).toBe(false)
+    const like = await searchProjectText(db, 'ceiling', { limit: 1, offset: 1, mode: 'like' })
+    expect(like.hits.map((h) => `${h.documentId}#${h.pageNumber}`)).toEqual(['doc-1#2'])
+  })
+
+  it('reports every span on a page by default', () => {
+    expect(findSpans('ab '.repeat(500), 'ab', false)).toHaveLength(500)
+  })
+
   // ---- the injection / crash surface, against a live FTS5 parser ----
 
   const HOSTILE = [

@@ -29,11 +29,11 @@ use super::record::{UndoError, UndoRecord, UndoTarget};
 
 /// How deep the user's stack goes before the oldest entry falls off.
 ///
-/// Matches the TypeScript `UndoStack`'s default so the two paths behave the
-/// same. Deliberately not unbounded: D1 scopes the stack to the session, and a
-/// stack that reaches back through a whole day of measuring is a way to revert
-/// an edit whose context is long gone.
-pub const DEFAULT_LIMIT: usize = 100;
+/// In practice never: Aaron (2026-11-24) asked for no arbitrary caps, and a
+/// day of takeoff is a few thousand small rows. The stack is still scoped to
+/// the session (D1), so it does not reach back past this sitting. Matches the
+/// TypeScript `UNBOUNDED_UNDO`; kept within i64 because `trim` binds it.
+pub const DEFAULT_LIMIT: usize = 9_007_199_254_740_991;
 
 pub const UNDO_MIGRATION_VERSION: i64 = 7;
 
