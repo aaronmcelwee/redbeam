@@ -44,7 +44,11 @@ export interface HighlightTarget {
 
 export interface SearchPanelProps {
   /** Runs the query over the chosen reach. Null while no project is open. */
-  onSearch: ((query: string, scope: SearchScope) => Promise<SearchReport>) | null
+  /**
+   * Runs the query over the chosen reach, one page of hits at a time:
+   * `offset` skips the hits already shown. Null while no project is open.
+   */
+  onSearch: ((query: string, scope: SearchScope, offset?: number) => Promise<SearchReport>) | null
   /** Jump to a hit. `pageNumber` is ZERO-based, as stored. */
   onGoToHit: (hit: SearchHit) => void
   /**
@@ -158,6 +162,22 @@ export function SearchPanel({
     setReport(next)
     setBusy(false)
     setArmed(0)
+    /*
+     * No ceiling on hits (Aaron, 2026-11-24: no arbitrary caps). The first
+     * page shows at once; the rest are fetched behind it and appended, so a
+     * word on every sheet of an 1,800-sheet set lists every sheet. A new
+     * search (`seq`) stops the old one between pages.
+     */
+    let all = next
+    while (all.truncated) {
+      let more: SearchReport
+      try { more = await onSearch(q, scope, all.hits.length) } catch { break }
+      if (mine !== seq.current) return
+      if (more.hits.length === 0) { all = { ...all, truncated: false }; break }
+      all = { ...all, hits: [...all.hits, ...more.hits], truncated: more.truncated }
+      setReport(all)
+    }
+    if (mine === seq.current && all !== next) setReport(all)
   }, [onSearch, scope])
 
   /* Search as you type, after a pause. Enter walks the hits. */
@@ -433,6 +453,7 @@ function summary(report: SearchReport, coverage: number | null, highlighted: num
     ? 'No matches'
     : `${n}${report.truncated ? '+' : ''} ${n === 1 ? 'match' : 'matches'} · ${sheets} ${sheets === 1 ? 'sheet' : 'sheets'}`
   const parts = [head]
+  if (report.truncated) parts.push('finding more…')
   if (coverage !== null) parts.push(`${coverage}% indexed`)
   if (highlighted > 0 && into !== null) parts.push(`${highlighted} highlighted into ${into}`)
   return parts.join(' · ')

@@ -476,6 +476,9 @@ function entitiesOf(record: UndoRecord): string[] {
  */
 export class UndoBlocked extends Error {}
 
+/** The undo stack's default depth: in practice, every step of the session. */
+export const UNBOUNDED_UNDO = Number.MAX_SAFE_INTEGER
+
 export class UndoStack {
   private done: Entry[] = []
   private undone: Entry[] = []
@@ -485,7 +488,13 @@ export class UndoStack {
 
   constructor(
     private db: SqlDriver,
-    private limit = 100,
+    /*
+     * No depth cap by default (Aaron, 2026-11-24: no arbitrary caps). An
+     * entry is a few kilobytes of before/after, so a whole day of takeoff
+     * fits; a test can still pass a small number. A safe integer rather than
+     * Infinity because the core path sends it over JSON.
+     */
+    private limit = UNBOUNDED_UNDO,
     opts: UndoStackOptions = {},
   ) {
     const mode = opts.mode ?? 'auto'

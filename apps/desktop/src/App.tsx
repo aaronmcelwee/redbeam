@@ -20,7 +20,7 @@ import { setBeforeQuit } from './update/session.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 import { projectBridge } from './project/bridge.js'
 import {
-  SESSION_LIMIT, lightFileOf, nextOwnTab, ownTabs, readSession, samePath, stepOwnTab, tabFor, withHanded, withOwner,
+  lightFileOf, nextOwnTab, ownTabs, readSession, samePath, stepOwnTab, tabFor, withHanded, withOwner,
   withoutTab, withTab, writeSession, type LightFile,
 } from './lightTabs.js'
 import { bridgeHosts, UNNAMED_CALL, useBridgeListener } from './bridge/useBridgeRequests.js'
@@ -269,7 +269,7 @@ export default function App() {
     if (tab === undefined) return
     // An agent's tab is not what Ctrl+Shift+T is for: the person did not open it.
     if (tab.owner === undefined) {
-      closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file].slice(-SESSION_LIMIT)
+      closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file]
     }
     handovers.dropFile(file)
     usedRef.current.delete(foldPath(file))

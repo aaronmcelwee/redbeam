@@ -277,7 +277,7 @@ export interface FoundRange {
  * (`@redbeam/store` search.ts) and has different matching semantics; see the
  * notes there before assuming the two agree.
  */
-export function findRanges(text: string, needle: string, limit = 1000): FoundRange[] {
+export function findRanges(text: string, needle: string, limit = Infinity): FoundRange[] {
   const out: FoundRange[] = []
   if (!needle) return out
   const hay = text.toLowerCase()

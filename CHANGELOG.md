@@ -18,6 +18,17 @@ SmartScreen will ask once.
 - **Agents never take the keyboard or the window.** An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, REDBEAM asks you first. "What's new" no longer opens over a window an AI app started.
 - **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
 
+## 0.3.77 — 2026-11-24
+
+### No more hidden ceilings
+
+- **Search finds every match.** Search stopped at 100 sheets and showed "100+". It now lists every match: the first ones show at once and the rest fill in below while you look.
+- **Undo goes all the way back.** Undo used to stop after 100 steps. It now goes back to the start of your session.
+- **All your tabs come back.** REDBEAM reopened only 20 tabs at start, and Back and Forward remembered only 50 places. Both now keep everything.
+- **Every bookmark and link.** Bookmarks stopped at 10,000 and links at 5,000 per sheet, which big sets can pass. All of them are read now.
+- **Zoom in to 6400%.** The deepest zoom was 1000%.
+- **Bigger requests from AI apps.** A request from Claude or ChatGPT could be at most 4 MB, so a big batch of markups failed. The limit is now 1 GB.
+
 
 ## 0.3.76 — 2026-11-24
 

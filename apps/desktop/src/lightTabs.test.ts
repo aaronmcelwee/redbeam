@@ -38,6 +38,13 @@ describe('light tabs', () => {
     expect(readSession(store)).toEqual({ files: [], active: null })
     expect(readSession(null)).toEqual({ files: [], active: null })
   })
+  it('brings back every tab, however many (no cap)', () => {
+    const m = new Map<string, string>()
+    const store = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v) } }
+    const files = Array.from({ length: 75 }, (_, i) => `C:\\jobs\\set ${i}.pdf`)
+    writeSession({ files, active: files[60]! }, store)
+    expect(readSession(store)).toEqual({ files, active: files[60] })
+  })
 })
 
 describe('tabs with agents in the window', () => {

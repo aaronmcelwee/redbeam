@@ -49,6 +49,13 @@ describe('ViewHistory', () => {
     expect(h.goBack(at(5))).toEqual(at(1, 3))
     expect(h.goBack(at(1))).toEqual(at(0))
   })
+  it('remembers every place, not the last fifty', () => {
+    const h = new ViewHistory()
+    for (let p = 0; p < 500; p++) h.leave(at(p))
+    let back = 0
+    while (h.goBack(at(999)) !== null) back++
+    expect(back).toBe(500)
+  })
 })
 
 describe('history keys', () => {
