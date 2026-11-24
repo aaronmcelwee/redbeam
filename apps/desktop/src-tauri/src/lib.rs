@@ -3,6 +3,7 @@ mod ai_apps;
 mod backdrop;
 mod bridge;
 mod crash;
+mod docstream;
 pub mod mcp;
 mod open_with;
 mod project;
@@ -82,6 +83,17 @@ pub fn run() {
         // The undo stack belongs to the project, not to a window (D1). It lives
         // here for the same reason the connection does: several windows share it.
         .manage(undo::UndoState::new())
+        // Drawings are read a byte range at a time (docstream.rs), so a 500 MB
+        // set opens without the whole file crossing into the window.
+        .manage(docstream::DocStreams::default())
+        .register_asynchronous_uri_scheme_protocol(docstream::SCHEME, |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || {
+                use tauri::Manager;
+                let streams = app.state::<docstream::DocStreams>();
+                responder.respond(docstream::respond(&streams, &request));
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             // `#[tauri::command]` emits a helper macro beside each function, so
             // these must be pathed to the defining module, not a re-export.
@@ -112,6 +124,8 @@ pub fn run() {
             project::project_reveal,
             project::project_scan,
             project::project_read_document,
+            docstream::project_stream_document,
+            docstream::project_stream_release,
             project::project_write_document,
             project::project_create_document,
             project::write_export_file,

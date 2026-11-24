@@ -51,7 +51,7 @@ export {
 export type { InvokeFn, KeyValueStore, ProjectBridge, ProjectBridgeOptions } from './bridge.js'
 
 export {
-  createCoreBlobUrlResolver,
+  createCoreDocumentUrlResolver,
   createWorkerPageProbe,
   describeScan,
   shouldReconcile,
