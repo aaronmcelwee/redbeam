@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.60 — 2026-11-24
+
+### Takeoff survives merging and rearranging pages in Bluebeam
+
+- **Merged PDFs open with their takeoff.** A PDF with REDBEAM markups that was combined with another PDF in Bluebeam now opens with all of its takeoff, on the sheets where the markups are now. Before, REDBEAM said part of the takeoff could not be loaded and would only save a copy.
+- **Each sheet carries its own takeoff.** Its markups, scale and scopes are saved on the sheet itself, so inserting, deleting, reordering or extracting pages in Bluebeam takes the takeoff along with the sheet.
+- **Two marked-up PDFs become one takeoff.** Scopes with the same name are joined. Markups on sheets that were deleted are left out, and REDBEAM tells you how many.
+- **Files from before this update recover too.** REDBEAM finds each of its markups on the page where it is now. The next save puts the file back in order.
+
+
 ## 0.3.58 — 2026-11-24
 
 ### AI apps can measure, and keep a client's file clean
