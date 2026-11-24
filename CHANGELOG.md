@@ -5,13 +5,24 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.55 — 2026-11-24
+## 0.3.56 — 2026-11-24
 
 ### Bluebeam markups you can work with
 
 - **Bluebeam areas and lengths are REDBEAM markups now.** When a PDF opens, its Bluebeam (or Acrobat) areas, rectangles, polylines and measured lines, cutouts included, become ordinary markups with no scope. Select, move, reshape or delete them like anything you drew, and give an area a scope to make it part of that takeoff.
 - **Nothing is doubled or lost in Bluebeam.** A markup you leave alone stays exactly as Bluebeam saved it. One you change or give a scope is saved as REDBEAM's, in place of the original. One you delete is deleted from the PDF too.
 - Clouds, arrows, text boxes and stamps stay Bluebeam's, drawn on the sheet as before.
+
+
+## 0.3.55 — 2026-11-24
+
+### Claude and ChatGPT can read your sheets closely
+
+- **Hide markups to see the drawing.** New in the command palette: *Hide the PDF's own markups* (Bluebeam's or anyone's), *Hide REDBEAM markups*, and *Hide all markups*. Nothing in the file changes, and a bar at the top says while they're hidden, with a button to bring them back.
+- **Sharp close-ups for AI apps.** Claude or ChatGPT can now ask REDBEAM for one part of a sheet rendered at high resolution, instead of cropping a blurry screenshot of the whole sheet.
+- **AI apps can find where text is.** Searching for a tag like C-7 now tells the AI app where it sits on the sheet, so it can zoom to it or take a close-up of it.
+- **AI apps know your sheet names.** They see each page as its sheet number and title, A4.0 FLOOR PLAN rather than "page 5", and can go to a sheet by its number.
+- **AI apps can hide markups too**, for a clean look at the drawing, and the bar tells you when they have.
 
 
 ## 0.3.54 — 2026-11-24

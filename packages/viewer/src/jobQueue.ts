@@ -13,7 +13,7 @@
  */
 import type { NormClip } from './geometry.js'
 
-export type JobKind = 'tile' | 'thumb' | 'text' | 'geometry' | 'index' | 'annots'
+export type JobKind = 'tile' | 'thumb' | 'text' | 'geometry' | 'index' | 'annots' | 'region'
 
 export interface TileJob {
   kind: 'tile'
@@ -26,6 +26,8 @@ export interface TileJob {
   zoom: number
   /** Annotation indexes hidden for this raster. Absent when the page draws them all. */
   hidden?: number[]
+  /** False draws none of the PDF's own annotations. Absent draws them. */
+  annots?: false
 }
 
 export interface ThumbJob {
@@ -87,7 +89,29 @@ export interface AnnotsJob {
   priority: number
 }
 
-export type Job = TileJob | ThumbJob | TextJob | GeometryJob | IndexJob | AnnotsJob
+/**
+ * One rectangle of a page, rendered at a size the caller picks rather than at
+ * the window's zoom. What an agent asks for when it needs to read a detail:
+ * a crop of a screenshot is only as sharp as the screen it came from.
+ */
+export interface RegionJob {
+  kind: 'region'
+  key: string
+  page: number
+  priority: number
+  /** Normalized [0,1] page box, y down. */
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  /** Output size in pixels. */
+  width: number
+  height: number
+  annots: boolean
+  hidden?: number[]
+}
+
+export type Job = TileJob | ThumbJob | TextJob | GeometryJob | IndexJob | AnnotsJob | RegionJob
 
 export class JobQueue {
   private readonly jobs = new Map<string, Job & { seq: number }>()

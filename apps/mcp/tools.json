@@ -13,11 +13,17 @@
     "redbeam_screenshot": "screenshot",
     "redbeam_invoke_ui_action": "invoke_ui_action",
     "redbeam_get_bom": "invoke_ui_action",
-    "redbeam_export": "invoke_ui_action"
+    "redbeam_export": "invoke_ui_action",
+    "redbeam_list_sheets": "invoke_ui_action",
+    "redbeam_find_text": "invoke_ui_action",
+    "redbeam_set_markup_visibility": "invoke_ui_action"
   },
   "actionOf": {
     "redbeam_get_bom": "get_bom",
-    "redbeam_export": "export"
+    "redbeam_export": "export",
+    "redbeam_list_sheets": "list_sheets",
+    "redbeam_find_text": "find_text",
+    "redbeam_set_markup_visibility": "set_markup_visibility"
   },
   "tools": [
     {
@@ -67,7 +73,7 @@
     },
     {
       "name": "redbeam_list_pages",
-      "description": "Pages, optionally for one document. page_number is ZERO-based.",
+      "description": "Pages, optionally for one document. page_number is ZERO-based. `label` is only the PDF's own page label and is often empty; redbeam_list_sheets gives the sheet number and title for every page of the open document.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -158,13 +164,99 @@
     },
     {
       "name": "redbeam_screenshot",
-      "description": "PNG of the current canvas, raster and markup overlay composited. Needs a window with a PDF open.",
+      "description": "PNG of the sheet. With no `region`: the window's canvas as it is, raster and markup overlay composited. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. Needs a window with a document open.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "overlay": {
             "type": "boolean",
-            "description": "Include the markup overlay (default true)."
+            "description": "Include REDBEAM's markup overlay. Default true for the whole-canvas shot; for a region it follows what the window shows (see set_markup_visibility)."
+          },
+          "region": {
+            "type": "object",
+            "description": "{x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top — the space find_text and get_words report boxes in. A 0.05-wide box on an E-size sheet is about 2.5 inches of paper."
+          },
+          "width": {
+            "type": "integer",
+            "description": "For a region: output width in pixels (height follows the box's proportions). Default 2000, at most 6000."
+          },
+          "page": {
+            "type": "integer",
+            "description": "For a region: ZERO-based page to show first. Defaults to the open sheet."
+          },
+          "annotations": {
+            "type": "boolean",
+            "description": "For a region: draw the PDF's own markups. Defaults to what the window shows."
+          }
+        }
+      }
+    },
+    {
+      "name": "redbeam_list_sheets",
+      "description": "Every page of the open document with its sheet number and title (\"A4.0\", \"FLOOR PLAN - LEVEL 03\"), from the PDF's bookmarks, then its page labels, then the title block printed on the sheet. `sheet` is null where none of them names the page. Use the page numbers here (ZERO-based) for go_to_page, find_text and screenshot. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "redbeam_find_text",
+      "description": "Where text is on the sheets of the open document: every match with its page (ZERO-based), sheet number and box in NORMALIZED [0,1] page coordinates, y down. Pass a box to redbeam_screenshot `region` for a close-up, or to zoom_to_region to show it. Searches every page unless `page`, `pages` or `fromPage`/`toPage` narrow it; a long set may come back with `notSearched` pages to ask for again. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The text to find, e.g. \"C-7\"."
+          },
+          "wholeWord": {
+            "type": "boolean",
+            "description": "Only whole words, so \"C-7\" does not also find C-70. Default false."
+          },
+          "caseSensitive": {
+            "type": "boolean",
+            "description": "Default false."
+          },
+          "page": {
+            "type": "integer",
+            "description": "One ZERO-based page."
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "ZERO-based pages."
+          },
+          "fromPage": {
+            "type": "integer"
+          },
+          "toPage": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Most matches returned. Default 300."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "redbeam_set_markup_visibility",
+      "description": "Hide or show markups for a clean look at the drawing, as the palette's \"Hide the PDF's own markups\" and \"Hide REDBEAM markups\" do. `embedded` is the PDF's own annotations (Bluebeam's or anyone's); `redbeam` is the takeoff, dimensions and layout REDBEAM draws over the sheet. Nothing is written or deleted, and the window tells the person while markups are hidden, so show them again when done. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "embedded": {
+            "type": "boolean",
+            "description": "false hides, true shows. Omit to leave as is."
+          },
+          "redbeam": {
+            "type": "boolean",
+            "description": "false hides, true shows. Omit to leave as is."
           }
         }
       }
@@ -207,7 +299,7 @@
     },
     {
       "name": "redbeam_invoke_ui_action",
-      "description": "Drive the app the way a person would. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first.",
+      "description": "Drive the app the way a person would. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -236,7 +328,12 @@
               "set_region_scale",
               "cancel_scale_region",
               "delete_scale_region",
-              "commit_scope"
+              "commit_scope",
+              "list_sheets",
+              "find_text",
+              "get_words",
+              "zoom_to_region",
+              "set_markup_visibility"
             ]
           },
           "tool": {
@@ -249,7 +346,7 @@
           },
           "page": {
             "type": "integer",
-            "description": "For go_to_page. ZERO-based."
+            "description": "For go_to_page, get_words, find_text and zoom_to_region. ZERO-based."
           },
           "on": {
             "type": "boolean",
@@ -309,19 +406,19 @@
           },
           "pages": {
             "type": "array",
-            "description": "For set_page_scale: explicit ZERO-based page numbers in the OPEN document. Defaults to the open sheet. Written in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which."
+            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
           },
           "fromPage": {
             "type": "integer",
-            "description": "For set_page_scale: start of an inclusive ZERO-based range."
+            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
           },
           "toPage": {
             "type": "integer",
-            "description": "For set_page_scale: end of an inclusive ZERO-based range."
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range."
           },
           "rect": {
             "type": "object",
-            "description": "For begin_scale_region: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points. A region carries its own scale for the details sheet where four details sit at four scales. Drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens."
+            "description": "For begin_scale_region, zoom_to_region and get_words: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points — the same space find_text reports boxes in. For begin_scale_region, a region carries its own scale for the details sheet where four details sit at four scales; drawing it is only half the gesture — it governs nothing until set_region_scale answers the picker it opens. For get_words, only the words whose centre is inside."
           },
           "kind": {
             "type": "string",
@@ -362,6 +459,42 @@
           "y2": {
             "type": "number",
             "description": "For set_scope_direction. Normalized [0,1]."
+          },
+          "sheet": {
+            "type": "string",
+            "description": "For go_to_page instead of page: the sheet number as the set prints it, e.g. \"A4.0\". Punctuation and case are ignored (\"A.4.0\" finds A4.0); a code that matches no sheet, or more than one, is refused rather than guessed."
+          },
+          "query": {
+            "type": "string",
+            "description": "For find_text: the text to find, e.g. a tag like \"C-7\"."
+          },
+          "caseSensitive": {
+            "type": "boolean",
+            "description": "For find_text. Default false."
+          },
+          "wholeWord": {
+            "type": "boolean",
+            "description": "For find_text: only whole words, so \"C-7\" does not also find C-70. Default false."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "For find_text (default 300 matches) and get_words (default 3000 words)."
+          },
+          "margin": {
+            "type": "number",
+            "description": "For zoom_to_region: room left around the box, as a fraction of its size. Default 0.15."
+          },
+          "highlight": {
+            "type": "boolean",
+            "description": "For zoom_to_region: mark the box the way a search hit is marked. Default true."
+          },
+          "embedded": {
+            "type": "boolean",
+            "description": "For set_markup_visibility: false hides the PDF's own markups (Bluebeam's or anyone's), true shows them. Omit to leave as is."
+          },
+          "redbeam": {
+            "type": "boolean",
+            "description": "For set_markup_visibility: false hides REDBEAM's takeoff, dimensions and layout drawn over the sheet, true shows them. The takeoff itself is untouched."
           }
         },
         "required": [

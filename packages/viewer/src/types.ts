@@ -47,7 +47,7 @@ export function tileKey(page: number, zoom: number, tx: number, ty: number, visi
 }
 
 export function parseTileKey(key: TileKey): { page: number; zoom: number; tx: number; ty: number } | null {
-  const m = /^p(-?\d+)\/(-?[\d.]+)\/(-?\d+)\/(-?\d+)(?:![0-9,]*)?$/.exec(key)
+  const m = /^p(-?\d+)\/(-?[\d.]+)\/(-?\d+)\/(-?\d+)(?:![0-9,]*|!off)?$/.exec(key)
   if (!m) return null
   return { page: Number(m[1]), zoom: Number(m[2]), tx: Number(m[3]), ty: Number(m[4]) }
 }
@@ -276,8 +276,24 @@ export type WorkerRequest =
       priority: number
       /** Annotation indexes to draw with the PDF hidden flag. Omitted when none. */
       hidden?: number[]
+      /** False when the PDF's own annotations are switched off altogether. */
+      annots?: false
     }
   | { type: 'thumb'; key: string; page: number; width: number; priority: number }
+  /** Render a normalized box of a page at `width` x `height` pixels. */
+  | {
+      type: 'region'
+      key: string
+      page: number
+      x0: number
+      y0: number
+      x1: number
+      y1: number
+      width: number
+      height: number
+      annots: boolean
+      hidden?: number[]
+    }
   /** Extract the page's text layer. See PRIORITY_TEXT for where it sits. */
   | { type: 'text'; key: string; page: number; priority: number }
   /** List the page's own annotations. See annots.ts. */
@@ -322,6 +338,7 @@ export type WorkerResponse =
       ms: number
     }
   | { type: 'thumb'; key: string; page: number; width: number; height: number; bmp: ImageBitmap; ms: number }
+  | { type: 'region'; key: string; bmp?: ImageBitmap; ms: number; error?: string }
   /**
    * One page's text layer. `error` is set instead of the payload when
    * extraction threw — carried on this message rather than the generic `error`
