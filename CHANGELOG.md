@@ -5,13 +5,19 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.68 — 2026-11-24
+## 0.3.69 — 2026-11-24
 
 ### REDBEAM stays where you put it
 
 - **No jumping to the front.** When an AI app connected while REDBEAM was busy, REDBEAM came forward over what you were working in, and out of the taskbar if it was minimized. It now stays put.
 - **Closing tabs one after another.** An AI app closing several tabs quickly was told each had closed when only the first had. It's now told to wait while a tab finishes saving.
 
+
+## 0.3.68 — 2026-11-24
+
+### Warnings you can close
+
+- **The "rebuilt from the markups" warning can be dismissed.** When another app has stripped REDBEAM's takeoff detail from a PDF, the Takeoff panel says what was rebuilt. It now has an X, and once closed it stays closed for that file.
 
 ## 0.3.67 — 2026-11-24
 

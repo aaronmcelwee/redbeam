@@ -458,6 +458,22 @@ function editsCommand(edits: readonly GeometryEdit[], what: string, origin: stri
 }
 
 /**
+ * The "rebuilt from the markups" note, once read, stays away for that file.
+ * Aaron, 2026-11-24: "I have no way to dismiss this". Kept per viewer; a
+ * different rebuild of the file (other counts) says so again.
+ */
+const REBUILT_DISMISSED = 'redbeam.rebuilt-note-dismissed'
+function rebuiltDismissed(key: string): boolean {
+  try { return (JSON.parse(localStorage.getItem(REBUILT_DISMISSED) ?? '[]') as string[]).includes(key) } catch { return false }
+}
+function rememberRebuiltDismissed(key: string): void {
+  try {
+    const now = (JSON.parse(localStorage.getItem(REBUILT_DISMISSED) ?? '[]') as string[]).filter((k) => k !== key)
+    localStorage.setItem(REBUILT_DISMISSED, JSON.stringify([...now, key].slice(-200)))
+  } catch { /* not remembered: it shows again next open */ }
+}
+
+/**
  * How long a save before closing the window may take before the person is
  * asked. 0.3.66 asked after 4 s, and on every leave: an 80 MB set saving
  * while an agent switched tabs put the ask up mid-work (Aaron, 2026-11-24).
@@ -4985,6 +5001,13 @@ export default function Workspace({
   const [loadBlock, setLoadBlock] = useState<string | null>(null)
   /** Light: this file's takeoff was rebuilt from its markups, and what that could not bring back. */
   const [rebuiltNote, setRebuiltNote] = useState<string | null>(null)
+  /** Which rebuild the note is about (file, markups, scopes), so a dismissal holds for that file until it changes. */
+  const rebuiltKeyRef = useRef<string | null>(null)
+  const dismissRebuiltNote = useCallback(() => {
+    const key = rebuiltKeyRef.current
+    if (key !== null) rememberRebuiltDismissed(key)
+    setRebuiltNote(null)
+  }, [])
   const saveTakeoffIntoDrawing = useCallback((docId: string, opts: { quiet?: boolean } = {}): Promise<EmbedOutcome> => {
     const db = dbRef.current
     const doc = documents.find((d) => d.id === docId)
@@ -5393,7 +5416,9 @@ export default function Workspace({
             const verdict = fileLoadVerdict(reading, imported, name, rebuilt)
             fileLoadRef.current.set(doc.id, verdict)
             setLoadBlock(verdict.state === 'blocked' ? verdict.reason : null)
-            setRebuiltNote(rebuilt === null ? null : rebuiltStatus(rebuilt, name))
+            const rebuiltKey = rebuilt === null ? null : `${quickView?.file ?? doc.relativePath}|${rebuilt.markups}|${rebuilt.scopes}`
+            rebuiltKeyRef.current = rebuiltKey
+            setRebuiltNote(rebuilt === null || rebuiltKey === null || rebuiltDismissed(rebuiltKey) ? null : rebuiltStatus(rebuilt, name))
             await linkFileRound()
             if (rebuilt !== null) {
               await syncMarkups()
@@ -8366,7 +8391,7 @@ export default function Workspace({
      */
     /* Light: this file is not being saved into, and why. Said first after quick view. */
     if (loadBlock !== null) out.unshift({ text: loadBlock, action: { label: 'Save a copy…', run: () => void saveCopyOfFile() } })
-    if (rebuiltNote !== null) out.push(rebuiltNote)
+    if (rebuiltNote !== null) out.push({ text: rebuiltNote, onDismiss: dismissRebuiltNote })
     if (light && oldOffer !== null) {
       out.push({
         text: transferOffer(oldOffer),
@@ -8403,7 +8428,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents, embeddedHidden, redbeamHidden, setMarkupVisibility])
+  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, dismissRebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents, embeddedHidden, redbeamHidden, setMarkupVisibility])
   warningsRef.current = warnings
 
   // ------------------------------------------------------------ view math --
