@@ -1643,6 +1643,11 @@ fn write_export(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), String
 
 fn create_document(target: &Path, bytes: &[u8]) -> Result<DocumentWrite, String> {
     use std::io::Write;
+    // A copy may be asked for in a subfolder that is not there yet
+    // ("Red Beam Test\\A-101.pdf"); the caller has kept it under the root.
+    if let Some(dir) = target.parent() {
+        fs::create_dir_all(dir).map_err(|e| format!("could not make the folder: {e}"))?;
+    }
     // create_new: fails if anything is there, atomically, rather than a check
     // and a write that something could slip between.
     let mut file = fs::OpenOptions::new()
@@ -1945,6 +1950,19 @@ mod tests {
         let pdf = dir.join("A-101.pdf");
         fs::write(&pdf, b"%PDF").unwrap();
         assert!(export_target_ok(&pdf, true).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_working_copy_makes_the_subfolder_it_is_asked_for() {
+        let dir = std::env::temp_dir().join(format!("rb-create-sub-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let root = canonical_project_root(&dir);
+        let target = resolve_inside(&root, "Red Beam Test/deeper/copy.pdf").unwrap();
+        assert!(matches!(create_document(&target, b"one"), Ok(DocumentWrite::Written { .. })));
+        assert_eq!(fs::read(root.join("Red Beam Test").join("deeper").join("copy.pdf")).unwrap(), b"one");
+        assert!(resolve_inside(&root, "../out.pdf").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
