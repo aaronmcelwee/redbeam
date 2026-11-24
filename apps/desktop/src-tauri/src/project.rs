@@ -1539,6 +1539,59 @@ pub async fn project_write_document(
         .map_err(|e| format!("{relative_path}: {e}"))
 }
 
+/// Write a NEW drawing inside the project: a working copy of a file that is
+/// not ours to write into (a client's tender set, with someone else's
+/// markups). Refuses to replace anything already there, so a copy can never
+/// land on top of the original. Same transport as `project_write_document`.
+#[tauri::command]
+pub async fn project_create_document(
+    request: tauri::ipc::Request<'_>,
+) -> Result<DocumentWrite, String> {
+    let header = |name: &str| -> Result<String, String> {
+        let raw = request
+            .headers()
+            .get(name)
+            .ok_or_else(|| format!("missing {name}"))?
+            .to_str()
+            .map_err(|_| format!("{name} is not ASCII"))?;
+        percent_decode(raw).ok_or_else(|| format!("{name} is not valid percent-encoding"))
+    };
+    let path = header("x-redbeam-path")?;
+    let relative_path = header("x-redbeam-relative-path")?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(format!("{relative_path}: the drawing's bytes must be sent as the raw body"));
+    };
+    let root = canonical_project_root(Path::new(&path));
+    let target = resolve_inside(&root, &relative_path)?;
+    create_document(&target, bytes).map_err(|e| format!("{relative_path}: {e}"))
+}
+
+fn create_document(target: &Path, bytes: &[u8]) -> Result<DocumentWrite, String> {
+    use std::io::Write;
+    // create_new: fails if anything is there, atomically, rather than a check
+    // and a write that something could slip between.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                "a file with that name is already there".to_string()
+            } else {
+                format!("could not create it: {e}")
+            }
+        })?;
+    let written = file.write_all(bytes).and_then(|_| file.sync_all());
+    if let Err(e) = written {
+        drop(file);
+        let _ = fs::remove_file(target);
+        return Err(format!("could not write it: {e}"));
+    }
+    Ok(DocumentWrite::Written {
+        fingerprint: fingerprint_file(target).unwrap_or_default(),
+    })
+}
+
 /// Undo `encodeURIComponent`: `%XX` escapes to bytes, then UTF-8. `None` for a
 /// broken escape or bytes that are not UTF-8.
 fn percent_decode(s: &str) -> Option<String> {
@@ -1803,6 +1856,19 @@ fn scan_project_shared(root: &Path, extensions: &[String]) -> Result<ScanResult,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_working_copy_never_replaces_a_file() {
+        let dir = std::env::temp_dir().join(format!("rb-create-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let target = dir.join("copy.pdf");
+        let _ = fs::remove_file(&target);
+        assert!(matches!(create_document(&target, b"one"), Ok(DocumentWrite::Written { .. })));
+        let again = create_document(&target, b"two");
+        assert!(again.is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"one");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     use super::*;
     use std::io::Write;
 

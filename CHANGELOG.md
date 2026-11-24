@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.57 — 2026-11-24
+
+### AI apps can measure, and keep a client's file clean
+
+- **Measure without drawing.** Claude or ChatGPT can measure a distance or an area between points at the sheet's scale, and read the drawing's own lines in a box with their lengths. Nothing is drawn or saved, so there's no more guessing sizes from screenshots.
+- **Takeoff on a copy.** REDBEAM keeps takeoff inside the PDF. For a client's tender file, an AI app can now save a working copy beside it and do the takeoff there, leaving the original as it came.
+- **Lighter close-ups.** Close-ups from AI apps are 1200 pixels wide by default instead of 2000, and the app can ask for more or less.
+
+
 ## 0.3.56 — 2026-11-24
 
 ### Bluebeam markups you can work with
