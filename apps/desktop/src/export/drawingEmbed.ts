@@ -575,7 +575,8 @@ const HAND_MADE = new Set(['scopes', 'calibrations', 'scale_regions', 'markups']
  *
  * The slice was written in some other job folder, where the drawing had some
  * other id. Page ids are built from the document id, so they are rewritten
- * with it; every other id (markups, scopes, runs) is a UUID and carries over.
+ * with it, both a page row's own id and every page_id pointing at one; every
+ * other id (markups, scopes, runs) is a UUID and carries over.
  */
 function rekey(row: Record<string, unknown>, from: string, to: string): Record<string, unknown> {
   if (from === to) return row
@@ -583,6 +584,12 @@ function rekey(row: Record<string, unknown>, from: string, to: string): Record<s
   for (const [k, v] of Object.entries(row)) {
     if (k === 'document_id' && v === from) out[k] = to
     else if (k === 'page_id' && typeof v === 'string' && v.startsWith(`${from}-p`)) out[k] = `${to}-p${v.slice(from.length + 2)}`
+    // A page row's own id is built the same way. Left as it was (0.3.58), the
+    // sheet's row kept the old id while its markups pointed at the new one, so
+    // they were skipped and the sheet's number was then taken twice: a merged
+    // or renamed PDF could not load its takeoff.
+    else if (k === 'id' && 'page_number' in row && row.document_id === from
+      && typeof v === 'string' && v.startsWith(`${from}-p`)) out[k] = `${to}-p${v.slice(from.length + 2)}`
     else out[k] = v
   }
   return out
@@ -1192,6 +1199,15 @@ export function foreignEditsStatus(pulled: ForeignEdits, name: string): string |
 
 /** What to tell the user when a drawing is opened, or null. */
 export function openingStatus(reading: SheetEmbedReading, imported: ImportOutcome | null, name: string): string | null {
+  const rb = reading.rebound
+  if (rb !== null && rb !== undefined && imported !== null && imported.markups > 0) {
+    const parts = [rb.sources > 1
+      ? `${name} joins the takeoffs of ${rb.sources} REDBEAM PDFs: ${imported.markups} markup${imported.markups === 1 ? '' : 's'} on the sheets where they are now`
+      : `the takeoff in ${name} was matched to where its sheets are now: ${imported.markups} markup${imported.markups === 1 ? '' : 's'}`]
+    if (rb.scopesJoined > 0) parts.push(`${rb.scopesJoined} scope${rb.scopesJoined === 1 ? '' : 's'} with the same name joined`)
+    if (rb.leftBehind > 0) parts.push(`${rb.leftBehind} markup${rb.leftBehind === 1 ? ' was' : 's were'} on sheets no longer in the PDF and left out`)
+    return `${parts.join('. ')}. The next save keeps it this way`
+  }
   if (imported !== null && imported.markups > 0) {
     return `loaded ${imported.markups} markup(s) and ${imported.scopes} scope(s) carried inside ${name}`
   }

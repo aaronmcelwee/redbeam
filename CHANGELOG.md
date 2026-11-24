@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.59 — 2026-11-24
+## 0.3.61 — 2026-11-24
 
 ### AI apps can do a whole takeoff
 
@@ -25,6 +25,16 @@ SmartScreen will ask once.
 - **Saving and undo.** An app can save the takeoff into the PDF and learn how it went, see whether everything is saved, and undo or redo.
 - **More it can do.** Reshape or move a markup, copy markups to another sheet, draw a dimension, rotate sheets, bring scopes in from another PDF, accept imported markups, read the PDF's notes, links and bookmarks, close a tab, and read or change settings.
 - **Clearer tools.** Each action has its own tool with its own inputs, lists of markups and scopes come back with quantities and names, and errors say what would have worked.
+
+## 0.3.60 — 2026-11-24
+
+### Takeoff survives merging and rearranging pages in Bluebeam
+
+- **Merged PDFs open with their takeoff.** A PDF with REDBEAM markups that was combined with another PDF in Bluebeam now opens with all of its takeoff, on the sheets where the markups are now. Before, REDBEAM said part of the takeoff could not be loaded and would only save a copy.
+- **Each sheet carries its own takeoff.** Its markups, scale and scopes are saved on the sheet itself, so inserting, deleting, reordering or extracting pages in Bluebeam takes the takeoff along with the sheet.
+- **Two marked-up PDFs become one takeoff.** Scopes with the same name are joined. Markups on sheets that were deleted are left out, and REDBEAM tells you how many.
+- **Files from before this update recover too.** REDBEAM finds each of its markups on the page where it is now. The next save puts the file back in order.
+
 
 ## 0.3.58 — 2026-11-24
 

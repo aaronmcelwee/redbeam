@@ -661,6 +661,7 @@ describe('a Light file another app saved without REDBEAM\u2019s private data', (
     const d = await PDFDocument.load(bytes, { updateMetadata: false })
     d.catalog.delete(PDFName.of('PieceInfo'))
     for (const page of d.getPages()) {
+      page.node.delete(PDFName.of('PieceInfo'))
       const arr = page.node.lookup(PDFName.of('Annots'))
       if (!(arr instanceof PDFArray)) continue
       for (let i = 0; i < arr.size(); i++) {
