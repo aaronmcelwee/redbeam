@@ -30,7 +30,7 @@
  *    another application's private data, and the reader takes whichever copy
  *    survived.
  *
- * Since 0.3.59 each sheet with takeoff also carries its own part of the
+ * Since 0.3.60 each sheet with takeoff also carries its own part of the
  * slice in the page's /PieceInfo, so pages merged, inserted, reordered or
  * extracted in Bluebeam take their takeoff along; sliceAssemble.ts puts the
  * file's takeoff back together from where the sheets are now.
@@ -87,7 +87,7 @@ export interface SheetSlice {
   contentHash: string
   /**
    * The `pageHash` of every page slice written in the same save (see
-   * sliceAssemble.ts). A page copy not listed is stale. Absent before 0.3.59.
+   * sliceAssemble.ts). A page copy not listed is stale. Absent before 0.3.60.
    */
   pageHashes?: string[]
 }

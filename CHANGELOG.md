@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.59 — 2026-11-24
+## 0.3.60 — 2026-11-24
 
 ### Takeoff survives merging and rearranging pages in Bluebeam
 
