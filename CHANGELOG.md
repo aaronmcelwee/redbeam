@@ -15,6 +15,13 @@ SmartScreen will ask once.
 - **Copy from the right-click menu.** Right-click a markup and choose Copy markup. Dimensions and callouts keep their text when pasted.
 
 
+## 0.3.64 — 2026-11-24
+
+### AI apps stay in one window
+
+- **No extra windows.** When an AI app opened a PDF just as REDBEAM was starting, or opened two PDFs one after the other, each could land in a new window. They now open as tabs in the window that's already there.
+
+
 ## 0.3.63 — 2026-11-24
 
 ### AI apps can do a whole takeoff
