@@ -38,7 +38,7 @@ describe('pieceList', () => {
     const first = pieceList(r, { maxRuns: 4 })
     expect(first.runs.length).toBe(4)
     expect(first.nextOffset).toBe(4)
-    const rest = pieceList(r, { offset: first.nextOffset })
+    const rest = pieceList(r, { offset: first.nextOffset! })
     expect(rest.nextOffset).toBeUndefined()
     expect([...first.runs, ...rest.runs].map((x) => x.lengthFeet)).toEqual(all.map((x) => x.lengthFeet))
   })

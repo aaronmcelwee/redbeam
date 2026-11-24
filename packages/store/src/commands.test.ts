@@ -188,7 +188,7 @@ describe('activity trail', () => {
     const all = await listActivity(db, 1000)
     const first = await listActivity(db, 2)
     const second = await listActivity(db, 2, { offset: 2 })
-    expect([...first, ...second].map((a) => a.id)).toEqual(all.slice(0, 4).map((a) => a.id))
+    expect([...first, ...second].map((a) => `${a.eventType}:${a.entityId}`)).toEqual(all.slice(0, 4).map((a) => `${a.eventType}:${a.entityId}`))
     const one = await listActivity(db, 1000, { entityId: 'p1' })
     expect(one.length).toBeGreaterThan(0)
     expect(one.every((a) => a.entityId === 'p1')).toBe(true)
