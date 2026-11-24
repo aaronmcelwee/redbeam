@@ -7,7 +7,7 @@ import { ingestDocuments, migrate, SqlJsDriver, type Migration } from '@redbeam/
 import type { Markup } from '@redbeam/domain'
 import { cutoutsOf } from '../cutouts.js'
 import {
-  copyName, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice, importTakeoffFromSlice, takeoffImportStatus,
+  copyName, copyTarget, embedCopy, embedDrawing, embedMarkupsFor, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importSlice, importTakeoffFromSlice, takeoffImportStatus,
   migrateProjectTakeoffs, migrationStatus, MIGRATED_KEY, openingStatus, rebuildFromAnnots, rebuiltStatus, scopeImportStatus, sliceTables, takeNewerSlice, unsavedReason,
   type DrawingFile,
 } from './drawingEmbed.js'
@@ -652,6 +652,21 @@ describe('a Light file is saved into only once its own takeoff is in the window'
     })).toBe(copy)
     expect(copyName('Round 2/A-101.PDF')).toBe('A-101 (takeoff).pdf')
     expect(copyName('C:\\jobs\\plan')).toBe('plan (takeoff).pdf')
+  })
+
+  it('keeps a folder in a copy name as a folder, not part of the file name', () => {
+    expect(copyTarget('Red Beam Test\\A-101 copy')).toEqual({ kind: 'relative', folder: 'Red Beam Test/', name: 'A-101 copy.pdf' })
+    expect(copyTarget('a/b/c.PDF')).toEqual({ kind: 'relative', folder: 'a/b/', name: 'c.PDF' })
+    expect(copyTarget('Red Beam Test\\')).toEqual({ kind: 'relative', folder: 'Red Beam Test/', name: '' })
+    expect(copyTarget('plain: name?')).toEqual({ kind: 'relative', folder: '', name: 'plain- name-.pdf' })
+  })
+
+  it('takes a full path as it is and refuses to climb out with ..', () => {
+    expect(copyTarget('C:\\Jobs\\Hyundai\\Red Beam Test\\set.pdf')).toEqual({ kind: 'absolute', folder: 'C:\\Jobs\\Hyundai\\Red Beam Test\\', name: 'set.pdf' })
+    expect(copyTarget('\\\\nas\\jobs\\set')).toEqual({ kind: 'absolute', folder: '\\\\nas\\jobs\\', name: 'set.pdf' })
+    expect(copyTarget('/tmp/x/set.pdf')).toEqual({ kind: 'absolute', folder: '/tmp/x/', name: 'set.pdf' })
+    expect(copyTarget('..\\other\\set.pdf').kind).toBe('error')
+    expect(copyTarget(' \\ ').kind).toBe('error')
   })
 })
 
