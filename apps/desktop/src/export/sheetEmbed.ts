@@ -134,6 +134,12 @@ export interface EmbedInput {
    * nothing is written: the result says `conflict`. Left out, no check.
    */
   expectStamp?: string | null
+  /**
+   * /NMs of other apps' annotations that REDBEAM's markups now stand for
+   * (adopted, then edited or deleted here). They are taken off the sheet, so
+   * the markup is not shown twice, and a deleted one stays deleted.
+   */
+  retire?: readonly string[]
   /** For tests; defaults to the clock. */
   now?: () => Date
 }
@@ -434,6 +440,30 @@ export interface RedbeamAnnot {
   center: { x: number, y: number } | null
 }
 
+/**
+ * A Bluebeam (or Acrobat) markup that REDBEAM can hold as one of its own: an
+ * area (a polygon or a rectangle, cutouts included) or a length (a polyline,
+ * or a measured line). Clouds, arrows, text, stamps and the rest stay the
+ * other app's, drawn by the page.
+ */
+export interface ForeignAnnot {
+  pageIndex: number
+  /** The annotation's /NM, its identity across saves in either app. */
+  nm: string
+  subtype: string
+  kind: 'area' | 'polyline'
+  /** Normalized like `RedbeamAnnot.rings`: the outline, then each cutout. */
+  rings: Array<Array<{ x: number, y: number }>>
+  color: string | null
+  subject: string
+  label: string
+  contents: string
+  author: string
+  /** The sheet's size in points as displayed, for a page row. */
+  width: number
+  height: number
+}
+
 /** A scale REDBEAM wrote on a sheet, read back from the sheet's viewports. */
 export interface SheetScale {
   feetPerPoint: number
@@ -460,6 +490,11 @@ export interface SheetEmbedReading {
   sheets: SheetFacts[]
   /** Markup annotations REDBEAM did not write: Bluebeam's, Acrobat's. */
   foreignAnnots: number
+  /**
+   * The ones among them that are takeoff shapes (areas and lengths) REDBEAM
+   * takes in as its own markups when the drawing opens (`adoptForeignAnnots`).
+   */
+  adoptable: ForeignAnnot[]
   /**
    * REDBEAM annotations are on the sheet but no copy of the slice is. Some
    * editor saved the file and dropped REDBEAM's private data; the markups it
@@ -551,6 +586,57 @@ function scalesOn(page: PDFPage, box: PageBox, rotation: number): SheetScale[] {
   return out
 }
 
+/** A border drawn as a cloud: a revision cloud, not a takeoff shape. */
+function isCloud(a: PDFDict): boolean {
+  const be = a.lookup(PDFName.of('BE'))
+  if (!(be instanceof PDFDict)) return false
+  const style = be.lookup(PDFName.of('S'))
+  return style instanceof PDFName && style.decodeText() === 'C'
+}
+
+/** An arrow or other ending on a line: a leader, not a measured run. */
+function hasArrows(a: PDFDict): boolean {
+  const le = a.lookup(PDFName.of('LE'))
+  if (!(le instanceof PDFArray)) return false
+  for (let i = 0; i < le.size(); i++) {
+    const n = le.lookup(i)
+    if (n instanceof PDFName && n.decodeText() !== 'None') return true
+  }
+  return false
+}
+
+/** What a foreign annotation becomes in REDBEAM, and its user-space outline; null to leave it. */
+function adoptShape(a: PDFDict): { kind: 'area' | 'polyline', flat: number[] } | null {
+  if (textOf(a, 'NM') === '' || isCloud(a)) return null
+  const subtype = subtypeOf(a)
+  const intent = (() => { const it = a.lookup(PDFName.of('IT')); return it instanceof PDFName ? it.decodeText() : '' })()
+  if (subtype === 'Polygon') {
+    const v = vertsOf(a)
+    return v.length >= 6 && v.every(Number.isFinite) ? { kind: 'area', flat: v } : null
+  }
+  if (subtype === 'Square') {
+    const r = numsOf(a, 'Rect')
+    if (r.length !== 4 || !r.every(Number.isFinite)) return null
+    // /RD is the border's inset inside /Rect; the shape is the inner box.
+    const rd = numsOf(a, 'RD')
+    const [l, b, rr, t] = rd.length === 4 && rd.every(Number.isFinite) ? rd : [0, 0, 0, 0]
+    const x0 = Math.min(r[0]!, r[2]!) + l!, x1 = Math.max(r[0]!, r[2]!) - rr!
+    const y0 = Math.min(r[1]!, r[3]!) + b!, y1 = Math.max(r[1]!, r[3]!) - t!
+    if (!(x1 > x0) || !(y1 > y0)) return null
+    return { kind: 'area', flat: [x0, y0, x1, y0, x1, y1, x0, y1] }
+  }
+  if (hasArrows(a)) return null
+  if (subtype === 'PolyLine') {
+    const v = vertsOf(a)
+    return v.length >= 4 && v.every(Number.isFinite) ? { kind: 'polyline', flat: v } : null
+  }
+  if (subtype === 'Line' && intent === 'LineDimension') {
+    const l = numsOf(a, 'L')
+    return l.length === 4 && l.every(Number.isFinite) ? { kind: 'polyline', flat: l } : null
+  }
+  return null
+}
+
 function readDoc(doc: PDFDocument): SheetEmbedReading {
   const fromCatalog = sliceFromPieceInfo(doc.catalog)
   let sliceTooNew = fromCatalog === TOO_NEW
@@ -559,6 +645,7 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
   const redbeamAnnots: RedbeamAnnot[] = []
   const sheets: SheetFacts[] = []
   let foreignAnnots = 0
+  const adoptable: ForeignAnnot[] = []
   doc.getPages().forEach((page, pageIndex) => {
     const box = page.getCropBox() as PageBox
     const rotation = page.getRotation().angle
@@ -570,7 +657,21 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     }
     for (const a of annotsOn(page)) {
       if (NOT_MARKUP.has(subtypeOf(a))) continue
-      if (!isOurs(a)) { foreignAnnots++; continue }
+      if (!isOurs(a)) {
+        foreignAnnots++
+        const shape = adoptShape(a)
+        if (shape !== null) {
+          const turned = Math.abs(Math.round(rotation / 90)) % 2 === 1
+          adoptable.push({
+            pageIndex, nm: textOf(a, 'NM'), subtype: subtypeOf(a), kind: shape.kind,
+            rings: [toRing(shape.flat), ...(shape.kind === 'area' ? cutoutsOf(a).filter((c) => c.length >= 6 && c.every(Number.isFinite)).map(toRing) : [])],
+            color: colorOf(a), subject: textOf(a, 'Subj'), label: textOf(a, 'Label'),
+            contents: textOf(a, 'Contents'), author: textOf(a, 'T'),
+            width: turned ? box.height : box.width, height: turned ? box.width : box.height,
+          })
+        }
+        continue
+      }
       const own = a.lookup(PDFName.of(KEY))
       const markupId = own instanceof PDFDict ? textOf(own, 'MarkupId') || null : null
       if (slice === null && own instanceof PDFDict) {
@@ -616,6 +717,7 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     redbeamAnnots,
     sheets,
     foreignAnnots,
+    adoptable,
     privateDataLost: slice === null && redbeamAnnots.length > 0,
     // An older copy that still reads does not make the newer one safe to drop.
     sliceTooNew,
@@ -842,6 +944,7 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     scales: [...input.pageScales.entries()],
     regions: [...(input.pageRegions?.entries() ?? [])],
     v: SLICE_VERSION,
+    ...(input.retire === undefined || input.retire.length === 0 ? {} : { retire: [...input.retire].sort() }),
   }))
 
   // Every annotation REDBEAM wrote last time must still be as it wrote it;
@@ -859,7 +962,9 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
     editedNms.add(a.nm)
   }
   const turned = rotationsToWrite(doc.getPages(), input.pageRotations)
-  if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0
+  const retire = new Set(input.retire ?? [])
+  const retiring = retire.size > 0 && doc.getPages().some((p) => annotsOn(p).some((a) => !isOurs(a) && retire.has(textOf(a, 'NM'))))
+  if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0 && !retiring
     && prev.documentId === input.documentId && turned.length === 0) {
     return { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }
   }
@@ -896,6 +1001,14 @@ export async function embedSheet(source: Uint8Array, input: EmbedInput): Promise
         }
         removed = true
         continue
+      }
+      if (a instanceof PDFDict && retire.size > 0) {
+        // The retired markup, and the note popup that belongs to it.
+        const parent = a.lookup(PDFName.of('Parent'))
+        if (retire.has(textOf(a, 'NM')) || (parent instanceof PDFDict && retire.has(textOf(parent, 'NM')))) {
+          removed = true
+          continue
+        }
       }
       keep.push(entry)
     }

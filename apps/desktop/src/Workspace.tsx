@@ -113,6 +113,7 @@ import {
 import { keptDrawingFile, projectDrawingFile } from './export/drawingSync.js'
 import { embedInWorker } from './export/embedInWorker.js'
 import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
+import { adoptForeignAnnots } from './export/adopt.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import {
   cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts,
@@ -964,6 +965,27 @@ export default function Workspace({
    * showing the file's copy too would draw every markup twice.
    */
   const ownAnnotsRef = useRef<Set<number>>(new Set())
+  /**
+   * Per document, the /NMs of other apps' annotations that REDBEAM markups now
+   * stand for (export/adopt.ts). Hidden like REDBEAM's own: the markup is drawn.
+   */
+  const adoptedNmsRef = useRef(new Map<string, Set<string>>())
+  /** The page's own and adopted annotations hidden, and the rest offered to Select. */
+  const hideOwnAnnots = useCallback((viewer: Viewer, index: number) => {
+    void viewer.requestAnnotations(index)
+      .then((list) => {
+        if (viewerRef.current !== viewer) return
+        const adopted = adoptedNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+        const standsIn = (a: PageAnnotation) => isRedbeamNm(a.name) || adopted.has(a.name)
+        const own = list.filter(standsIn).map((a) => a.index)
+        ownAnnotsRef.current = new Set(own)
+        if (own.length > 0 && viewer.setHiddenAnnotations(index, [...hiddenAnnotsRef.current, ...own])) {
+          viewer.requestVisible(viewRef.current)
+        }
+        annotsRef.current = list.filter((a) => a.shape !== 'other' && !standsIn(a))
+      })
+      .catch(() => { /* a sheet with no readable annotations has none to select */ })
+  }, [])
   const [hiddenAnnotCount, setHiddenAnnotCount] = useState(0)
   const [asideAsk, setAsideAsk] = useState(false)
   const closeDbRef = useRef<(() => Promise<void>) | null>(null)
@@ -2043,17 +2065,7 @@ export default function Workspace({
         // The sheet's own markups, for the Select tool: asked of THIS viewer,
         // for the page it has just shown, so a document switch cannot serve
         // the previous document's list.
-        void viewer.requestAnnotations(info.index)
-          .then((list) => {
-            if (viewerRef.current !== viewer) return
-            const own = list.filter((a) => isRedbeamNm(a.name)).map((a) => a.index)
-            ownAnnotsRef.current = new Set(own)
-            if (own.length > 0 && viewer.setHiddenAnnotations(info.index, [...stored, ...own])) {
-              viewer.requestVisible(viewRef.current)
-            }
-            annotsRef.current = list.filter((a) => a.shape !== 'other' && !isRedbeamNm(a.name))
-          })
-          .catch(() => { /* a sheet with no readable annotations has none to select */ })
+        hideOwnAnnots(viewer, info.index)
         /*
          * Keep the page-size TABLE current, not just the active page.
          *
@@ -5072,9 +5084,27 @@ export default function Workspace({
           return
         }
         if (light && firstLook) seenStampRef.current.set(doc.id, sliceStamp(reading.slice))
+        /*
+         * Bluebeam's areas and lengths become REDBEAM markups (export/adopt.ts).
+         * After the slice is in: importing it needs a drawing with no markups.
+         * Never into a file that is blocked, which is never saved.
+         */
+        const adopt = async (found: Awaited<ReturnType<typeof readSheetEmbed>>) => {
+          if (!light || !firstLook || fileLoadRef.current.get(doc.id)?.state === 'blocked') return
+          let result: Awaited<ReturnType<typeof adoptForeignAnnots>>
+          try { result = await adoptForeignAnnots(db, doc.id, found) } catch { return }
+          if (result.nms.length === 0) return
+          adoptedNmsRef.current.set(doc.id, new Set(result.nms))
+          if (docIdRef.current === doc.id && viewerRef.current !== null) hideOwnAnnots(viewerRef.current, pageIndexRef.current)
+          if (result.added > 0) {
+            await syncMarkups()
+            setStatus(`${result.added} Bluebeam markup${result.added === 1 ? ' is' : 's are'} now editable in ${name}. Select one to give it a scope.`)
+          }
+        }
         if (reading.slice === null && !reading.privateDataLost && !reading.sliceTooNew) {
           // A PDF with nothing of REDBEAM's in it: there is nothing to wait for.
           if (light && firstLook) fileLoadRef.current.set(doc.id, { state: 'loaded' })
+          await adopt(reading)
           return
         }
         if (firstLook) {
@@ -5125,6 +5155,7 @@ export default function Workspace({
           // A blocked Light file says so in the warning bar; redbeam.db is not where its markups are.
           const text = light && (fileLoadRef.current.get(doc.id)?.state === 'blocked' || reading.privateDataLost) ? null : openingStatus(reading, imported, name)
           if (text !== null) setStatus(text)
+          await adopt(reading)
         }
         /*
          * Every time the drawing comes to the front, not only the first: what
@@ -5178,7 +5209,7 @@ export default function Workspace({
         // A drawing that cannot be read here is the viewer's to report.
       }
     })()
-  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound, transferFromOldProject])
+  }, [activeDocId, documents, projectPath, syncMarkups, refreshScopes, setStatus, runCommand, light, linkFileRound, transferFromOldProject, hideOwnAnnots])
 
   /**
    * Light mode: bring last round's scopes in from its PDF.
