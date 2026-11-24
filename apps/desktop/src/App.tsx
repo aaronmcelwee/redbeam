@@ -255,19 +255,26 @@ export default function App() {
     if (identity.role === 'context') return
     void reportShowing(idle, quick?.file ?? null, tabFiles)
   }, [idle, quick, tabFiles, identity.role])
+  /*
+   * Listened for once. `dropPath` is new on every render, and listening again
+   * each time left gaps in which a file sent here was dropped: an AI app's
+   * open_file straight after a tab closed never opened.
+   */
+  const dropPathRef = useRef(dropPath)
+  dropPathRef.current = dropPath
   useEffect(() => {
     if (identity.role === 'context') return
     let stop: (() => void) | undefined
     let cancelled = false
     void onOpenFile((path) => {
       const now = showingRef.current
-      if (now.idle || now.takesTabs) { dropPath(path); return }
+      if (now.idle || now.takesTabs) { dropPathRef.current(path); return }
       // Say what is really here first: the app marked this window as taken
       // by the new file when it sent it.
       void reportShowing(now.idle, now.file).then(() => openElsewhere(path))
     }).then((un) => { if (cancelled) un(); else stop = un })
     return () => { cancelled = true; stop?.() }
-  }, [dropPath, identity.role])
+  }, [identity.role])
 
   /* Offer to become the default PDF viewer, once the installer has registered REDBEAM. */
   const handler = usePdfHandlerStatus()

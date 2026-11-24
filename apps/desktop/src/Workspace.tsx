@@ -5865,6 +5865,7 @@ export default function Workspace({
             pageCount,
             named: sheets.filter((x) => x.sheet !== null).length,
             sheets,
+            ...(sheets.some((x) => x.sheet === null) ? { note: 'sheet: null means no sheet number has been read off that page yet (they are read as the file is indexed after opening, so ask again shortly), or the page has none; `page` always works' } : {}),
           }
         }
         /*

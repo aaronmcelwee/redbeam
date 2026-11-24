@@ -346,8 +346,19 @@ fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
     if params.get("wait").and_then(Value::as_bool) == Some(true) {
         let same = |a: &str, b: &str| a.replace('\\', "/").eq_ignore_ascii_case(&b.replace('\\', "/"));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(22);
+        let asked = std::time::Instant::now();
+        let mut again = false;
         while std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(400));
+            // Sent once more if the window has not turned to it: a window
+            // busy changing tabs can miss the first.
+            if !again && asked.elapsed() > std::time::Duration::from_secs(5) {
+                again = true;
+                let (app, routed) = (waiter.clone(), path.clone());
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::open_with::route_quietly(&app, routed).await;
+                });
+            }
             let Ok(ui) = super::ui::request_within(&waiter, "get_ui_state", &json!({}), std::time::Duration::from_secs(2)) else { continue };
             let showing = ui.get("file").and_then(Value::as_str).unwrap_or("");
             let pages = ui.get("pageCount").and_then(Value::as_i64).unwrap_or(0);

@@ -398,7 +398,10 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
   }
 
   try {
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0) {
+    // The file's own notes (hand-made addenda links) are worth a save with no takeoff at all.
+    const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
+      .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) {
