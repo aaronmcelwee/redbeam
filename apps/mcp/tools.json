@@ -145,7 +145,7 @@
     },
     {
       "name": "redbeam_open_file",
-      "description": "Open a PDF drawing set in REDBEAM, the way double-clicking it in Explorer does: it comes forward in the window already showing it, fills an empty window, or gets a window of its own. Its takeoff is read from the PDF itself. Returns {accepted:true} — NOT \"opened\": rendering a large set takes a few seconds, so poll redbeam_get_ui_state until activeDocumentId is set and pageCount is above zero before drawing or reading quantities. Pass wait:true to be answered once it is showing.",
+      "description": "Open a PDF drawing set in REDBEAM, the way double-clicking it in Explorer does: it comes forward in the window already showing it, fills an empty window, or gets a window of its own. Its takeoff is read from the PDF itself. Returns {accepted:true} — NOT \"opened\": rendering a large set takes a few seconds, so poll redbeam_get_ui_state until activeDocumentId is set and pageCount is above zero before drawing or reading quantities. Pass wait:true to be answered once it is showing. REDBEAM does not come to the front or take focus when you open a file: the person may be working in something else.",
       "inputSchema": {
         "type": "object",
         "properties": {

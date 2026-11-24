@@ -24,6 +24,7 @@ SmartScreen will ask once.
 - **The right sheet and the right file.** A change can name its sheet (by page or sheet number) and its PDF. It lands there, and is refused if a different PDF is showing.
 - **Saving and undo.** An app can save the takeoff into the PDF and learn how it went, see whether everything is saved, and undo or redo.
 - **More it can do.** Reshape or move a markup, copy markups to another sheet, draw a dimension, rotate sheets, bring scopes in from another PDF, accept imported markups, read the PDF's notes, links and bookmarks, close a tab, and read or change settings.
+- **No stolen focus.** When an AI app opens a PDF, REDBEAM stays where it is instead of jumping in front of what you're working in.
 - **Clearer tools.** Each action has its own tool with its own inputs, lists of markups and scopes come back with quantities and names, and errors say what would have worked.
 
 ## 0.3.60 — 2026-11-24

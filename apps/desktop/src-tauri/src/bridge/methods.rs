@@ -337,7 +337,7 @@ fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
     // Off this thread and off the main one: building a window on the main
     // thread deadlocks on Windows (open_with.rs).
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = crate::open_with::route(&app, routed).await {
+        if let Err(e) = crate::open_with::route_quietly(&app, routed).await {
             eprintln!("bridge open_file failed: {e}");
         }
     });

@@ -71,6 +71,9 @@ fn open_or_focus(
     label: &str,
     url: &str,
     title: &str,
+    // false when an AI app asked: the window opens behind whatever the person
+    // is working in, and takes neither focus nor the foreground.
+    focus: bool,
 ) -> Result<OpenedWindow, tauri::Error> {
     if let Some(existing) = app.get_webview_window(label) {
         // Re-point it. A context window is a VIEW, and popping out a second tab
@@ -83,9 +86,11 @@ fn open_or_focus(
         if let Ok(target) = existing.url().ok().ok_or(()).and_then(|b| b.join(url).map_err(|_| ())) {
             let _ = existing.navigate(target);
         }
-        let _ = existing.unminimize();
-        let _ = existing.show();
-        let _ = existing.set_focus();
+        if focus {
+            let _ = existing.unminimize();
+            let _ = existing.show();
+            let _ = existing.set_focus();
+        }
         return Ok(OpenedWindow {
             label: label.to_string(),
             url: url.to_string(),
@@ -137,6 +142,7 @@ fn open_or_focus(
              * zoom-hotkey effect in Workspace.tsx.
              */
             .zoom_hotkeys_enabled(true)
+            .focused(focus)
             .center()
             .build()?;
 
@@ -144,7 +150,7 @@ fn open_or_focus(
     // minimized switch, where taking focus is exactly what we are avoiding.
     if minimize_if_requested(&window) {
         // minimized instead
-    } else {
+    } else if focus {
         let _ = window.set_focus();
     }
 
@@ -161,9 +167,10 @@ pub(crate) fn open_view_window(
     app: &AppHandle,
     label: &str,
     path: &str,
+    focus: bool,
 ) -> Result<OpenedWindow, tauri::Error> {
     let url = format!("index.html?role=main&view={}", encode_query_value(path));
-    open_or_focus(app, &sanitize_label(label), &url, "REDBEAM")
+    open_or_focus(app, &sanitize_label(label), &url, "REDBEAM", focus)
 }
 
 /// Open (or focus) a window showing a project.
@@ -194,7 +201,7 @@ pub async fn open_project_window(
     let label = sanitize_label(&label);
     let url = app_url(&project_id, "main");
     let title = format!("REDBEAM — {}", project_id);
-    open_or_focus(&app, &label, &url, &title).map_err(|e| e.to_string())
+    open_or_focus(&app, &label, &url, &title, true).map_err(|e| e.to_string())
 }
 
 /// Open (or focus) the context window for a project.
@@ -218,7 +225,7 @@ pub async fn open_context_window(
         url.push_str(&format!("&document={}", encode_query_value(doc)));
     }
     let title = format!("REDBEAM Context — {}", project_id);
-    open_or_focus(&app, &label, &url, &title).map_err(|e| e.to_string())
+    open_or_focus(&app, &label, &url, &title, true).map_err(|e| e.to_string())
 }
 
 /// Close a window by label. Returns false if there was nothing to close.
