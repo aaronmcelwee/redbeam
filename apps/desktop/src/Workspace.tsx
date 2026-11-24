@@ -105,7 +105,7 @@ import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
 import { exportMarkedPdf } from './export/markedPdf.js'
 import {
-  copyName, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice, rebuildFromAnnots, rebuiltStatus,
+  copyName, copyTarget, type CopyTarget, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice, rebuildFromAnnots, rebuiltStatus,
   migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
   type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
@@ -479,6 +479,8 @@ function rememberRebuiltDismissed(key: string): void {
  * while an agent switched tabs put the ask up mid-work (Aaron, 2026-11-24).
  */
 const SLOW_SAVE_MS = 15000
+/** How long find_text reads sheets before answering with what it has. Under ui.rs FIND_TEXT_TIMEOUT. */
+const FIND_TEXT_MS = 40_000
 const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF may be busy in another app, or on a slow or syncing drive.'
 
 export default function Workspace({
@@ -6010,6 +6012,7 @@ export default function Workspace({
           if (!v || activeDocId === null) return { error: 'no document is open' }
           const query = String(params['query'] ?? '').trim()
           if (query === '') return { error: 'find_text needs `query`' }
+          if (pageCount === 0) return { error: 'the document is still opening; ask again in a moment' }
           const wanted = bridgePages(params, pageCount)
           if (typeof wanted === 'string') return { error: wanted }
           // The search index already knows which sheets cannot contain it.
@@ -6026,15 +6029,20 @@ export default function Workspace({
             } catch { candidates = wanted }
           }
           const limit = Math.max(1, Math.min(2000, Number(params['limit'] ?? 300) || 300))
-          const deadline = performance.now() + 14_000
+          /*
+           * Reading a heavy sheet's text takes PDFium a fifth of a second, so
+           * a 171-sheet set did not fit the old 14 s (Aaron, 2026-11-24: "timed
+           * out after 70 of 171 sheets" on one word). Three things now:
+           * every sheet is asked for up front; the budget is
+           * FIND_TEXT_MS (the bridge waits longer for this action, ui.rs); and
+           * whatever is left keeps being read after the answer, so asking
+           * again for `notSearched` returns at once.
+           */
+          const deadline = performance.now() + FIND_TEXT_MS
           const matches: Array<TextMatch & { page: number; sheet: string | null }> = []
           const notRead: number[] = []
           let read = 0
-          for (const p of candidates) {
-            if (matches.length >= limit) break
-            if (performance.now() > deadline) { notRead.push(p); continue }
-            const pt = await v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null)
-            if (pt === null) { notRead.push(p); continue }
+          const take = (p: number, pt: Parameters<typeof findInPageText>[0]): void => {
             read++
             const label = sheetLabelFor(p)
             for (const m of findInPageText(pt, query, {
@@ -6043,12 +6051,26 @@ export default function Workspace({
               limit: limit - matches.length,
             })) matches.push({ page: p, sheet: label === `Page ${p + 1}` ? null : label, ...m })
           }
+          // Every sheet is asked for at once: the worker reads them in turn
+          // either way, and this saves a round trip per sheet.
+          const pending = candidates.map((p) => ({ p, text: v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null) }))
+          for (const { p, text } of pending) {
+            if (matches.length >= limit) break
+            const left = deadline - performance.now()
+            const cached = v.getText(p)
+            const pt = cached ?? (left <= 0 ? undefined : await Promise.race([
+              text,
+              new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), left)),
+            ]))
+            if (pt === null || pt === undefined) { notRead.push(p); continue }
+            take(p, pt)
+          }
           return {
             query,
             matches,
             pagesSearched: read + (wanted.length - candidates.length),
             ...(matches.length >= limit ? { truncated: true } : {}),
-            ...(notRead.length > 0 ? { notSearched: notRead, note: 'out of time; ask again with `pages` set to these' } : {}),
+            ...(notRead.length > 0 ? { notSearched: notRead, note: 'these sheets were still being read when time ran out; they are being read now, so ask again with `pages` set to them and it returns quickly' } : {}),
           }
         }
         /* Every word on a page with its box, or only those inside `rect`. */
@@ -6206,17 +6228,32 @@ export default function Workspace({
             ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
             ...(params['withoutEmbeddedMarkups'] === true ? { withoutForeign: true } : {}),
           })
-          const dir = doc.relativePath.includes('/') ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/') + 1) : ''
-          const wanted = typeof params['name'] === 'string' && params['name'].trim() !== ''
-            ? params['name'].trim().replace(/[\\/:*?"<>|]/g, '-')
-            : copyName(doc.relativePath)
-          const named = /\.pdf$/i.test(wanted) ? wanted : `${wanted}.pdf`
+          const beside = doc.relativePath.includes('/') ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/') + 1) : ''
+          const sep = projectPath.includes('\\') ? '\\' : '/'
+          const root = projectPath.replace(/[\\/]+$/, '')
+          // `name` may carry folders, or be a full path (copyTarget).
+          let target: CopyTarget = typeof params['name'] === 'string' && params['name'].trim() !== ''
+            ? copyTarget(params['name'])
+            : { kind: 'relative', folder: '', name: '' }
+          if (target.kind === 'error') return { error: target.error }
+          // A full path inside the open file's folder is the same as a relative one.
+          if (target.kind === 'absolute' && target.folder.toLowerCase().startsWith(root.toLowerCase() + sep)) {
+            target = { kind: 'relative', folder: target.folder.slice(root.length + 1).split(sep).join('/'), name: target.name }
+          }
+          const elsewhere = target.kind === 'absolute'
+          if (elsewhere && projectBridge.writeExport === undefined) return { error: 'this build cannot write files' }
+          const folder = elsewhere ? target.folder : (target.folder === '' ? beside : (target.folder.toLowerCase().startsWith(beside.toLowerCase()) ? target.folder : beside + target.folder))
+          const named = target.name !== '' ? target.name : copyName(doc.relativePath)
           for (let n = 1; n <= 20; n++) {
             const name = n === 1 ? named : named.replace(/\.pdf$/i, ` ${n}.pdf`)
             try {
-              await projectBridge.createDocument(projectPath, dir + name, bytes)
-              const sep = projectPath.includes('\\') ? '\\' : '/'
-              const path = `${projectPath.replace(/[\\/]+$/, '')}${sep}${(dir + name).split('/').join(sep)}`
+              let path: string
+              if (elsewhere) {
+                path = await projectBridge.writeExport!(folder + name, bytes, false)
+              } else {
+                await projectBridge.createDocument(projectPath, folder + name, bytes)
+                path = `${root}${sep}${(folder + name).split('/').join(sep)}`
+              }
               setStatus(`saved a working copy: ${name}`)
               return {
                 path, name,

@@ -339,7 +339,7 @@
     },
     {
       "name": "redbeam_find_text",
-      "description": "Where text is on the sheets of the open document: every match with its page (ZERO-based), sheet number and box in NORMALIZED [0,1] page coordinates, y down. Pass a box to redbeam_screenshot `region` for a close-up, or to zoom_to_region to show it. Searches every page unless `page`, `pages` or `fromPage`/`toPage` narrow it; a long set may come back with `notSearched` pages to ask for again. Needs a window.",
+      "description": "Where text is on the sheets of the open document: every match with its page (ZERO-based), sheet number and box in NORMALIZED [0,1] page coordinates, y down. Pass a box to redbeam_screenshot `region` for a close-up, or to zoom_to_region to show it. Searches every page unless `page`, `pages` or `fromPage`/`toPage` narrow it; it can take up to 40 seconds on a long set. If it still comes back with `notSearched` pages, ask again with `pages` set to them: they are read in the background meanwhile, so the second call is quick. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -541,7 +541,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "File name for the copy. Defaults to \"<name> (takeoff).pdf\"."
+            "description": "File name for the copy. Defaults to \"<name> (takeoff).pdf\". May include a folder under the open file's folder (\"Working\\\\A-101.pdf\", made if missing), or be a full path to a folder that exists."
           },
           "withoutEmbeddedMarkups": {
             "type": "boolean",
@@ -2303,7 +2303,7 @@
           },
           "name": {
             "type": "string",
-            "description": "For save_copy: the copy's file name. Defaults to \"<name> (takeoff).pdf\"; a free name is found if it is taken."
+            "description": "For save_copy: the copy's file name. Defaults to \"<name> (takeoff).pdf\"; a free name is found if it is taken. May include a folder under the open file's folder (made if missing), or be a full path to a folder that exists."
           },
           "productType": {
             "type": "string",

@@ -20,7 +20,7 @@ import path from 'node:path'
 
 const SERVER_INFO = { name: 'redbeam', version: '0.1.0' }
 const DISCOVERY_FILE = path.join(os.tmpdir(), 'redbeam-bridge.json')
-const CALL_TIMEOUT_MS = Number(process.env['REDBEAM_BRIDGE_TIMEOUT_MS'] ?? 30000)
+const CALL_TIMEOUT_MS = Number(process.env['REDBEAM_BRIDGE_TIMEOUT_MS'] ?? 60000)
 
 // --------------------------------------------------------------- transport --
 
