@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { cursorsFor, cursorSpot, CURSOR_LINGER_MS } from './AgentCursors.js'
-import { agentGroups, agentStatus } from './AgentTabs.js'
+import { agentGroups, agentStatus, endedLine, finishedSessions, tabMarks } from './AgentTabs.js'
 import { AGENT_COLORS, type Agent } from './roster.js'
 
 const FILE = 'C:\\Jobs\\A.pdf'
 const agent = (over: Partial<Agent> = {}): Agent => ({
-  id: 'a', name: 'Claude', app: 'Claude', task: null, color: AGENT_COLORS[0]!, state: 'working', current: FILE, since: 0, seenAt: 0, collapsed: true,
+  id: 'a', name: 'Claude', app: 'Claude', task: null, color: AGENT_COLORS[0]!, state: 'working', waitingFor: null, ended: null, wrote: [], guestIn: [], current: FILE, since: 0, seenAt: 0, collapsed: true,
   activity: { text: 'Drawing an area', at: 1000, busy: false, file: FILE, page: 2, point: { x: 0.5, y: 0.5 } },
   ...over,
 })
@@ -60,14 +60,25 @@ describe('agent tab groups', () => {
     const asking = agentGroups([idle], tabs, [{ file: 'c:/jobs/mine.pdf', agentId: 'c', at: 0 }])
     expect(asking[0]!.asks.map((t) => t.name)).toEqual(['Mine.pdf'])
   })
-  it('keeps a gone agent\'s tabs listed, to be looked over', () => {
-    const groups = agentGroups([agent({ state: 'gone' })], tabs, [])
-    expect(groups[0]!.tabs).toHaveLength(2)
-    expect(agentStatus(groups[0]!.agent)).toBe('Finished')
+  it('gives a finished session no group: it is listed under Finished, newest first', () => {
+    const end = { by: 'agent' as const, summary: 'Done', handedBack: ['C:\\Jobs\\A.pdf'], closed: [] }
+    const first = agent({ state: 'gone', ended: { ...end, at: 1000 } })
+    const later = agent({ id: 'b', name: 'Codex', state: 'gone', ended: { ...end, by: 'lost', at: 5000 } })
+    expect(agentGroups([first, later], tabs, [])).toEqual([])
+    expect(finishedSessions([first, later, agent({ id: 'c' })]).map((a) => a.name)).toEqual(['Codex', 'Claude'])
+    expect(endedLine(later)).toMatch(/^Finished .* · its app stopped answering$/)
   })
-  it('says what a working agent is doing, and Idle otherwise', () => {
+  it('says what a session is doing now, never what it did: the action, the wait, or when it went quiet', () => {
     expect(agentStatus(agent())).toBe('Drawing an area')
-    expect(agentStatus(agent({ state: 'idle' }))).toBe('Idle')
+    expect(agentStatus(agent({ state: 'idle' }))).toMatch(/^Quiet since /)
+    expect(agentStatus(agent({ state: 'waiting', waitingFor: 'approve the scope definition' }))).toBe('Waiting for you: approve the scope definition')
+  })
+  it('keeps a session that is a guest in the person\'s PDF on the strip, and dots that tab', () => {
+    const guest = agent({ id: 'g', name: 'ChatGPT · Nokia takeoff', state: 'idle', guestIn: ['c:/jobs/mine.pdf'] })
+    expect(agentGroups([guest], tabs, [])).toHaveLength(1)
+    expect(tabMarks(tabs[0]!, [guest])).toEqual([{ color: guest.color.bright, title: expect.stringContaining('ChatGPT · Nokia takeoff is also working in this PDF') }])
+    expect(tabMarks({ ...tabs[0]!, handed: { by: 'Claude', color: '#00B7C3' } }, [])).toEqual([{ color: '#00B7C3', title: 'New from Claude, which has finished' }])
+    expect(tabMarks(tabs[0]!, [{ ...guest, state: 'gone' }])).toEqual([])
   })
 })
 

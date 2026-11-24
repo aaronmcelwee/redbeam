@@ -48,6 +48,7 @@ pub fn dispatch(app: &AppHandle, method: &str, params: &Value) -> Result<Value, 
         "execute_query" => execute_query(app, params),
         "open_file" => open_file(app, params),
         "agent_bye" => Ok(agent_bye(app)),
+        "agent_alive" => Ok(agent_alive(app, params)),
         // UI round trips. Separated from the store-backed methods above
         // because these are the only ones a wedged or window-less app can
         // fail, and a caller deserves to know which kind it is asking for.
@@ -66,7 +67,7 @@ fn capabilities() -> Value {
         "methods": [
             "ping", "get_capabilities", "get_state", "list_documents", "list_pages",
             "list_scopes", "list_markups", "get_calibration", "project_summary",
-            "execute_query", "open_file", "agent_bye",
+            "execute_query", "open_file", "agent_bye", "agent_alive",
             "get_ui_state", "screenshot", "invoke_ui_action",
         ],
         // Named so a client does not have to discover the gap by trying.
@@ -400,6 +401,13 @@ fn has_window(app: &AppHandle) -> bool {
 /// tabs stay open. Never an error; a window that is not there has nobody to tell.
 fn agent_bye(app: &AppHandle) -> Value {
     let _ = super::ui::request_within(app, "agent_bye", &json!({}), std::time::Duration::from_secs(2));
+    json!({ "ok": true })
+}
+
+/// An AI app's server saying it is still running (mcp.rs `ALIVE_EVERY`). The
+/// window finishes the sessions of one that stops. Never an error.
+fn agent_alive(app: &AppHandle, params: &Value) -> Value {
+    let _ = super::ui::request_within(app, "agent_alive", params, std::time::Duration::from_secs(2));
     json!({ "ok": true })
 }
 

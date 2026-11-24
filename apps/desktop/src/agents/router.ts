@@ -22,9 +22,9 @@
  * the tests supply fakes.
  */
 import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
-import { agentTabs, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
+import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
 import { type HandoverStore } from './handover.js'
-import { type Agent, type AgentIdentity, callPage, callPoint, describeCall, identityOf, type RosterStore } from './roster.js'
+import { type Agent, type AgentIdentity, callPage, callPoint, callWrites, describeCall, type EndedBy, identityOf, type RosterStore } from './roster.js'
 
 export interface RouterDeps {
   /** Every open tab, the person's and the agents'. */
@@ -48,6 +48,8 @@ export interface RouterDeps {
   closeTab: (file: string) => Promise<boolean>
   /** Hand a tab to an agent, or back to the person (null). */
   setOwner: (file: string, owner: string | null) => void
+  /** Move a finished session's tab to the person's strip, marked as come from `agent` until they open it. */
+  handBack: (file: string, agent: Agent) => void
   roster: RosterStore
   handovers: HandoverStore
   appVersion: string
@@ -61,9 +63,18 @@ export const CALL_BUDGET_MS = 17_500
 export const OPEN_WAIT_MS = 20_000
 /** How long a call waits for the person to answer a handover question. */
 export const HANDOVER_WAIT_MS = 12_000
+/**
+ * An AI app's server says it is alive every few seconds (mcp.rs `ALIVE_EVERY`).
+ * One that has said so before and then says nothing for this long was killed
+ * or has hung: its sessions are finished, so no cursor or status of theirs
+ * stays on screen saying something that is no longer happening.
+ */
+export const LOST_AFTER_MS = 20_000
 
 export class BridgeRouter {
   private readonly queues = new Map<string, Promise<unknown>>()
+  /** When each AI app's server last said it was alive, by the part of an agent's id before the last "/". */
+  private readonly aliveAt = new Map<string, number>()
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
 
@@ -80,6 +91,7 @@ export class BridgeRouter {
     switch (req.action) {
       case 'open_file': return this.openFile(agent, params)
       case 'agent_bye': return this.bye(who)
+      case 'agent_alive': return this.alive(params)
       default: return this.call(agent, req.action, params)
     }
   }
@@ -90,6 +102,14 @@ export class BridgeRouter {
     const started = this.now()
     const left = () => CALL_BUDGET_MS - (this.now() - started)
     const named = typeof params['file'] === 'string' ? params['file'].trim() : ''
+    // About the session itself, not about a PDF: answered with or without one open.
+    if (action === 'invoke_ui_action' && agent !== null) {
+      if (params['action'] === 'wait_for_person') return this.waitForPerson(agent, params)
+      if (params['action'] === 'end_session') {
+        const keep = Array.isArray(params['keep']) ? params['keep'].filter((k): k is string => typeof k === 'string') : []
+        return this.endSession(agent.id, 'agent', line(params['summary']), keep)
+      }
+    }
     const tab = this.target(agent, named)
 
     if (tab === null) {
@@ -141,11 +161,16 @@ export class BridgeRouter {
       result = { error: e instanceof Error ? e.message : String(e) }
     }
     if (agent !== null) {
+      const failed = typeof result['error'] === 'string'
       this.deps.roster.end(agent.id, {
-        failed: typeof result['error'] === 'string',
+        failed,
         page: typeof result['page'] === 'number' ? result['page'] : null,
         file: tab.file,
       })
+      const now = tabFor(this.deps.tabs(), tab.file)
+      if (now !== undefined) {
+        this.deps.roster.touch(agent.id, tab.file, { wrote: !failed && callWrites(action, params), guest: now.owner !== agent.id })
+      }
     }
     return action === 'get_ui_state' ? { ...result, ...this.about(agent, tab.file) } : result
   }
@@ -317,11 +342,84 @@ export class BridgeRouter {
   // ---------------------------------------------------------------- bye --
 
   private bye(who: AgentIdentity | null): Record<string, unknown> | null {
-    if (who !== null) {
-      this.deps.roster.leave(who.id)
-      this.deps.handovers.dropAgent(who.id)
-    }
+    if (who !== null && this.deps.roster.agent(who.id) !== undefined) void this.endSession(who.id, 'app', null, [])
     return this.deps.isMain ? { ok: true } : null
+  }
+
+  // ------------------------------------------------------- the session --
+
+  /** The agent has stopped for the person's answer. Its tabs stay as they are; its next call puts it back to work. */
+  private waitForPerson(agent: Agent, params: Record<string, unknown>): Record<string, unknown> {
+    const forWhat = line(params['for'])
+    this.deps.roster.wait(agent.id, forWhat)
+    return {
+      waiting: true,
+      ...(forWhat !== null ? { for: forWhat } : {}),
+      note: 'REDBEAM shows the person that this session is waiting for them. Your tabs stay open. Your next call puts the session back to work; call redbeam_end_session when the job is done.',
+    }
+  }
+
+  /**
+   * Finish a session, and settle its tabs so the person is left nothing to
+   * referee (Aaron, 2026-11-24):
+   *
+   *  - a PDF it wrote in, or named in `keep`, goes to the person's own tab
+   *    strip, saved, without being shown;
+   *  - a PDF it only read is closed, and listed in the session's summary to
+   *    reopen;
+   *  - a PDF the person is looking at, or one that could not be saved, is
+   *    never closed: it goes to their strip;
+   *  - a PDF of the person's it worked in as a guest is left as it is.
+   */
+  async endSession(agentId: string, by: EndedBy, summary: string | null, keep: readonly string[]): Promise<Record<string, unknown>> {
+    const agent = this.deps.roster.agent(agentId)
+    if (agent === undefined) return { error: 'no such session' }
+    if (agent.state === 'gone') return { ended: true, note: 'This session had already finished.' }
+    const own = agentTabs(this.deps.tabs(), agentId)
+    const kept = (file: string) => keep.some((k) => tabNamed(own, k)?.file === file)
+    const wrote = (file: string) => agent.wrote.some((f) => samePath(f, file))
+    const handedBack: string[] = []
+    const closed: string[] = []
+    // Finished first: from here it has no cursor, no call in flight, and asks nothing.
+    this.deps.roster.finish(agentId, { by, summary, handedBack: [], closed: [] })
+    this.deps.handovers.dropAgent(agentId)
+    for (const tab of own) {
+      const showing = this.deps.showing()
+      const watched = showing !== null && samePath(showing, tab.file)
+      if (!wrote(tab.file) && !kept(tab.file) && !watched) {
+        const shut = await this.inTurn(tab.file, () => this.deps.closeTab(tab.file)).catch(() => false)
+        if (shut) { closed.push(tab.file); continue }
+      }
+      this.deps.handBack(tab.file, agent)
+      handedBack.push(tab.file)
+    }
+    this.deps.roster.settle(agentId, handedBack, closed)
+    return {
+      ended: true, handedBack, closed,
+      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed. A new job starts with redbeam_start_session.',
+    }
+  }
+
+  /** An AI app's server saying it is still there. */
+  private alive(params: Record<string, unknown>): Record<string, unknown> | null {
+    const server = line(params['server'])
+    if (server !== null) this.aliveAt.set(server, this.now())
+    return this.deps.isMain ? { ok: true } : null
+  }
+
+  /**
+   * Finish the sessions of any AI app whose server was saying it was alive
+   * and has stopped: killed, crashed or hung. Called on the window's tick.
+   */
+  sweep(): void {
+    const now = this.now()
+    for (const [server, at] of [...this.aliveAt]) {
+      if (now - at < LOST_AFTER_MS) continue
+      this.aliveAt.delete(server)
+      for (const a of this.deps.roster.get().agents) {
+        if (a.state !== 'gone' && a.id.startsWith(`${server}/`)) void this.endSession(a.id, 'lost', null, [])
+      }
+    }
   }
 
   // -------------------------------------------------------------- state --
@@ -355,6 +453,12 @@ export class BridgeRouter {
       ...this.about(agent, null),
     }
   }
+}
+
+/** One line of the agent's own words, or null. */
+function line(v: unknown): string | null {
+  const t = typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : ''
+  return t === '' ? null : t.length > 160 ? `${t.slice(0, 159)}…` : t
 }
 
 function nameOf(path: string): string {

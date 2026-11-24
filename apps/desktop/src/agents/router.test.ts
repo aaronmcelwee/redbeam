@@ -10,10 +10,10 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type BridgeActions, type CallContext, HandoverNeeded } from '../bridge/useBridgeRequests.js'
-import { lightFileOf, samePath, tabFor, withOwner, type LightFile } from '../lightTabs.js'
+import { agentTabs, lightFileOf, samePath, tabFor, withHanded, withOwner, type LightFile } from '../lightTabs.js'
 import { HandoverStore } from './handover.js'
 import { RosterStore } from './roster.js'
-import { BridgeRouter } from './router.js'
+import { BridgeRouter, LOST_AFTER_MS } from './router.js'
 
 const MINE = 'C:\\Jobs\\Mine.pdf'
 const A = { id: 'a', client: 'claude-ai' }
@@ -78,6 +78,7 @@ function world(opts: { isMain?: boolean; showing?: string | null; tabs?: LightFi
       return true
     },
     setOwner: (file, owner) => { w.tabs = withOwner(w.tabs, file, owner) },
+    handBack: (file, agent) => { w.tabs = withHanded(withOwner(w.tabs, file, null), file, { by: agent.name, color: agent.color.bright }) },
     roster: w.roster,
     handovers: w.handovers,
     appVersion: '0.0.0-test',
@@ -87,7 +88,7 @@ function world(opts: { isMain?: boolean; showing?: string | null; tabs?: LightFi
   const call = (agent: unknown, action: string, params: Record<string, unknown> = {}) =>
     router.answer({ id: 1, action, params, agent } as Parameters<typeof router.answer>[0]) as Promise<Record<string, unknown>>
   const act = (agent: unknown, name: string, params: Record<string, unknown> = {}) => call(agent, 'invoke_ui_action', { action: name, ...params })
-  return { w, router, call, act }
+  return { w, router, call, act, tick: (ms: number) => { now += ms } }
 }
 
 afterEach(() => { vi.useRealTimers() })
@@ -308,5 +309,92 @@ describe('what an agent is told about the window', () => {
     expect(await call(A, 'agent_bye')).toEqual({ ok: true })
     expect(w.roster.agent('a')!.state).toBe('gone')
     expect(await ask).toBe('no')
+  })
+})
+
+describe('how a session ends', () => {
+  const TAKEOFF = 'C:\\Jobs\\Nokia - BLIND TAKEOFF.pdf'
+  const SPEC = 'C:\\Jobs\\Nokia - Manual.pdf'
+  const ADDENDUM = 'C:\\Jobs\\Nokia - Addendum 2.pdf'
+  const area = { kind: 'area', rings: [[{ x: 0.1, y: 0.1 }, { x: 0.6, y: 0.4 }]] }
+
+  it('waits for the person at an approval gate with its tabs as they were, and goes back to work on its next call', async () => {
+    const { w, call, act } = world()
+    await call(A, 'open_file', { path: TAKEOFF, wait: true })
+    expect(await act(A, 'wait_for_person', { for: 'approve the scope definition' })).toMatchObject({ waiting: true, for: 'approve the scope definition' })
+    expect(w.roster.agent('a')).toMatchObject({ state: 'waiting', waitingFor: 'approve the scope definition' })
+    expect(agentTabs(w.tabs, 'a').map((t) => t.file)).toEqual([TAKEOFF])
+    await act(A, 'list_scopes', { file: TAKEOFF })
+    expect(w.roster.agent('a')).toMatchObject({ state: 'working', waitingFor: null })
+  })
+
+  it('hands what it wrote to the person, closes what it only read, and says which was which', async () => {
+    const { w, call, act } = world()
+    for (const path of [SPEC, ADDENDUM, TAKEOFF]) await call(A, 'open_file', { path, wait: true })
+    await act(A, 'find_text', { query: 'CL-105', file: SPEC })
+    await act(A, 'create_markup', { ...area, file: TAKEOFF })
+    const out = await act(A, 'end_session', { summary: 'Takeoff saved: 3 scopes, 1,240 sf.' })
+    expect(out).toMatchObject({ ended: true, handedBack: [TAKEOFF], closed: [SPEC, ADDENDUM] })
+    // The person's view did not move, and the takeoff is theirs now, marked as new.
+    expect(w.showing).toBe(MINE)
+    expect(w.tabs.map((t) => t.file)).toEqual([MINE, TAKEOFF])
+    expect(tabFor(w.tabs, TAKEOFF)).toMatchObject({ handed: { by: 'Claude' } })
+    expect(tabFor(w.tabs, TAKEOFF)!.owner).toBeUndefined()
+    expect(w.roster.agent('a')).toMatchObject({
+      state: 'gone',
+      ended: { by: 'agent', summary: 'Takeoff saved: 3 scopes, 1,240 sf.', handedBack: [TAKEOFF], closed: [SPEC, ADDENDUM] },
+    })
+  })
+
+  it('keeps a PDF the session names, one the person is looking at, and one that would not save', async () => {
+    const { w, call, act } = world()
+    const LOCKED = 'C:\\Jobs\\Locked set.pdf'
+    for (const path of [SPEC, ADDENDUM, TAKEOFF, LOCKED]) await call(A, 'open_file', { path, wait: true })
+    w.showing = ADDENDUM
+    const out = await act(A, 'end_session', { keep: ['Nokia - Manual.pdf'] })
+    expect(out['handedBack']).toEqual([SPEC, ADDENDUM, LOCKED])
+    expect(out['closed']).toEqual([TAKEOFF])
+    expect(w.showing).toBe(ADDENDUM)
+  })
+
+  it('leaves the person\'s own PDF alone when a guest session ends, and drops what it was asking', async () => {
+    const { w, act } = world()
+    await act(A, 'create_markup', area)
+    expect(w.roster.agent('a')!.guestIn).toEqual([MINE])
+    const ask = w.handovers.ask(MINE, 'a', 10)
+    await act(A, 'end_session')
+    expect(await ask).toBe('no')
+    expect(w.tabs).toEqual([lightFileOf(MINE)])
+    expect(w.roster.agent('a')).toMatchObject({ state: 'gone', guestIn: [], ended: { handedBack: [], closed: [] } })
+  })
+
+  it('finishes the sessions of an AI app that stops saying it is alive, mid-call or not', async () => {
+    const { w, router, call, act, tick } = world()
+    await call({ id: 'srv1/AAA', client: 'chatgpt', label: 'Nokia takeoff' }, 'open_file', { path: SPEC, wait: true })
+    await call(null, 'agent_alive', { server: 'srv1' })
+    // A call that never comes back: the server was killed while it ran.
+    w.roster.begin('srv1/AAA', { text: 'Searching for “CL-105”', file: SPEC, page: 0, point: { x: 0.5, y: 0.5 } })
+    tick(LOST_AFTER_MS - 1)
+    router.sweep()
+    expect(w.roster.agent('srv1/AAA')).toMatchObject({ state: 'working', activity: { busy: true } })
+    tick(2)
+    router.sweep()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.roster.agent('srv1/AAA')).toMatchObject({ state: 'gone', activity: { busy: false }, ended: { by: 'lost', closed: [SPEC] } })
+    expect(w.tabs.map((t) => t.file)).toEqual([MINE])
+    // An app that never said it was alive (an older server) is never judged lost.
+    await act(B, 'list_scopes')
+    tick(10 * LOST_AFTER_MS)
+    router.sweep()
+    expect(w.roster.agent('b')!.state).not.toBe('gone')
+  })
+
+  it('lets the person end a session, and a call after that starts it again', async () => {
+    const { w, router, call, act } = world()
+    await call(A, 'open_file', { path: SPEC, wait: true })
+    await router.endSession('a', 'person', null, [])
+    expect(w.roster.agent('a')).toMatchObject({ state: 'gone', ended: { by: 'person', closed: [SPEC] } })
+    await act(A, 'list_scopes')
+    expect(w.roster.agent('a')).toMatchObject({ state: 'working', ended: null })
   })
 })

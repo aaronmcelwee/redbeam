@@ -457,6 +457,8 @@ export interface ShellTab {
   name: string
   relativePath: string
   missing?: boolean
+  /** Dots after the name: who else is in this tab, or who left it here (agents/AgentTabs.tsx `tabMarks`). */
+  marks?: { color: string; title: string }[]
 }
 
 export function DocumentTabStrip({
@@ -558,6 +560,9 @@ export function DocumentTabStrip({
     >
       <Glyph icon={FileText} role="inline" />
       <span className="tabname">{t.name}</span>
+      {t.marks?.map((m, i) => (
+        <span key={i} className="tabmark" role="img" aria-label={m.title} title={m.title} style={{ background: m.color }} />
+      ))}
       {onClose && (
         <button
           className="tabclose"

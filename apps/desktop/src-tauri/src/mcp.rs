@@ -269,6 +269,38 @@ fn say_goodbye() {
     }
 }
 
+/// How often this server tells REDBEAM it is still running.
+///
+/// REDBEAM cannot see an AI app's server die: every call is a connection of
+/// its own. So a server with a session says so every few seconds, and one
+/// that stops (killed, crashed, hung) has its sessions finished by the window
+/// (agents/router.ts `LOST_AFTER_MS`) rather than leaving a cursor on the
+/// sheet that says "Searching" for ever.
+const ALIVE_EVERY: Duration = Duration::from_secs(5);
+
+/// Say "still here" once, if this server has a session and REDBEAM is running. Never starts it.
+fn say_alive() {
+    if SEEN.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+        return;
+    }
+    let Some((port, token)) = discovery() else { return };
+    let Ok(mut stream) = connect(port) else { return };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let line = json!({ "id": 1, "method": "agent_alive", "token": token, "params": { "server": session() } });
+    if stream.write_all(format!("{line}\n").as_bytes()).is_ok() {
+        let mut reply = String::new();
+        let _ = BufReader::new(stream).read_line(&mut reply);
+    }
+}
+
+/// The one resource: the part of the instructions about working beside a person, to read again.
+const GUIDE_URI: &str = "redbeam://guide/working-beside-a-person";
+
+fn guide(spec: &Spec) -> String {
+    let text = spec.instructions.as_str().unwrap_or("");
+    text.find("WORKING BESIDE A PERSON").map(|i| &text[i..]).unwrap_or(text).to_string()
+}
+
 fn bridge_call(method: &str, params: &Value, agent: &Value) -> Result<Value, String> {
     let (mut stream, token) = reach()?;
     let _ = stream.set_read_timeout(Some(CALL_TIMEOUT));
@@ -339,14 +371,18 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
             }
             ok(json!({
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "resources": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
             "instructions": spec.instructions,
             }))
         }
         "ping" => ok(json!({})),
         "tools/list" => ok(json!({ "tools": tools_with_agent(spec) })),
-        "resources/list" => ok(json!({ "resources": [] })),
+        "resources/list" => ok(json!({ "resources": [{
+            "uri": GUIDE_URI, "name": "Working beside a person in REDBEAM", "mimeType": "text/plain",
+            "description": "How a session starts, waits, and ends, and how to keep what the person sees about you true.",
+        }] })),
+        "resources/read" => ok(json!({ "contents": [{ "uri": GUIDE_URI, "mimeType": "text/plain", "text": guide(spec) }] })),
         "prompts/list" => ok(json!({ "prompts": [] })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
@@ -371,6 +407,10 @@ pub fn serve_stdio() {
         let _ = writeln!(o, "{v}");
         let _ = o.flush();
     };
+    std::thread::spawn(|| loop {
+        std::thread::sleep(ALIVE_EVERY);
+        say_alive();
+    });
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };

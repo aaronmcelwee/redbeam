@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compareVersions, friendlyDate, inlineRuns, parseChangelog, recentReleases, unseenReleases,
 } from './changelog.js'
-import { SEEN_KEY, launchDecision, markSeen, type SeenStorage } from './seen.js'
+import { SEEN_KEY, launchDecision, markSeen, notesMayOpen, type SeenStorage } from './seen.js'
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -125,6 +125,14 @@ describe('inline text', () => {
  * The release convention: every version that ships has a user-facing entry
  * in CHANGELOG.md, because that entry is what the person sees after updating.
  */
+describe('notes after an update, when an AI app started REDBEAM', () => {
+  it('hold while the window is in the background or a session is at work', () => {
+    expect(notesMayOpen(true, 0)).toBe(true)
+    expect(notesMayOpen(false, 0)).toBe(false)
+    expect(notesMayOpen(true, 1)).toBe(false)
+  })
+})
+
 describe('CHANGELOG.md', () => {
   const releases = parseChangelog(read('../../../../CHANGELOG.md'))
   const version = (JSON.parse(read('../../src-tauri/tauri.conf.json')) as { version: string }).version

@@ -67,7 +67,9 @@
     "redbeam_rotate_pages": "invoke_ui_action",
     "redbeam_create_dimension": "invoke_ui_action",
     "redbeam_duplicate_markups": "invoke_ui_action",
-    "redbeam_select_markups": "invoke_ui_action"
+    "redbeam_select_markups": "invoke_ui_action",
+    "redbeam_wait_for_person": "invoke_ui_action",
+    "redbeam_end_session": "invoke_ui_action"
   },
   "actionOf": {
     "redbeam_get_bom": "get_bom",
@@ -129,7 +131,9 @@
     "redbeam_duplicate_markups": "duplicate_markups",
     "redbeam_select_markups": "select_markups",
     "redbeam_list_markups": "list_markups",
-    "redbeam_list_scopes": "list_scopes"
+    "redbeam_list_scopes": "list_scopes",
+    "redbeam_wait_for_person": "wait_for_person",
+    "redbeam_end_session": "end_session"
   },
   "tools": [
     {
@@ -1681,7 +1685,7 @@
     },
     {
       "name": "redbeam_undo",
-      "description": "Undo the last change, the person's or yours, as Ctrl+Z does. Says what was undone.",
+      "description": "Undo YOUR session's last change. It never takes back the person's work or another session's: each undoes only its own, so you can work in the same PDF as the person. Says what was undone. Refused, with the reason, when someone else changed the same markup after you; then leave it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1698,7 +1702,7 @@
     },
     {
       "name": "redbeam_redo",
-      "description": "Redo the change last undone.",
+      "description": "Redo the change YOUR session last undid.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1914,7 +1918,7 @@
     },
     {
       "name": "redbeam_close_tab",
-      "description": "Close one of YOUR OWN tabs: the PDF you are working in, or the one at `path`. It is saved into its PDF first. You cannot close the person's tabs or another agent's; the answer lists `yourTabs`. Close your tabs when the work is done.",
+      "description": "Close one of YOUR OWN tabs: the PDF you are working in, or the one at `path`. It is saved into its PDF first. You cannot close the person's tabs or another agent's; the answer lists `yourTabs`. To finish the whole job use redbeam_end_session, which settles every tab of yours.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2128,7 +2132,9 @@
               "duplicate_markups",
               "select_markups",
               "list_markups",
-              "list_scopes"
+              "list_scopes",
+              "wait_for_person",
+              "end_session"
             ]
           },
           "tool": {
@@ -2486,13 +2492,53 @@
         "readOnlyHint": false,
         "destructiveHint": true
       }
+    },
+    {
+      "name": "redbeam_wait_for_person",
+      "description": "Call this whenever you STOP for the person: you asked them a question, or reached an approval gate (a scope brief, a scope definition) and will do nothing more until they answer in the chat. `for` says what you need, in a few words: \"approve the scope definition\". REDBEAM shows \"Waiting for you\" on your group of tabs, so the person can see the work is paused on them and not stuck. Your tabs stay open exactly as they are. Your next REDBEAM call puts the session back to work; you do not need to undo this.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "for": {
+            "type": "string",
+            "description": "What you need from the person, in a few words they would recognise."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false
+      }
+    },
+    {
+      "name": "redbeam_end_session",
+      "description": "Call this ONCE when the job is done: after the last save, as you give the person your hand back. Also call it if the person tells you to stop, or the job is abandoned. REDBEAM then settles your tabs so the person has nothing to tidy: every PDF you changed is saved and becomes one of the person's own tabs (not shown over what they are looking at), and every PDF you only read is closed. `summary` is one line the person reads beside your finished session: what you produced and where. `keep` names PDFs you only read that the person should still be handed (rarely needed). The answer lists `handedBack` and `closed`. Do NOT call it at an approval gate or while waiting for an answer: that is redbeam_wait_for_person. After it, this session is over; a new job starts with redbeam_start_session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "One line for the person: what was done and where it is. \"Takeoff saved in Nokia - BLIND TAKEOFF.pdf: 3 scopes, 1,240 sf.\""
+          },
+          "keep": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "PDFs you only read that should be handed to the person rather than closed, by path or file name."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
     }
   ],
-  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. A TAKEOFF, START TO FINISH: 0. redbeam_start_session, once per chat. 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn; redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom, redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on REDBEAM's undo stack as yours (redbeam_undo takes it back; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`. WORKING BESIDE A PERSON AND OTHER AGENTS: the person is usually working in REDBEAM too, in tabs of their own, and other agents may be working in theirs. Nothing you do moves the person's view, takes the keyboard, or brings REDBEAM to the front. A PDF you open is YOUR tab, behind theirs; there you turn pages, zoom and pick tools freely, and the person can look in on you (they see your cursor and a line saying what you are doing). In a tab that is NOT yours (the person's, or another agent's) you can read its sheet list, text, scopes and markups on any sheet, look at, measure and trace the sheet it is showing, and draw on that sheet (leave `page` out), but a call that needs another sheet shown, or would zoom it, change its tool, selection or panels, or undo, is not done: the person is asked instead, and the answer says `handover: asked` or `handover: refused`. Do not retry in a loop; either wait, or redbeam_save_copy and open the copy, which is yours. redbeam_get_ui_state lists `tabOwners` and whether you drive the PDF. SESSIONS: call redbeam_start_session once at the start of every chat, with a short name for the job, and pass the `session` it returns on every other call. REDBEAM shows the person your app and that name on your group of tabs and beside your cursor. Each chat, and each sub-agent or parallel worker, starts its own session and so gets its own tabs, colour and cursor; never use a session another chat was given. Close your tabs with redbeam_close_tab when you are done.",
+  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. A TAKEOFF, START TO FINISH: 0. redbeam_start_session, once per chat. 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn; redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom, redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on your session's own undo (redbeam_undo takes back your last change and never the person's; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`. WORKING BESIDE A PERSON AND OTHER AGENTS: the person is usually working in REDBEAM too, in tabs of their own, and other agents may be working in theirs. Nothing you do moves the person's view, takes the keyboard, or brings REDBEAM to the front. A PDF you open is YOUR tab, behind theirs; there you turn pages, zoom and pick tools freely, and the person can look in on you (they see your cursor and a line saying what you are doing). In a tab that is NOT yours (the person's, or another agent's) you can read its sheet list, text, scopes and markups on any sheet, look at, measure and trace the sheet it is showing, and draw on that sheet (leave `page` out), but a call that needs another sheet shown, or would zoom it, change its tool, selection or panels, or undo, is not done: the person is asked instead, and the answer says `handover: asked` or `handover: refused`. Do not retry in a loop; either wait, or redbeam_save_copy and open the copy, which is yours. redbeam_get_ui_state lists `tabOwners` and whether you drive the PDF. SESSIONS: call redbeam_start_session once at the start of every chat, with a short name for the job, and pass the `session` it returns on every other call. REDBEAM shows the person your app and that name on your group of tabs and beside your cursor. Each chat, and each sub-agent or parallel worker, starts its own session and so gets its own tabs, colour and cursor; never use a session another chat was given. THE LIFE OF A SESSION, and keeping what the person sees true: the person sees your session as Working, Waiting for you, or Finished, and sees beside your cursor what your call in flight is doing. That line comes from your calls, so it is only as true as you keep it. (a) When you stop for the person, at a question or an approval gate, call redbeam_wait_for_person with what you need. Otherwise your group just goes quiet and the person cannot tell paused from stuck. (b) When the job is done, or the person calls it off, call redbeam_end_session with a one-line summary. REDBEAM hands the PDFs you changed to the person as their own tabs and closes the ones you only read. Do not leave a session open after your final message, and do not end it at a gate. (c) Work in few, purposeful calls. Do not poll redbeam_get_ui_state in a loop to look busy, and do not leave a session with nothing to do. (d) One session does one job. A new job in the same chat ends the old session and starts a new one, named for the new job. redbeam_close_tab closes a single tab of yours early; redbeam_end_session settles all of them. The guide at redbeam://guide/working-beside-a-person repeats this section.",
   "sessions": {
     "tool": {
       "name": "redbeam_start_session",
-      "description": "Call this ONCE at the start of each chat, before any other REDBEAM tool. `task` is a short name for the job this chat is doing, as the person would call it: \"Nokia Canada North Campus takeoff\". It returns `session`; pass that exact value as `session` on every other REDBEAM call in this chat. REDBEAM shows the person your app and task on your group of tabs and beside your cursor (\"ChatGPT · Nokia Canada North Campus takeoff\"), and keeps your tabs apart from every other chat's. Never use a session that another chat was given; a sub-agent or parallel worker starts its own. It opens no window and changes nothing.",
+      "description": "Call this ONCE at the start of each chat, before any other REDBEAM tool. `task` is a short name for the job this chat is doing, as the person would call it: \"Nokia Canada North Campus takeoff\". It returns `session`; pass that exact value as `session` on every other REDBEAM call in this chat. REDBEAM shows the person your app and task on your group of tabs and beside your cursor (\"ChatGPT · Nokia Canada North Campus takeoff\"), and keeps your tabs apart from every other chat's. Never use a session that another chat was given; a sub-agent or parallel worker starts its own. End it with redbeam_end_session when the job is done. It opens no window and changes nothing.",
       "inputSchema": {
         "type": "object",
         "properties": {

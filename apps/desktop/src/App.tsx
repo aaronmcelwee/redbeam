@@ -20,14 +20,14 @@ import { setBeforeQuit } from './update/session.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 import { projectBridge } from './project/bridge.js'
 import {
-  SESSION_LIMIT, lightFileOf, nextOwnTab, ownTabs, readSession, samePath, stepOwnTab, tabFor, withOwner,
+  SESSION_LIMIT, lightFileOf, nextOwnTab, ownTabs, readSession, samePath, stepOwnTab, tabFor, withHanded, withOwner,
   withoutTab, withTab, writeSession, type LightFile,
 } from './lightTabs.js'
 import { bridgeHosts, UNNAMED_CALL, useBridgeListener } from './bridge/useBridgeRequests.js'
 import { BridgeRouter } from './agents/router.js'
 import { roster } from './agents/roster.js'
 import { handovers } from './agents/handover.js'
-import { AgentsOnStart } from './agents/AgentTabs.js'
+import { AgentsOnStart, type AgentTabItem } from './agents/AgentTabs.js'
 import { LIVE_LIMIT, sleepers, type LiveUse } from './agents/live.js'
 import { APP_VERSION } from './update/updates.js'
 import {
@@ -216,10 +216,12 @@ export default function App() {
   const showTab = useCallback((f: LightFile) => {
     const now = quickRef.current
     if (now !== null && samePath(now.file, f.file)) return
+    // Opened: it is no longer news that a session handed it back.
+    if (f.handed !== undefined) setTabs((t) => withHanded(t, f.file, null))
     if (now !== null && !isLive(now.file) && agentsUse(now.file)) setLive((l) => [...l, now.file])
     if (now === null || isLive(now.file)) { setQuick(f); return }
     saveThen(now.file, () => setQuick(f))
-  }, [isLive, saveThen, setQuick, agentsUse, setLive])
+  }, [isLive, saveThen, setQuick, agentsUse, setLive, setTabs])
 
   /** A drawing, picked or dropped: it opens as a tab, or comes forward if it is one. */
   const showDrawing = useCallback((pick: { path: string | null }) => {
@@ -363,6 +365,18 @@ export default function App() {
     openForPerson: (path) => dropPathRef.current(path),
     closeTab: (file) => closeTab(file, 'agent'),
     setOwner,
+    handBack: (file, agent) => {
+      const showing = quickRef.current !== null && samePath(quickRef.current.file, file)
+      setTabs((t) => {
+        const mine = withOwner(t, file, null)
+        // To the end of the person's strip; one they are looking at needs no mark.
+        const tab = tabFor(mine, file)
+        const rest = mine.filter((x) => !samePath(x.file, file))
+        const moved = tab === undefined ? mine : [...rest, tab]
+        return showing ? moved : withHanded(moved, file, { by: agent.name, color: agent.color.bright })
+      })
+      handovers.dropFile(file)
+    },
     roster,
     handovers,
     appVersion: APP_VERSION,
@@ -375,6 +389,7 @@ export default function App() {
   useEffect(() => {
     const timer = setInterval(() => {
       roster.tick()
+      router.sweep()
       const uses: LiveUse[] = liveRef.current.map((file) => ({ file, usedAt: usedRef.current.get(foldPath(file)) ?? 0 }))
       const busy = (file: string) => roster.get().agents.some((a) => a.activity?.busy === true && a.activity.file !== null && samePath(a.activity.file, file))
       for (const file of sleepers(uses, { now: Date.now(), busy, limit: LIVE_LIMIT })) {
@@ -386,7 +401,7 @@ export default function App() {
       }
     }, 5000)
     return () => clearInterval(timer)
-  }, [quietSave, setLive])
+  }, [quietSave, setLive, router])
 
   /*
    * Closing the window: every mounted PDF is saved, the one showing first.
@@ -545,10 +560,17 @@ export default function App() {
       handovers.answer(file, agentId, yes)
     },
     onTakeOver: (file: string) => setOwner(file, null),
+    onEndSession: (agentId: string) => { void router.endSession(agentId, 'person', null, []) },
+    onDismissSession: (agentId: string) => roster.forget(agentId),
+    onReopenFile: (file: string) => dropPathRef.current(file),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [])
   const tabList = useMemo(
-    () => tabs.map((t) => ({ file: t.file, name: t.relativePath, ...(t.owner !== undefined ? { owner: t.owner } : {}) })),
+    () => tabs.map((t) => ({
+      file: t.file, name: t.relativePath,
+      ...(t.owner !== undefined ? { owner: t.owner } : {}),
+      ...(t.handed !== undefined ? { handed: t.handed } : {}),
+    })),
     [tabs],
   )
 
@@ -621,6 +643,9 @@ interface WorkspaceHandlers {
   onBeforeClose: (file: string, fn: ((leave: () => void) => Promise<boolean>) | null) => void
   onHandOver: (file: string, agentId: string, yes: boolean) => void
   onTakeOver: (file: string) => void
+  onEndSession: (agentId: string) => void
+  onDismissSession: (agentId: string) => void
+  onReopenFile: (file: string) => void
 }
 
 /**
@@ -637,7 +662,7 @@ const LiveWorkspace = memo(function LiveWorkspace({
 }: {
   tab: LightFile
   showing: boolean
-  tabList: { file: string; name: string; owner?: string }[]
+  tabList: AgentTabItem[]
   desktop: boolean
   handlers: WorkspaceHandlers
 }) {
@@ -659,6 +684,7 @@ const LiveWorkspace = memo(function LiveWorkspace({
       onSelect: handlers.onSelect, onClose: handlers.onClose, onStep: handlers.onStep,
       onReopen: handlers.onReopen,
       onHandOver: handlers.onHandOver, onTakeOver: handlers.onTakeOver,
+      onEndSession: handlers.onEndSession, onDismissSession: handlers.onDismissSession, onReopenFile: handlers.onReopenFile,
     },
   }), [file, relativePath, desktop, tabList, handlers])
   return (

@@ -27,6 +27,11 @@ export interface LightFile {
    * person's: nothing an agent does moves its view.
    */
   owner?: string
+  /**
+   * Set on a tab a finished AI session handed to the person: who it came
+   * from and their colour, shown as a dot until the person opens it.
+   */
+  handed?: { by: string; color: string }
 }
 
 /** A full path to the file quick view opens. */
@@ -96,6 +101,15 @@ export function withOwner(tabs: readonly LightFile[], file: string, owner: strin
     if (!samePath(t.file, file)) return t
     const { owner: _was, ...rest } = t
     return owner === null ? rest : { ...rest, owner }
+  })
+}
+
+/** The tabs with `file` marked as handed back by a session, or the mark taken off (null). */
+export function withHanded(tabs: readonly LightFile[], file: string, handed: { by: string; color: string } | null): LightFile[] {
+  return tabs.map((t) => {
+    if (!samePath(t.file, file)) return t
+    const { handed: _was, ...rest } = t
+    return handed === null ? rest : { ...rest, handed }
   })
 }
 

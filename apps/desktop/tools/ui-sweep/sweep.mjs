@@ -481,12 +481,13 @@ const STEPS = [
     const after = await person(page)
     if (JSON.stringify(after) !== JSON.stringify(before)) problems.push(`agents: the person's view moved: ${JSON.stringify(before)} became ${JSON.stringify(after)}`)
     const seen = await page.evaluate(() => ({
-      chips: [...document.querySelectorAll('.wshost[data-showing="true"] .agentchip')].map((c) => `${c.querySelector('.agentname')?.textContent} · ${c.querySelector('.agenttask')?.textContent}`),
-      colours: [...document.querySelectorAll('.wshost[data-showing="true"] .agentchip')].map((g) => g.style.getPropertyValue('--agent-bright')),
+      chips: [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((c) => c.querySelector('.agentpill-name')?.textContent),
+      colours: [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((g) => g.style.getPropertyValue('--agent-bright')),
+      unfolded: document.querySelectorAll('.wshost[data-showing="true"] .agenttab').length,
       flyouts: document.querySelectorAll('.agentflyout, [role="dialog"]').length,
       strip: (() => {
         const tab = document.querySelector('.wshost[data-showing="true"] [data-tab][role="tab"]')?.getBoundingClientRect()
-        const chips = [...document.querySelectorAll('.wshost[data-showing="true"] .agentchip')].map((c) => c.getBoundingClientRect())
+        const chips = [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((c) => c.getBoundingClientRect())
         return { tab: tab?.width ?? 0, widest: Math.max(0, ...chips.map((r) => r.width)), over: chips.some((r) => tab !== undefined && r.left < tab.right - 1) }
       })(),
       behind: document.querySelectorAll('.wshost[data-showing="false"]').length,
@@ -494,12 +495,13 @@ const STEPS = [
       tabs: [...document.querySelectorAll('.wshost[data-showing="true"] [data-tab][role="tab"] .tabname')].map((n) => n.textContent),
     }))
     const want = 'Claude · Nokia Canada North Campus takeoff|Claude · Level 2 ceilings|ChatGPT · Clinic framing'
-    if (seen.chips.join('|') !== want) problems.push(`agents: expected one chip per session (${want}), saw ${seen.chips.join('|') || 'none'}`)
+    if (seen.chips.join('|') !== want) problems.push(`agents: expected one group pill per session (${want}), saw ${seen.chips.join('|') || 'none'}`)
+    if (seen.unfolded !== 0) problems.push(`agents: groups should arrive folded, ${seen.unfolded} of their tabs are on the strip`)
     if (new Set(seen.colours).size !== 3) problems.push('agents: the three sessions do not have three colours')
     if (seen.flyouts !== 0) problems.push('agents: something opened over the person\'s work when agents arrived')
     if (seen.strip.over) problems.push('agents: a session chip sits over the person\'s tab')
     if (seen.strip.tab < 100) problems.push(`agents: the sessions squeezed the person's tab to ${Math.round(seen.strip.tab)} px`)
-    if (seen.strip.widest > 240) problems.push(`agents: a collapsed session takes ${Math.round(seen.strip.widest)} px of the strip`)
+    if (seen.strip.widest > 330) problems.push(`agents: a collapsed session takes ${Math.round(seen.strip.widest)} px of the strip`)
     if (seen.behind !== 3 || seen.inert !== 3) problems.push(`agents: ${seen.behind} PDFs live behind the one showing, ${seen.inert} of them inert (want 3 and 3)`)
     if (seen.tabs.join() !== 'Sweep set') problems.push(`agents: the person's strip should hold only their tab, holds ${seen.tabs.join()}`)
     return problems
@@ -552,26 +554,38 @@ const STEPS = [
     return problems
   }],
   ['agent-watch', async (page) => {
-    // The person looks in on a session: one click lists its PDFs, picking one shows it, its cursor says what it is doing.
+    // The person looks in on a session: its pill unfolds its PDFs as real tabs, a tab shows the PDF, its cursor says what it is doing.
     const problems = []
-    const chip = shown(page).locator('.agentchip').first()
-    await chip.click()
+    const pill = shown(page).locator('.agentpill').first()
+    await pill.click()
     await page.waitForTimeout(250)
+    const tabs = await shown(page).locator('.agenttab .tabname').allTextContents()
+    if (tabs.join() !== 'Tower A') problems.push(`agent-watch: clicking a session's pill should unfold its PDFs as tabs (Tower A), saw ${tabs.join() || 'none'}`)
+    if (await page.locator('.agentflyout, [role="dialog"]').count() > 0) problems.push('agent-watch: unfolding a group opened something over the sheet')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-group-open.png`) })
+    // The same click folds it away again.
+    await pill.click()
+    await page.waitForTimeout(150)
+    if (await shown(page).locator('.agenttab').count() > 0) problems.push('agent-watch: clicking the pill again did not fold its tabs away')
+    // Right-click: who it is, what it is doing, and the way to end it.
+    await pill.click({ button: 'right' })
+    await page.waitForTimeout(200)
     const flyout = page.locator('.agentflyout')
     const head = await flyout.locator('.agentflyout-head').textContent().catch(() => null)
-    if (head === null) problems.push('agent-watch: clicking a session opened no list of its PDFs')
-    else if (!/Claude · Nokia Canada North Campus takeoff/.test(head) || !/is operating this PDF/.test(head)) problems.push(`agent-watch: the flyout should name the session and say it is operating its PDF, reads "${head}"`)
+    if (head === null) problems.push('agent-watch: right-clicking a session opened no menu')
+    else if (!/Claude · Nokia Canada North Campus takeoff/.test(head) || !/is operating this PDF/.test(head)) problems.push(`agent-watch: the menu should name the session and say it is operating its PDF, reads "${head}"`)
+    if (await flyout.getByRole('menuitem', { name: 'End this session' }).count() !== 1) problems.push('agent-watch: the session menu has no End this session')
     problems.push(...await inspect(page))
-    await page.screenshot({ path: join(out, `${shotPrefix}agent-flyout.png`) })
-    // Escape puts it away again, as any menu.
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-menu.png`) })
     await page.keyboard.press('Escape')
     await page.waitForTimeout(150)
-    if (await flyout.count() > 0) problems.push('agent-watch: Escape did not close the session flyout')
-    await chip.click()
-    await flyout.locator('.agentfile [role="menuitemradio"]').first().click()
+    if (await flyout.count() > 0) problems.push('agent-watch: Escape did not close the session menu')
+    await pill.click()
+    await shown(page).locator('.agenttab').first().click()
     await page.waitForTimeout(1200)
-    const showing = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agentchip[data-showing="true"] .agenttask')?.textContent)
-    if (showing !== 'Nokia Canada North Campus takeoff') problems.push(`agent-watch: picking the session's PDF should show it and mark its chip, marked ${showing ?? 'none'}`)
+    const showing = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agenttab.active .tabname')?.textContent)
+    if (showing !== 'Tower A') problems.push(`agent-watch: clicking the session's tab should show its PDF, showing ${showing ?? 'none'}`)
     await agentAct(page, AGENTS[0], 'find_text', { query: 'CL-105' })
     await page.waitForTimeout(300)
     const searching = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agentcursor-doing')?.textContent)
@@ -586,7 +600,7 @@ const STEPS = [
     })
     if (cursor === null) problems.push(`agent-watch: no cursor on the sheet after the agent drew (${JSON.stringify(made).slice(0, 140)})`)
     else {
-      if (!/^Claude · Nokia Canada North Campus takeoff/.test(cursor.text ?? '')) problems.push(`agent-watch: the cursor's label should start with the session's name, reads "${cursor.text}"`)
+      if (!/Claude · Nokia Canada North Campus takeoff/.test(cursor.text ?? '')) problems.push(`agent-watch: the cursor's label should name the session, reads "${cursor.text}"`)
       if (typeof made.error !== 'string' && cursor.mode !== 'on') problems.push(`agent-watch: the cursor should sit on the point drawn, is ${cursor.mode}`)
     }
     if (await shown(page).locator('.agentbar', { hasText: 'is operating this PDF' }).count() === 0) problems.push('agent-watch: nothing on the sheet says an agent drives this tab')
@@ -597,20 +611,98 @@ const STEPS = [
       return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.agentcursors') !== null
     })
     if (hit === true) problems.push('agent-watch: the cursor label takes the pointer')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-in-its-tab.png`) })
+    return problems
+  }],
+  ['agent-together', async (page) => {
+    /*
+     * Aaron, 2026-11-24: "I can be doing a manual takeoff while the agent
+     * searches for references to a scope and highlights them for me. This
+     * must work." The person is in their own PDF; a session marks it up as a
+     * guest. Their tab gets its dot, nothing of theirs moves, and Ctrl+Z
+     * does not take back the session's work.
+     */
+    const problems = []
+    await shown(page).locator('[data-tab][role="tab"]').first().click()
+    await page.waitForTimeout(900)
+    // The sheet list says "no scale" beside a sheet once it has takeoff on it: that is the list telling the truth, not the view moving.
+    const where = async () => { const p = await person(page); return JSON.stringify({ ...p, sheet: String(p.sheet).replace('no scale', '') }) }
+    const before = await where()
+    const scope = await agentAct(page, AGENTS[2], 'create_scope', { label: 'CL-105 references', scopeType: 'area', file: FILE })
+    if (typeof scope.scopeId !== 'string') problems.push(`agent-together: a guest session could not add a scope: ${JSON.stringify(scope).slice(0, 160)}`)
+    for (const [x, y] of [[0.22, 0.3], [0.5, 0.52]]) {
+      const made = await agentAct(page, AGENTS[2], 'create_markup', { kind: 'area', scopeId: scope.scopeId, file: FILE, rings: [[{ x, y }, { x: x + 0.09, y }, { x: x + 0.09, y: y + 0.07 }, { x, y: y + 0.07 }]] })
+      if (typeof made.error === 'string') problems.push(`agent-together: a guest session could not draw on the sheet showing: ${made.error.slice(0, 140)}`)
+    }
+    await page.waitForTimeout(500)
+    if (await where() !== before) problems.push(`agent-together: the person's view moved while a session drew in their PDF: ${before} became ${await where()}`)
+    // One dot per session in the PDF: this one, and the one that read it a step ago.
+    const marks = await shown(page).locator('[data-tab][role="tab"] .tabmark').evaluateAll((els) => els.map((e) => e.getAttribute('title')))
+    if (!marks.some((m) => /ChatGPT · Clinic framing is also working in this PDF · Drawing an area/.test(m ?? ''))) problems.push(`agent-together: the person's tab should carry a dot naming the guest session and what it is doing, carries ${JSON.stringify(marks)}`)
+    const count = async () => { const l = await agentAct(page, AGENTS[2], 'list_markups', { file: FILE }); return Array.isArray(l.markups) ? l.markups.length : -1 }
+    const had = await count()
+    await shown(page).locator('.stage, canvas').first().click({ position: { x: 5, y: 5 } }).catch(() => {})
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+    const kept = await count()
+    if (kept !== had) problems.push(`agent-together: the person's Ctrl+Z took back a session's work (${had} markups became ${kept})`)
+    const undone = await agentAct(page, AGENTS[2], 'undo', { file: FILE })
+    await page.waitForTimeout(300)
+    if (typeof undone.undid !== 'string' || await count() !== had - 1) problems.push(`agent-together: a guest session could not undo its own last markup: ${JSON.stringify(undone).slice(0, 160)}`)
+    if (await where() !== before) problems.push('agent-together: a session\'s undo moved the person\'s view')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-together.png`) })
+    return problems
+  }],
+  ['agent-finish', async (page) => {
+    // A session waits at a gate, then finishes: what it wrote goes to the person's strip, what it only read closes, and nothing is left to referee.
+    const problems = []
+    const before = await person(page)
+    await agentAct(page, AGENTS[0], 'wait_for_person', { for: 'approve the scope definition' })
+    await page.waitForTimeout(250)
+    const waiting = await shown(page).locator('.agentpill[data-state="waiting"] .agentpill-state').allTextContents()
+    if (waiting.join() !== 'Waiting for you') problems.push(`agent-finish: a waiting session's pill should say Waiting for you, says ${waiting.join() || 'nothing'}`)
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-waiting.png`) })
+    const ended = await agentAct(page, AGENTS[0], 'end_session', { summary: 'Takeoff saved in Tower A: 1 scope, 1 area.' })
+    if (JSON.stringify(ended.handedBack) !== JSON.stringify([AGENT_FILES[0]])) problems.push(`agent-finish: the PDF the session wrote in should be handed back: ${JSON.stringify(ended).slice(0, 200)}`)
+    await agentCall(page, AGENTS[1], 'agent_bye', {})
+    await page.waitForTimeout(900)
+    const strip = await page.evaluate(() => ({
+      mine: [...document.querySelectorAll('.wshost[data-showing="true"] [data-tab][role="tab"]')].map((t) => `${t.querySelector('.tabname')?.textContent}${t.querySelector('.tabmark') ? '*' : ''}`),
+      pills: [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((p) => p.textContent),
+      cursors: [...document.querySelectorAll('.wshost[data-showing="true"] .agentcursor')].map((c) => c.dataset.agent),
+      asks: document.querySelectorAll('.agentinfobar[role="alert"], .agentflyout, [role="dialog"]').length,
+    }))
+    if (strip.mine.join('|') !== 'Sweep set*|Tower A*') problems.push(`agent-finish: the person's strip should hold their PDF and the one handed back, each with its dot: ${strip.mine.join('|')}`)
+    if (strip.pills.join('|') !== 'ChatGPT · Clinic framing1|Finished2') problems.push(`agent-finish: one live group and a Finished pill of 2 should remain, saw ${strip.pills.join('|')}`)
+    if (strip.cursors.some((c) => /Nokia|Level 2/.test(c ?? ''))) problems.push('agent-finish: a finished session still has a cursor on the sheet')
+    if (strip.asks !== 0) problems.push('agent-finish: a session finishing put something in front of the person')
+    if (JSON.stringify(await person(page)) !== JSON.stringify(before)) problems.push('agent-finish: the person\'s view moved when sessions finished')
+    await shown(page).locator('.agentpill.finished').click()
+    await page.waitForTimeout(250)
+    const list = await page.locator('.agentfinished').textContent().catch(() => '')
+    for (const want of ['Takeoff saved in Tower A: 1 scope, 1 area.', 'Now in your tabs', 'Only read, so closed', 'Tower B', 'its app closed']) {
+      if (!String(list).includes(want)) problems.push(`agent-finish: the Finished list should say "${want}"`)
+    }
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-finished.png`) })
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(150)
     return problems
   }],
   ['agents-start', async (page) => {
-    // One agent finishes; the person goes back to their own PDF and closes it. The agents keep working.
+    // The person closes their own PDFs. The session still at work carries on, listed on the start page.
     const problems = []
-    await agentCall(page, AGENTS[1], 'agent_bye', {})
-    await shown(page).locator('[data-tab][role="tab"]').first().click()
-    await page.waitForTimeout(900)
-    await shown(page).locator('[data-tab][role="tab"] .tabclose').first().click({ force: true })
-    await page.waitForTimeout(1500)
+    for (let i = 0; i < 2; i++) {
+      await shown(page).locator('[data-tab][role="tab"]:not(.tucked) .tabclose').first().click({ force: true })
+      await page.waitForTimeout(1300)
+    }
     const card = page.locator('.agentsonstart')
-    if (await card.count() === 0) problems.push('agents-start: the start page does not list the agents still at work')
-    else if (await card.locator('.agentsonstart-open').count() !== 3) problems.push('agents-start: the card should list the three PDFs agents have open')
-    const still = await agentAct(page, AGENTS[0], 'list_markups', {})
+    if (await card.count() === 0) problems.push('agents-start: the start page does not list the session still at work')
+    else if (await card.locator('.agentsonstart-open').count() !== 1) problems.push('agents-start: the card should list the one PDF a session still has open')
+    const still = await agentAct(page, AGENTS[2], 'list_markups', {})
     if (typeof still.error === 'string') problems.push(`agents-start: an agent's PDF stopped answering once the person had no tab: ${still.error.slice(0, 120)}`)
     const closed = await agentAct(page, AGENTS[2], 'close_tab', {})
     if (closed.closed === undefined) problems.push(`agents-start: an agent could not close its own tab: ${JSON.stringify(closed).slice(0, 140)}`)

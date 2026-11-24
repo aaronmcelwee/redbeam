@@ -25,7 +25,7 @@ import {
   upsertScope, setScopeArchived, logActivity, type SqlDriver,
   pageIdFor, pageNumberFrom, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
   type DocumentRow, type SearchHit, type NormBox,
-  UndoStack, createMarkup as cmdCreate, removeMarkup as cmdRemove,
+  UndoStack, PERSON as UNDO_PERSON, createMarkup as cmdCreate, removeMarkup as cmdRemove,
   editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
   reassignScope as cmdReassign,
   type UndoState,
@@ -152,7 +152,7 @@ import { drawScaleRegions } from './scale/drawRegions.js'
 import { HandoverNeeded, UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
-import { AgentBar, AgentStrip } from './agents/AgentTabs.js'
+import { AgentBar, AgentStrip, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -240,7 +240,7 @@ export interface WorkspaceProps {
      */
     tabs?: {
       /** `owner`: the agent whose tab it is (agents/roster.ts); absent on the person's own. */
-      list: { file: string; name: string; owner?: string }[]
+      list: AgentTabItem[]
       onSelect: (file: string) => void
       onClose: (file: string) => void
       onStep: (step: 1 | -1) => void
@@ -249,6 +249,10 @@ export interface WorkspaceProps {
       onHandOver?: (file: string, agentId: string, yes: boolean) => void
       /** Take an agent's tab back as the person's own. */
       onTakeOver?: (file: string) => void
+      /** End an AI session from its group, dismiss a finished one, reopen a PDF it closed. */
+      onEndSession?: (agentId: string) => void
+      onDismissSession?: (agentId: string) => void
+      onReopenFile?: (file: string) => void
     }
   }
   /**
@@ -2745,10 +2749,25 @@ export default function Workspace({
   }, [estimates, openEstimateId, refreshEstimates])
 
 
+  /**
+   * Whose undo a command belongs on: the person's, or one AI session's.
+   *
+   * Read from the command, not from "is an agent call running": the person
+   * keeps drawing while an agent's call waits on the sheet, and a flag set
+   * for the length of that call would put their work on the agent's undo.
+   * Agent handlers build their commands with origin 'agent'; only one agent
+   * call runs in a PDF at a time (agents/router.ts), so the session is the
+   * one whose call is in flight.
+   */
+  const undoActor = useCallback((by: 'user' | 'agent'): string => (
+    by === 'agent' ? (agentCtxRef.current.agent?.id ?? 'agent') : UNDO_PERSON
+  ), [])
+
   /** Run an undoable command, then resync and persist. */
-  const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0]): Promise<boolean> => {
+  const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0], by?: 'user' | 'agent'): Promise<boolean> => {
     const u = undoRef.current
     if (!u) return false
+    const actor = undoActor(by ?? (cmd.record.origin === 'user' ? 'user' : 'agent'))
     /*
      * A write that fails has to say so. Every caller fires this with `void`,
      * so a rejection here went nowhere: a batch delete the core refused left
@@ -2756,7 +2775,7 @@ export default function Workspace({
      * like the button doing nothing.
      */
     try {
-      await u.run(cmd)
+      await u.run(cmd, actor)
     } catch (err) {
       setStatus(`could not ${cmd.label}: ${err instanceof Error ? err.message : String(err)}`)
       await syncMarkups()
@@ -2774,20 +2793,31 @@ export default function Workspace({
     // Tell the other windows on this project. No-op outside Tauri.
     void broadcastChange('markups', identity.projectId ?? 'default')
     return true
-  }, [syncMarkups, identity.projectId])
+  }, [syncMarkups, identity.projectId, undoActor])
 
-  const doUndo = useCallback(async (): Promise<{ label: string; op: string } | { error: string } | null> => {
+  const doUndo = useCallback(async (by: 'user' | 'agent' = 'user'): Promise<{ label: string; op: string } | { error: string } | null> => {
     const db = dbRef.current, u = undoRef.current
     if (!db || !u) return null
     let cmd: Awaited<ReturnType<UndoStack['undo']>>
     // The core refuses an undo that would overwrite newer work, and says why
     // in words written to be shown. Unhandled, that reason was lost.
-    try { cmd = await u.undo() } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+    try { cmd = await u.undo(undoActor(by)) } catch (err) {
+      // An agent is told in its answer; the status line is the person's.
+      if (by === 'user') setStatus(err instanceof Error ? err.message : String(err))
       setUndoState(await u.fetchState().catch(() => u.state))
       return { error: err instanceof Error ? err.message : String(err) }
     }
     if (!cmd) return null
+    const c0 = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
+    if (by === 'agent') {
+      // An agent taking back its own work: the person's selection and status stay theirs.
+      await syncMarkups(() => {
+        setUndoState(u.state)
+        setCal(c0 ? { feetPerPoint: c0.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
+      })
+      saveRef.current()
+      return { label: cmd.label, op: cmd.op }
+    }
     selectedRef.current = []
     // Read first, then set with the markups: one render for the undo, not three.
     const c = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
@@ -2799,14 +2829,14 @@ export default function Workspace({
     })
     saveRef.current()
     return { label: cmd.label, op: cmd.op }
-  }, [syncMarkups, page.width, page.height])
+  }, [syncMarkups, page.width, page.height, undoActor])
 
-  const doRedo = useCallback(async (): Promise<{ label: string; op: string } | { error: string } | null> => {
+  const doRedo = useCallback(async (by: 'user' | 'agent' = 'user'): Promise<{ label: string; op: string } | { error: string } | null> => {
     const db = dbRef.current, u = undoRef.current
     if (!db || !u) return null
     let cmd: Awaited<ReturnType<UndoStack['redo']>>
-    try { cmd = await u.redo() } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+    try { cmd = await u.redo(undoActor(by)) } catch (err) {
+      if (by === 'user') setStatus(err instanceof Error ? err.message : String(err))
       setUndoState(await u.fetchState().catch(() => u.state))
       return { error: err instanceof Error ? err.message : String(err) }
     }
@@ -2815,11 +2845,11 @@ export default function Workspace({
     await syncMarkups(() => {
       setUndoState(u.state)
       setCal(c ? { feetPerPoint: c.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
-      setStatus(`redid ${cmd.label}`)
+      if (by === 'user') setStatus(`redid ${cmd.label}`)
     })
     saveRef.current()
     return { label: cmd.label, op: cmd.op }
-  }, [syncMarkups, page.width, page.height])
+  }, [syncMarkups, page.width, page.height, undoActor])
 
 
   // Another window on this project changed something: reload from the store.
@@ -3247,15 +3277,15 @@ export default function Workspace({
     }
   }, [runCommand, markupsFor, requestPaint])
 
-  const removeMarkup = useCallback(async (id: string) => {
+  const removeMarkup = useCallback(async (id: string, by: 'user' | 'agent' = 'user') => {
     const m = markupsRef.current.find((x) => x.id === id)
     if (!m) return
     if (isCutId(id)) {
       const cmd = editsCommand(uncutEdits(markupsRef.current, id), 'delete cutout')
-      if (cmd !== null) await runCommand(cmd)
+      if (cmd !== null) await runCommand(cmd, by)
       return
     }
-    await runCommand(cmdRemove({ id, kind: m.kind, origin: actorRef.current }))
+    await runCommand(cmdRemove({ id, kind: m.kind, origin: by }), by)
   }, [runCommand])
 
   // ------------------------------------------------------------- interaction --
@@ -5613,6 +5643,7 @@ export default function Workspace({
     else leaveSaving(go)
   }, [quickView, leaveSaving])
   const lightTabs = quickView?.tabs
+  const agentsNow = useAgents()
   const saveOpenFile = useCallback(() => {
     const id = leftDocRef.current
     if (id === null) return
@@ -6609,7 +6640,7 @@ export default function Workspace({
             const pg = pageNumberFrom(m.pageId, docIdRef.current)
             if (pg !== null) await showPageForAgent(pg)
           }
-          await removeMarkup(id)
+          await removeMarkup(id, 'agent')
           return { deleted: id }
         }
 
@@ -7025,13 +7056,17 @@ export default function Workspace({
             ...(out.kind === 'elsewhere' ? { message: 'someone else saved a takeoff into this PDF since it was opened; nothing was written. save_copy keeps this one' } : {}),
           }
         }
-        /* Undo or redo the latest change, the person's or an AI app's (P1-5). */
+        /*
+         * Undo or redo this session's own latest change. Never the person's,
+         * and never another session's: each undoes its own work, so an agent
+         * and a person can be in one PDF without taking back each other's.
+         */
         case 'undo':
         case 'redo': {
-          const r = action === 'undo' ? await doUndo() : await doRedo()
-          if (r === null) return { error: `nothing to ${action}` }
+          const r = action === 'undo' ? await doUndo('agent') : await doRedo('agent')
+          if (r === null) return { error: `nothing of yours to ${action}; a session undoes only its own changes` }
           if ('error' in r) return r
-          return { [action === 'undo' ? 'undid' : 'redid']: r.label, op: r.op, undo: undoRef.current?.state ?? null }
+          return { [action === 'undo' ? 'undid' : 'redid']: r.label, op: r.op, undo: undoRef.current?.stateFor(undoActor('agent')) ?? null }
         }
         /* The app's settings, as the Settings page shows them (P1-6). */
         case 'get_settings': {
@@ -7137,6 +7172,15 @@ export default function Workspace({
           })
           return { bookmarks: walkOut(docIndex.outline as readonly Node[], 0), ...(count >= 2000 ? { truncated: true } : {}) }
         }
+        /*
+         * A session saying it is waiting on the person, or that it is done.
+         * The window answers these (agents/router.ts): they are about the
+         * session's tabs, not about this PDF. Reached only by a caller with
+         * no session.
+         */
+        case 'wait_for_person':
+        case 'end_session':
+          return { error: `${action} is for an AI session; start one with redbeam_start_session` }
         case 'close_tab': {
           if (lightTabs === undefined || quickView === undefined) return { error: 'this window has no tabs' }
           const want = typeof params['path'] === 'string' && params['path'].trim() !== '' ? params['path'].trim() : quickView.file
@@ -10311,7 +10355,10 @@ export default function Workspace({
           <>
             {/* The person's tabs keep the strip; each agent's fold into its chip beside it. */}
             <DocumentTabStrip
-              tabs={lightTabs.list.filter((t) => t.owner === undefined).map((t) => ({ id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file }))}
+              tabs={lightTabs.list.filter((t) => t.owner === undefined).map((t) => ({
+                id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file,
+                marks: tabMarks(t, agentsNow),
+              }))}
               activeId={quickView!.file}
               onSelect={lightTabs.onSelect}
               onClose={lightTabs.onClose}
@@ -10324,6 +10371,9 @@ export default function Workspace({
               onClose={lightTabs.onClose}
               {...(lightTabs.onHandOver !== undefined ? { onHandOver: lightTabs.onHandOver } : {})}
               {...(lightTabs.onTakeOver !== undefined ? { onTakeOver: lightTabs.onTakeOver } : {})}
+              {...(lightTabs.onEndSession !== undefined ? { onEndSession: lightTabs.onEndSession } : {})}
+              {...(lightTabs.onDismissSession !== undefined ? { onDismissSession: lightTabs.onDismissSession } : {})}
+              {...(lightTabs.onReopenFile !== undefined ? { onReopenFile: lightTabs.onReopenFile } : {})}
             />
           </>
         ) : (
@@ -11264,7 +11314,6 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
 const VIEW_ACTIONS = new Set([
   'set_tool', 'zoom_to_region', 'set_layout_preview', 'open_panel',
   'begin_scale_region', 'cancel_scale_region', 'select_markups', 'set_markup_visibility',
-  'undo', 'redo',
 ])
 
 /** Writes that act on the sheet showing: a `page` input shows that sheet first. */

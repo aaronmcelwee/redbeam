@@ -131,7 +131,7 @@ export const AgentCursors = forwardRef<AgentCursorsHandle, {
             </svg>
             <span className="agentcursor-label">
               <span className="agentcursor-name">{a.name}</span>
-              <span className="agentcursor-doing">{quiet ? 'Idle' : doing.text}{doing.failed === true && !quiet ? ' · not done' : ''}</span>
+              <span className="agentcursor-doing">{a.state === 'waiting' ? 'Waiting for you' : quiet ? 'Idle' : doing.text}{doing.failed === true && a.state === 'working' ? ' · not done' : ''}</span>
             </span>
           </div>
         )

@@ -79,7 +79,26 @@ export interface AgentActivity {
   failed?: boolean
 }
 
-export type AgentState = 'working' | 'idle' | 'gone'
+/**
+ * working: a call within the last few seconds. idle: connected, quiet.
+ * waiting: it stopped for the person's answer and said so. gone: finished.
+ */
+export type AgentState = 'working' | 'idle' | 'waiting' | 'gone'
+
+/** How a session came to be finished. */
+export type EndedBy = 'agent' | 'person' | 'app' | 'lost'
+
+/** What a finished session leaves behind for the person to read. */
+export interface SessionEnd {
+  by: EndedBy
+  at: number
+  /** The session's own closing line, when it gave one. */
+  summary: string | null
+  /** PDFs handed to the person's tab strip: the ones it wrote in. */
+  handedBack: readonly string[]
+  /** PDFs it only read, closed with the group. One click reopens any. */
+  closed: readonly string[]
+}
 
 export interface Agent {
   id: string
@@ -90,8 +109,15 @@ export interface Agent {
   /** What this chat said it is doing, in its own words; null when it did not say. */
   task: string | null
   color: AgentColor
-  /** working: a call within the last few seconds. idle: connected, quiet. gone: its app closed the connection. */
   state: AgentState
+  /** What it stopped for, in its own words, while `state` is 'waiting'. */
+  waitingFor: string | null
+  /** Set once it is finished. */
+  ended: SessionEnd | null
+  /** PDFs it changed: what goes back to the person when it finishes. */
+  wrote: readonly string[]
+  /** The person's PDFs it is working in as a guest. */
+  guestIn: readonly string[]
   activity: AgentActivity | null
   /** The PDF its calls go to when they name none: the one it opened or addressed last. */
   current: string | null
@@ -239,6 +265,8 @@ export function describeCall(method: string, params: Record<string, unknown>): s
     case 'undo': return 'Undoing'
     case 'redo': return 'Redoing'
     case 'close_tab': return 'Closing a tab'
+    case 'wait_for_person': return 'Waiting for you'
+    case 'end_session': return 'Finishing'
     default: return humanize(action === '' ? method : action)
   }
 }
@@ -317,6 +345,19 @@ function ok(x: number, y: number): boolean {
   return Number.isFinite(x) && Number.isFinite(y) && x >= -0.05 && x <= 1.05 && y >= -0.05 && y <= 1.05
 }
 
+const WRITES: ReadonlySet<string> = new Set([
+  'create_markup', 'create_markups', 'create_dimension', 'update_markup', 'delete_markup', 'reassign_markup',
+  'duplicate_markups', 'accept_imported', 'create_scope', 'update_scope', 'duplicate_scope', 'archive_scope',
+  'commit_scope', 'set_scope_direction', 'set_pattern_direction', 'set_pattern_origin', 'set_page_scale',
+  'set_calibration', 'set_region_scale', 'begin_scale_region', 'delete_scale_region', 'import_scopes',
+  'rotate_pages', 'undo', 'redo',
+])
+
+/** Whether a call changes the takeoff in its PDF: what makes that PDF the session's work, not its reading. */
+export function callWrites(method: string, params: Record<string, unknown>): boolean {
+  return method === 'invoke_ui_action' && typeof params['action'] === 'string' && WRITES.has(params['action'])
+}
+
 /** The zero-based page a call names, when it names one by number. */
 export function callPage(params: Record<string, unknown>): number | null {
   const v = params['page']
@@ -361,7 +402,7 @@ export class RosterStore {
     const known = this.agent(who.id)
     if (known !== undefined) {
       if (known.state !== 'gone') return known
-      const back: Agent = { ...known, state: 'idle', seenAt: at }
+      const back: Agent = { ...known, state: 'idle', ended: null, seenAt: at }
       this.replace(back)
       return back
     }
@@ -373,6 +414,10 @@ export class RosterStore {
       task: sessionTask(who),
       color: nextColor(live.map((a) => a.color)),
       state: 'idle',
+      waitingFor: null,
+      ended: null,
+      wrote: [],
+      guestIn: [],
       activity: null,
       current: null,
       since: at,
@@ -392,7 +437,7 @@ export class RosterStore {
     const keep = a.activity !== null && activity.point === null && a.activity.file === activity.file
       && (activity.page === null || activity.page === a.activity.page)
     this.replace({
-      ...a, state: 'working', seenAt: at,
+      ...a, state: 'working', waitingFor: null, seenAt: at,
       activity: {
         ...activity, at, busy: true,
         point: keep ? a.activity!.point : activity.point,
@@ -427,11 +472,51 @@ export class RosterStore {
     if (a !== undefined && a.collapsed !== collapsed) this.replace({ ...a, collapsed })
   }
 
-  /** Its app closed the connection. Its tabs stay, to be looked over. */
-  leave(id: string): void {
+  /** A call in `file`: remember whether it changed it, and whether the agent is a guest there. */
+  touch(id: string, file: string, how: { wrote: boolean; guest: boolean }): void {
+    const a = this.agent(id)
+    if (a === undefined) return
+    const has = (list: readonly string[]) => list.some((f) => fold(f) === fold(file))
+    const wrote = how.wrote && !has(a.wrote) ? [...a.wrote, file] : a.wrote
+    const guestIn = how.guest === has(a.guestIn) ? a.guestIn
+      : how.guest ? [...a.guestIn, file] : a.guestIn.filter((f) => fold(f) !== fold(file))
+    if (wrote !== a.wrote || guestIn !== a.guestIn) this.replace({ ...a, wrote, guestIn })
+  }
+
+  /** It has stopped for the person's answer. Its next call puts it back to work. */
+  wait(id: string, forWhat: string | null): void {
     const a = this.agent(id)
     if (a === undefined || a.state === 'gone') return
-    this.replace({ ...a, state: 'gone', activity: a.activity === null ? null : { ...a.activity, busy: false } })
+    this.replace({
+      ...a, state: 'waiting', waitingFor: forWhat, seenAt: this.now(),
+      activity: a.activity === null ? null : { ...a.activity, busy: false },
+    })
+  }
+
+  /**
+   * The session is finished: it said so, the person ended it, its app closed,
+   * or its app stopped answering. No cursor, no call in flight, nothing asked.
+   */
+  finish(id: string, end: Omit<SessionEnd, 'at'>): void {
+    const a = this.agent(id)
+    if (a === undefined || a.state === 'gone') return
+    this.replace({
+      ...a, state: 'gone', waitingFor: null, guestIn: [], current: null,
+      ended: { ...end, at: this.now() },
+      activity: a.activity === null ? null : { ...a.activity, busy: false },
+    })
+  }
+
+  /** Where a finished session's tabs went, once they are settled. */
+  settle(id: string, handedBack: readonly string[], closed: readonly string[]): void {
+    const a = this.agent(id)
+    if (a === undefined || a.ended === null) return
+    this.replace({ ...a, ended: { ...a.ended, handedBack, closed } })
+  }
+
+  /** Its app closed the connection. */
+  leave(id: string): void {
+    this.finish(id, { by: 'app', summary: null, handedBack: [], closed: [] })
   }
 
   /** Forget an agent that is gone and has no tabs left. */
@@ -466,6 +551,8 @@ export class RosterStore {
     for (const fn of [...this.listeners]) fn()
   }
 }
+
+const fold = (file: string): string => file.replace(/\//g, '\\').toLowerCase()
 
 /** This window's roster. */
 export const roster = new RosterStore()

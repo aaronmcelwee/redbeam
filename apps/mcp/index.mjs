@@ -216,7 +216,7 @@ async function handleRequest(req) {
         id,
         result: {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {} },
           serverInfo: SERVER_INFO,
           instructions: SPEC.instructions,
         },
@@ -226,6 +226,15 @@ async function handleRequest(req) {
     if (method === 'notifications/initialized') return
     if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} })
     if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools: toolsWithAgent() } })
+    if (method === 'resources/list') {
+      return send({ jsonrpc: '2.0', id, result: { resources: [{
+        uri: GUIDE_URI, name: 'Working beside a person in REDBEAM', mimeType: 'text/plain',
+        description: 'How a session starts, waits, and ends, and how to keep what the person sees about you true.',
+      }] } })
+    }
+    if (method === 'resources/read') {
+      return send({ jsonrpc: '2.0', id, result: { contents: [{ uri: GUIDE_URI, mimeType: 'text/plain', text: guide() }] } })
+    }
     if (method === 'tools/call') {
       const result = await callTool(params?.name, params?.arguments ?? {})
       return send({ jsonrpc: '2.0', id, result })
@@ -246,8 +255,36 @@ async function handleRequest(req) {
   }
 }
 
+/** The one resource: the part of the instructions about working beside a person, to read again. */
+const GUIDE_URI = 'redbeam://guide/working-beside-a-person'
+function guide() {
+  const at = SPEC.instructions.indexOf('WORKING BESIDE A PERSON')
+  return at < 0 ? SPEC.instructions : SPEC.instructions.slice(at)
+}
+
+/**
+ * How often this server tells REDBEAM it is still running. REDBEAM cannot
+ * see a server die (every call is a connection of its own), so one with a
+ * session says so every few seconds, and the window finishes the sessions of
+ * one that stops (agents/router.ts LOST_AFTER_MS). mcp.rs does the same.
+ */
+const ALIVE_EVERY_MS = 5000
+function sayAlive() {
+  if (sessions.size === 0 || !fs.existsSync(DISCOVERY_FILE)) return
+  bridgeCall('agent_alive', { server: SESSION }).catch(() => {})
+}
+/** The AI app closed the connection: its sessions are finished, if REDBEAM is running to hear it. */
+async function sayGoodbye() {
+  if (!fs.existsSync(DISCOVERY_FILE)) return
+  for (const [code, task] of sessions) {
+    await bridgeCall('agent_bye', {}, identity({ code, task })).catch(() => {})
+  }
+}
+
 function startServer() {
   let buffer = ''
+  setInterval(sayAlive, ALIVE_EVERY_MS).unref()
+  process.stdin.on('end', () => { void sayGoodbye().finally(() => process.exit(0)) })
   process.stdin.setEncoding('utf8')
   process.stdin.on('data', (chunk) => {
     buffer += chunk
@@ -267,6 +304,6 @@ function startServer() {
   process.stderr.write(`REDBEAM MCP server ready. Discovery: ${DISCOVERY_FILE}\n`)
 }
 
-export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, METHOD_OF, ACTION_OF, startServer }
+export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, guide, METHOD_OF, ACTION_OF, startServer }
 
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/')) startServer()
