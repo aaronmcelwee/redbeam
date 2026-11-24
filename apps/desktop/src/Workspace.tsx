@@ -15,7 +15,7 @@ import {
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
   areaOriginsFrom, patternStartPoint, isAreaCorner, nearestAreaVertex,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
-  deviceLocations, factoryCutPieces, type FactoryCut,
+  deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
 } from '@redbeam/domain'
 import {
   ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
@@ -125,7 +125,9 @@ import {
 } from './export/estimateExport.js'
 import { renderEstimatePdf } from './export/estimatePdf.js'
 import { saveFile, saveOutcomeText } from './export/saveFile.js'
-import { pageIndexOf as pageIndexOfId, renderTakeoffSnapshots } from './export/snapshots.js'
+import { pageIndexOf as pageIndexOfId } from './export/snapshotPlan.js'
+import { takeoffFor } from './export/estimatePackage.js'
+import { estimatePdfInWorker } from './export/estimatePdfInWorker.js'
 import { indexProject, type IndexProgress } from './search/indexer.js'
 import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
 import { linesFromSegments, measurePoints } from './search/measure.js'
@@ -6638,10 +6640,12 @@ export default function Workspace({
       quantities: quantitiesRef.current,
       pieces: piecesRef.current,
       markups: projectMarkups,
+      // The same test the quantities make: a scale for the sheet, or for the detail the markup is in.
+      measured: (m) => resolveScaleForRings(m.rings, projectRegions.get(m.pageId) ?? [], projectCalibrations.get(m.pageId) ?? null).feetPerPoint !== null,
       sheetLabelFor: sheetLabelForPageId,
       documents: documents.map((d) => d.displayName || d.relativePath),
     })
-  }, [estimates, projectName, projectMarkups, documents, sheetLabelForPageId])
+  }, [estimates, projectName, projectMarkups, projectRegions, projectCalibrations, documents, sheetLabelForPageId])
 
   const openEstimateExport = useCallback((estimateId: string) => {
     void buildExportFor(estimateId).then((draft) => {
@@ -6653,34 +6657,75 @@ export default function Workspace({
   /**
    * Render the branded PDF for an edited draft and hand it to the downloader.
    * Resolves to a problem to show, or null when the file was written.
+   *
+   * The PDF is built in a worker (estimatePdfInWorker.ts) from plain data:
+   * the takeoff, the piece layouts, the sheets as the window measured them,
+   * and the bytes of each drawing with takeoff on it, read from disk here.
    */
   const saveEstimatePdf = useCallback(async (
     draft: EstimateExport,
     onProgress: (text: string) => void,
   ): Promise<{ problem: string | null; said: string }> => {
-    const resolver = createCoreBlobUrlResolver(projectPath)
     try {
-      onProgress('Rendering the sheets…')
-      const scopeList = draft.scopes.map((sc) => ({ id: sc.id, label: sc.label, color: sc.color }))
-      const { snapshots, failures } = isTauri()
-        ? await renderTakeoffSnapshots({
-            documents: documents.map((d) => ({ id: d.id, relativePath: d.relativePath, displayName: d.displayName })),
-            markups: projectMarkups,
-            scopes: scopeList,
-            // The page arrives as an argument of the sweep, not as state; the id
-            // is spelled out so the page-identity guard has nothing to police.
-            sheetLabelFor: (docId, sheetPage) => sheetLabelForPageId(`${docId}-p${sheetPage}`),
-            resolveUrl: (d) => resolver.resolveUrl(d),
-            releaseUrl: (u) => resolver.releaseUrl(u),
-            onProgress: (done, total) => onProgress(`Rendering sheet ${done} of ${total}…`),
+      const inRound = new Set(draft.scopes.map((sc) => sc.id))
+      const markups = takeoffFor(projectMarkups, inRound)
+      const pageIds = [...new Set(markups.map((m) => m.pageId))]
+      const used = new Set(markups.map((m) => m.documentId))
+      const make = async () => {
+        onProgress('Reading the drawings…')
+        const drawings = []
+        for (const d of documents) {
+          if (!used.has(d.id)) continue
+          let bytes: Uint8Array | null = null
+          try {
+            bytes = await projectBridge.readDocument(projectPath, d.relativePath)
+          } catch (err) {
+            console.warn(`[estimate] could not read ${d.relativePath}:`, err)
+          }
+          drawings.push({
+            documentId: d.id,
+            name: d.displayName || d.relativePath,
+            bytes,
+            rotations: [...(pageRotationsRef.current.get(d.id) ?? new Map<number, number>())],
           })
-        : { snapshots: [], failures: [{ document: 'browser build', reason: 'sheets cannot be read outside the desktop app' }] }
-      onProgress('Writing the PDF…')
-      const bytes = await renderEstimatePdf({
-        estimate: draft,
-        snapshots,
-        notes: failures.map((f) => `${f.document}: ${f.reason}`),
-      })
+        }
+        onProgress('Drawing the snapshots…')
+        return {
+          estimate: draft,
+          snapshots: markups.length > 0,
+          scopes: draft.scopes.map((sc) => ({ id: sc.id, label: sc.label, color: sc.color })),
+          markups: markups.map((m) => ({ id: m.id, scopeId: m.scopeId, documentId: m.documentId, pageId: m.pageId, kind: m.kind, rings: m.rings })),
+          pieces: piecesRef.current
+            .filter((p) => inRound.has(p.scope.id))
+            .map((p) => {
+              // Trim is drawn only where the takeoff counted it.
+              const trim = p.result.quantities.some((q) => q.itemKey === 'perimeter_trim' && q.quantity > 0)
+                ? perimeterTrimLengthFeet(p.scope.specifications)
+                : null
+              return {
+                scopeId: p.scope.id,
+                cells: p.result.cells,
+                runs: p.result.runs,
+                ...(p.result.componentWidthFeet !== undefined ? { componentWidthFeet: p.result.componentWidthFeet } : {}),
+                ...(p.factoryCut !== undefined ? { factoryCut: { cells: p.factoryCut.cells, pieces: p.factoryCut.pieces } } : {}),
+                ...(trim !== null ? { trimLengthFeet: trim } : {}),
+              }
+            }),
+          sheets: pageIds.map((pageId): [string, { width: number; height: number; feetPerPoint: number | null; regions: ScaleRegion[] }] => {
+            const box = projectPageBoxes.get(pageId)
+            return [pageId, {
+              width: box?.width ?? 0,
+              height: box?.height ?? 0,
+              feetPerPoint: projectCalibrations.get(pageId) ?? null,
+              regions: projectRegions.get(pageId) ?? [],
+            }]
+          }),
+          labels: pageIds.map((pageId): [string, string] => [pageId, sheetLabelForPageId(pageId)]),
+          drawings,
+          notes: [],
+        }
+      }
+      const bytes = await estimatePdfInWorker(make)
       onProgress('Choosing where to save…')
       const outcome = await saveFile(bytes, {
         name: exportFileName(draft, 'pdf'),
@@ -6692,10 +6737,8 @@ export default function Workspace({
       return { problem: null, said }
     } catch (err) {
       return { problem: err instanceof Error ? err.message : String(err), said: '' }
-    } finally {
-      resolver.release()
     }
-  }, [projectPath, documents, projectMarkups, sheetLabelForPageId])
+  }, [projectPath, documents, projectMarkups, projectPageBoxes, projectCalibrations, projectRegions, sheetLabelForPageId])
 
   // ------------------------------------------------------- the scope panel --
 
