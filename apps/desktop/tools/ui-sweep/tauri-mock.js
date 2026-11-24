@@ -47,6 +47,8 @@
       if (handlers[cmd] !== undefined) return handlers[cmd](args ?? {})
     // A save: the body is the bytes, the file is named in the headers.
     if (cmd === 'project_write_document' || cmd === 'project_append_document') {
+      // The slow-close step: a save that does not answer until it is let go.
+      if (window.__sweepHoldSaves === true) await new Promise((go) => (window.__sweepHeld ??= []).push(go))
       const key = decodeURIComponent(opts?.headers?.['x-redbeam-relative-path'] ?? '')
       const body = (args instanceof Uint8Array ? args : new Uint8Array(args)).slice()
       const old = files.get(key) ?? new Uint8Array()

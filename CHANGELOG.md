@@ -12,6 +12,14 @@ SmartScreen will ask once.
 - **No jumping to the front.** When an AI app connected while REDBEAM was busy, REDBEAM came forward over what you were working in, and out of the taskbar if it was minimized. It now stays put.
 - **Closing tabs one after another.** An AI app closing several tabs quickly was told each had closed when only the first had. It's now told to wait while a tab finishes saving.
 
+## 0.3.66 — 2026-11-24
+
+### Closing the window always does something
+
+- **The X closes, or says why it can't yet.** Closing a window could do nothing at all, with no message, while its takeoff was being saved into the PDF. Now the window closes once the save lands, and if the save takes more than a few seconds REDBEAM asks: save a copy, leave without saving, or keep working.
+- **Alt+F4 and the taskbar's Close too.** Every way of closing the window saves the takeoff first, then closes for certain.
+
+
 ## 0.3.65 — 2026-11-24
 
 ### Copy and paste markups between PDFs

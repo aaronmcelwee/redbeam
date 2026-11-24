@@ -29,7 +29,7 @@ function started(): Worker | null {
       waiting.delete(e.data.id)
       done?.(e.data)
     }
-    w.onerror = () => {
+    const fail = () => {
       // Whatever was in flight is answered on this thread instead.
       broken = true
       worker = null
@@ -37,6 +37,9 @@ function started(): Worker | null {
       waiting.clear()
       w.terminate()
     }
+    w.onerror = fail
+    // A reply that cannot be read would otherwise leave its save waiting for ever.
+    w.onmessageerror = fail
     worker = w
   } catch {
     broken = true

@@ -362,6 +362,38 @@ const STEPS = [
     }
     return problems
   }],
+  /*
+   * The X with a save that does not answer: it used to do nothing, with
+   * nothing on screen (0.3.63). Now it asks within seconds, and once the save
+   * lands the window goes, by destroy rather than another close request.
+   */
+  ['slow-close', async (page) => {
+    const problems = []
+    await page.keyboard.press('Escape')
+    await page.evaluate(() => { window.__sweepHoldSaves = true })
+    // A change to save: the area just drawn, undone.
+    await page.locator('.viewport').click({ position: { x: 40, y: 40 } })
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(150)
+    await page.locator('.wincontrols .wcbtn.close').click()
+    const ask = page.getByRole('dialog', { name: 'Still saving the takeoff into the PDF' })
+    try { await ask.waitFor({ timeout: 8000 }) } catch { problems.push('slow-close: the X showed nothing while the save hung') }
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}slow-close-ask.png`) })
+    await button(page, 'Keep working').click().catch(() => problems.push('slow-close: no Keep working'))
+    await page.waitForTimeout(200)
+    if (await ask.count() > 0) problems.push('slow-close: Keep working left the ask up')
+    await page.evaluate(() => { window.__sweepHoldSaves = false; for (const go of window.__sweepHeld ?? []) go(); window.__sweepHeld = [] })
+    await page.waitForTimeout(500)
+    const before = await page.evaluate(() => window.__sweepCalls.length)
+    await page.locator('.wincontrols .wcbtn.close').click()
+    await page.waitForTimeout(1500)
+    const asked = await page.evaluate((n) => window.__sweepCalls.slice(n), before)
+    if (!asked.includes('plugin:window|destroy')) problems.push(`slow-close: a second X after the save landed did not close (${asked.filter((c) => c.startsWith('plugin:window')).join(', ') || 'no window call'})`)
+    await page.keyboard.press('Control+y')
+    await page.waitForTimeout(300)
+    return problems
+  }],
   ['second-tab', async (page) => {
     await page.keyboard.press('Escape')
     await button(page, 'Open another document').click()
@@ -435,7 +467,7 @@ async function pass(browser, theme, backdrop) {
   shotPrefix = `${theme}-${backdrop ? 'mica-' : ''}`
   const failures = []
   for (const [name, step] of STEPS) {
-    if (only !== null && name !== only && !['viewer', 'start'].includes(name)) continue
+    if (only !== null && !only.split(',').includes(name) && !['viewer', 'start'].includes(name)) continue
     const before = errors.length
     let own = []
     try {

@@ -457,6 +457,10 @@ function editsCommand(edits: readonly GeometryEdit[], what: string, origin: stri
   return cmds.length === 1 ? cmds[0]! : cmdBatch(what, cmds)
 }
 
+/** How long a save before leaving may take before the person is asked. */
+const SLOW_SAVE_MS = 4000
+const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF may be busy in another app, or on a slow or syncing drive.'
+
 export default function Workspace({
   projectPath, onCloseProject, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged, onRenameProject, onRevealProject, quickView,
   initialDocumentPath, onBeforeClose,
@@ -5134,7 +5138,21 @@ export default function Workspace({
    * hold. A refused save (the PDF open in Bluebeam, mid-sync, read-only) used
    * to be followed by the leave anyway. Now the leave waits for an answer.
    */
-  const [unsavedAsk, setUnsavedAsk] = useState<{ why: string, leave: (() => void) | null } | null>(null)
+  const [unsavedAsk, setUnsavedAsk] = useState<{ why: string, leave: (() => void) | null, saving?: boolean } | null>(null)
+  /**
+   * The leave waiting on a save that is slow to answer. A save that never
+   * answered (a stuck worker, a file that never came back) used to hold the
+   * close forever with nothing on screen: the X looked dead. Now the person is
+   * asked after a few seconds, and any answer frees the close.
+   */
+  const slowLeaveRef = useRef<{ answered: () => void } | null>(null)
+  /** Take the ask down, and let a leave waiting on a slow save stop waiting. */
+  const dismissUnsavedAsk = useCallback(() => {
+    const slow = slowLeaveRef.current
+    slowLeaveRef.current = null
+    slow?.answered()
+    setUnsavedAsk(null)
+  }, [])
   /**
    * Save the takeoff as a copy of the PDF, wherever the person says. Never
    * refused: this is the way out when the PDF itself cannot be written.
@@ -5166,10 +5184,26 @@ export default function Workspace({
   const saveBeforeLeaving = useCallback(async (leave: () => void): Promise<boolean> => {
     const id = leftDocRef.current
     if (id === null) return true
-    const out = await saveTakeoffIntoDrawing(id)
-    if (!light) return true
-    const lost = unsavedReason(out, undoRef.current?.state.depth ?? 0)
-    if (lost === null) return true
+    const saving = saveTakeoffIntoDrawing(id)
+    if (!light) { await saving; return true }
+    let answered!: () => void
+    const answer = new Promise<'answered'>((resolve) => { answered = () => resolve('answered') })
+    const slow = { answered }
+    const timer = setTimeout(() => {
+      slowLeaveRef.current = slow
+      setUnsavedAsk({ why: SLOW_SAVE_WHY, leave, saving: true })
+    }, SLOW_SAVE_MS)
+    const first = await Promise.race([saving, answer])
+    clearTimeout(timer)
+    // The person already chose (a copy, leaving anyway, or staying): theirs stands.
+    if (first === 'answered') return false
+    const asked = slowLeaveRef.current === slow
+    if (asked) slowLeaveRef.current = null
+    const lost = unsavedReason(first, undoRef.current?.state.depth ?? 0)
+    if (lost === null) {
+      if (asked) setUnsavedAsk(null)
+      return true
+    }
     setUnsavedAsk({ why: lost, leave })
     return false
   }, [light, saveTakeoffIntoDrawing])
@@ -10730,33 +10764,41 @@ export default function Workspace({
         {unsavedAsk !== null && (
           <div className="nesting" role="presentation">
             <div className="nesting-card" role="dialog" aria-labelledby="unsaved-title">
-              <h2 id="unsaved-title">This takeoff is not saved in the PDF</h2>
+              <h2 id="unsaved-title">{unsavedAsk.saving === true ? 'Still saving the takeoff into the PDF' : 'This takeoff is not saved in the PDF'}</h2>
               <p>{unsavedAsk.why}</p>
-              <p>Save a copy to keep the takeoff now, or close the PDF in the other app and try again.</p>
+              <p>{unsavedAsk.saving === true
+                ? 'REDBEAM carries on by itself once the save finishes. Save a copy to keep the takeoff now, or leave without saving.'
+                : 'Save a copy to keep the takeoff now, or close the PDF in the other app and try again.'}</p>
               <div className="nesting-actions">
                 <button
                   type="button" className="st-btn"
                   onClick={() => {
                     const { leave } = unsavedAsk
+                    // A slow save finishing meanwhile must not leave as well.
+                    const slow = slowLeaveRef.current
+                    slowLeaveRef.current = null
+                    slow?.answered()
                     void saveCopyOfFile().then((saved) => { if (saved) { setUnsavedAsk(null); leave?.() } })
                   }}
                 >Save a copy…</button>
-                <button
-                  type="button" className="st-btn"
-                  onClick={() => {
-                    const { leave } = unsavedAsk
-                    setUnsavedAsk(null)
-                    if (leave !== null) leaveSaving(leave)
-                    else saveOpenFile()
-                  }}
-                >Try again</button>
+                {unsavedAsk.saving !== true && (
+                  <button
+                    type="button" className="st-btn"
+                    onClick={() => {
+                      const { leave } = unsavedAsk
+                      dismissUnsavedAsk()
+                      if (leave !== null) leaveSaving(leave)
+                      else saveOpenFile()
+                    }}
+                  >Try again</button>
+                )}
                 {unsavedAsk.leave !== null && (
                   <button
                     type="button" className="st-btn danger"
-                    onClick={() => { const { leave } = unsavedAsk; setUnsavedAsk(null); leave?.() }}
+                    onClick={() => { const { leave } = unsavedAsk; dismissUnsavedAsk(); leave?.() }}
                   >Leave without saving</button>
                 )}
-                <button type="button" className="st-btn subtle" onClick={() => setUnsavedAsk(null)}>Keep working</button>
+                <button type="button" className="st-btn subtle" onClick={dismissUnsavedAsk}>Keep working</button>
               </div>
             </div>
           </div>
