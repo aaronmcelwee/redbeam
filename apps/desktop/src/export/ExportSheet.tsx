@@ -127,7 +127,7 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
   return (
     <div className="es-export" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
       <div className="es-exportbar">
-        <span className="es-exporttitle">Export {initial.estimateName}</span>
+        <span className="es-exporttitle" title={`Export ${initial.estimateName}`}>Export {initial.estimateName}</span>
         <button className="es-btn subtle icon" title="Close" aria-label="Close" onClick={onClose}>
           <Glyph icon={X} role="row" />
         </button>
@@ -136,7 +136,7 @@ export function ExportSheet({ initial, onSavePdf, onClose }: ExportSheetProps) {
       <div className="es-hd nodot" ref={menuRef}>
         <div className="es-hdtext">
           <div className="es-hdname">{included.length} scope{included.length === 1 ? '' : 's'} · {lines} line{lines === 1 ? '' : 's'}</div>
-          <div className="es-hdsub" title="The PDF adds an image per sheet">Adds an image per sheet</div>
+          <div className="es-hdsub" title="The PDF adds a key plan and a snapshot of every takeoff area, drawn from the sheets themselves at one scale">Adds a snapshot of every area</div>
         </div>
         <button className="es-btn primary" onClick={() => void savePdf()} disabled={busy !== null || included.length === 0}>
           {busy === null ? 'Save PDF' : 'Saving…'}

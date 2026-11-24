@@ -141,6 +141,7 @@ async function handleRequest(req) {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: {} },
           serverInfo: SERVER_INFO,
+          instructions: SPEC.instructions,
         },
       })
       return

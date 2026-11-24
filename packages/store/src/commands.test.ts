@@ -354,32 +354,37 @@ describe('serializable records', () => {
 })
 
 describe('agent-origin commands', () => {
-  it('are applied but never enter the user stack', async () => {
-    // D1: an agent proposal is reversed by rejecting it at the review gate.
-    // Mixing them means Ctrl+Z could revert an accepted proposal while the
-    // change_sets decision row asserts a decision whose effect is gone.
+  /*
+   * They used to be applied and kept off the stack, because in Pro an agent's
+   * proposal was reversed at the review gate. Light has no gate, so an AI
+   * app's write that is not on the stack cannot be taken back by anyone.
+   */
+  it('enter the stack, so the app or the person can undo them', async () => {
     await stack.run(createMarkup({ ...markup('agent-1'), origin: 'agent' }))
     expect(await listMarkups(db)).toHaveLength(1)
-    expect(stack.state.canUndo).toBe(false)
+    expect(stack.state.canUndo).toBe(true)
+    await stack.undo()
+    expect(await listMarkups(db)).toHaveLength(0)
+    await stack.redo()
+    expect(await listMarkups(db)).toHaveLength(1)
   })
 
-  it('are stepped over, leaving the user their own last edit', async () => {
+  it('are undone in order with the person\'s own edits', async () => {
     await stack.run(createMarkup(markup('mine')))
     await stack.run(createMarkup({ ...markup('theirs'), origin: 'agent' }))
-
-    expect(stack.state.undoLabel).toBe('create area')
     await stack.undo()
-    const left = (await listMarkups(db)).map((m) => m.id)
-    expect(left).toEqual(['theirs'])
+    expect((await listMarkups(db)).map((m) => m.id)).toEqual(['mine'])
   })
 
-  it('taint a batch that contains one', async () => {
+  it('undo a mixed batch as one step', async () => {
     await stack.run(batch('mixed', [
       createMarkup(markup('a')),
       createMarkup({ ...markup('b'), origin: 'agent' }),
     ]))
     expect(await listMarkups(db)).toHaveLength(2)
-    expect(stack.state.canUndo).toBe(false)
+    expect(stack.state.canUndo).toBe(true)
+    await stack.undo()
+    expect(await listMarkups(db)).toHaveLength(0)
   })
 })
 

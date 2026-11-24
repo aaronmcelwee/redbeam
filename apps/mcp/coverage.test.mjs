@@ -44,17 +44,19 @@ const read = (rel) => slurp(path.join(desktop, rel))
 /** The section of Workspace.tsx that answers the bridge. */
 function invokeSwitchSource() {
   const src = read('Workspace.tsx')
-  const start = src.indexOf('invoke: async (action, params)')
+  // The handler is a function of its own, so the bridge call can mark the
+  // actor as an AI app around it (round 3 #16).
+  const start = src.indexOf('async function invokeAction(action')
   assert.notEqual(
     start, -1,
-    'could not find `invoke: async (action, params)` in Workspace.tsx — if the ' +
+    'could not find `async function invokeAction(action` in Workspace.tsx — if the ' +
     'bridge handler was renamed or moved, point this guard at its new shape ' +
     'rather than deleting it.',
   )
-  // To the end of the hook call. `})` at the handler's own indentation is the
-  // close of useBridgeRequests; nothing inside the switch sits that far left.
-  const end = src.indexOf('\n  })', start)
-  assert.notEqual(end, -1, 'could not find the end of the useBridgeRequests call')
+  // To the function's own closing brace, at two spaces: nothing inside the
+  // switch sits that far left.
+  const end = src.indexOf('\n  }\n', start)
+  assert.notEqual(end, -1, 'could not find the end of invokeAction')
   return src.slice(start, end)
 }
 

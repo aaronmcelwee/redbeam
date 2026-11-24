@@ -5,6 +5,46 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.63 — 2026-11-24
+
+### AI apps can do a whole takeoff
+
+- **Products say what they need.** An AI app can ask what a product needs (spacing, stock length, connector spacing and so on), with the exact field, unit and default for each. A scope that can't be counted yet names the fields to fill in, and a value written where nothing reads it is flagged.
+- **Product type and pattern set by the app.** A new scope can be given its product type directly. The pattern's start point (a point, a corner, an edge, the centre or automatic) and its direction (for the scope, a sheet or one area) can be set and read back.
+- **Reading the drawing.** Line reading can keep only lines inside a box, horizontal or vertical lines, or a length range, without duplicates. An app can also read a drawn pattern's spacing, member length, runs and rows, and trace the closed outline around a point.
+- **Scales and sheet names.** The scales printed on each sheet are read with their positions and checked against the scale that's set, or against a written dimension. Pages that the bookmarks leave as plain numbers are named from their title blocks, and so are spec sections and addendum pages.
+- **Addenda.** A sheet issued again later in the set is marked as replaced, sheets can be linked by hand, and scopes with takeoff on a replaced sheet are listed.
+- **Drawing the takeoff.** Outlines can have true arcs and circles, many markups can go in at once as a single undo step, and a working copy can leave out other apps' markups. Cutouts are taken out of baffle, plank and panel patterns.
+- **Output.** A piece list gives every run's pieces with their cut lengths (including pieces cut to fit), stock use and parts, and can be exported as a spreadsheet. Exports can be written to a chosen file. The PDF now keeps a history of who changed each markup and scope (a person or an AI app) and when.
+
+
+### AI apps work more surely
+
+- **A change is confirmed once it has happened.** When an AI app draws, deletes, rescopes or sets a scale, it is told the result after the change has landed, with the measure and any warning, such as no scope or no scale on the sheet.
+- **The right sheet and the right file.** A change can name its sheet (by page or sheet number) and its PDF. It lands there, and is refused if a different PDF is showing.
+- **Saving and undo.** An app can save the takeoff into the PDF and learn how it went, see whether everything is saved, and undo or redo.
+- **More it can do.** Reshape or move a markup, copy markups to another sheet, draw a dimension, rotate sheets, bring scopes in from another PDF, accept imported markups, read the PDF's notes, links and bookmarks, close a tab, and read or change settings.
+- **No stolen focus.** When an AI app opens a PDF, REDBEAM stays where it is instead of jumping in front of what you're working in.
+- **Clearer tools.** Each action has its own tool with its own inputs, lists of markups and scopes come back with quantities and names, and errors say what would have worked.
+
+
+## 0.3.62 — 2026-11-24
+
+### A new estimate PDF, with a picture of every area
+
+- **White paper that prints.** The estimate PDF is redesigned on white: a cover with the totals and a key plan of the takeoff, then the quantities, then the pictures.
+- **A picture of every area, drawn from the sheet.** Each takeoff area gets its own snapshot, copied from the drawing itself rather than a screenshot, so it stays sharp when you zoom. The drawing is dimmed so the takeoff stands out: products inside the boundary are bold, and offcuts past it are faded.
+- **One scale, so rooms compare.** Rooms print at one scale even when their sheets were drawn at different scales, and small rooms print together at one larger detail scale. Every picture names its scale.
+- **Perimeter trim on the edge of the area.** Trim is drawn along each area's boundary with a tick at every joint, and the picture shows the same lengths the quantities count.
+- **Long names fit.** When the estimate and the file share a name, the cover says it once, and a long file or sheet name wraps after its hyphens instead of running off the page.
+- **Nothing left out quietly.** Takeoff on a sheet with no scale is listed as not measured, and a sheet the export can't read is noted.
+
+### Perimeter trim counts more carefully
+
+- **Each area is counted at its own sheet's scale.** A scope spread over sheets drawn at different scales could count a room's trim at twice or half its real length, depending on which sheet was open.
+- **A curved wall is one run.** A bend of less than 20° keeps a length going, and a corner starts a new one, so round and curved rooms drawn with many short sides count fewer lengths.
+
+
 ## 0.3.60 — 2026-11-24
 
 ### Takeoff survives merging and rearranging pages in Bluebeam

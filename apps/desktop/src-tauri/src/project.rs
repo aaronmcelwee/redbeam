@@ -1566,6 +1566,87 @@ pub async fn project_create_document(
     create_document(&target, bytes).map_err(|e| format!("{relative_path}: {e}"))
 }
 
+/// Write an export (a pricing sheet, a report, an estimate PDF) to a path an
+/// AI app chose, instead of handing it back as text or dropping it in
+/// Downloads (Aaron, 2026-11-24). Only export file types; the folder must
+/// exist; nothing is replaced unless `x-redbeam-overwrite` is "1", and a PDF
+/// is never replaced, so a drawing cannot be written over by an export.
+#[tauri::command]
+pub async fn write_export_file(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let header = |name: &str| -> Result<String, String> {
+        let raw = request
+            .headers()
+            .get(name)
+            .ok_or_else(|| format!("missing {name}"))?
+            .to_str()
+            .map_err(|_| format!("{name} is not ASCII"))?;
+        percent_decode(raw).ok_or_else(|| format!("{name} is not valid percent-encoding"))
+    };
+    let target = header("x-redbeam-target")?;
+    let overwrite = header("x-redbeam-overwrite").map(|v| v == "1").unwrap_or(false);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("the file's bytes must be sent as the raw body".to_string());
+    };
+    let path = PathBuf::from(&target);
+    export_target_ok(&path, overwrite)?;
+    write_export(&path, bytes, overwrite)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+const EXPORT_EXTENSIONS: [&str; 9] = ["pdf", "csv", "tsv", "html", "htm", "json", "txt", "md", "xml"];
+
+fn export_target_ok(path: &Path, overwrite: bool) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("give an absolute path, e.g. C:\\Users\\me\\Desktop\\takeoff.csv".to_string());
+    }
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !EXPORT_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!("an export can be .{}", EXPORT_EXTENSIONS.join(", .")));
+    }
+    match path.parent() {
+        Some(dir) if dir.is_dir() => {}
+        _ => return Err("that folder does not exist".to_string()),
+    }
+    if overwrite && ext == "pdf" && path.exists() {
+        return Err("a PDF is never written over by an export; choose a new name".to_string());
+    }
+    Ok(())
+}
+
+fn write_export(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), String> {
+    use std::io::Write;
+    if overwrite {
+        let tmp = path.with_extension("redbeam-tmp");
+        fs::write(&tmp, bytes).map_err(|e| format!("could not write it: {e}"))?;
+        fs::rename(&tmp, path).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("could not write it: {e}")
+        })?;
+        return Ok(());
+    }
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                "a file with that name is already there (pass overwrite to replace it)".to_string()
+            } else {
+                format!("could not create it: {e}")
+            }
+        })?;
+    if let Err(e) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(path);
+        return Err(format!("could not write it: {e}"));
+    }
+    Ok(())
+}
+
 fn create_document(target: &Path, bytes: &[u8]) -> Result<DocumentWrite, String> {
     use std::io::Write;
     // create_new: fails if anything is there, atomically, rather than a check
@@ -1856,6 +1937,26 @@ fn scan_project_shared(root: &Path, extensions: &[String]) -> Result<ScanResult,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_export_goes_where_it_is_asked_and_never_over_a_pdf() {
+        let dir = std::env::temp_dir().join(format!("rb-export-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let csv = dir.join("takeoff.csv");
+        let _ = fs::remove_file(&csv);
+        assert!(export_target_ok(Path::new("takeoff.csv"), false).is_err());
+        assert!(export_target_ok(&dir.join("x.exe"), false).is_err());
+        assert!(export_target_ok(&dir.join("missing").join("x.csv"), false).is_err());
+        export_target_ok(&csv, false).unwrap();
+        write_export(&csv, b"a,b", false).unwrap();
+        assert!(write_export(&csv, b"c,d", false).is_err());
+        write_export(&csv, b"c,d", true).unwrap();
+        assert_eq!(fs::read(&csv).unwrap(), b"c,d");
+        let pdf = dir.join("A-101.pdf");
+        fs::write(&pdf, b"%PDF").unwrap();
+        assert!(export_target_ok(&pdf, true).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_working_copy_never_replaces_a_file() {
         let dir = std::env::temp_dir().join(format!("rb-create-{}", std::process::id()));

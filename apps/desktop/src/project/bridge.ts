@@ -134,6 +134,12 @@ export interface ProjectBridge {
    */
   createDocument?(projectPath: string, relativePath: string, bytes: Uint8Array): Promise<DocumentWrite>
   /**
+   * Write an export to an absolute path an AI app chose. Export file types
+   * only; replaces nothing unless `overwrite`, and never a PDF. Resolves to
+   * the path written.
+   */
+  writeExport?(path: string, bytes: Uint8Array, overwrite: boolean): Promise<string>
+  /**
    * Add `tail` to the end of a drawing, only if it is still `expectedLength`
    * bytes with SHA-256 `expectedSha256`. For an incremental update, which only
    * ever adds to the file: the rest of it is not written again. Rejects in
@@ -525,6 +531,16 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
         headers: {
           'x-redbeam-path': encodeURIComponent(projectPath),
           'x-redbeam-relative-path': encodeURIComponent(relativePath),
+        },
+      })
+    },
+
+    async writeExport(path, bytes, overwrite): Promise<string> {
+      if (!desktop) throw new Error(BROWSER_NO_READ)
+      return invoke<string>('write_export_file', bytes, {
+        headers: {
+          'x-redbeam-target': encodeURIComponent(path),
+          'x-redbeam-overwrite': overwrite ? '1' : '0',
         },
       })
     },
