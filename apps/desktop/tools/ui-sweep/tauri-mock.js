@@ -83,5 +83,8 @@
       return null
     },
   }
-  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} }
+  // Without this a listener React mounted twice in development would answer every agent call twice.
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener(event, id) { listeners.set(event, (listeners.get(event) ?? []).filter((h) => h !== id)) },
+  }
 })()

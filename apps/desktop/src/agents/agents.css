@@ -48,10 +48,14 @@
   min-width: 0;
   display: flex;
   align-items: stretch;
+  /* What does not fit is cut at the group's own edge, never drawn over the next agent. */
+  overflow: hidden;
   border-left: 1px solid var(--rb-line);
   /* The whole group is underlined in its agent's colour: chip, tabs and ask. */
   box-shadow: inset 0 -2px 0 var(--agent);
 }
+/* A question for the person, or the tab they are looking at, keeps its room; the other agents fold. */
+.agentgroup[data-asking="true"], .agentgroup[data-showing="true"] { flex-shrink: 0; }
 .agentgroup[data-state="gone"] { box-shadow: inset 0 -2px 0 var(--rb-line); }
 
 .agentchip {
@@ -98,8 +102,10 @@
 }
 
 .agentname {
-  flex: 0 1 auto;
+  /* The name is the last thing a chip gives up: its words go first. */
+  flex: 0 0.02 auto;
   min-width: 6ch;
+  max-width: 18ch;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--rb-ink);
@@ -126,16 +132,17 @@
   text-overflow: ellipsis;
   color: var(--rb-ink-3);
 }
-/* Unfolded, the tabs beside the chip say where it is; the words stay for the one working. */
-.agentgroup[data-open="true"]:not([data-state="working"]) .agentdoing { display: none; }
+/* Unfolded or asking, the tabs or the question beside the chip speak for it. */
+.agentgroup[data-open="true"] .agentdoing,
+.agentgroup[data-asking="true"] .agentdoing { display: none; }
 /* A crowd of agents: only the ones working this second keep their words. */
 .agentstrip[data-many="true"] .agentgroup:not([data-state="working"]) .agentdoing { display: none; }
 
 /* An agent's tab: a tab like the person's, washed and marked in its colour. */
 .tab.agenttab {
-  flex: 0 2 auto;
-  min-width: 12ch;
-  max-width: 24ch;
+  flex: 0 1 auto;
+  min-width: 16ch;
+  max-width: 26ch;
   border-right: 0;
   border-left: 1px solid var(--rb-line);
   background: color-mix(in srgb, var(--agent) 9%, transparent);
@@ -143,6 +150,7 @@
 }
 .tab.agenttab:first-child { border-left: 1px solid var(--rb-line); }
 .tab.agenttab:hover { background: color-mix(in srgb, var(--agent) 16%, transparent); }
+.tab.agenttab.active { flex-shrink: 0; }
 .tab.agenttab.active {
   background: color-mix(in srgb, var(--agent) 22%, transparent);
   box-shadow: inset 0 -3px 0 var(--agent);
@@ -153,17 +161,18 @@
 
 /* "wants to work in <PDF>  [Allow] [Not now]" beside the chip. */
 .agentask {
-  flex: none;
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
   gap: var(--ads-sp-2);
+  min-width: 0;
   padding-inline: var(--ads-sp-2) var(--ads-sp-3);
   background: color-mix(in srgb, var(--agent) 14%, transparent);
   color: var(--rb-ink-2);
   font-size: var(--ads-text-xs);
   white-space: nowrap;
 }
-.agentasktext { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
+.agentasktext { flex: 0 1 auto; min-width: 0; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
 .agentasktext > strong { color: var(--rb-ink); font-weight: 600; }
 
 .agentaskbtn {

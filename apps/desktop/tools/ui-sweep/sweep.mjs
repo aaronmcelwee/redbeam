@@ -453,6 +453,8 @@ const STEPS = [
    * the sheet showing and the keyboard are the person's throughout.
    */
   ['agents', async (page) => {
+    // A window as first opened: earlier steps left the sidebar folded on another panel, and it remembers.
+    await page.evaluate(() => localStorage.clear())
     await page.goto(view(FILE))
     await shown(page).locator('.sheetrow').first().waitFor({ timeout: 20000 })
     await page.waitForTimeout(1200)
@@ -490,9 +492,6 @@ const STEPS = [
   ['agents-typing', async (page) => {
     // The person types a sheet number while three agents act, one of them opening a panel.
     const problems = []
-    // Earlier steps left the sidebar on another panel; the window remembers it.
-    await button(page, 'Contents').click()
-    await page.getByRole('tab', { name: 'Sheets', exact: true }).click()
     const input = shown(page).getByPlaceholder('Find a sheet')
     await input.click()
     await page.keyboard.type('A6')
@@ -634,7 +633,7 @@ async function pass(browser, theme, backdrop) {
     try {
       own = (await step(page)) ?? []
     } catch (e) {
-      own = [`step failed: ${String(e.message ?? e).split('\n')[0]}`]
+      own = [`step failed: ${String(e.message ?? e).split('\n').slice(0, 3).join(' / ')}`]
     }
     await page.waitForTimeout(200)
     await page.screenshot({ path: join(out, `${shotPrefix}${name}.png`) })

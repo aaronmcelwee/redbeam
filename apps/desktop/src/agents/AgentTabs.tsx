@@ -152,6 +152,7 @@ export function AgentStrip({
             data-state={agent.state}
             data-open={open ? 'true' : 'false'}
             data-showing={showingOne ? 'true' : 'false'}
+            data-asking={asks.length > 0 ? 'true' : 'false'}
             style={tint(agent)}
           >
             <button
