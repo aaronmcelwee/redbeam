@@ -125,6 +125,76 @@ export function regionEdgeLengths(region: Region): number[] {
   return edges
 }
 
+/**
+ * The bend, in degrees, under which an outline's vertex does not end a length
+ * of trim (see `trimEdges`).
+ *
+ * A curve reaches REDBEAM as short straight facets, from Bluebeam or from its
+ * own tools, and cut facet by facet it took a length of trim per facet: 236
+ * lengths of 10' for a Scottsdale ceiling whose curves want about 150. Aaron,
+ * 2026-11-24, chose that a curve is one run. A facet turns a few degrees; a
+ * corner, even a splayed one, turns far more, and still starts a new length.
+ */
+export const TRIM_SMOOTH_DEGREES = 20
+
+/**
+ * The edges trim is cut to, each as a polyline: every ring's edges in order,
+ * the closing edge included, zero-length edges left out.
+ *
+ * A vertex where the outline turns by less than `smoothDegrees` joins the
+ * two edges either side of it into one, so a curve drawn as facets can be a
+ * single edge that one length runs on round; every other vertex is a corner,
+ * where a length ends and the next edge starts its own. At 0 every vertex is
+ * a corner, which is `regionEdgeLengths` exactly.
+ */
+export function trimEdges(region: Region, smoothDegrees = TRIM_SMOOTH_DEGREES): Point[][] {
+  const out: Point[][] = []
+  for (const drawn of region) {
+    const ring: Point[] = []
+    for (const p of drawn) if (ring.length === 0 || distance(ring[ring.length - 1]!, p) > 0) ring.push(p)
+    if (ring.length > 1 && distance(ring[0]!, ring[ring.length - 1]!) === 0) ring.pop()
+    const n = ring.length
+    if (n < 2) continue
+    const corner = (i: number): boolean => {
+      if (!(smoothDegrees > 0)) return true
+      const a = ring[(i - 1 + n) % n]!, b = ring[i]!, c = ring[(i + 1) % n]!
+      let turn = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x)) * 180 / Math.PI
+      if (turn > 180) turn = 360 - turn
+      return turn >= smoothDegrees
+    }
+    // Start at a corner, so that no edge is split where the ring closes.
+    let start = -1
+    for (let i = 0; i < n && start < 0; i++) if (corner(i)) start = i
+    if (start < 0) {
+      // No corner anywhere, as round a circle: one edge, from the first vertex back to it.
+      out.push([...ring, ring[0]!])
+      continue
+    }
+    let edge: Point[] = [ring[start]!]
+    for (let k = 1; k <= n; k++) {
+      const i = (start + k) % n
+      edge.push(ring[i]!)
+      if (corner(i)) {
+        out.push(edge)
+        edge = [ring[i]!]
+      }
+    }
+  }
+  return out
+}
+
+/** A polyline's length, in its own units. */
+export function pathLength(points: readonly Point[]): number {
+  let total = 0
+  for (let i = 1; i < points.length; i++) total += distance(points[i - 1]!, points[i]!)
+  return total
+}
+
+/** The lengths of `trimEdges`, for counting trim. */
+export function trimEdgeLengths(region: Region, smoothDegrees = TRIM_SMOOTH_DEGREES): number[] {
+  return trimEdges(region, smoothDegrees).map(pathLength)
+}
+
 /** Trim pieces for a set of edge lengths: each edge rounds up on its own. */
 export function trimPiecesForEdges(edgeLengths: readonly number[], trimLength: number): number {
   if (!(trimLength > 0)) return 0

@@ -8,6 +8,10 @@ import {
   squarePointsToSquareFeet,
   distanceToSegment,
   nearestEdge,
+  regionEdgeLengths,
+  trimEdges,
+  trimEdgeLengths,
+  trimPiecesForEdges,
   type Polygon,
 } from './geometry.js'
 
@@ -186,5 +190,77 @@ describe('nearestEdge', () => {
 
   it('returns null below two vertices', () => {
     expect(nearestEdge({ x: 0, y: 0 }, [{ x: 1, y: 1 }], true)).toBeNull()
+  })
+})
+
+/**
+ * The edges trim is cut to. A curve drawn as facets is a run of short edges
+ * that barely turn; given a bend under which a vertex is not a corner, it is
+ * one edge, and only real corners start a new length.
+ */
+describe('trimEdges', () => {
+  // A 20 x 10 room whose right side bows out: an arc through 90 degrees, drawn as 12 facets of 7.5.
+  // It meets the straight sides at an angle, so its ends are corners.
+  const bowRoom = (): Polygon => {
+    const r = 5 * Math.SQRT2
+    const ring: Polygon = [{ x: 0, y: 0 }, { x: 20, y: 0 }]
+    for (let k = 1; k < 12; k++) {
+      const a = -Math.PI / 4 + (k * Math.PI) / 24
+      ring.push({ x: 15 + r * Math.cos(a), y: 5 + r * Math.sin(a) })
+    }
+    ring.push({ x: 20, y: 10 }, { x: 0, y: 10 })
+    return ring
+  }
+  // The same room with a half circle for its right side: the straight sides run on into it without a corner.
+  const stadium = (): Polygon => {
+    const ring: Polygon = [{ x: 0, y: 0 }, { x: 20, y: 0 }]
+    for (let k = 1; k < 12; k++) {
+      const a = -Math.PI / 2 + (k * Math.PI) / 12
+      ring.push({ x: 20 + 5 * Math.cos(a), y: 5 + 5 * Math.sin(a) })
+    }
+    ring.push({ x: 20, y: 10 }, { x: 0, y: 10 })
+    return ring
+  }
+
+  it('is every edge on its own when no bend is smooth, as regionEdgeLengths', () => {
+    const region = [rect(0, 0, 25, 10), bowRoom()]
+    expect(trimEdgeLengths(region, 0)).toEqual(regionEdgeLengths(region))
+    // A point repeated, or the first point repeated to close the ring, cuts nothing.
+    const doubled = [[{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 5 }, { x: 0, y: 5 }, { x: 0, y: 0 }]]
+    expect(trimEdgeLengths(doubled, 0)).toEqual([10, 5, 10, 5])
+  })
+
+  it('runs one edge round a faceted curve and starts a new one at each corner', () => {
+    const edges = trimEdges([bowRoom()], 20)
+    // The bottom, the arc from corner to corner, the top, the left side.
+    expect(edges).toHaveLength(4)
+    const lengths = trimEdgeLengths([bowRoom()], 20)
+    expect(lengths[1]).toBeCloseTo(12 * 2 * 5 * Math.SQRT2 * Math.sin(Math.PI / 48), 9)
+    expect(lengths.reduce((a, b) => a + b, 0)).toBeCloseTo(regionPerimeter([bowRoom()]), 9)
+    // In 10' lengths: 2 for each long side, 2 round the arc, 1 for the short side.
+    expect(trimPiecesForEdges(lengths, 10)).toBe(7)
+    // Facet by facet, the arc alone took twelve.
+    expect(trimPiecesForEdges(trimEdgeLengths([bowRoom()], 0), 10)).toBe(2 + 12 + 2 + 1)
+  })
+
+  it('carries a straight side on into a curve that leaves it without a corner', () => {
+    // Bottom, half circle and top are one run of trim; the left side is the other.
+    expect(trimEdges([stadium()], 20)).toHaveLength(2)
+  })
+
+  it('counts curves as one run by default', () => {
+    expect(trimEdgeLengths([bowRoom()])).toEqual(trimEdgeLengths([bowRoom()], 20))
+  })
+
+  it('takes a ring with no corner at all as one edge round', () => {
+    const circle: Polygon = Array.from({ length: 36 }, (_, k) => ({ x: Math.cos((k * Math.PI) / 18), y: Math.sin((k * Math.PI) / 18) }))
+    const edges = trimEdges([circle], 20)
+    expect(edges).toHaveLength(1)
+    expect(edges[0]![0]).toEqual(edges[0]![edges[0]!.length - 1])
+    expect(trimEdgeLengths([circle], 20)[0]).toBeCloseTo(regionPerimeter([circle]), 9)
+  })
+
+  it('keeps the edges of a hole apart from the outline', () => {
+    expect(trimEdges([rect(0, 0, 30, 30), rect(10, 10, 5, 5)], 20)).toHaveLength(8)
   })
 })
