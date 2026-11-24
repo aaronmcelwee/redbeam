@@ -323,6 +323,21 @@ export interface DrawingFile {
    * may simply have been saved by something else since.
    */
   fromMemory?: () => boolean
+  /**
+   * A big drawing, opened for range reads instead of `read`: its takeoff is
+   * read and written without the file being in memory (rangedPdf.ts). Null
+   * when the drawing is small enough to read whole. Optional.
+   */
+  ranged?: () => Promise<RangedSave | null>
+}
+
+/** See `DrawingFile.ranged`. */
+export interface RangedSave {
+  readEmbed(): Promise<SheetEmbedReading>
+  embed(input: EmbedInput): Promise<{ result: EmbedResult, tail: Uint8Array | null }>
+  /** Append the update, only if the file is still the one it was built against. */
+  append(tail: Uint8Array): Promise<boolean>
+  release(): void
 }
 
 /**
@@ -390,6 +405,20 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
 
+  let ranged: RangedSave | null = null
+  try {
+    ranged = (await opts.file.ranged?.()) ?? null
+  } catch {
+    ranged = null
+  }
+  if (ranged !== null) {
+    try {
+      return await embedRanged(opts, ranged, { tables, retire, markups, pageScales, pageRegions })
+    } finally {
+      ranged.release()
+    }
+  }
+
   let current: { bytes: Uint8Array, version: string }
   try {
     current = await opts.file.read()
@@ -427,6 +456,48 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
     if (result.bytes === null) return { kind: 'unchanged', stamp: result.stamp }
     const ok = await opts.file.write(result.bytes, current.version, appendsAt)
     if (!ok) return { kind: 'busy' }
+    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp }
+  } catch (err) {
+    return { kind: 'failed', message: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** `embedDrawingOnce` for a drawing read and written by byte range. */
+async function embedRanged(
+  opts: EmbedDrawingOptions,
+  ranged: RangedSave,
+  got: {
+    tables: Awaited<ReturnType<typeof adoptedTables>>['tables']
+    retire: string[]
+    markups: EmbedMarkup[]
+    pageScales: Map<number, number>
+    pageRegions: EmbedInput['pageRegions']
+  },
+): Promise<EmbedOutcome> {
+  const { tables, retire, markups, pageScales, pageRegions } = got
+  try {
+    const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
+      .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
+      const before = await ranged.readEmbed()
+      if (before.slice === null && before.redbeamAnnots.length === 0) return { kind: 'nothing-to-embed' }
+    }
+    const { result, tail } = await ranged.embed({
+      documentId: opts.documentId,
+      relativePath: opts.relativePath,
+      displayName: opts.displayName,
+      appVersion: opts.appVersion,
+      tables,
+      markups,
+      pageScales,
+      ...(pageRegions === undefined ? {} : { pageRegions }),
+      ...(retire.length === 0 ? {} : { retire }),
+      ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
+      ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
+    })
+    if (result.conflict === true) return { kind: 'elsewhere' }
+    if (tail === null) return { kind: 'unchanged', stamp: result.stamp }
+    if (!(await ranged.append(tail))) return { kind: 'busy' }
     return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp }
   } catch (err) {
     return { kind: 'failed', message: err instanceof Error ? err.message : String(err) }

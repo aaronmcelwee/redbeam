@@ -79,6 +79,7 @@ import {
 import { renderTakeoffReport } from './export/report.js'
 import { projectBridge, projectNameFromPath } from './project/bridge.js'
 import { createCoreDocumentUrlResolver } from './project/ingest.js'
+import { readEmbedRanged } from './export/rangedPdf.js'
 import { openProjectDocuments, type ProjectScanner } from './project/openProject.js'
 import { SearchPanel, type SearchScope } from './search/SearchPanel.js'
 import { CommandPalette } from './palette/CommandPalette.js'
@@ -5358,7 +5359,9 @@ export default function Workspace({
         }
         let reading: Awaited<ReturnType<typeof readSheetEmbed>>
         try {
-          reading = await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
+          // A big set is read by range: only the objects the takeoff lives in.
+          reading = await readEmbedRanged(projectBridge, projectPath, doc.relativePath)
+            ?? await readSheetEmbed(await projectBridge.readDocument(projectPath, doc.relativePath))
         } catch (err) {
           if (light && firstLook) {
             const reason = `REDBEAM could not read what ${name} carries (${err instanceof Error ? err.message : String(err)}), so REDBEAM will not save into it. What you draw here can be saved as a copy.`
