@@ -4,14 +4,16 @@
  * when Bluebeam or OneDrive changed the drawing after REDBEAM read it.
  */
 import type { ProjectBridge } from '../project/bridge.js'
-import type { DrawingFile } from './drawingEmbed.js'
+import type { DrawingFile, RangedSave } from './drawingEmbed.js'
+import { openRanged } from './rangedPdf.js'
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource)
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-type Bridge = Pick<ProjectBridge, 'readDocument' | 'writeDocument'> & Partial<Pick<ProjectBridge, 'appendDocument'>>
+type Bridge = Pick<ProjectBridge, 'readDocument' | 'writeDocument'>
+  & Partial<Pick<ProjectBridge, 'appendDocument' | 'streamDocument' | 'releaseStream' | 'streamFingerprint'>>
 
 export function projectDrawingFile(bridge: Bridge, projectPath: string, relativePath: string): DrawingFile {
   return {
@@ -86,5 +88,35 @@ export function keptDrawingFile(bridge: Bridge, projectPath: string, relativePat
     },
     keep: (bytes, version) => keep(key, bytes, version),
     fromMemory: () => lastFromMemory,
+    ranged: () => rangedSave(bridge, projectPath, relativePath),
+  }
+}
+
+/**
+ * A big drawing's save, by byte range: nothing of the file is held in memory,
+ * and only the update is appended. Null for a drawing small enough to read
+ * whole, or a core that cannot stream.
+ */
+async function rangedSave(bridge: Bridge, projectPath: string, relativePath: string): Promise<RangedSave | null> {
+  if (bridge.appendDocument === undefined) return null
+  const ranged = await openRanged(bridge, projectPath, relativePath)
+  if (ranged === null) return null
+  try {
+    // The file the stream reads, as the update will be built from it. A
+    // change to the file on disk after this makes the append refuse.
+    const version = await ranged.fingerprint()
+    const append = bridge.appendDocument.bind(bridge)
+    return {
+      readEmbed: () => ranged.readEmbed(),
+      embed: (input) => ranged.embed(input),
+      async append(tail) {
+        const out = await append(projectPath, relativePath, tail, version, ranged.size)
+        return out.outcome === 'written'
+      },
+      release: () => ranged.release(),
+    }
+  } catch (err) {
+    ranged.release()
+    throw err
   }
 }

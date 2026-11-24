@@ -75,6 +75,39 @@ pub fn project_stream_document(
     Ok(StreamInfo { token, size: metadata.len() })
 }
 
+/// SHA-256 of the file a stream reads, hashed through its own handle: the
+/// version an update built from this stream must be appended to
+/// (`project_append_document` checks it against the file on disk).
+#[tauri::command]
+pub async fn project_stream_fingerprint(state: tauri::State<'_, DocStreams>, token: String) -> Result<String, String> {
+    let file = state
+        .open
+        .lock()
+        .map_err(|_| "stream table poisoned".to_string())?
+        .get(&token)
+        .cloned()
+        .ok_or_else(|| "no such document stream".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || hash_handle(&file))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn hash_handle(file: &Mutex<File>) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut file = file.lock().map_err(|_| "stream poisoned".to_string())?;
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut chunk = vec![0u8; 1024 * 1024];
+    loop {
+        let n = file.read(&mut chunk).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&chunk[..n]);
+    }
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// Close a stream: the viewer that used it is gone.
 #[tauri::command]
 pub fn project_stream_release(state: tauri::State<'_, DocStreams>, token: String) {
@@ -221,6 +254,12 @@ mod tests {
         assert_eq!(
             res.headers().get(header::CONTENT_RANGE).unwrap().to_str().unwrap(),
             format!("bytes {}-{}/{}", total - 4, total - 1, total)
+        );
+        let small = dir.join("small.pdf");
+        std::fs::write(&small, b"abc").unwrap();
+        assert_eq!(
+            hash_handle(&Mutex::new(File::open(&small).unwrap())).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         let missing = Request::builder().uri("rbdoc://localhost/nope").body(Vec::new()).unwrap();
         assert_eq!(respond(&streams, &missing).status(), StatusCode::NOT_FOUND);
