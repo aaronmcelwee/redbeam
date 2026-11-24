@@ -39,7 +39,7 @@ import { extractPageAnnotations, type AnnotBackend, type AnnotPoint } from './an
 import { rotateFlatPoints, rotateNormBox, rotateNormPoint, wrapTurns } from './rotation.js'
 import { createPdfiumLinkBackend, extractPageLinks, type PageLink, type PdfiumLinkLike } from './links.js'
 import {
-  INDEX_KEY, PRIORITY_INDEX, tileExtent,
+  INDEX_KEY, PRIORITY_INDEX, PRIORITY_VISIBLE, tileExtent,
   type PageInfo, type WorkerRequest, type WorkerResponse,
 } from './types.js'
 
@@ -212,7 +212,7 @@ function renderTile(
   handle: number,
   pw: number,
   ph: number,
-  job: { page: number; tx: number; ty: number; tile: number; zoom: number; hidden?: number[] },
+  job: { page: number; tx: number; ty: number; tile: number; zoom: number; hidden?: number[]; annots?: false },
 ): ImageData {
   const { tx, ty, tile, zoom } = job
   const fullW = Math.round(pw * zoom)
@@ -233,12 +233,48 @@ function renderTile(
    * edge tile is simply smaller.
    */
   const { bw, bh } = tileExtent(fullW, fullH, tile, tx, ty)
+  return renderInto(handle, bw, bh, -tx * tile, -ty * tile, fullW, fullH, annotFlags(handle, job) | 0x10)
+}
+
+/**
+ * Whether this raster draws the PDF's own annotations: 0x01 or 0.
+ *
+ * `annots: false` is the person (or an agent) switching every embedded markup
+ * off to see the drawing underneath. Otherwise the per-page hidden list
+ * applies; when flags cannot be set and something should be hidden, all are
+ * omitted, a hide-all fallback rather than a no-op.
+ */
+function annotFlags(handle: number, job: { page: number; hidden?: number[]; annots?: boolean }): number {
+  if (job.annots === false) return 0
   const hidden = job.hidden ?? []
   const flagsOk = applyHiddenFlags(handle, job.page, hidden)
-  // 0x01 draws annotations. When flags cannot be set and something should be
-  // hidden, omit them all — a hide-all fallback rather than a no-op.
-  const annot = flagsOk || hidden.length === 0 ? 0x01 : 0
-  return renderInto(handle, bw, bh, -tx * tile, -ty * tile, fullW, fullH, annot | 0x10)
+  return flagsOk || hidden.length === 0 ? 0x01 : 0
+}
+
+/** Largest region render, in pixels. A 4096 square is 64 MB of wasm heap. */
+const REGION_MAX_SIDE = 6000
+const REGION_MAX_AREA = 24_000_000
+
+/**
+ * Render a box of the page at an exact pixel size.
+ *
+ * The same trick as a tile: the WHOLE page is laid out at the zoom that makes
+ * the box `width` pixels wide, and the bitmap window is placed over the box.
+ * PDFium culls what falls outside, so a small box at a high zoom costs about
+ * what the detail in it costs.
+ */
+function renderRegion(
+  handle: number,
+  job: { page: number; x0: number; y0: number; x1: number; y1: number; width: number; height: number; annots: boolean; hidden?: number[] },
+): ImageData {
+  const bw = Math.max(1, Math.round(job.width))
+  const bh = Math.max(1, Math.round(job.height))
+  const bx = Math.max(1e-6, job.x1 - job.x0)
+  const by = Math.max(1e-6, job.y1 - job.y0)
+  const fullW = Math.round(bw / bx)
+  const fullH = Math.round(bh / by)
+  const flags = (job.annots ? annotFlags(handle, job) : 0) | 0x10
+  return renderInto(handle, bw, bh, -Math.round(job.x0 * fullW), -Math.round(job.y0 * fullH), fullW, fullH, flags)
 }
 
 function renderInto(
@@ -629,6 +665,19 @@ async function run(job: Job) {
         error: err instanceof Error ? err.message : String(err),
       })
     }
+  } else if (job.kind === 'region') {
+    // As text: reported on the region message, so only the waiting caller is
+    // rejected and the drain loop keeps going.
+    try {
+      if (job.width * job.height > REGION_MAX_AREA || job.width > REGION_MAX_SIDE || job.height > REGION_MAX_SIDE) {
+        throw new Error(`a ${job.width} x ${job.height} render is over the ${REGION_MAX_SIDE}px / ${REGION_MAX_AREA / 1e6} MP limit`)
+      }
+      const img = renderRegion(entry.handle, job)
+      const bmp = await createImageBitmap(img)
+      post({ type: 'region', key: job.key, bmp, ms: now() - t0 }, [bmp])
+    } catch (err) {
+      post({ type: 'region', key: job.key, ms: now() - t0, error: err instanceof Error ? err.message : String(err) })
+    }
   } else {
     const w = Math.max(1, Math.round(job.width))
     const h = Math.max(1, Math.round((w * entry.height) / (entry.width || 1)))
@@ -695,6 +744,17 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           ty: m.ty,
           tile: m.tile,
           zoom: m.zoom,
+          ...(m.hidden !== undefined && m.hidden.length > 0 ? { hidden: m.hidden } : {}),
+          ...(m.annots === false ? { annots: false as const } : {}),
+        })
+        break
+
+      case 'region':
+        await booted
+        sched.enqueue({
+          kind: 'region', key: m.key, page: m.page, priority: PRIORITY_VISIBLE,
+          x0: m.x0, y0: m.y0, x1: m.x1, y1: m.y1, width: m.width, height: m.height,
+          annots: m.annots,
           ...(m.hidden !== undefined && m.hidden.length > 0 ? { hidden: m.hidden } : {}),
         })
         break

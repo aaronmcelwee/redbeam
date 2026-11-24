@@ -17,8 +17,11 @@ import { isTauri } from '../tauri/window.js'
 export interface BridgeActions {
   /** Whatever the driving agent should be able to see about this window. */
   uiState: () => Record<string, unknown>
-  /** PNG data URL of the current canvas, or null when nothing is mounted. */
-  screenshot: (params: Record<string, unknown>) => string | null
+  /**
+   * PNG data URL of the current canvas, or of a box of the sheet rendered at
+   * a chosen size; null when nothing is mounted.
+   */
+  screenshot: (params: Record<string, unknown>) => string | null | Promise<string | null>
   /** Named UI action, e.g. selecting a tool or a scope. */
   /**
    * May be async. A write that reports before it has landed turns a failure
@@ -63,7 +66,7 @@ export function useBridgeRequests(actions: BridgeActions): void {
               result = ref.current.uiState()
               break
             case 'screenshot': {
-              const dataUrl = ref.current.screenshot(params)
+              const dataUrl = await ref.current.screenshot(params)
               result = dataUrl === null
                 ? { error: 'no canvas is mounted — is a project open?' }
                 : { dataUrl, bytes: dataUrl.length }
