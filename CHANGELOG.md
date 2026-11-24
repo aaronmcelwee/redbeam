@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.54 — 2026-11-24
+## 0.3.55 — 2026-11-24
 
 ### Claude and ChatGPT can read your sheets closely
 
@@ -14,6 +14,14 @@ SmartScreen will ask once.
 - **AI apps can find where text is.** Searching for a tag like C-7 now tells the AI app where it sits on the sheet, so it can zoom to it or take a close-up of it.
 - **AI apps know your sheet names.** They see each page as its sheet number and title, A4.0 FLOOR PLAN rather than "page 5", and can go to a sheet by its number.
 - **AI apps can hide markups too**, for a clean look at the drawing, and the bar tells you when they have.
+
+
+## 0.3.54 — 2026-11-24
+
+### Pro mode is retired, and AI agents work in Light
+
+- **Claude and ChatGPT stay in the PDF you have open.** When an AI app drives REDBEAM, it now reads and changes the takeoff of the PDF showing in the window, the same one you see, saved into that PDF. Before, it went looking for a project and switched the window back to the old Pro screens.
+- **Pro is gone.** REDBEAM is a PDF viewer that does takeoffs, and nothing else: the Mode setting and the Light/Pro switch on the start screen are removed, and nothing (a click, a link or an AI app) can open a project any more. An old project folder still works the same way as before: open a PDF from it and its takeoff moves into that PDF.
 
 
 ## 0.3.53 — 2026-11-24

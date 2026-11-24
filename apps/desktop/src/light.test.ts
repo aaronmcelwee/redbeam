@@ -1,25 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, PRO_AVAILABLE, LIGHT_REACHES, isProjectOnlyCommand, lightCommands, readMode, writeMode } from './light.js'
+import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, isProjectOnlyCommand, lightCommands } from './light.js'
 import { SETTINGS } from './settings/registry.js'
-import { SettingsStore, memoryStorage } from './settings/store.js'
 import { forgetFile, recentFiles, rememberFile, type RecentFileStorage } from './project/recentFiles.js'
 
-describe('mode', () => {
-  it('is Light until someone picks Pro, and remembers the pick', () => {
-    const store = SettingsStore.open(memoryStorage())
-    expect(readMode(store, true)).toBe('light')
-    expect(writeMode('pro', store)).toBeNull()
-    expect(readMode(store, true)).toBe('pro')
-    writeMode('light', store)
-    expect(readMode(store, true)).toBe('light')
-  })
-
-  it('is Light whatever was picked while Pro is parked, and does not offer the choice', () => {
-    const store = SettingsStore.open(memoryStorage())
-    writeMode('pro', store)
-    expect(PRO_AVAILABLE).toBe(false)
-    expect(readMode(store)).toBe('light')
-    expect(LIGHT_HIDDEN_SETTINGS).toContain('general.mode')
+describe('Pro', () => {
+  it('is gone: no mode setting, nothing to hide it from', () => {
+    // Aaron, 2026-11-24: "lets retire pro mode altogether".
+    expect(SETTINGS.some((d) => d.id === 'general.mode')).toBe(false)
   })
 })
 
@@ -64,10 +51,9 @@ describe('the Light window', () => {
     expect(LIGHT_REACHES).toEqual(['sheet', 'document'])
   })
 
-  it('hides only settings that exist, and the mode switch only while Pro is parked', () => {
+  it('hides only settings that exist', () => {
     const ids = new Set(SETTINGS.map((d) => d.id))
     for (const id of LIGHT_HIDDEN_SETTINGS) expect(ids.has(id)).toBe(true)
-    expect(LIGHT_HIDDEN_SETTINGS.includes('general.mode')).toBe(!PRO_AVAILABLE)
   })
 })
 

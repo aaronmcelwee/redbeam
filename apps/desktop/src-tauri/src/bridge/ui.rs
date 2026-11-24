@@ -48,6 +48,15 @@ fn next_id() -> u64 {
 
 /// Ask the frontend to do something and wait for its answer.
 pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, String> {
+    request_within(app, action, params, UI_TIMEOUT)
+}
+
+/// [`request`] with its own deadline.
+///
+/// Light answers its store reads from the window (methods.rs), and a start
+/// screen with no PDF open has nobody listening. A "cheap" read that sat out
+/// the full twenty seconds before saying so would read as a hung app.
+pub fn request_within(app: &AppHandle, action: &str, params: &Value, timeout: Duration) -> Result<Value, String> {
     let id = next_id();
     let (tx, rx): (Sender<Value>, Receiver<Value>) = channel();
 
@@ -67,7 +76,7 @@ pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, S
         return Err(format!("could not reach a window: {e}"));
     }
 
-    let answer = rx.recv_timeout(UI_TIMEOUT);
+    let answer = rx.recv_timeout(timeout);
     forget(id);
 
     match answer {
@@ -80,8 +89,8 @@ pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, S
             Ok(v)
         }
         Err(_) => Err(format!(
-            "no window answered `{action}` within {}s — is a project open?",
-            UI_TIMEOUT.as_secs()
+            "no window answered `{action}` within {}s — is a PDF open? Open one with redbeam_open_file.",
+            timeout.as_secs()
         )),
     }
 }

@@ -176,7 +176,7 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "REDBEAM is a PDF takeoff app; the takeoff is saved inside the PDF. \
+            "instructions": "REDBEAM is a PDF takeoff app: there are no projects, and each PDF holds its own takeoff. \
 Open a drawing with redbeam_open_file, then poll redbeam_get_ui_state until pageCount > 0. \
 Look before you draw: redbeam_screenshot shows the sheet. Writes go through \
 redbeam_invoke_ui_action and land on REDBEAM's undo stack, so the person can undo them.",
@@ -242,7 +242,7 @@ mod tests {
     fn lists_the_same_tools_as_the_node_server() {
         let s = spec();
         let tools = s.tools.as_array().expect("tools array");
-        assert!(tools.len() >= 15);
+        assert!(tools.len() >= 14);
         for t in tools {
             let name = t["name"].as_str().unwrap();
             assert!(s.method_of.get(name).is_some(), "{name} has no bridge method");
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(r["result"]["protocolVersion"], "2025-06-18");
         assert_eq!(r["result"]["serverInfo"]["name"], "redbeam");
         let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).unwrap();
-        assert!(r["result"]["tools"].as_array().unwrap().len() >= 15);
+        assert!(r["result"]["tools"].as_array().unwrap().len() >= 14);
         assert!(handle(&s, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
     }
 
