@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.76 — 2026-11-24
+
+### Takeoffs in big sets
+
+- **Takeoffs in big sets load and save without reading the whole PDF.** In a set over 128 MB, REDBEAM now reads only the parts of the PDF that hold your takeoff when it opens, and a save adds just the new part to the end of the file. Drawing an area on a 2.5 GB, 1,800-sheet set and saving it wrote about 6 KB.
+- **A save never lands on a changed file.** If the PDF was changed on disk while it was open, the save stops instead of writing over the other change.
+
+
 ## 0.3.75 — 2026-11-24
 
 ### AI apps: copies into folders, and searches with no limit
