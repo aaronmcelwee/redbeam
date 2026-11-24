@@ -179,10 +179,34 @@ async fn route_with(app: &AppHandle, path: String, focus: bool) -> Result<(), St
     let wanted = fold(&path);
     // Decide under the lock, act after it: a window being built must not
     // wait on a lock its own report is queued behind.
+    /*
+     * An AI app's file never gets a window of its own while a window is open.
+     * A window that has just started, or was just handed another file, has
+     * not said what it shows yet; that used to read as "no window is free",
+     * and each file an AI app opened in that moment got a new window. Wait
+     * for the window to say, and failing that use the main one.
+     */
+    let mut fallback: Option<String> = None;
+    if !focus {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let (free, any) = {
+                let mut map = state.showing.lock().map_err(|e| e.to_string())?;
+                map.retain(|label, _| app.get_webview_window(label).is_some());
+                let windows = app.webview_windows();
+                let mut labels: Vec<&String> = windows.keys().filter(|l| l.as_str() == "main" || l.starts_with("view-")).collect();
+                labels.sort_by_key(|l| (l.as_str() != "main", l.to_string()));
+                (choose(&map, &wanted).is_some(), labels.first().map(|l| (*l).clone()))
+            };
+            if free || any.is_none() { break }
+            if std::time::Instant::now() >= deadline { fallback = any; break }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
     let target = {
         let mut map = state.showing.lock().map_err(|e| e.to_string())?;
         map.retain(|label, _| app.get_webview_window(label).is_some());
-        let target = choose(&map, &wanted);
+        let target = choose(&map, &wanted).or_else(|| fallback.map(|l| (l, true)));
         if let Some((label, true)) = &target {
             match map.get_mut(label) {
                 // Taken as a tab: a second launch of the same file finds it here.
@@ -201,7 +225,8 @@ async fn route_with(app: &AppHandle, path: String, focus: bool) -> Result<(), St
             let Some(window) = app.get_webview_window(&label) else {
                 return Err(format!("window {label} closed"));
             };
-            if open {
+            // An AI app's file is always sent: a window still starting can have missed the first.
+            if open || !focus {
                 // To that window only: `emit` would reach every window.
                 app.emit_to(label.as_str(), OPEN_EVENT, &path).map_err(|e| e.to_string())?;
             }
