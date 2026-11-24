@@ -7,42 +7,13 @@
  * PDF file as opposed to working in the project." Pro keeps the project, its
  * database and its bidding rounds for the people who use them.
  *
- * This file holds the pieces of that which are decisions rather than wiring:
- * which mode is on, and which palette commands only mean something with a
- * project behind the window.
+ * Aaron, 2026-11-24: "lets retire pro mode altogether". Light is the app;
+ * there is no mode to choose. This file holds which palette commands, panels
+ * and settings only meant something with a project behind the window, so the
+ * workspace (which still carries Pro's code) keeps them out of sight.
  */
-import { SettingsStore, browserStorage } from './settings/store.js'
 import type { RailPanel } from './shell/Shell.js'
 import type { SearchScope } from './search/SearchPanel.js'
-
-export type AppMode = 'light' | 'pro'
-
-export const MODE_SETTING = 'general.mode'
-
-/**
- * Whether Pro can be chosen at all.
- *
- * Aaron, 2026-11-19: "Let's put Pro on the back burner for now. I want the
- * app to be rebuilt to be dedicated to Light mode. We can introduce Pro later
- * when we have more of a cohesive workflow." Pro's code stays; this is the one
- * switch that brings it back. While it is off the app is Light whatever the
- * setting holds, the start screen and Settings do not offer the choice, and a
- * project's takeoff reaches Light through its PDFs (export/oldProject.ts).
- */
-export const PRO_AVAILABLE: boolean = false
-
-/** The mode the app runs in. Light unless Pro is available and someone chose it. */
-export function readMode(
-  store: Pick<SettingsStore, 'str'> = SettingsStore.open(browserStorage()),
-  proAvailable: boolean = PRO_AVAILABLE,
-): AppMode {
-  return proAvailable && store.str(MODE_SETTING) === 'pro' ? 'pro' : 'light'
-}
-
-/** Remember a mode. Returns the refusal, if the store gave one. */
-export function writeMode(mode: AppMode, store: Pick<SettingsStore, 'set'> = SettingsStore.open(browserStorage())): string | null {
-  return store.set(MODE_SETTING, mode)
-}
 
 /**
  * Palette commands that act on the project rather than on the open file.
@@ -100,8 +71,6 @@ export const LIGHT_PANELS: readonly RailPanel[] = ['contents', 'thumbnails', 'se
  */
 export const LIGHT_HIDDEN_SETTINGS: readonly string[] = [
   'general.restoreProjectWindows', 'general.recentProjectLimit', 'general.recentExpiry',
-  // A choice with one answer is not a setting.
-  ...(PRO_AVAILABLE ? [] : [MODE_SETTING]),
 ]
 
 /** Search reaches in Light: Folder and Project would only repeat Document. */

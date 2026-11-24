@@ -14,7 +14,6 @@ const read = (name: string) =>
 
 describe('the project switcher', () => {
   const workspace = read('../Workspace.tsx')
-  const app = read('../App.tsx')
 
   /**
    * The name of the open project used to be wired straight to Close Project:
@@ -24,17 +23,6 @@ describe('the project switcher', () => {
   it('is not wired to close the project', () => {
     expect(workspace).not.toMatch(/onPickProject/)
     expect(workspace).not.toMatch(/projectMenu[\s\S]{0,200}onOpen:\s*onCloseProject/)
-  })
-
-  /**
-   * A window IS a project — its database, its undo stack and every id in the
-   * workspace belong to it — so choosing another project opens a second window
-   * rather than tearing this one down.
-   */
-  it('opens another project in a second window', () => {
-    expect(app).toMatch(/openProjectWindow/)
-    // A prop in Pro; Light spreads it in only when a project is open.
-    expect(app).toMatch(/onOpenProject(=\{|: )openProjectElsewhere/)
   })
 })
 
@@ -81,32 +69,13 @@ describe('title-bar icon buttons', () => {
 })
 
 /**
- * A window opened FOR a project opens THAT project.
- *
- * The URL carries the project id for every window, and App honoured it only
- * when the role was `context`. A second PROJECT window therefore ignored the
- * id in its own URL, fell through to the reopen-on-launch path, and opened the
- * most recent project instead — so "open another project" produced a second
- * window showing the project you already had open. Indistinguishable from the
- * command doing nothing.
+ * Projects are retired (Aaron, 2026-11-24: "lets retire pro mode altogether"):
+ * nothing in the window gate may open one, by hand, from a URL or for an agent.
  */
-describe('a second project window', () => {
+describe('no way into a project', () => {
   const app = readFileSync(fileURLToPath(new URL('../App.tsx', import.meta.url)), 'utf8')
 
-  it('adopts the project from its own URL whatever its role', () => {
-    // Both roles open the folder in the URL. A context window opens that
-    // folder as given; a project window still goes through project.open, so a
-    // nested folder can ask. Neither role skips the URL and falls through to
-    // the most recent project.
-    expect(app).toContain("if (identity.role === 'context') void project.open(identity.projectId, { own: true })")
-    expect(app).toContain('else void project.open(identity.projectId)')
-  })
-
-  it('does not then reopen the most recent project over the top of it', () => {
-    const at = app.indexOf('const attempted = useRef(false)')
-    expect(at).toBeGreaterThan(-1)
-    const effect = app.slice(at, app.indexOf('}, [project,', at))
-    expect(effect, 'reopen-on-launch does not stand down for an explicit project')
-      .toContain('if (identity.projectId !== null) return')
+  it('never opens a project or a project window', () => {
+    expect(app).not.toMatch(/project\.open\(|openProject|openRecent\(|bridge\/open-project/)
   })
 })

@@ -32,12 +32,11 @@ test('every tool has a description and a valid object schema', () => {
   }
 })
 
-test('open_project warns that it does not open synchronously', () => {
-  // The trap: `accepted` is not `opened`. An agent that reads it as done will
-  // query an empty project and conclude the app is broken.
-  const t = tools.find((x) => x.name === 'redbeam_open_project')
-  assert.match(t.description, /accepted/i)
-  assert.match(t.description, /poll/i)
+test('there is no way to open a project', () => {
+  // Aaron, 2026-11-24: "lets retire pro mode altogether". Opening a project
+  // is what put an agent's window into Pro.
+  assert.equal(tools.find((x) => x.name === 'redbeam_open_project'), undefined)
+  assert.equal(Object.values(METHOD_OF).includes('open_project'), false)
 })
 
 test('execute_query says why writes are refused, not just that they are', () => {

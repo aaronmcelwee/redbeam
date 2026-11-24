@@ -65,7 +65,6 @@ export interface ProjectStartScreenProps {
    */
   mode?: 'light' | 'pro'
   /** Switch between Light and Pro. Absent, no switch is drawn. */
-  onModeChange?: (mode: 'light' | 'pro') => void
   /**
    * Offer to make REDBEAM the default PDF viewer. Present only when the
    * installer registered it, it is not the default yet, and the person has
@@ -112,7 +111,6 @@ export function ProjectStartScreen({
   notice = null,
   now,
   mode = 'pro',
-  onModeChange,
   defaultViewerOffer,
 }: ProjectStartScreenProps) {
   const light = mode === 'light'
@@ -433,23 +431,6 @@ export function ProjectStartScreen({
 
       <footer className="st-foot">
         <span>REDBEAM {APP_VERSION}</span>
-        {onModeChange !== undefined && (
-          <span className="st-mode" role="radiogroup" aria-label="Mode">
-            {(['light', 'pro'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={mode === m}
-                className={`st-modebtn${mode === m ? ' on' : ''}`}
-                title={m === 'light'
-                  ? 'Light: open PDFs and save the takeoff inside each file'
-                  : 'Pro: project folders, estimates and bidding rounds'}
-                onClick={() => { if (mode !== m) onModeChange(m) }}
-              >{m === 'light' ? 'Light' : 'Pro'}</button>
-            ))}
-          </span>
-        )}
       </footer>
 
       {menu !== null && menuFor !== null && (

@@ -457,10 +457,6 @@ h4 {
 .st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }
 .st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-3); font-size: var(--rb-caption); }
 /* Light / Pro, bottom right: a choice made once, so small and out of the way. */
-.st-mode { margin-left: auto; display: inline-flex; border: 1px solid var(--rb-line-2); border-radius: 4px; overflow: hidden; }
-.st-modebtn { appearance: none; border: 0; background: transparent; color: var(--rb-ink-3); font: inherit; font-size: var(--rb-caption); padding: 3px 12px; cursor: pointer; }
-.st-modebtn + .st-modebtn { border-left: 1px solid var(--rb-line-2); }
-.st-modebtn.on { background: var(--rb-accent); color: var(--rb-accent-ink); }
 /* Compound, so it outranks shell.css's bare .dockmenu whatever order the
  * bundler loads the sheets in; and `bottom: auto`, or the dock menu's
  * `bottom` and this menu's inline `top` squeeze it to a sliver. */
