@@ -173,7 +173,7 @@ export interface ScopeStanding {
 }
 
 /** A warning is a sentence, or a sentence and the one action that fixes it. */
-export type PanelWarning = string | { text: string; action?: { label: string; run: () => void } }
+export type PanelWarning = string | { text: string; action?: { label: string; run: () => void }; onDismiss?: () => void }
 
 /**
  * What the round can export. The entries are every scope's pieces; the panel
@@ -655,9 +655,10 @@ function WarningStack({ warnings }: { warnings: PanelWarning[] }) {
       {shown.map((w, i) => {
         const text = typeof w === 'string' ? w : w.text
         const fix = typeof w === 'string' ? undefined : w.action
+        const dismiss = typeof w === 'string' ? undefined : w.onDismiss
         const more = i === shown.length - 1 && rest > 0 ? { label: open ? 'Fewer' : `+${rest}`, run: () => setOpen((v) => !v) } : undefined
         return (
-          <InfoBar key={i} tone="warn" action={fix ?? more ?? null}>
+          <InfoBar key={i} tone="warn" action={fix ?? more ?? null} {...(dismiss !== undefined ? { onDismiss: dismiss } : {})}>
             {text}
             {fix !== undefined && more !== undefined && (
               <> · <button className="es-link" onClick={more.run}>{more.label}</button></>
