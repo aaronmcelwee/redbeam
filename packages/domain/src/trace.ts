@@ -303,7 +303,7 @@ export function closeBinary(src: Uint8Array, w: number, h: number, r: number): U
  * endpoints, and a guard caps it regardless — a NaN endpoint must not be able
  * to hang the worker.
  */
-function drawSegment(
+export function drawSegment(
   mask: Uint8Array,
   w: number,
   h: number,
