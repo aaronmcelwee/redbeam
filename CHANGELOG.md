@@ -1,8 +1,8 @@
 # Changelog
 
 Releases are Windows installers for x64 and ARM64, published at
-https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
-SmartScreen will ask once.
+https://github.com/testusercar/redbeam/releases, with a portable zip for each.
+All are unsigned; SmartScreen will ask once.
 
 
 ## 0.3.91 — 2026-11-25
@@ -13,6 +13,14 @@ SmartScreen will ask once.
 - **Columns come out as cutouts.** Round and square columns the hatch stops around are returned as cutouts with their sizes, and small specks are filled. The agent can also ask for every other area of the same ceiling on the sheet, while walls drawn with the same hatch are left out.
 - **Get lines stays inside the box it was given.** Lines that run on past the box are now cut at its edge and marked, so an agent no longer picks up a corner from far away. An agent can also ask for lines in one direction only.
 - **Outlines are checked before they are trusted.** When an agent draws an area, REDBEAM now warns it if the outline crosses itself, a cutout crosses the outline or sits outside it, or a corner lands off the drawing or in the title block.
+
+## 0.3.90 — 2026-11-25
+
+### A portable REDBEAM for PCs that will not run the installer
+
+- **REDBEAM without installing it.** Every release now comes with a portable zip as well as the installer. Unzip it into Documents or onto the Desktop and double-click REDBEAM.exe. It needs no admin rights, which helps on PCs where the installer is blocked or fails.
+- **Updates point to the new zip.** The portable copy tells you when a new version is out, and its button downloads the new portable zip instead of running the installer.
+- **A clear message if WebView2 is missing.** If a PC does not have Microsoft Edge WebView2, REDBEAM now says so and offers Microsoft's download page instead of failing to open.
 
 ## 0.3.89 — 2026-11-25
 

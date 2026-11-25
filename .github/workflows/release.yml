@@ -5,7 +5,7 @@
 # x64 and arm64 NSIS on windows-latest and signs them with
 # TAURI_SIGNING_PRIVATE_KEY. A live run then, in order: writes the change
 # notes (and fails if they are empty), opens a draft GitHub Release with
-# those notes and the four installer files, runs workers/updater/publish.ps1
+# those notes, the four installer files and the two portable zips, runs workers/updater/publish.ps1
 # (installers and .sig files, then manifest.json, all with wrangler --remote),
 # marks that release published, and checks the release plus Worker /health.
 # If the R2 upload fails, the draft release is deleted. No step runs on a
@@ -118,6 +118,29 @@ jobs:
           if ($exe.Count -ne 1) { throw "Expected one NSIS installer in $dir, found $($exe.Count)." }
           if ($sig.Count -ne 1) { throw "Expected a .sig beside $($exe[0].Name). The signing key did not produce one." }
 
+      # The portable copy (src-tauri/src/portable.rs): the same REDBEAM.exe the
+      # installer carries, beside the REDBEAM.portable marker and a read me,
+      # for PCs that will not run an installer. Written next to the installer
+      # so the artifact keeps one flat folder.
+      - name: Build portable zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (node workers/updater/assert-version.mjs $env:RELEASE_VERSION).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "version check failed" }
+          $release = "apps/desktop/src-tauri/target/${{ matrix.target }}/release"
+          $exe = @(Get-ChildItem -LiteralPath $release -Filter 'redbeam.exe' -File)
+          if ($exe.Count -ne 1) { throw "Expected REDBEAM.exe in $release, found $($exe.Count)." }
+          $stage = Join-Path $env:RUNNER_TEMP 'portable/REDBEAM'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -LiteralPath $exe[0].FullName -Destination (Join-Path $stage 'REDBEAM.exe')
+          $readme = 'apps/desktop/src-tauri/windows/portable-readme.txt'
+          Copy-Item -LiteralPath $readme -Destination (Join-Path $stage 'Read me.txt')
+          Set-Content -LiteralPath (Join-Path $stage 'REDBEAM.portable') -Encoding utf8NoBOM -Value "Portable copy, version $version. Keep this file beside REDBEAM.exe. See Read me.txt."
+          $zip = "$release/bundle/nsis/REDBEAM_${version}_${{ matrix.arch }}_portable.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal -Force
+          Write-Host "Portable zip: $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB)"
+
       - uses: actions/upload-artifact@v4
         with:
           name: nsis-${{ matrix.arch }}
@@ -125,6 +148,7 @@ jobs:
           path: |
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe.sig
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_portable.zip
 
   publish:
     name: Publish channel
@@ -182,8 +206,9 @@ jobs:
             Copy-Item -Path (Join-Path $src '*') -Destination $dest
             $exe = @(Get-ChildItem -LiteralPath $dest -Filter '*-setup.exe' -File)
             $sig = @(Get-ChildItem -LiteralPath $dest -Filter '*-setup.exe.sig' -File)
-            if ($exe.Count -ne 1 -or $sig.Count -ne 1) {
-              throw "Expected one installer and one .sig in $dest."
+            $zip = @(Get-ChildItem -LiteralPath $dest -Filter '*_portable.zip' -File)
+            if ($exe.Count -ne 1 -or $sig.Count -ne 1 -or $zip.Count -ne 1) {
+              throw "Expected one installer, one .sig and one portable zip in $dest."
             }
           }
 
@@ -303,6 +328,8 @@ jobs:
             (One-Artifact $x64 '*-setup.exe.sig')
             (One-Artifact $arm '*-setup.exe')
             (One-Artifact $arm '*-setup.exe.sig')
+            (One-Artifact $x64 '*_portable.zip')
+            (One-Artifact $arm '*_portable.zip')
           )
           $notesPath = (Resolve-Path -LiteralPath 'release-notes.txt').Path
           & gh release create $tag --repo $repo --draft --target $env:GITHUB_SHA --title $tag --notes-file $notesPath @files

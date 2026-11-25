@@ -75,6 +75,24 @@ Release, the job stops before uploading again.
 `-AllowSingleArch` is not used here. A release publishes both architectures.
 That switch is only for a one-architecture smoke of `publish.ps1`.
 
+## Portable copy
+
+For PCs that will not run the installer (blocked by policy, run from inside a
+zip, no rights to install), `release.yml` also zips the built `REDBEAM.exe`
+with a `REDBEAM.portable` marker and `Read me.txt`
+(`apps/desktop/src-tauri/windows/portable-readme.txt`). It runs from any
+folder without admin rights. `src-tauri/src/portable.rs`:
+
+- The marker beside the exe makes the update row offer "Download the new zip"
+  (the latest link above) instead of running the NSIS installer, which would
+  install a second copy.
+- A fixed-version WebView2 runtime unzipped into a `WebView2` folder beside the
+  exe is used automatically. With no WebView2 at all, REDBEAM shows a message
+  and offers Microsoft's download page instead of failing silently.
+- Not in portable mode: double-click and Open with for PDFs (the installer
+  registers those), Start menu entry, uninstaller. Settings and recents still
+  live in `%LOCALAPPDATA%` / `%APPDATA%\com.redbeam.app`.
+
 ## Secrets
 
 The workflow reads GitHub Actions secrets. Cloud agents are not the builders.
@@ -147,7 +165,15 @@ REDBEAM_<version>_x64-setup.exe
 REDBEAM_<version>_x64-setup.exe.sig
 REDBEAM_<version>_arm64-setup.exe
 REDBEAM_<version>_arm64-setup.exe.sig
+REDBEAM_latest_x64_portable.zip
+REDBEAM_latest_arm64_portable.zip
 ```
+
+The portable zips (see "Portable copy" above) keep one fixed name each and are
+replaced by every release, so
+`https://redbeam-updates.trackchairking.workers.dev/files/REDBEAM_latest_x64_portable.zip`
+is always the newest. Each version's zips also stay on its GitHub Release as
+`REDBEAM_<version>_<arch>_portable.zip`.
 
 Upload each installer and its `.sig`. The signature string inside the manifest
 is the contents of that `.sig` file. The app downloads the `.exe` URL from the

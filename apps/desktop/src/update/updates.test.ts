@@ -86,6 +86,20 @@ describe('updateMessage', () => {
   })
 })
 
+describe('updateMessage on the portable copy', () => {
+  it('points at the new zip instead of an install', () => {
+    const text = updateMessage({ kind: 'available', version: '0.4.0', notes: null }, true)
+    expect(text).toContain('0.4.0')
+    expect(text).toMatch(/portable/)
+    expect(text).toMatch(/zip/)
+  })
+
+  it('the installed copy is unchanged', () => {
+    expect(updateMessage({ kind: 'available', version: '0.4.0', notes: null }))
+      .toBe('Version 0.4.0 is available.')
+  })
+})
+
 describe('updateAction', () => {
   it('offers nothing to press when there is nowhere to look', () => {
     // A Check button that cannot succeed is worse than no button: it invites
