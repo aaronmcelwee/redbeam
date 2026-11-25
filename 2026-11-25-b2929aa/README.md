@@ -24,4 +24,13 @@
 | Long call | PASS | find_text over 300 pages returned one answer (100 matches, 2.1 s), attributed to its session's card ("Searching for “ACOUSTICAL”"). | driver-log.json long.findText300 | b2929aa |
 | Ask 60 s | PARTLY | The ask lives only in the Agents card ("Let it work there / Not now"), not over the sheet. The agent's call returns after about 12 s with "asked, not answered yet" rather than waiting. After "Not now", the next call is refused: "the person said not now". | ASK-unanswered-60s.png | b2929aa |
 
+## Narrow reruns (b2929aa, unlocked, 2026-11-25 ~15:45Z; log: driver-log-narrow.json)
+
+| Std | Result | Measured / observed | Capture |
+|---|---|---|---|
+| S6 (rerun) | **PASS** | B on page 0 (read 0). A go_to_page {B's PDF, page 3}: refused, "One session does not move another session's view…". B still on page 0. A zoom_to_region and A set_tool on B's PDF: both refused, same message. A go_to_page page 0 (already showing): ok, no movement, B still 0. The person was asked nothing. The earlier S6 fail was a no-op: B was already on page 2. | driver-log-narrow.json |
+| S9 person undo (rerun) | **FAIL** | In the person's own scratch PDF (Person-S9-jy85): 1 markup before. The person's real-input dimension made 2 (mk-7uyya0jt:dimension). The agent's guest area made 3 (mk-mwwakjhf-5xrn0e). A real Ctrl+Z with REDBEAM in front left **3**: the person's dimension was NOT undone, and the agent's area stayed. The agent's redbeam_undo then made 2 (it removed only its own area). | gif-N-S9-person-undo.gif, N-S9-1-person-and-agent-markups.png, N-S9-2-after-person-ctrlz.png, N-S9-3-after-agent-undo.png |
+
+Also seen: the person's own active tab (Person-S9-jy85) was not visible in the tab strip. It sat in the "+11" overflow, so the guest dot on it could not be seen.
+
 **Other:** the person's tab strip holds restored tabs from earlier runs on this machine (other threads' test files and mine), so the overflow shows "+8"/"+15". Some of my test files also reused those names, so the main run's agents shared person tabs (`yours:false`). The supplement used fresh names.
