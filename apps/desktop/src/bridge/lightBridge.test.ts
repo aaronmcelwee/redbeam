@@ -41,7 +41,8 @@ describe('agents in Light', () => {
       .map((sql) => sql
         // list_markups builds its WHERE with format!.
         .replace('{where_sql}', ' WHERE deleted_at IS NULL AND page_id = ?1')
-        .replace('?{}', '?2'))
+        .replace('?{limit_at}', '?2')
+        .replace('?{}', '?3'))
     expect(literals.length).toBeGreaterThan(8)
 
     const db = await SqlJsDriver.open()
@@ -49,9 +50,10 @@ describe('agents in Light', () => {
     for (const sql of literals) {
       expect(isReadOnlySql(sql), sql).toBe(true)
       const n = Math.max(0, ...[...sql.matchAll(/\?(\d+)/g)].map((m) => Number(m[1])))
-      // A LIMIT takes a number, as Rust sends it; the rest are ids.
+      // A LIMIT and an OFFSET take numbers, as Rust sends them; the rest are ids.
       const limitAt = /LIMIT \?(\d+)/.exec(sql)?.[1]
-      const params = Array.from({ length: n }, (_, i) => (String(i + 1) === limitAt ? 10 : 'x'))
+      const offsetAt = /OFFSET \?(\d+)/.exec(sql)?.[1]
+      const params = Array.from({ length: n }, (_, i) => (String(i + 1) === limitAt ? 10 : String(i + 1) === offsetAt ? 0 : 'x'))
       await expect(db.all(sql, params), sql).resolves.toBeInstanceOf(Array)
     }
   })

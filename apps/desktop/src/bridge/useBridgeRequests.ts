@@ -50,6 +50,9 @@ export function isReadOnlySql(sql: string): boolean {
   return /^(select|with)\b/i.test(t) && !t.includes(';')
 }
 
+/** How often a window working on a bridge request says so. */
+export const ALIVE_EVERY_MS = 2000
+
 interface RequestPayload {
   id: number
   action: string
@@ -76,6 +79,14 @@ export function useBridgeRequests(actions: BridgeActions): void {
       const un = await listen<RequestPayload>('redbeam://bridge/request', (event) => { void (async () => {
         const { id, action, params = {} } = event.payload
         let result: Record<string, unknown>
+        /*
+         * "Still working on it", every two seconds until the answer goes.
+         * The app waits on a request for as long as these keep coming, so
+         * long work (an export of a big set) is never cut off by a clock;
+         * a window that stops answering still fails after a short silence
+         * (bridge/ui.rs).
+         */
+        const beat = setInterval(() => { void invoke('bridge_alive', { id }).catch(() => {}) }, ALIVE_EVERY_MS)
         try {
           switch (action) {
             case 'get_ui_state':
@@ -111,6 +122,7 @@ export function useBridgeRequests(actions: BridgeActions): void {
           // waiting out the Rust timeout.
           result = { error: e instanceof Error ? e.message : String(e) }
         }
+        clearInterval(beat)
         void invoke('bridge_reply', { id, result })
       })() })
 

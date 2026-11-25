@@ -20,7 +20,8 @@ import path from 'node:path'
 
 const SERVER_INFO = { name: 'redbeam', version: '0.1.0' }
 const DISCOVERY_FILE = path.join(os.tmpdir(), 'redbeam-bridge.json')
-const CALL_TIMEOUT_MS = Number(process.env['REDBEAM_BRIDGE_TIMEOUT_MS'] ?? 30000)
+// How long REDBEAM may say nothing during a call (it sends keepalives while working).
+const CALL_TIMEOUT_MS = Number(process.env['REDBEAM_BRIDGE_TIMEOUT_MS'] ?? 60000)
 
 // --------------------------------------------------------------- transport --
 
@@ -45,30 +46,50 @@ function readDiscovery() {
  * handle would fail with a confusing connection error long after the real
  * cause (a restart) had scrolled away.
  */
-function bridgeCall(method, params = {}) {
+function bridgeCall(method, params = {}, onAlive = () => {}) {
   const d = readDiscovery()
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(d.port, '127.0.0.1')
     let buffer = ''
-    const timer = setTimeout(() => {
-      socket.destroy()
-      reject(new Error(`Timed out after ${CALL_TIMEOUT_MS}ms waiting for bridge method ${method}`))
-    }, CALL_TIMEOUT_MS)
+    /*
+     * A clock on SILENCE, not on the work (Aaron, 2026-11-24: no arbitrary
+     * caps). REDBEAM sends {"keepalive":true} every few seconds while a call
+     * runs; each one restarts the clock, so a long export finishes.
+     */
+    let timer
+    const arm = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        socket.destroy()
+        reject(new Error(`REDBEAM said nothing for ${CALL_TIMEOUT_MS}ms during bridge method ${method}`))
+      }, CALL_TIMEOUT_MS)
+    }
+    arm()
 
     socket.on('connect', () =>
-      socket.write(JSON.stringify({ id: 1, method, token: d.token, params }) + '\n'))
+      socket.write(JSON.stringify({ id: 1, method, token: d.token, params, keepalive: true }) + '\n'))
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8')
-      const nl = buffer.indexOf('\n')
-      if (nl === -1) return
-      clearTimeout(timer)
-      socket.end()
-      try {
-        const res = JSON.parse(buffer.slice(0, nl).trim())
+      for (;;) {
+        const nl = buffer.indexOf('\n')
+        if (nl === -1) return
+        const line = buffer.slice(0, nl).trim()
+        buffer = buffer.slice(nl + 1)
+        let res
+        try {
+          res = JSON.parse(line)
+        } catch (e) {
+          clearTimeout(timer)
+          socket.end()
+          reject(e)
+          return
+        }
+        if (res && res.keepalive === true) { arm(); onAlive(); continue }
+        clearTimeout(timer)
+        socket.end()
         if (res.ok) resolve(res.result)
         else reject(new Error(res.error ?? `bridge method ${method} failed`))
-      } catch (e) {
-        reject(e)
+        return
       }
     })
     socket.on('error', (e) => {
@@ -105,11 +126,11 @@ const METHOD_OF = SPEC.methodOf
 /** Named tools that are one invoke_ui_action under a clearer name. */
 const ACTION_OF = SPEC.actionOf
 
-async function callTool(name, args = {}) {
+async function callTool(name, args = {}, onAlive = () => {}) {
   const method = METHOD_OF[name]
   if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
   const bound = ACTION_OF[name] ? { ...args, action: ACTION_OF[name] } : args
-  const result = await bridgeCall(method, bound)
+  const result = await bridgeCall(method, bound, onAlive)
 
   // A screenshot is returned as an image block, not as a data URL in text: a
   // 2 MB base64 string pasted into a transcript is unreadable and expensive.
@@ -150,7 +171,15 @@ async function handleRequest(req) {
     if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} })
     if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools } })
     if (method === 'tools/call') {
-      const result = await callTool(params?.name, params?.arguments ?? {})
+      // A long call tells an AI app that asked (`_meta.progressToken`) that
+      // it is still working, so the app keeps waiting.
+      const token = params?._meta?.progressToken
+      let beats = 0
+      const onAlive = token === undefined ? () => {} : () => send({
+        jsonrpc: '2.0', method: 'notifications/progress',
+        params: { progressToken: token, progress: ++beats, message: 'still working' },
+      })
+      const result = await callTool(params?.name, params?.arguments ?? {}, onAlive)
       return send({ jsonrpc: '2.0', id, result })
     }
     sendError(id, -32601, `Method not found: ${method}`)

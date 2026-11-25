@@ -183,6 +183,17 @@ describe('activity trail', () => {
     expect(events).toContain('markup.create_undone')
   })
 
+  it('pages the whole trail and filters by id in the query, not the last few thousand', async () => {
+    for (const id of ['p1', 'p2', 'p3', 'p4']) await stack.run(createMarkup(markup(id)))
+    const all = await listActivity(db, 1000)
+    const first = await listActivity(db, 2)
+    const second = await listActivity(db, 2, { offset: 2 })
+    expect([...first, ...second].map((a) => `${a.eventType}:${a.entityId}`)).toEqual(all.slice(0, 4).map((a) => `${a.eventType}:${a.entityId}`))
+    const one = await listActivity(db, 1000, { entityId: 'p1' })
+    expect(one.length).toBeGreaterThan(0)
+    expect(one.every((a) => a.entityId === 'p1')).toBe(true)
+  })
+
   it('does NOT write to the review queue', async () => {
     await stack.run(createMarkup(markup()))
     // change_sets is the propose/decide gate; editing must not enqueue there

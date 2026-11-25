@@ -331,7 +331,7 @@ export function sheetFromText(text: string): { number: string, title: string } |
       const t = TITLE_LABEL.exec(lines[j]!)
       if (t === null) continue
       const v = t[1]!.trim() !== '' ? t[1]!.trim() : (lines.slice(j + 1).find((l) => l !== '') ?? '')
-      if (looksLikeName(v)) { title = v.slice(0, 60); break }
+      if (looksLikeName(v)) { title = v; break }
     }
     labelled = { number: candidate, title }
   }
@@ -355,14 +355,14 @@ export function sheetFromText(text: string): { number: string, title: string } |
     const line = lines[i]!
     if (line.length > 12 || !CODE_LINE.test(line)) continue
     const next = lines.slice(i + 1).find((l) => l !== '') ?? ''
-    if (looksLikeName(next)) { found = { number: line, title: next.slice(0, 60) }; continue }
+    if (looksLikeName(next)) { found = { number: line, title: next }; continue }
     /*
      * The other order: the name, then the code, and nothing after the code
      * that reads as a name. Only used when no code introduces a name anywhere
      * on the sheet, so a set that prints code-then-name is read as before.
      */
     const prev = [...lines.slice(0, i)].reverse().find((l) => l !== '') ?? ''
-    if (looksLikeName(prev) && !/^R\d{1,2}$/.test(line)) reversed = { number: line, title: prev.slice(0, 60) }
+    if (looksLikeName(prev) && !/^R\d{1,2}$/.test(line)) reversed = { number: line, title: prev }
   }
   return found ?? reversed ?? specPageFromText(lines)
 }
@@ -380,7 +380,7 @@ function specPageFromText(lines: string[]): { number: string, title: string } | 
     const code = m[1]!.replace(/\s+/g, '').replace(/^(\d{2})(\d{2})(\d{2})/, '$1 $2 $3')
     let title = m[2]!.trim()
     if (title === '') title = head[i + 1] !== undefined && looksLikeName(head[i + 1]!) ? head[i + 1]! : ''
-    return { number: code, title: title.slice(0, 60) }
+    return { number: code, title }
   }
   for (const l of head) {
     const m = /^ADDENDUM\s*(?:NO\.?|NUMBER|#)?\s*0*(\d{1,3})\b/i.exec(l)
