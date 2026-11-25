@@ -684,6 +684,32 @@ const STEPS = [
     await page.waitForTimeout(500)
     const kept = await count()
     if (kept !== had) problems.push(`agent-together: the person's Ctrl+Z took back a session's work (${had} markups became ${kept})`)
+    /*
+     * And the other half (SLS, 2026-11-25): the person draws, the session
+     * draws after them, and Ctrl+Z takes back the person's markup, not the
+     * session's and not nothing.
+     */
+    const kinds = async () => { const l = await agentAct(page, AGENTS[2], 'list_markups', { file: FILE }); return (Array.isArray(l.markups) ? l.markups : []).map((m) => m.kind).sort().join(',') }
+    // Dimension folds into the dock's More when the dock is narrow.
+    await shown(page).locator('.dockmore').first().click({ timeout: 3000 }).catch(() => {})
+    await shown(page).locator('.dockmenu [role="menuitemradio"]', { hasText: 'Dimension' }).first().click({ timeout: 3000 }).catch((e) => problems.push('agent-together: no Dimension tool to draw with ' + String(e).slice(0, 300)))
+    const box = await shown(page).locator('.viewport').boundingBox()
+    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.7)
+    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.7)
+    await page.waitForTimeout(400)
+    if (await count() !== had + 1) problems.push(`agent-together: the person's two clicks should have left one dimension (${had} markups became ${await count()})`)
+    const after = await agentAct(page, AGENTS[2], 'create_markup', { kind: 'area', scopeId: scope.scopeId, file: FILE, rings: [[{ x: 0.7, y: 0.2 }, { x: 0.78, y: 0.2 }, { x: 0.78, y: 0.27 }, { x: 0.7, y: 0.27 }]] })
+    if (typeof after.error === 'string') problems.push(`agent-together: a guest session could not draw after the person: ${after.error.slice(0, 140)}`)
+    await page.waitForTimeout(300)
+    const both = await kinds()
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(500)
+    const left = await kinds()
+    if (left.split(',').length !== both.split(',').length - 1 || left.includes('dimension')) problems.push(`agent-together: the person's Ctrl+Z should take back their own dimension and only that (${both} became ${left})`)
+    const mine = await agentAct(page, AGENTS[2], 'undo', { file: FILE })
+    await page.waitForTimeout(300)
+    if (typeof mine.undid !== 'string' || await count() !== had) problems.push(`agent-together: the session's undo should take back the area it drew after the person: ${JSON.stringify(mine).slice(0, 160)}`)
+    await page.keyboard.press('Escape')
     const undone = await agentAct(page, AGENTS[2], 'undo', { file: FILE })
     await page.waitForTimeout(300)
     if (typeof undone.undid !== 'string' || await count() !== had - 1) problems.push(`agent-together: a guest session could not undo its own last markup: ${JSON.stringify(undone).slice(0, 160)}`)
