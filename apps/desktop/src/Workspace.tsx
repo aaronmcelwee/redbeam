@@ -72,7 +72,7 @@ import { clipOf, notePaste, pasteStatus, planPaste, readClip, writeClip } from '
 import { SheetIndex } from './shell/SheetIndex.js'
 import { NUMBER_BOX_COLOR, TITLE_BOX_COLOR, TitleBlockPicker, type PickStep } from './shell/TitleBlockPicker.js'
 import {
-  SHEET_LABELS_KEY, SHEET_OVERRIDES_KEY, TITLE_REGIONS_KEY, isTinyBox, labelsToWrite, mergeNames, parseOverrides,
+  SHEET_LABELS_KEY, SHEET_OVERRIDES_KEY, TITLE_REGIONS_KEY, bookmarksHaveLabels, isTinyBox, labelsToWrite, mergeNames, parseOverrides,
   parseRegions, readSheetName, textInBox, type ReadName, type TitleBlockRegions,
 } from './shell/titleBlock.js'
 import { useClampedPopover } from './shell/popover.js'
@@ -2090,6 +2090,9 @@ export default function Workspace({
     return () => { cancelled = true }
   }, [pageCount, activeDocId, titleRegions, setStatus])
 
+  /** The file and names last saved to add bookmarks, so an unchanged file is not saved again. */
+  const bookmarkNudgeRef = useRef<string | null>(null)
+
   /** Each page's title block name: set for that sheet, else read in the boxes. */
   const titleNames = useMemo(
     () => (titleRegions === null && sheetOverrides.size === 0 ? [] : mergeNames(pageCount, regionNames, sheetOverrides)),
@@ -2111,12 +2114,20 @@ export default function Workspace({
     void (async () => {
       try {
         const rows = await db.all<{ value: string }>('SELECT value FROM redbeam_meta WHERE key = ?', [SHEET_LABELS_KEY])
-        if (rows[0]?.value === value) return
+        if (rows[0]?.value === value) {
+          // Named before the names became bookmarks: one save adds them.
+          const nudge = `${activeDocId}|${value}`
+          if (!bookmarksHaveLabels(docIndex.outline, labels) && bookmarkNudgeRef.current !== nudge) {
+            bookmarkNudgeRef.current = nudge
+            saveRef.current()
+          }
+          return
+        }
         await db.run('INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES(?, ?)', [SHEET_LABELS_KEY, value])
         saveRef.current()
       } catch { /* the names still show; the next change tries again */ }
     })()
-  }, [titleNames, titleReadDone, titleRegions, sheetOverrides, pageCount, docIndex.labels])
+  }, [titleNames, titleReadDone, titleRegions, sheetOverrides, pageCount, docIndex.labels, docIndex.outline, activeDocId])
 
   /** Keep the boxes in the file and read every sheet in them. Null removes them. */
   const applyTitleRegions = useCallback(async (regions: TitleBlockRegions | null) => {

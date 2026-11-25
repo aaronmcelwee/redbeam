@@ -324,6 +324,83 @@ describe('sheet names read off the title block', () => {
     expect(p.decodeText()).toBe('A–101 – CAFÉ PLAN')
   })
 
+  const bookmarks = async (bytes: Uint8Array): Promise<unknown[]> => {
+    const doc = await PDFDocument.load(bytes)
+    const pageOf = new Map(doc.getPages().map((p, i) => [p.ref.toString(), i]))
+    const root = doc.catalog.lookup(PDFName.of('Outlines'))
+    const walk = (holder: PDFDict): unknown[] => {
+      const out: unknown[] = []
+      let ref = holder.get(PDFName.of('First'))
+      while (ref !== undefined) {
+        const d = doc.context.lookup(ref) as PDFDict
+        const t = (d.lookup(PDFName.of('Title')) as unknown as { decodeText(): string }).decodeText()
+        const dest = d.lookup(PDFName.of('Dest'))
+        const page = dest instanceof PDFArray ? pageOf.get(dest.get(0).toString()) ?? null : null
+        const kids = walk(d)
+        out.push(kids.length > 0 ? { t, kids } : `${page}:${t}`)
+        ref = d.get(PDFName.of('Next'))
+      }
+      return out
+    }
+    return root instanceof PDFDict ? walk(root) : []
+  }
+  const userBookmark = (doc: PDFDocument, title: string, page: number): void => {
+    const ctx = doc.context
+    const root = ctx.obj({ Type: 'Outlines' }) as PDFDict
+    const rootRef = ctx.register(root)
+    const item = ctx.register(ctx.obj({ Title: PDFString.of(title), Parent: rootRef, Dest: [doc.getPages()[page]!.ref, PDFName.of('Fit')] }))
+    root.set(PDFName.of('First'), item)
+    root.set(PDFName.of('Last'), item)
+    root.set(PDFName.of('Count'), PDFNumber.of(1))
+    doc.catalog.set(PDFName.of('Outlines'), rootRef)
+  }
+
+  it('become bookmarks too, one per named sheet in page order, which Bluebeam lists', async () => {
+    const out = await embedSheet(await blank(false), withLabels(['IX0510 - INDEX', 'A3001 - SITE PLAN']))
+    expect(await bookmarks(out.bytes!)).toEqual(['0:IX0510 - INDEX', '1:A3001 - SITE PLAN'])
+    const doc = await PDFDocument.load(out.bytes!)
+    expect((doc.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('Count')) as PDFNumber).asNumber()).toBe(2)
+  })
+
+  it('replace their own bookmarks when the names change, never doubling them', async () => {
+    const first = await embedSheet(await blank(false), withLabels(['A1 - OLD', 'A2 - PLAN']))
+    const second = await embedSheet(first.bytes!, { ...withLabels(['A1 - NEW', null]), now: () => new Date('2026-11-13T20:00:00Z') })
+    expect(await bookmarks(second.bytes!)).toEqual(['0:A1 - NEW'])
+  })
+
+  it('recognise their bookmarks after another app rewrote the file and dropped the mark', async () => {
+    const first = await embedSheet(await blank(false), withLabels(['A1 - PLAN', 'A2 - RCP']))
+    const revu = await resaveElsewhere(first.bytes!, (doc) => {
+      const root = doc.catalog.lookup(PDFName.of('Outlines'), PDFDict)
+      let ref = root.get(PDFName.of('First'))
+      while (ref !== undefined) {
+        const d = doc.context.lookup(ref) as PDFDict
+        d.delete(PDFName.of('RedbeamSheet'))
+        ref = d.get(PDFName.of('Next'))
+      }
+    })
+    const again = await embedSheet(revu, { ...withLabels(['A1 - PLAN', 'A2 - CEILING PLAN']), now: () => new Date('2026-11-13T20:00:00Z') })
+    expect(await bookmarks(again.bytes!)).toEqual(['0:A1 - PLAN', '1:A2 - CEILING PLAN'])
+  })
+
+  it('keep the bookmarks someone else made, with the sheets in their own folder', async () => {
+    const src = await resaveElsewhere(await blank(false), (doc) => userBookmark(doc, 'Check this detail', 1))
+    const out = await embedSheet(src, withLabels(['A1 - PLAN', 'A2 - RCP']))
+    expect(await bookmarks(out.bytes!)).toEqual([{ t: 'Sheets', kids: ['0:A1 - PLAN', '1:A2 - RCP'] }, '1:Check this detail'])
+    const again = await embedSheet(out.bytes!, { ...withLabels(['A1 - PLAN', 'A2 - RCP 2']), now: () => new Date('2026-11-13T20:00:00Z') })
+    expect(await bookmarks(again.bytes!)).toEqual([{ t: 'Sheets', kids: ['0:A1 - PLAN', '1:A2 - RCP 2'] }, '1:Check this detail'])
+  })
+
+  it('are written into a file saved before bookmarks, even with nothing else changed', async () => {
+    const first = await embedSheet(await blank(false), withLabels(['A1 - PLAN', null]))
+    const stripped = await resaveElsewhere(first.bytes!, (doc) => doc.catalog.delete(PDFName.of('Outlines')))
+    const again = await embedSheet(stripped, withLabels(['A1 - PLAN', null]))
+    expect(again.bytes).not.toBeNull()
+    expect(await bookmarks(again.bytes!)).toEqual(['0:A1 - PLAN'])
+    // And once they are there, an unchanged save writes nothing.
+    expect((await embedSheet(again.bytes!, withLabels(['A1 - PLAN', null]))).bytes).toBeNull()
+  })
+
   it('leave the file’s labels alone when nothing was read', async () => {
     const out = await embedSheet(await blank(false), input())
     const doc = await PDFDocument.load(out.bytes!)

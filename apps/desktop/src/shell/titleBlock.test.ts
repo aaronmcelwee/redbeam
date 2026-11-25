@@ -113,3 +113,14 @@ describe('names set one sheet at a time', () => {
       .toEqual([{ number: 'IX0510', title: '' }, { number: 'A3002', title: 'SITE PLAN' }, null])
   })
 })
+
+describe('bookmarksHaveLabels', () => {
+  it('is true only when every name is a bookmark on its own page', async () => {
+    const { bookmarksHaveLabels } = await import('./titleBlock.js')
+    const outline = [{ title: 'Sheets', page: 0, children: [{ title: 'A1 - PLAN', page: 0, children: [] }] }]
+    expect(bookmarksHaveLabels(outline, ['A1 - PLAN', null])).toBe(true)
+    expect(bookmarksHaveLabels(outline, ['A1 - PLAN', 'A2 - RCP'])).toBe(false)
+    expect(bookmarksHaveLabels(outline, [null, 'A1 - PLAN'])).toBe(false)
+    expect(bookmarksHaveLabels([], [null])).toBe(true)
+  })
+})

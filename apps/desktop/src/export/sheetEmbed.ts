@@ -52,6 +52,7 @@ import {
 } from 'pdf-lib'
 import { areaRegion } from '@redbeam/domain'
 import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
+import { sheetOutlineCurrent, writeSheetOutline } from './sheetOutline.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, pdfText, regionAt, shapeForKind,
@@ -1144,8 +1145,11 @@ function embedInto(
   }
   const retiring = (retire.size > 0 && doc.getPages().some((p) => annotsOn(p).some((a) => !isOurs(a) && retire.has(textOf(a, 'NM')))))
     || (input.retireForeign === true && doc.getPages().some((p) => annotsOn(p).some((a) => foreignMarkup(a))))
+  // Sheet names: a file saved before they became bookmarks is written once more.
+  const labels = sheetLabelsFrom(input.tables)
+  const outlineDue = labels !== null && !sheetOutlineCurrent(doc, labels)
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0 && !retiring
-    && prev.documentId === input.documentId && turned.length === 0) {
+    && prev.documentId === input.documentId && turned.length === 0 && !outlineDue) {
     return { result: { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }, tail: null }
   }
   // Someone else saved a different takeoff into this file since this writer
@@ -1321,8 +1325,13 @@ function embedInto(
   // 5. Sheet names the estimator read off the title block, as the PDF's own
   //    page labels: Bluebeam (and every PDF viewer) shows them as the page
   //    names, and REDBEAM reads them back as the sheet index on reopening.
-  const labels = sheetLabelsFrom(input.tables)
-  if (labels !== null) doc.catalog.set(PDFName.of('PageLabels'), pageLabelTree(ctx, labels, pages.length))
+  //    And as bookmarks, which is where Bluebeam lists a set's sheets. The
+  //    outline is rewritten before the labels change, because REDBEAM's old
+  //    bookmarks are recognised by the labels they were written with.
+  if (labels !== null) {
+    changed.push(...writeSheetOutline(doc, labels))
+    doc.catalog.set(PDFName.of('PageLabels'), pageLabelTree(ctx, labels, pages.length))
+  }
 
   // Second carrier: every annotation of ours points at the same stream.
   for (const [, ref] of annotRefs) {
