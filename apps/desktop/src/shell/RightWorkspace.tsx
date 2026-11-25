@@ -64,6 +64,8 @@ import { entriesForRound } from '../bom/bomRows.js'
 import { clickMarkupRow } from './markupSelection.js'
 import { saveOutcomeText, saveReportFile } from '../bom/exports.js'
 import { openFor, scopeStage, summaryToTsv, type SummaryLine } from './scopeSummary.js'
+import { PatternCard, type PatternControls } from './PatternCard.js'
+import { productLabelFor, readPatternRecipe } from '@redbeam/domain'
 
 /**
  * What a scope counts, in the order an estimator meets them: most ceiling
@@ -329,6 +331,8 @@ export interface EstimatesPanelProps {
    * fixes it. A property of the SCOPE, not of the moment.
    */
   blocker?: { message: string; actionLabel: string; onResolve: () => void }
+  /** Custom patterns (beta): the pattern card, the library, approval. */
+  patterns?: PatternControls
 }
 
 /**
@@ -1039,7 +1043,7 @@ function EstimateOverview({
             <span className="es-rowtext">
               <span className="es-rowname">{s.label}</span>
               <span className="es-rowmeta">
-                {PRODUCT_TYPE_LABEL[product]}
+                {productLabelFor(s.specifications)}
                 {n === 0 ? ' · no markups' : ` · ${n} markup${n === 1 ? '' : 's'}`}
                 {missing.length > 0 && <span className="es-warnink">{` · needs ${missing.join(', ')}`}</span>}
               </span>
@@ -1067,7 +1071,7 @@ function EstimateOverview({
               <span className="es-dot" style={{ background: s.color }} aria-hidden="true" />
               <span className="es-rowtext">
                 <span className="es-rowname">{s.label}</span>
-                <span className="es-rowmeta">{PRODUCT_TYPE_LABEL[readProductType(s.specifications)]}</span>
+                <span className="es-rowmeta">{productLabelFor(s.specifications)}</span>
               </span>
               <button
                 className="es-btn subtle icon"
@@ -1251,6 +1255,8 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
       <SetupGrid
         scope={scope}
         product={product}
+        pieces={pieces}
+        {...(p.patterns !== undefined ? { patterns: p.patterns } : {})}
         missing={missing}
         patch={patch}
         onSaveScope={onSaveScope}
@@ -1389,7 +1395,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
           : scope.label}
         sub={(
           <span>
-            {PRODUCT_TYPE_LABEL[product]} · {markups.length} markup{markups.length === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}
+            {productLabelFor(scope.specifications)} · {markups.length} markup{markups.length === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}
           </span>
         )}
         primary={(
@@ -1434,7 +1440,10 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
       <section className="es-card" data-section="parts" aria-labelledby="es-summary">
         <div className="es-cardhd">
           <h3 className="es-cardtitle" id="es-summary">Summary</h3>
-          {hasParts && !isVerifiedProduct(product) && (
+          {hasParts && product === 'custom_pattern' && pieces?.confidence === 'unverified' && (
+            <span className="es-chip" title={pieces.confidenceNote ?? 'A draft pattern: approve it in Setup to verify its counts'}>draft, unverified</span>
+          )}
+          {hasParts && product !== 'custom_pattern' && !isVerifiedProduct(product) && (
             <span className="es-chip" title="Piece counts match arithmetic but are not verified against the Qt build">unverified</span>
           )}
           {partsChanged && <span className="es-aside">was = on{day === null ? ' the last day saved' : ` ${day}`}</span>}
@@ -1512,6 +1521,11 @@ function Expander({ id, title, summary, count, open, onToggle, children }: {
 
 /** Setup in one line, for when it is folded: the product, its measures, yield and seams. */
 function setupLine(product: ProductType, specs: Specifications, denominator: number): string {
+  if (product === 'custom_pattern') {
+    const raw = readPatternRecipe(specs) as { layers?: unknown[]; status?: string } | null
+    const n = Array.isArray(raw?.layers) ? raw!.layers.length : 0
+    return [productLabelFor(specs), `${n} layer${n === 1 ? '' : 's'}`, raw?.status === 'approved' ? 'approved' : 'draft'].join(' · ')
+  }
   const bits: string[] = [PRODUCT_TYPE_LABEL[product]]
   const sizes = editableMeasures(product)
     .map((f) => {
@@ -1577,6 +1591,27 @@ function partsView(
 ): PartsView {
   const view: PartsView = { primary: [], accessories: [], installedFeet: null, factoryCut: null }
   if (pieces === undefined || product === 'custom_assembly') return view
+  if (product === 'custom_pattern') {
+    /*
+     * A pattern's parts, layer by layer: each material line with its layer as
+     * the chip and its whole/cut split beneath; hardware is the accessories.
+     */
+    const hardware = new Set((pieces.layers ?? []).filter((l) => l.kind === 'hardware').map((l) => l.name))
+    for (const item of pieces.quantities) {
+      if (item.detail === true) {
+        const parent = view.primary[view.primary.length - 1]
+        if (parent !== undefined && item.unit === 'EA') parent.detail = [parent.detail, `${fmt(item.quantity)} ${item.label.split(', ').pop()}`].filter(Boolean).join(' · ')
+        else if (parent !== undefined && item.unit === '%') parent.detail = [parent.detail, `${fmt(item.quantity)}% waste`].filter(Boolean).join(' · ')
+        continue
+      }
+      const row: PartRow = { itemKey: item.itemKey, label: item.label, quantity: item.quantity, unit: item.unit }
+      // "Triangle panel" in a layer called "Triangle panels" needs no chip.
+      const stem = (t: string) => t.toLowerCase().replace(/s$/, '')
+      if (item.layer !== undefined && !stem(item.label).startsWith(stem(item.layer)) && !hardware.has(item.layer)) row.chip = item.layer
+      ;(item.layer !== undefined && hardware.has(item.layer) ? view.accessories : view.primary).push(row)
+    }
+    return view
+  }
   const cutLine = factoryCutLine(cut)
   if (cutLine !== null) view.factoryCut = { quantity: cutLine.quantity, detail: cutLine.note }
   const q = pieces.quantities
@@ -1725,9 +1760,11 @@ function PartsTable({ view, pieces, nothingDrawn, missing, wasOf }: {
  * does not say.
  */
 function SetupGrid({
-  scope, product, missing, patch, onSaveScope, direction = null, onSetDirection, lengthDenominator = 16,
+  scope, product, missing, patch, onSaveScope, direction = null, onSetDirection, lengthDenominator = 16, pieces, patterns,
 }: {
   scope: Scope
+  pieces?: PieceResult | undefined
+  patterns?: PatternControls
   product: ProductType
   missing: string[]
   patch: (specs: Specifications) => void
@@ -1737,7 +1774,9 @@ function SetupGrid({
   lengthDenominator?: number
 }) {
   const measures = editableMeasures(product)
-  const laysOut = product !== 'custom_assembly' && product !== 'linear_parts'
+  const isPattern = product === 'custom_pattern'
+  const laysOut = product !== 'custom_assembly' && product !== 'linear_parts' && !isPattern
+  const offerPatterns = patterns !== undefined && (patterns.enabled || isPattern)
   return (
     <div className="es-sg">
       {/*
@@ -1752,14 +1791,30 @@ function SetupGrid({
           className="es-field"
           value={product}
           onChange={(e) => {
-            const next = e.target.value as ProductType
+            const value = e.target.value
+            // A library pattern: its recipe is copied onto the scope.
+            if (value.startsWith('lib:')) { patterns?.onUsePattern(scope.id, value.slice(4)); return }
+            if (value === 'custom_pattern') return
+            const next = value as ProductType
             // The product decides what it is measured as; only a custom
             // assembly keeps what was chosen.
             const scopeType: ScopeType = scopeTypeForProduct(next) ?? scope.scopeType
             onSaveScope({ ...scope, scopeType, specifications: writeProductType(scope.specifications, next) })
           }}
         >
-          {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
+          {offerPatterns ? (
+            <>
+              <optgroup label="Built in">
+                {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
+              </optgroup>
+              <optgroup label="Custom patterns">
+                {isPattern && <option value="custom_pattern">{productLabelFor(scope.specifications)}</option>}
+                {patterns!.library
+                  .filter((l) => !(isPattern && l.name === productLabelFor(scope.specifications)))
+                  .map((l) => <option key={l.id} value={`lib:${l.id}`}>{l.name}</option>)}
+              </optgroup>
+            </>
+          ) : PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
         </select>
       </span>
       {product === 'custom_assembly' && (
@@ -1850,12 +1905,43 @@ function SetupGrid({
           </span>
         </>
       )}
+      {isPattern && patterns !== undefined && (
+        <PatternCard
+          scopeId={scope.id}
+          scopeColor={scope.color}
+          raw={readPatternRecipe(scope.specifications)}
+          pieces={pieces}
+          controls={patterns}
+        />
+      )}
+      {isPattern && (
+        <>
+          <span className="es-k">Direction</span>
+          <span className="es-ro wide">
+            <span className={direction === null ? 'es-rotext unset' : 'es-rotext'}>{direction ?? 'not set'}</span>
+            <span className="es-sp" />
+            {onSetDirection !== undefined && (
+              <button className="es-link" onClick={onSetDirection}>Set on sheet</button>
+            )}
+          </span>
+        </>
+      )}
+      {laysOut && patterns?.enabled === true && (
+        <span className="es-k">Layers</span>
+      )}
+      {laysOut && patterns?.enabled === true && (
+        <span className="es-ro wide">
+          <span className="es-muted">Rails, coffers or hardware on top</span>
+          <span className="es-sp" />
+          <button className="es-link" onClick={() => patterns.onMakePattern(scope.id)}>Add layers</button>
+        </span>
+      )}
       {product === 'planks' && (
         <span className="es-muted wide">
           Width, reveal and spacing are one geometry: spacing = width + reveal. Enter any two and the third fills itself while it is still empty.
         </span>
       )}
-      {measures.length === 0 && product !== 'custom_assembly' && (
+      {measures.length === 0 && product !== 'custom_assembly' && !isPattern && (
         <span className="es-muted wide">There are no dimensions to set for this product.</span>
       )}
     </div>

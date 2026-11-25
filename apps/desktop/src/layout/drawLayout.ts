@@ -10,7 +10,7 @@
  * Cells arrive in PDF POINTS, because that is the space the engine works in.
  * They are converted to screen here and nowhere else.
  */
-import type { PanelCell, PanelPieceSummary, Piece, Point, RunLayoutEntry } from '@redbeam/domain'
+import type { PanelCell, PanelPieceSummary, PatternShape, Piece, Point, RunLayoutEntry } from '@redbeam/domain'
 import type { Viewport } from '@redbeam/viewer'
 import { normalizedToScreen } from '../draw.js'
 
@@ -444,5 +444,79 @@ export function drawRunLayout(
     ctx.stroke()
   }
 
+  ctx.restore()
+}
+
+/*
+ * ---- Custom patterns (beta, 2026-11-25) ----
+ *
+ * A pattern's layers share one area, so each needs a colour of its own: the
+ * first is the scope's, the rest come from a fixed set picked to stay apart
+ * from each other on a white sheet, and hardware is always the same red so
+ * a clip reads as a clip whatever it is clipped to.
+ */
+const LAYER_COLORS = ['#475569', '#b45309', '#0f766e', '#7c3aed', '#be185d']
+export const HARDWARE_COLOR = '#b91c1c'
+
+export function patternLayerColor(scopeColor: string, index: number, kind: string): string {
+  if (kind === 'hardware') return HARDWARE_COLOR
+  if (index === 0) return scopeColor
+  return LAYER_COLORS[(index - 1) % LAYER_COLORS.length]!
+}
+
+/** Draw a pattern's shapes: tiles filled, runs as bands or lines, hardware as dots. */
+export function drawPatternShapes(
+  ctx: CanvasRenderingContext2D,
+  shapes: readonly PatternShape[],
+  layers: ReadonlyArray<{ id: string; kind: string }>,
+  view: Viewport,
+  options: LayoutDrawOptions,
+): void {
+  if (shapes.length === 0) return
+  const o = { ...DEFAULTS, ...options }
+  const lw = o.lineWeight ?? 1
+  const colorOf = (s: PatternShape) => patternLayerColor(o.color, s.layerIndex, layers[s.layerIndex]?.kind ?? '')
+  ctx.save()
+  // Tiles first, runs over them, hardware on top: the order things are installed in, reversed.
+  for (const s of shapes) {
+    if (s.kind !== 'polygon') continue
+    const c = colorOf(s)
+    ctx.beginPath()
+    tracePath(ctx, s.points, view, o)
+    ctx.fillStyle = c
+    ctx.globalAlpha = s.cut ? 0.3 : 0.16
+    ctx.fill()
+    ctx.globalAlpha = s.cut ? 0.7 : 0.5
+    ctx.strokeStyle = c
+    ctx.lineWidth = 0.8 * lw
+    ctx.stroke()
+  }
+  for (const s of shapes) {
+    if (s.kind !== 'segment' || s.points.length < 2) continue
+    const c = colorOf(s)
+    const a = toScreen(s.points[0]!, view, o), b = toScreen(s.points[1]!, view, o)
+    const band = s.width !== undefined ? s.width * view.zoom : 0
+    ctx.strokeStyle = c
+    ctx.globalAlpha = s.cut ? 0.85 : 0.65
+    ctx.lineWidth = band >= 2 ? band : 1.6 * lw
+    ctx.lineCap = 'butt'
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.stroke()
+  }
+  ctx.globalAlpha = 1
+  for (const s of shapes) {
+    if (s.kind !== 'point') continue
+    const p = toScreen(s.points[0]!, view, o)
+    const r = Math.max(2, 3 * lw)
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+    ctx.strokeStyle = colorOf(s)
+    ctx.lineWidth = 1.5 * lw
+    ctx.stroke()
+  }
   ctx.restore()
 }

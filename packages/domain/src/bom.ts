@@ -132,7 +132,7 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
 
   for (const entry of entries) {
     const { scope, result } = entry
-    const productLabel = PRODUCT_TYPE_LABEL[result.productType]
+    const productLabel = result.productLabel ?? PRODUCT_TYPE_LABEL[result.productType]
     const base = {
       scopeId: scope.id,
       scopeLabel: scope.label,
@@ -156,7 +156,9 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
       continue
     }
 
-    const verified = VERIFIED_PRODUCTS.includes(result.productType)
+    const verified = result.confidence !== undefined
+      ? result.confidence === 'verified'
+      : VERIFIED_PRODUCTS.includes(result.productType)
     for (const q of result.quantities) {
       lines.push({
         ...base,
@@ -164,7 +166,7 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
         confidence: verified ? 'verified' : 'unverified',
         ...(verified
           ? {}
-          : {
+          : result.confidenceNote !== undefined ? { note: result.confidenceNote } : {
             // Precise about WHICH kind of doubt: "not checked" would now be
             // untrue, and an estimator deciding whether to trust a number
             // needs to know it was checked against arithmetic and not against
@@ -228,7 +230,12 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
 const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock', 'linear_parts'] as const
 
 function lineOf(q: PieceQuantity): Pick<BomLine, 'itemKey' | 'label' | 'quantity' | 'unit'> {
-  return { itemKey: q.itemKey, label: q.label, quantity: q.quantity, unit: q.unit }
+  // A layered product names the layer, so "Rails" under a pattern reads as the pattern's rails.
+  // "Triangle panel" in a layer called "Triangle panels" says it once.
+  const stem = (t: string) => t.toLowerCase().replace(/s$/, '')
+  const named = q.layer !== undefined && q.layer !== '' && !q.label.startsWith(q.layer) && !stem(q.label).startsWith(stem(q.layer))
+  const label = named ? `${q.layer} · ${q.label}` : q.label
+  return { itemKey: q.itemKey, label, quantity: q.quantity, unit: q.unit }
 }
 
 /**

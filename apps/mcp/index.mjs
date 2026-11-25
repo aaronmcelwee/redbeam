@@ -195,8 +195,11 @@ async function callTool(name, args = {}, onAlive = () => {}) {
   if (name === SESSION_TOOL.name) {
     const session = startSession(args?.task)
     return {
-      content: [{ type: 'text', text: JSON.stringify({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.' }, null, 2) }],
-      structuredContent: { session },
+      content: [
+        { type: 'text', text: JSON.stringify({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.', takeoffSkill: SKILL_URI }, null, 2) },
+        { type: 'text', text: skillHandout() },
+      ],
+      structuredContent: { session, takeoffSkill: SKILL_URI },
     }
   }
   const method = METHOD_OF[name]
@@ -237,7 +240,7 @@ async function handleRequest(req) {
         id,
         result: {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
-          capabilities: { tools: {}, resources: {} },
+          capabilities: { tools: {}, resources: {}, prompts: {} },
           serverInfo: SERVER_INFO,
           instructions: SPEC.instructions,
         },
@@ -251,10 +254,20 @@ async function handleRequest(req) {
       return send({ jsonrpc: '2.0', id, result: { resources: [{
         uri: GUIDE_URI, name: 'Working beside a person in REDBEAM', mimeType: 'text/plain',
         description: 'How a session starts, waits, and ends, and how to keep what the person sees about you true.',
+      }, {
+        uri: SKILL_URI, name: 'Precon takeoff skill', mimeType: 'text/markdown', description: SKILL_ABOUT,
       }] } })
     }
     if (method === 'resources/read') {
+      if (params?.uri === SKILL_URI) return send({ jsonrpc: '2.0', id, result: { contents: [{ uri: SKILL_URI, mimeType: 'text/markdown', text: SKILL }] } })
       return send({ jsonrpc: '2.0', id, result: { contents: [{ uri: GUIDE_URI, mimeType: 'text/plain', text: guide() }] } })
+    }
+    if (method === 'prompts/list') {
+      return send({ jsonrpc: '2.0', id, result: { prompts: [{ name: SKILL_NAME, description: SKILL_ABOUT }] } })
+    }
+    if (method === 'prompts/get') {
+      if (params?.name !== SKILL_NAME) return send({ jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown prompt: ${params?.name}` } })
+      return send({ jsonrpc: '2.0', id, result: { description: SKILL_ABOUT, messages: [{ role: 'user', content: { type: 'text', text: skillHandout() } }] } })
     }
     if (method === 'tools/call') {
       // A long call tells an AI app that asked (`_meta.progressToken`) that
@@ -284,7 +297,21 @@ async function handleRequest(req) {
   }
 }
 
-/** The one resource: the part of the instructions about working beside a person, to read again. */
+/**
+ * The takeoff skill every agent is handed: how Maxxit wants a takeoff done.
+ * A copy of the precon-takeoff skill (skills/precon-takeoff.md); when the
+ * skill changes, that file changes with it and the next release carries it.
+ */
+const SKILL_NAME = 'precon-takeoff'
+const SKILL_URI = 'redbeam://skill/precon-takeoff'
+const SKILL_ABOUT = 'How to do a takeoff in REDBEAM the way Maxxit does it: scope definition for approval, then layouts, quantities and call-outs. Follow it for any takeoff.'
+const SKILL = ((md) => (md.startsWith('# ') ? md : md.slice(md.indexOf('\n# ') + 1)))(fs.readFileSync(new URL('./skills/precon-takeoff.md', import.meta.url), 'utf8'))
+/** The skill as an agent is given it when its session starts. */
+function skillHandout() {
+  return `Follow this skill for any takeoff in this chat. It is also the resource ${SKILL_URI}, to read again.\n\n${SKILL}`
+}
+
+/** The part of the instructions about working beside a person, to read again. */
 const GUIDE_URI = 'redbeam://guide/working-beside-a-person'
 function guide() {
   const at = SPEC.instructions.indexOf('WORKING BESIDE A PERSON')
@@ -333,6 +360,6 @@ function startServer() {
   process.stderr.write(`REDBEAM MCP server ready. Discovery: ${DISCOVERY_FILE}\n`)
 }
 
-export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, guide, METHOD_OF, ACTION_OF, startServer }
+export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, guide, SKILL, SKILL_URI, skillHandout, METHOD_OF, ACTION_OF, startServer }
 
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/')) startServer()
