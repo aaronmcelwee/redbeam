@@ -513,31 +513,39 @@ async function embedRanged(
  * overwrite), the work still has to land somewhere. The original is only
  * read. A drawing that already says exactly this comes back as it is.
  */
-export async function embedCopy(opts: {
+export interface CopyOptions {
   db: SqlDriver
   documentId: string
   relativePath: string
   displayName: string
   appVersion: string
-  read: () => Promise<Uint8Array>
   allScopes?: boolean
   pageRotations?: ReadonlyMap<number, number>
   /** Leave every other app's markups out of the copy. */
   withoutForeign?: boolean
-  /** Where the PDF is built; the app passes its worker so an 80 MB set does not freeze the window. */
-  embed?: SheetEmbedder
-}): Promise<Uint8Array> {
+}
+
+/** What `embedCopy` writes into the copy: for a big drawing, handed to rangedPdf.ts instead. */
+export async function copyInput(opts: CopyOptions): Promise<EmbedInput> {
   const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
-  const source = await opts.read()
-  const input: EmbedInput = {
+  return {
     documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
     ...(retire.length === 0 ? {} : { retire }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
     ...(opts.withoutForeign === true ? { retireForeign: true } : {}),
   }
+}
+
+export async function embedCopy(opts: CopyOptions & {
+  read: () => Promise<Uint8Array>
+  /** Where the PDF is built; the app passes its worker so an 80 MB set does not freeze the window. */
+  embed?: SheetEmbedder
+}): Promise<Uint8Array> {
+  const input = await copyInput(opts)
+  const source = await opts.read()
   if (opts.embed !== undefined) {
     const built = await opts.embed(source, input)
     return built.result.bytes ?? built.source

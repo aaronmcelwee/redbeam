@@ -1,63 +1,66 @@
 /**
- * Reads and writes REDBEAM's takeoff in a drawing too big to hold in memory.
+ * Reads and writes a drawing too big to hold in memory.
  *
  * The drawing is reached through `rbdoc:` (docstream.rs), one byte range at a
  * time, with synchronous requests, which only a worker may make. lazyPdf.ts
- * then opens just the objects the takeoff touches: the catalog, the page
+ * then opens just the objects an operation touches: the catalog, the page
  * tree, each page and its markups. On a 2.5 GB, 1,800-sheet set that is a few
- * megabytes. A save produces only the incremental update to append.
+ * megabytes. A write produces only the incremental update to append; the core
+ * appends it to the file, or to a copy of it (project_stream_copy).
  */
-import { RangeReader, xhrRange } from '@redbeam/viewer/rangeReader'
-import { openLazyPdf, type ByteSource } from './lazyPdf.js'
-import { embedSheetTail, readSheetEmbedFrom, type EmbedInput } from './sheetEmbed.js'
-import type { UpdateBase } from './pdfIncremental.js'
+import { openRangedPdf } from './rangedSource.js'
+import { embedSheetTail, readSheetEmbedFrom, sheetSizesOf, type EmbedInput } from './sheetEmbed.js'
+import { readPageCutouts } from './pdfCutouts.js'
+import { writeMarkupsInto, type WritableMarkup, type WriteOptions } from './pdfMarkup.js'
+import { incrementalTail, newRefsSince } from './pdfIncremental.js'
+import { sheetsPdfFrom } from '../print.js'
 
-export type RangedRequest =
-  | { id: number, op: 'read', url: string, size: number }
-  | { id: number, op: 'embed', url: string, size: number, input: EmbedInput }
-
-function sourceFor(url: string, size: number): ByteSource {
-  // Smaller blocks than the viewer's: these reads are scattered page and
-  // annotation dictionaries, not content streams.
-  const reader = new RangeReader(size, (a, b) => {
-    const got = xhrRange(url, a, b)
-    if (got === null) throw new Error('the drawing stopped answering range reads')
-    return got.bytes
-  }, 1 << 16, 256)
-  return {
-    size,
-    read(a, b) {
-      const out = new Uint8Array(b - a)
-      if (!reader.read(a, b - a, out)) throw new Error(`could not read bytes ${a}-${b}`)
-      return out
-    },
-  }
-}
+export type RangedRequest = { id: number, url: string, size: number } & (
+  | { op: 'read' }
+  | { op: 'embed', input: EmbedInput }
+  | { op: 'cutouts', pageIndex: number }
+  | { op: 'sizes' }
+  | { op: 'marked', markups: WritableMarkup[], options: WriteOptions }
+  | { op: 'sheets', input: EmbedInput | null, indices: number[] }
+)
 
 const scope = self as unknown as {
   onmessage: ((e: MessageEvent<RangedRequest>) => void) | null
   postMessage: (message: unknown, transfer?: Transferable[]) => void
 }
 
+async function answer(req: RangedRequest): Promise<{ reply: Record<string, unknown>, transfer: Transferable[] }> {
+  const lazy = openRangedPdf(req.url, req.size)
+  switch (req.op) {
+    case 'read':
+      return { reply: { reading: readSheetEmbedFrom(lazy.doc) }, transfer: [] }
+    case 'embed': {
+      const { result, tail } = embedSheetTail(lazy.doc, lazy.base(), req.input)
+      return { reply: { result, tail }, transfer: tail === null ? [] : [tail.buffer] }
+    }
+    case 'cutouts':
+      return { reply: { cutouts: readPageCutouts(lazy.doc, req.pageIndex) }, transfer: [] }
+    case 'sizes':
+      return { reply: { sizes: sheetSizesOf(lazy.doc) }, transfer: [] }
+    case 'marked': {
+      const before = lazy.doc.context.largestObjectNumber
+      const changed = writeMarkupsInto(lazy.doc, req.markups, req.options)
+      const tail = incrementalTail(lazy.base(), lazy.doc, [...changed, ...newRefsSince(lazy.doc, before)])
+      return { reply: { tail }, transfer: [tail.buffer] }
+    }
+    case 'sheets': {
+      // The takeoff goes into the open document first, so the sheets carry it.
+      if (req.input !== null) embedSheetTail(lazy.doc, lazy.base(), req.input)
+      const bytes = await sheetsPdfFrom(lazy.doc, req.indices)
+      return { reply: { bytes }, transfer: [bytes.buffer] }
+    }
+  }
+}
+
 scope.onmessage = (e) => {
   const req = e.data
-  try {
-    const src = sourceFor(req.url, req.size)
-    const lazy = openLazyPdf(src)
-    if (req.op === 'read') {
-      scope.postMessage({ id: req.id, ok: true, reading: readSheetEmbedFrom(lazy.doc) })
-      return
-    }
-    const last = src.read(req.size - 1, req.size)[0]
-    const base: UpdateBase = {
-      length: req.size,
-      prev: lazy.startxref,
-      useTable: !lazy.xrefIsStream,
-      endsWithNewline: last === 0x0a || last === 0x0d,
-    }
-    const { result, tail } = embedSheetTail(lazy.doc, base, req.input)
-    scope.postMessage({ id: req.id, ok: true, result, tail }, tail === null ? [] : [tail.buffer])
-  } catch (err) {
-    scope.postMessage({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) })
-  }
+  answer(req).then(
+    ({ reply, transfer }) => scope.postMessage({ id: req.id, ok: true, ...reply }, transfer),
+    (err: unknown) => scope.postMessage({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) }),
+  )
 }

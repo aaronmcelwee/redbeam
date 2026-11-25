@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.78 — 2026-11-24
+## 0.3.81 — 2026-11-25
 
 ### AI agents work beside you
 
@@ -18,6 +18,12 @@ SmartScreen will ask once.
 - **A session that dies cleans up after itself.** If an AI app is closed or stops answering mid-job, its session is marked finished within seconds, its cursor goes away and its tabs are settled the same way. You can also end a session yourself from the Agents list.
 - **Agents never take the keyboard or the window.** An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, the question waits in the Agents list, with a "!" in the title bar, until you choose to answer; nothing opens over your drawing, and you are never asked to settle things between two agents. "What's new" no longer opens over a window an AI app started.
 - **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
+## 0.3.79 — 2026-11-24
+
+### Big sets, everywhere
+
+- **Nothing reads a big set whole any more.** Save a copy, an AI app's working copy, the marked-up PDF export, printing sheets, area cutouts, sheet sizes, importing a takeoff from another PDF and the estimate's drawing snapshots now read only the parts they need. A copy of a 2 GB set is made by copying the file and adding the takeoff to the end, so REDBEAM's memory does not grow with the set.
+
 
 ## 0.3.77 — 2026-11-24
 

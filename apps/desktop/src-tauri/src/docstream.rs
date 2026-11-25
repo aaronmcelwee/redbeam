@@ -108,6 +108,128 @@ fn hash_handle(file: &Mutex<File>) -> Result<String, String> {
     Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// A copy of a stream's file with `tail` (an incremental update built from the
+/// same stream) appended: "save a copy", a marked-up export or an AI app's
+/// working copy of a set too big to hold in memory. The file is copied from
+/// the stream's own handle, so the copy is the version the update was built
+/// against even if the file on disk has been replaced since. The raw body is
+/// the tail (may be empty). Where it goes is `x-redbeam-dest`:
+///
+/// - `dialog`: a native Save As (`x-redbeam-default-name`, optional
+///   `x-redbeam-filter-name` and comma-separated `x-redbeam-extensions`).
+///   Returns null when the person cancels.
+/// - `project`: a new file inside the project (`x-redbeam-path`,
+///   `x-redbeam-relative-path`), never over anything already there.
+/// - `path`: an absolute export path (`x-redbeam-target`,
+///   `x-redbeam-overwrite`), with the same rules as `write_export_file`.
+///
+/// Returns where it was written.
+#[tauri::command]
+pub async fn project_stream_copy(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DocStreams>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<Option<String>, String> {
+    use crate::project::{export_target_ok, percent_decode};
+    let header = |name: &str| -> Option<String> {
+        request.headers().get(name).and_then(|v| v.to_str().ok()).and_then(percent_decode)
+    };
+    let need = |name: &str| header(name).ok_or_else(|| format!("missing {name}"));
+    let token = need("x-redbeam-token")?;
+    let tail: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        _ => return Err("the update must be sent as the raw body".to_string()),
+    };
+    let file = state
+        .open
+        .lock()
+        .map_err(|_| "stream table poisoned".to_string())?
+        .get(&token)
+        .cloned()
+        .ok_or_else(|| "no such document stream".to_string())?;
+    let dest = match need("x-redbeam-dest")?.as_str() {
+        "dialog" => {
+            use tauri_plugin_dialog::DialogExt;
+            let mut dialog = app.dialog().file().set_file_name(need("x-redbeam-default-name")?).set_title("Save");
+            if let (Some(name), Some(exts)) = (header("x-redbeam-filter-name"), header("x-redbeam-extensions")) {
+                let list: Vec<String> = exts.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                let refs: Vec<&str> = list.iter().map(String::as_str).collect();
+                dialog = dialog.add_filter(name, &refs);
+            }
+            let Some(picked) = dialog.blocking_save_file() else { return Ok(None) };
+            let path = picked.into_path().map_err(|e| format!("the chosen location is not a file path: {e}"))?;
+            // The dialog has asked about replacing an existing file.
+            Dest::Replace(path)
+        }
+        "project" => {
+            let root = canonical_project_root(Path::new(&need("x-redbeam-path")?));
+            let relative = need("x-redbeam-relative-path")?;
+            let target = resolve_inside(&root, &relative)?;
+            if let Some(dir) = target.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("could not make the folder: {e}"))?;
+            }
+            Dest::New(target)
+        }
+        "path" => {
+            let path = std::path::PathBuf::from(need("x-redbeam-target")?);
+            let overwrite = header("x-redbeam-overwrite").as_deref() == Some("1");
+            export_target_ok(&path, overwrite)?;
+            if overwrite { Dest::Replace(path) } else { Dest::New(path) }
+        }
+        other => return Err(format!("unknown destination {other}")),
+    };
+    tauri::async_runtime::spawn_blocking(move || copy_with_tail(&file, &dest, &tail).map(|p| Some(p.display().to_string())))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+pub enum Dest {
+    /// Refuse if anything is there.
+    New(std::path::PathBuf),
+    /// Written beside, then renamed over whatever is there.
+    Replace(std::path::PathBuf),
+}
+
+pub fn copy_with_tail(src: &Mutex<File>, dest: &Dest, tail: &[u8]) -> Result<std::path::PathBuf, String> {
+    use std::io::Write;
+    let (target, writing) = match dest {
+        Dest::New(p) => (p.clone(), p.clone()),
+        Dest::Replace(p) => (p.clone(), p.with_extension("redbeam-tmp")),
+    };
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(matches!(dest, Dest::New(_)))
+        .create(true)
+        .truncate(true)
+        .open(&writing)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                "a file with that name is already there".to_string()
+            } else {
+                format!("could not create {}: {e}", writing.display())
+            }
+        })?;
+    let written = (|| -> std::io::Result<()> {
+        let mut src = src.lock().map_err(|_| std::io::Error::other("stream poisoned"))?;
+        src.seek(SeekFrom::Start(0))?;
+        std::io::copy(&mut *src, &mut out)?;
+        out.write_all(tail)?;
+        out.sync_all()
+    })();
+    drop(out);
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&writing);
+        return Err(format!("could not write {}: {e}", target.display()));
+    }
+    if writing != target {
+        if let Err(e) = std::fs::rename(&writing, &target) {
+            let _ = std::fs::remove_file(&writing);
+            return Err(format!("could not write {}: {e}", target.display()));
+        }
+    }
+    Ok(target)
+}
+
 /// Close a stream: the viewer that used it is gone.
 #[tauri::command]
 pub fn project_stream_release(state: tauri::State<'_, DocStreams>, token: String) {
@@ -261,6 +383,15 @@ mod tests {
             hash_handle(&Mutex::new(File::open(&small).unwrap())).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+        // A copy with an update appended, from the handle; never over an existing file.
+        let handle = Mutex::new(File::open(&small).unwrap());
+        let copy = dir.join("sub").join("copy.pdf");
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        copy_with_tail(&handle, &Dest::New(copy.clone()), b"def").unwrap();
+        assert_eq!(std::fs::read(&copy).unwrap(), b"abcdef");
+        assert!(copy_with_tail(&handle, &Dest::New(copy.clone()), b"").is_err());
+        copy_with_tail(&handle, &Dest::Replace(copy.clone()), b"").unwrap();
+        assert_eq!(std::fs::read(&copy).unwrap(), b"abc");
         let missing = Request::builder().uri("rbdoc://localhost/nope").body(Vec::new()).unwrap();
         assert_eq!(respond(&streams, &missing).status(), StatusCode::NOT_FOUND);
         let _ = std::fs::remove_dir_all(&dir);

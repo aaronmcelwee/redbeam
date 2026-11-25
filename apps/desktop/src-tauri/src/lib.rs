@@ -127,6 +127,7 @@ pub fn run() {
             docstream::project_stream_document,
             docstream::project_stream_release,
             docstream::project_stream_fingerprint,
+            docstream::project_stream_copy,
             project::project_write_document,
             project::project_create_document,
             project::write_export_file,
