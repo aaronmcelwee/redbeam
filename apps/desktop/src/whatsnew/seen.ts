@@ -53,3 +53,17 @@ export function browserSeenStorage(): SeenStorage {
     },
   }
 }
+
+/**
+ * Whether the notes may open by themselves now. Not while the window is in
+ * the background, which is how it stands when an AI app started REDBEAM, and
+ * not while an AI session is at work: a dialog nobody asked for would sit
+ * over the agent's window with no one there to close it, or land on the
+ * person's takeoff when they come to look (Aaron, 2026-11-24: agents never
+ * put a dialog over his work). Held notes open when the person is at the
+ * window with no session running, or on the next launch.
+ */
+export function notesMayOpen(focused: boolean, liveSessions: number): boolean {
+  return focused && liveSessions === 0
+}
+

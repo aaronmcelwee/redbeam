@@ -19,13 +19,13 @@ import {
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
 } from '@redbeam/domain'
 import {
-  ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
+  ensureDocumentAndPage, ensureDocumentAndPageStatements, runBatch, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
   listEstimates, createEstimate as createEstimateRow, listEstimateScopeIds,
   estimateDocuments, addScopeToEstimate,
   upsertScope, setScopeArchived, logActivity, type SqlDriver,
   pageIdFor, pageNumberFrom, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
   type DocumentRow, type SearchHit, type NormBox,
-  UndoStack, createMarkup as cmdCreate, removeMarkup as cmdRemove,
+  UndoStack, PERSON as UNDO_PERSON, createMarkup as cmdCreate, removeMarkup as cmdRemove,
   editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
   reassignScope as cmdReassign,
   type UndoState,
@@ -37,6 +37,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
+import { pagesNamed } from './agents/pagesNamed.js'
 import { openDatabase, openMemory, openOldProjectDatabase, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
 import {
   resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
@@ -156,7 +157,11 @@ import {
 } from './tools/foreignMarkups.js'
 import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
-import { useBridgeRequests } from './bridge/useBridgeRequests.js'
+import { HandoverNeeded, UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
+import { keepingFocus } from './agents/focusGuard.js'
+import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
+import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
+import { AgentsDock, AgentSummary, peekMarks, showAgentsDock } from './agents/AgentsPane.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -247,13 +252,29 @@ export interface WorkspaceProps {
      * one showing before it shows another, so these only say what to do.
      */
     tabs?: {
-      list: { file: string; name: string }[]
+      /** `owner`: the agent whose tab it is (agents/roster.ts); absent on the person's own. */
+      list: AgentTabItem[]
       onSelect: (file: string) => void
       onClose: (file: string) => void
       onStep: (step: 1 | -1) => void
       onReopen: () => void
+      /** The person's answer to an agent asking to work in a tab of theirs (agents/handover.ts). */
+      onHandOver?: (file: string, agentId: string, yes: boolean) => void
+      /** Take an agent's tab back as the person's own. */
+      onTakeOver?: (file: string) => void
+      /** End an AI session from its group, dismiss a finished one, reopen a PDF it closed. */
+      onEndSession?: (agentId: string) => void
+      onDismissSession?: (agentId: string) => void
+      onReopenFile?: (file: string) => void
     }
   }
+  /**
+   * Whether this is the PDF the person is looking at. False for one live
+   * behind it, where an agent is working (App.tsx `LiveWorkspace`): that one
+   * answers the bridge and paints its canvas, and leaves the window's keys,
+   * title and focus alone. Defaults to true.
+   */
+  showing?: boolean
   /** Name this job, as the switcher's header offers. */
   onRenameProject?: (name: string) => void
   /** Show this job's folder in Explorer. Desktop only. */
@@ -502,10 +523,18 @@ const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF ma
 
 export default function Workspace({
   projectPath, onCloseProject, recentProjects, onOpenProject, onBrowseProject, onRecentsChanged, onRenameProject, onRevealProject, quickView,
-  initialDocumentPath, onBeforeClose,
+  initialDocumentPath, onBeforeClose, showing = true,
 }: WorkspaceProps) {
   /** Light mode: a PDF on its own, its takeoff saved inside it. */
   const light = quickView?.light === true
+  /**
+   * Whether the person is looking at this PDF, for the listeners bound to
+   * the window. Several workspaces are mounted at once now, and the window's
+   * keys belong to the one showing: a Delete pressed in the person's tab
+   * must not also delete the selection in the tab an agent is working in.
+   */
+  const showingRef = useRef(showing)
+  showingRef.current = showing
   const stageRef = useRef<HTMLDivElement>(null)
   const rasterRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -826,6 +855,10 @@ export default function Workspace({
    * quantity comes out confidently wrong.
    */
   const [pageSizes, setPageSizes] = useState<Array<{ width: number; height: number }>>([])
+  const pageSizesRef = useRef(pageSizes)
+  /** Set below, where the documents are in reach (`ensurePageRows`). */
+  const ensurePageRowsRef = useRef<(pages: readonly number[]) => Promise<void>>(async () => {})
+  pageSizesRef.current = pageSizes
   /** Calibration per page id, for the whole open document. */
   const [docCalibrations, setDocCalibrations] = useState<Map<string, number>>(new Map())
   const [docIndex, setDocIndex] = useState<{
@@ -1271,6 +1304,15 @@ export default function Workspace({
     return () => window.removeEventListener(THEME_CHANGED, requestPaint)
   }, [requestPaint])
 
+  /** Agents' cursors over the sheet (agents/AgentCursors.tsx). */
+  const cursorsRef = useRef<AgentCursorsHandle | null>(null)
+  /** A normalized point of the sheet showing, in the stage's pixels. Stable: it reads refs. */
+  const placeAgentPoint = useCallback((p: { x: number; y: number }) => {
+    const size = pageSizeRef.current
+    if (size.width <= 0) return null
+    return normalizedToScreen(p.x, p.y, viewRef.current, size.width, size.height)
+  }, [])
+
   /*
    * The toolbar's zoom readout. It read viewRef straight off the last
    * render, so wheel zoom (which repaints without rendering) left it on the
@@ -1450,6 +1492,8 @@ export default function Workspace({
       drawDraft(oc, draftRef.current, viewRef.current, page.width, page.height)
       drawSnapIndicator(oc, snapRef.current)
     }
+    // The view may have moved: agents' cursors stay on their points.
+    cursorsRef.current?.sync()
     perfRef.current.record('frame', performance.now() - t0)
   }, [page.width, page.height, layoutOn])
 
@@ -2708,6 +2752,8 @@ export default function Workspace({
    * taskbar, and every window reading "REDBEAM — 3f9c1a" made that a guess.
    */
   useEffect(() => {
+    // The window is named after the PDF showing, not one live behind it.
+    if (!showing) return
     const title = windowTitle(projectName, identity.role === 'context' ? 'context' : 'main')
     document.title = title
     if (!isTauri()) return
@@ -2720,7 +2766,7 @@ export default function Workspace({
         // render over it would not be.
       }
     })()
-  }, [projectName, identity.role])
+  }, [projectName, identity.role, showing])
 
   // ------------------------------------------------------------- scale ----
 
@@ -2796,6 +2842,7 @@ export default function Workspace({
     const db = dbRef.current
     if (db === null || pages.length === 0) return
     const documentId = docIdRef.current
+    await ensurePageRowsRef.current(pages)
     await applyScaleToPages(
       db,
       pages.map((targetPage) => ({ documentId, pageId: pageIdFor(documentId, targetPage) })),
@@ -2996,10 +3043,25 @@ export default function Workspace({
   }, [estimates, openEstimateId, refreshEstimates])
 
 
+  /**
+   * Whose undo a command belongs on: the person's, or one AI session's.
+   *
+   * Read from the command, not from "is an agent call running": the person
+   * keeps drawing while an agent's call waits on the sheet, and a flag set
+   * for the length of that call would put their work on the agent's undo.
+   * Agent handlers build their commands with origin 'agent'; only one agent
+   * call runs in a PDF at a time (agents/router.ts), so the session is the
+   * one whose call is in flight.
+   */
+  const undoActor = useCallback((by: 'user' | 'agent'): string => (
+    by === 'agent' ? (agentCtxRef.current.agent?.id ?? 'agent') : UNDO_PERSON
+  ), [])
+
   /** Run an undoable command, then resync and persist. */
-  const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0]): Promise<boolean> => {
+  const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0], by?: 'user' | 'agent'): Promise<boolean> => {
     const u = undoRef.current
     if (!u) return false
+    const actor = undoActor(by ?? (cmd.record.origin === 'user' ? 'user' : 'agent'))
     /*
      * A write that fails has to say so. Every caller fires this with `void`,
      * so a rejection here went nowhere: a batch delete the core refused left
@@ -3007,7 +3069,7 @@ export default function Workspace({
      * like the button doing nothing.
      */
     try {
-      await u.run(cmd)
+      await u.run(cmd, actor)
     } catch (err) {
       setStatus(`could not ${cmd.label}: ${err instanceof Error ? err.message : String(err)}`)
       await syncMarkups()
@@ -3025,20 +3087,31 @@ export default function Workspace({
     // Tell the other windows on this project. No-op outside Tauri.
     void broadcastChange('markups', identity.projectId ?? 'default')
     return true
-  }, [syncMarkups, identity.projectId])
+  }, [syncMarkups, identity.projectId, undoActor])
 
-  const doUndo = useCallback(async (): Promise<{ label: string; op: string } | { error: string } | null> => {
+  const doUndo = useCallback(async (by: 'user' | 'agent' = 'user'): Promise<{ label: string; op: string } | { error: string } | null> => {
     const db = dbRef.current, u = undoRef.current
     if (!db || !u) return null
     let cmd: Awaited<ReturnType<UndoStack['undo']>>
     // The core refuses an undo that would overwrite newer work, and says why
     // in words written to be shown. Unhandled, that reason was lost.
-    try { cmd = await u.undo() } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+    try { cmd = await u.undo(undoActor(by)) } catch (err) {
+      // An agent is told in its answer; the status line is the person's.
+      if (by === 'user') setStatus(err instanceof Error ? err.message : String(err))
       setUndoState(await u.fetchState().catch(() => u.state))
       return { error: err instanceof Error ? err.message : String(err) }
     }
     if (!cmd) return null
+    const c0 = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
+    if (by === 'agent') {
+      // An agent taking back its own work: the person's selection and status stay theirs.
+      await syncMarkups(() => {
+        setUndoState(u.state)
+        setCal(c0 ? { feetPerPoint: c0.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
+      })
+      saveRef.current()
+      return { label: cmd.label, op: cmd.op }
+    }
     selectedRef.current = []
     // Read first, then set with the markups: one render for the undo, not three.
     const c = await getCalibration(db, pageIdFor(docIdRef.current, pageIndexRef.current))
@@ -3050,14 +3123,14 @@ export default function Workspace({
     })
     saveRef.current()
     return { label: cmd.label, op: cmd.op }
-  }, [syncMarkups, page.width, page.height])
+  }, [syncMarkups, page.width, page.height, undoActor])
 
-  const doRedo = useCallback(async (): Promise<{ label: string; op: string } | { error: string } | null> => {
+  const doRedo = useCallback(async (by: 'user' | 'agent' = 'user'): Promise<{ label: string; op: string } | { error: string } | null> => {
     const db = dbRef.current, u = undoRef.current
     if (!db || !u) return null
     let cmd: Awaited<ReturnType<UndoStack['redo']>>
-    try { cmd = await u.redo() } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err))
+    try { cmd = await u.redo(undoActor(by)) } catch (err) {
+      if (by === 'user') setStatus(err instanceof Error ? err.message : String(err))
       setUndoState(await u.fetchState().catch(() => u.state))
       return { error: err instanceof Error ? err.message : String(err) }
     }
@@ -3066,11 +3139,11 @@ export default function Workspace({
     await syncMarkups(() => {
       setUndoState(u.state)
       setCal(c ? { feetPerPoint: c.feetPerPdfPoint, pageWidth: page.width, pageHeight: page.height } : null)
-      setStatus(`redid ${cmd.label}`)
+      if (by === 'user') setStatus(`redid ${cmd.label}`)
     })
     saveRef.current()
     return { label: cmd.label, op: cmd.op }
-  }, [syncMarkups, page.width, page.height])
+  }, [syncMarkups, page.width, page.height, undoActor])
 
 
   // Another window on this project changed something: reload from the store.
@@ -3498,20 +3571,22 @@ export default function Workspace({
     }
   }, [runCommand, markupsFor, requestPaint])
 
-  const removeMarkup = useCallback(async (id: string) => {
+  const removeMarkup = useCallback(async (id: string, by: 'user' | 'agent' = 'user') => {
     const m = markupsRef.current.find((x) => x.id === id)
     if (!m) return
     if (isCutId(id)) {
       const cmd = editsCommand(uncutEdits(markupsRef.current, id), 'delete cutout')
-      if (cmd !== null) await runCommand(cmd)
+      if (cmd !== null) await runCommand(cmd, by)
       return
     }
-    await runCommand(cmdRemove({ id, kind: m.kind, origin: actorRef.current }))
+    await runCommand(cmdRemove({ id, kind: m.kind, origin: by }), by)
   }, [runCommand])
 
   // ------------------------------------------------------------- interaction --
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // The window's keys belong to the PDF showing.
+      if (!showingRef.current) return
       shiftRef.current = e.shiftKey
       altRef.current = e.altKey
       const d = draftRef.current
@@ -3657,6 +3732,7 @@ export default function Workspace({
       }
     }
     const onKeyUp = (e: KeyboardEvent) => {
+      if (!showingRef.current) return
       shiftRef.current = e.shiftKey
       altRef.current = e.altKey
       if (e.key === ' ') {
@@ -5133,9 +5209,9 @@ export default function Workspace({
   }, [refreshEstimates, refreshScopes, identity.projectId])
 
 
-  const createScope = useCallback(async (scope: Scope) => {
+  const createScope = useCallback(async (scope: Scope, opts?: { activate?: boolean }) => {
     await saveScope(scope)
-    setActiveScope(scope.id)
+    if (opts?.activate !== false) setActiveScope(scope.id)
     // A scope belongs to a bidding round, never to the project directly.
     const db = dbRef.current
     const round = openEstimateIdRef.current
@@ -5886,6 +5962,7 @@ export default function Workspace({
     else leaveSaving(go)
   }, [quickView, leaveSaving])
   const lightTabs = quickView?.tabs
+  const agentsNow = useAgents()
   const saveOpenFile = useCallback(() => {
     const id = leftDocRef.current
     if (id === null) return
@@ -5908,6 +5985,7 @@ export default function Workspace({
   useEffect(() => {
     if (!light) return
     const onKey = (e: KeyboardEvent) => {
+      if (!showingRef.current) return
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return
       const k = e.key.toLowerCase()
       // Tabs, as a browser and Bluebeam have them.
@@ -5952,9 +6030,59 @@ export default function Workspace({
    * Show a page for an agent and wait until it is the one on screen, so the
    * next step (a close-up, a zoom) acts on it and not on the sheet before.
    */
+  /**
+   * Who the bridge call being answered is from, and whether it may move this
+   * PDF's view (bridge/useBridgeRequests.ts `CallContext`). Calls for one PDF
+   * run one at a time (agents/router.ts), so one ref is enough.
+   */
+  const agentCtxRef = useRef<CallContext>(UNNAMED_CALL)
+  /**
+   * The scope each agent is working in while it is a guest in this PDF.
+   *
+   * Aaron, 2026-11-24: "I can be doing a manual takeoff while the agent
+   * searches for references to a scope and highlights them for me." The
+   * active scope is where the PERSON's next stroke lands. An agent drawing
+   * beside them in the same PDF has a scope of its own, and never changes
+   * theirs.
+   */
+  const guestScopeRef = useRef(new Map<string, string>())
+  /** The scope a call means when it names none: the active one in a tab its caller drives, its own otherwise. */
+  const agentScope = (): string | null => {
+    const ctx = agentCtxRef.current
+    if (ctx.drives) return activeScopeRef.current
+    return guestScopeRef.current.get(ctx.agent?.id ?? '') ?? null
+  }
+  /*
+   * A sheet's row in the store is written the first time the sheet is shown,
+   * and by the search index as it works through the set. An agent writes to
+   * sheets nobody has shown, in a tab that may never have been on screen: a
+   * scale there failed with "FOREIGN KEY constraint failed", and a batch of
+   * markups across six sheets kept only the first sheet's (SLS benchmark,
+   * 2026-11-25). So every sheet a call names has its row before the call runs.
+   */
+  const ensurePageRows = async (pages: readonly number[]): Promise<void> => {
+    const db = dbRef.current
+    if (db === null || pages.length === 0) return
+    const doc = documents.find((d) => d.id === docIdRef.current) ?? FALLBACK_DOC
+    // `targetPage`: sheets the call named, not a read of the one showing.
+    await runBatch(db, pages.flatMap((targetPage) => ensureDocumentAndPageStatements(doc, {
+      id: pageIdFor(doc.id, targetPage), documentId: doc.id, pageNumber: targetPage,
+      width: pageSizesRef.current[targetPage]?.width ?? 0, height: pageSizesRef.current[targetPage]?.height ?? 0,
+    })))
+  }
+  ensurePageRowsRef.current = ensurePageRows
   const showPageForAgent = async (n: number): Promise<void> => {
     if (!Number.isInteger(n) || n < 0 || n >= pageCount) throw new Error(`page ${n} out of range (0..${pageCount - 1})`)
     if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
+    /*
+     * Turning the page of a PDF the caller does not drive: not done. Aaron,
+     * 2026-11-24: "agent actions should NEVER steal focus ... even within
+     * the app." The person is asked (agents/handover.ts), and the call is
+     * tried again if they hand the tab over.
+     */
+    if (!agentCtxRef.current.drives) {
+      throw new HandoverNeeded(`sheet ${sheetLabelFor(n)} is not the one showing, and turning to it would move the view of a PDF someone else is using`)
+    }
     goToPage(n)
     const until = performance.now() + 10_000
     while (performance.now() < until) {
@@ -5975,7 +6103,7 @@ export default function Workspace({
     scopes: scopesRef.current.slice(0, 60).map((x) => ({ scopeId: x.id, label: x.label })),
   })
   const agentAreas = (params: Record<string, unknown>): { scope: Scope; areas: Markup[] } | { error: string } => {
-    const sid = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+    const sid = String(params['scopeId'] ?? agentScope() ?? '')
     const ids = Array.isArray(params['markupIds']) ? (params['markupIds'] as unknown[]).map(String)
       : typeof params['markupId'] === 'string' ? [params['markupId']] : null
     if (ids !== null) {
@@ -6041,12 +6169,12 @@ export default function Workspace({
     }
     const min = closed ? 3 : kind === 'count' ? 1 : 2
     if (rings[0]!.length < min) return { error: `${kind} needs at least ${min} vertices` }
-    const scopeId = typeof spec['scopeId'] === 'string' ? spec['scopeId'] : activeScopeRef.current
+    const scopeId = typeof spec['scopeId'] === 'string' ? spec['scopeId'] : agentScope()
     if (scopeId !== null && !scopesRef.current.some((sc) => sc.id === scopeId)) return noScope(scopeId)
     return { markup: { id: uid(), documentId: docId, pageId, scopeId, kind, rings } }
   }
 
-  useBridgeRequests({
+  useBridgeHost(quickView?.file ?? '', {
     query: async (sql, params) => {
       const db = dbRef.current
       if (db === null) throw new Error('the PDF is still opening; poll redbeam_get_ui_state until pageCount > 0')
@@ -6140,7 +6268,8 @@ export default function Workspace({
       markupVisibility: { embedded: !embeddedHidden, redbeam: !redbeamHidden },
     }),
 
-    screenshot: async (params) => {
+    screenshot: async (params, ctx) => {
+      agentCtxRef.current = ctx
       /*
        * A close-up: one box of the sheet, rendered by PDFium at the size
        * asked for rather than cropped out of the window, which is only as
@@ -6168,16 +6297,25 @@ export default function Workspace({
       const out = document.createElement('canvas')
       out.width = raster.width
       out.height = raster.height
-      const ctx = out.getContext('2d')
-      if (!ctx) return null
-      ctx.drawImage(raster, 0, 0)
-      if (overlay && params['overlay'] !== false) ctx.drawImage(overlay, 0, 0)
+      const g = out.getContext('2d')
+      if (!g) return null
+      g.drawImage(raster, 0, 0)
+      if (overlay && params['overlay'] !== false) g.drawImage(overlay, 0, 0)
       return out.toDataURL('image/png')
     },
 
-    invoke: async (action, params) => {
+    invoke: async (action, params, ctx) => {
       actorRef.current = 'agent'
+      agentCtxRef.current = ctx
       try {
+        /*
+         * A call that moves the view (the tool in hand, the zoom, the
+         * selection, a panel, the undo stack) in a PDF its caller does not
+         * drive: asked of the person first, like a page turn.
+         */
+        if (!ctx.drives && VIEW_ACTIONS.has(action)) {
+          throw new HandoverNeeded(`${action} would change the view of a PDF someone else is using`)
+        }
         const doc = documents.find((d) => d.id === activeDocId)
         const fileName = doc === undefined ? null : (doc.displayName || doc.relativePath)
         /*
@@ -6209,17 +6347,27 @@ export default function Workspace({
           if (at === null) return { error: `no single sheet is called ${given} in this document; redbeam_list_sheets has every sheet` }
           params = { ...params, page: at }
         }
+        await ensurePageRows(pagesNamed(params, pageCount))
         // A write that names a page lands on that page, after it shows (P1-2).
         if (PAGE_BOUND.has(action) && params['page'] !== undefined) {
           const n = Number(params['page'])
           if (!Number.isInteger(n) || n < 0 || n >= pageCount) return { error: `page ${String(params['page'])} out of range (0..${pageCount - 1})` }
           await showPageForAgent(n)
         }
-        const out = await invokeAction(action, params)
+        /*
+         * Whatever the action opens or selects, the keyboard stays where the
+         * person had it. Only the PDF showing can take it at all: one live
+         * behind it is inert.
+         */
+        const out = showingRef.current
+          ? await keepingFocus(() => invokeAction(action, params))
+          : await invokeAction(action, params)
         return fileName !== null && out['file'] === undefined ? { ...out, file: fileName } : out
       } catch (err) {
+        // The router asks the person, and calls again if they say yes.
+        if (err instanceof HandoverNeeded) throw err
         return { error: err instanceof Error ? err.message : String(err) }
-      } finally { actorRef.current = 'user' }
+      } finally { actorRef.current = 'user'; agentCtxRef.current = UNNAMED_CALL }
     },
   })
   async function invokeAction(action: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -6266,6 +6414,11 @@ export default function Workspace({
         case 'set_active_scope': {
           const id = String(params['scopeId'] ?? '')
           if (!scopes.some((sc) => sc.id === id)) return noScope(id)
+          // A guest picks the scope ITS next markups go to; the person's active scope is theirs.
+          if (!agentCtxRef.current.drives) {
+            if (agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, id)
+            return { activeScope: id, note: 'yours for this PDF; the person keeps their own active scope' }
+          }
           setActiveScope(id)
           return { activeScope: id }
         }
@@ -6831,6 +6984,13 @@ export default function Workspace({
             }
             return toFile('pieces-csv', rowsOut.join('\r\n') + '\r\n')
           }
+          /*
+           * Never a Save dialog for an AI app: it would come up over
+           * whatever the person is doing, in whatever app, and wait there.
+           */
+          if (target === undefined && projectBridge.desktop && (what === 'marked-pdf' || what === 'pdf')) {
+            return { error: `export ${what} needs \`path\`: where to write the file. REDBEAM does not open a Save dialog for an AI app.` }
+          }
           if (what === 'marked-pdf') {
             // Awaited: the write-back can fail on a source file it cannot
             // read, and reporting `saved` before it returns records that
@@ -6877,7 +7037,7 @@ export default function Workspace({
          * a RECORD of what the takeoff said, superseded by the next save.
          */
         case 'commit_scope': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const p = piecesRef.current.find((x) => x.scope.id === id)
@@ -6978,7 +7138,7 @@ export default function Workspace({
             const pg = pageNumberFrom(m.pageId, docIdRef.current)
             if (pg !== null) await showPageForAgent(pg)
           }
-          await removeMarkup(id)
+          await removeMarkup(id, 'agent')
           return { deleted: id }
         }
 
@@ -7072,7 +7232,10 @@ export default function Workspace({
             color: typeof params['color'] === 'string' ? params['color'] : '#39a2ff',
             specifications: product === null ? (specs ?? {}) : writeProductType(specs ?? {}, product),
           }
-          await createScope(scope)
+          // In the person's PDF the new scope is the agent's to draw in, not the person's active one.
+          const guest = !agentCtxRef.current.drives
+          await createScope(scope, { activate: !guest })
+          if (guest && agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, scope.id)
           /*
            * A scope belongs to a bidding round, never to the project. Created
            * with no round open it exists, accepts markups, shows a quantity on
@@ -7094,7 +7257,7 @@ export default function Workspace({
         }
 
         case 'update_scope': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const sent = objectParam(params['specifications'])
@@ -7166,7 +7329,7 @@ export default function Workspace({
         }
 
         case 'duplicate_scope': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const made = await duplicateScope(id)
@@ -7386,18 +7549,22 @@ export default function Workspace({
           return {
             saved: ok, outcome: out.kind,
             ...(out.kind === 'failed' ? { message: out.message } : {}),
-            ...(out.kind === 'held' && out.reason !== null ? { message: out.reason } : {}),
+            ...(out.kind === 'held' ? { message: out.reason ?? 'the takeoff in this PDF has not finished loading, so nothing was written; call save again in a few seconds' } : {}),
             ...(out.kind === 'busy' ? { message: 'the PDF is open in another app; close it there, or save_copy' } : {}),
             ...(out.kind === 'elsewhere' ? { message: 'someone else saved a takeoff into this PDF since it was opened; nothing was written. save_copy keeps this one' } : {}),
           }
         }
-        /* Undo or redo the latest change, the person's or an AI app's (P1-5). */
+        /*
+         * Undo or redo this session's own latest change. Never the person's,
+         * and never another session's: each undoes its own work, so an agent
+         * and a person can be in one PDF without taking back each other's.
+         */
         case 'undo':
         case 'redo': {
-          const r = action === 'undo' ? await doUndo() : await doRedo()
-          if (r === null) return { error: `nothing to ${action}` }
+          const r = action === 'undo' ? await doUndo('agent') : await doRedo('agent')
+          if (r === null) return { error: `nothing of yours to ${action}; a session undoes only its own changes` }
           if ('error' in r) return r
-          return { [action === 'undo' ? 'undid' : 'redid']: r.label, op: r.op, undo: undoRef.current?.state ?? null }
+          return { [action === 'undo' ? 'undid' : 'redid']: r.label, op: r.op, undo: undoRef.current?.stateFor(undoActor('agent')) ?? null }
         }
         /* The app's settings, as the Settings page shows them (P1-6). */
         case 'get_settings': {
@@ -7523,6 +7690,15 @@ export default function Workspace({
             ...(count > offset + limit ? { nextOffset: offset + limit, note: 'more bookmarks follow; ask again with `offset` set to nextOffset' } : {}),
           }
         }
+        /*
+         * A session saying it is waiting on the person, or that it is done.
+         * The window answers these (agents/router.ts): they are about the
+         * session's tabs, not about this PDF. Reached only by a caller with
+         * no session.
+         */
+        case 'wait_for_person':
+        case 'end_session':
+          return { error: `${action} is for an AI session; start one with redbeam_start_session` }
         case 'close_tab': {
           if (lightTabs === undefined || quickView === undefined) return { error: 'this window has no tabs' }
           const want = typeof params['path'] === 'string' && params['path'].trim() !== '' ? params['path'].trim() : quickView.file
@@ -7662,7 +7838,7 @@ export default function Workspace({
          * them.
          */
         case 'set_pattern_direction': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           let x1 = Number(params['x1']), y1 = Number(params['y1']), x2 = Number(params['x2']), y2 = Number(params['y2'])
@@ -7700,7 +7876,7 @@ export default function Workspace({
           return { scopeId: sc.id, applyTo, direction: { x1, y1, x2, y2 } }
         }
         case 'get_pattern': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const specs = sc.specifications
@@ -7787,7 +7963,7 @@ export default function Workspace({
           const areaPts = onLines.moved > 0 ? ringsAreaPoints(onLines.rings, { width: page.width, height: page.height }) : result.areaPoints2
           const areaSqFt = fpp !== undefined && fpp > 0 ? Math.round(areaPts * fpp * fpp * 100) / 100 : null
           if (params['create'] === true) {
-            const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : activeScopeRef.current
+            const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : agentScope()
             const id = uid()
             await runCommand(cmdCreate({
               id, documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
@@ -7976,7 +8152,7 @@ export default function Workspace({
          * their cut lengths, stock use, and parts.
          */
         case 'get_piece_list': {
-          const id = String(params['scopeId'] ?? activeScopeRef.current ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const p = piecesRef.current.find((x) => x.scope.id === id)
@@ -8829,7 +9005,9 @@ export default function Workspace({
    */
   const lastInputRef = useRef(0)
   useEffect(() => {
-    const seen = () => { lastInputRef.current = performance.now() }
+    // The person's input in another tab is not work in this one: a PDF live
+    // behind it saves on the agent's own pauses.
+    const seen = () => { if (showingRef.current) lastInputRef.current = performance.now() }
     const opts = { capture: true, passive: true } as const
     const kinds = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const
     for (const k of kinds) window.addEventListener(k, seen, opts)
@@ -9264,6 +9442,7 @@ export default function Workspace({
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!showingRef.current) return
       if (!e.ctrlKey || e.altKey) return
       // '+' needs Shift on most layouts, so shift is allowed through for the
       // zoom keys and only the shift-free ones check for it.
@@ -10673,6 +10852,19 @@ export default function Workspace({
     paletteOpen, lightTabs, quickView,
   ])
 
+  // The bottom of the right sidebar: the AI sessions (Aaron, 2026-11-25: "split the right sidebar, bottom half/third is agent").
+  const agentsDock = light && lightTabs !== undefined ? (
+    <AgentsDock
+      tabs={lightTabs.list}
+      activeFile={quickView!.file}
+      onSelect={lightTabs.onSelect}
+      onHandOver={lightTabs.onHandOver}
+      onEndSession={lightTabs.onEndSession}
+      onDismissSession={lightTabs.onDismissSession}
+      onReopenFile={lightTabs.onReopenFile}
+    />
+  ) : null
+
   return (
     <div
       className="shellapp"
@@ -10741,13 +10933,25 @@ export default function Workspace({
         onToggleWork={() => setWorkOpen((v) => !v)}
       >
         {light && lightTabs !== undefined ? (
-          <DocumentTabStrip
-            tabs={lightTabs.list.map((t) => ({ id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file }))}
-            activeId={quickView!.file}
-            onSelect={lightTabs.onSelect}
-            onClose={lightTabs.onClose}
-            {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
-          />
+          <>
+            {/*
+              The person's tabs keep the strip. An agent's PDF joins it only
+              while he is looking in on it, as an ordinary full-width tab
+              marked in the session's colour; the sessions themselves are in
+              the bottom of the right sidebar, and the strip carries one summary of them.
+            */}
+            <DocumentTabStrip
+              tabs={lightTabs.list.filter((t) => t.owner === undefined || t.file === quickView!.file).map((t) => ({
+                id: t.file, name: t.name.replace(/\.pdf$/i, ''), relativePath: t.file,
+                marks: t.owner === undefined ? tabMarks(t, agentsNow) : peekMarks(t.owner, agentsNow),
+              }))}
+              activeId={quickView!.file}
+              onSelect={lightTabs.onSelect}
+              onClose={lightTabs.onClose}
+              {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
+            />
+            <AgentSummary tabs={lightTabs.list} onShow={() => { showAgentsDock(); setWorkOpen(true) }} />
+          </>
         ) : (
         <DocumentTabStrip
           tabs={openTabs}
@@ -11017,7 +11221,18 @@ export default function Workspace({
               pixels, and a React-managed `width` would fight that. */}
           <canvas ref={rasterRef} />
           <canvas ref={overlayRef} />
+          {light && quickView !== undefined && (
+            <AgentCursors ref={cursorsRef} file={quickView.file} page={pageIndex} place={placeAgentPoint} />
+          )}
         </div>
+
+        {light && quickView !== undefined && lightTabs !== undefined && (
+          <AgentBar
+            file={quickView.file}
+            owner={lightTabs.list.find((t) => t.file === quickView.file)?.owner}
+            {...(lightTabs.onTakeOver !== undefined ? { onTakeOver: lightTabs.onTakeOver } : {})}
+          />
+        )}
 
         {annotMenu !== null && (
           <>
@@ -11533,6 +11748,7 @@ export default function Workspace({
       <EstimatesPanel
         projectName={projectName}
         fileMode={light}
+        below={agentsDock}
         estimates={estimates}
         loaded={estimatesLoaded}
         openEstimateId={openEstimateId}
@@ -11690,6 +11906,17 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
   if (box.x0 === box.x1 || box.y0 === box.y1) return null
   return box
 }
+
+/**
+ * Calls that change how a PDF is being looked at rather than what is in it:
+ * the tool in hand, the zoom, the selection, the panels, and undo (which
+ * takes back the latest change, whoever made it). An agent makes them freely
+ * in a tab it drives; in someone else's, the person is asked first.
+ */
+const VIEW_ACTIONS = new Set([
+  'set_tool', 'zoom_to_region', 'set_layout_preview', 'open_panel',
+  'begin_scale_region', 'cancel_scale_region', 'select_markups', 'set_markup_visibility',
+])
 
 /** Writes that act on the sheet showing: a `page` input shows that sheet first. */
 const PAGE_BOUND = new Set([

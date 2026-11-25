@@ -198,6 +198,8 @@ export interface EstimatesPanelProps {
    * that level. The panel is the file's takeoff: its scopes, then a scope.
    */
   fileMode?: boolean
+  /** Shown under the panel's body, with its own height: the AI sessions (agents/AgentsPane.tsx `AgentsDock`). */
+  below?: ReactNode
   estimates: EstimateListItem[]
   /**
    * Whether the list has been read at all. Before the database answers the
@@ -641,6 +643,7 @@ export function EstimatesPanel(p: EstimatesPanelProps) {
           <ScopeDetail {...p} estimate={estimate} scope={scope} />
         )}
       </div>
+      {p.below}
     </aside>
   )
 }

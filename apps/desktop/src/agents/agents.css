@@ -1,0 +1,422 @@
+/*
+ * Agents in the window: their chips and tabs in the title bar, their card on
+ * the start page, the bar over a sheet they share with the person, and their
+ * cursors on the sheet.
+ *
+ * Every agent surface takes its colour from `--agent`, set inline from the
+ * roster (agents/roster.ts AGENT_COLORS): `--agent` is the deep tone for
+ * underlines and washes, `--agent-bright` the vivid one for the cursor, its
+ * label, the dot and the count, and `--agent-on` the ink that reads on the
+ * bright tone. Everywhere else the text keeps the window's own ink.
+ */
+
+/* ---- several PDFs live at once ---- */
+/*
+ * The PDF showing and the ones agents work in behind it are all mounted, one
+ * `.shellapp` each, stacked over the window. Only one is seen. The others
+ * keep their layout (an agent's close-up needs a canvas with a size) but
+ * draw nothing and take no pointer; `inert` on the host keeps the keyboard
+ * out. `*` and !important because a descendant that sets
+ * `visibility: visible` would otherwise show through its hidden ancestors.
+ */
+.wshost { display: contents; }
+.wshost[data-showing="false"],
+.wshost[data-showing="false"] * {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* ---- the person's tabs ---- */
+/* A dot on one of the person's own tabs: a session is in it, or left it there. */
+.tabmark {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--rb-panel);
+}
+
+.agentdot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--agent-bright, var(--agent));
+}
+.agentdot[data-state="working"] { animation: agentpulse 1.4s var(--rb-ease-decel) infinite; }
+.agentdot[data-state="gone"] { background: var(--rb-ink-4); }
+@keyframes agentpulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--agent-bright, var(--agent)) 60%, transparent); }
+  100% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--agent-bright, var(--agent)) 0%, transparent); }
+}
+
+.agentname { flex: none; overflow: hidden; text-overflow: ellipsis; color: var(--rb-ink); font-weight: 600; }
+.agenttask { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rb-ink-2); }
+/* WinUI InfoBadge: a count, or the attention mark. */
+.agentcount {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding-inline: 4px;
+  border-radius: 8px;
+  background: var(--agent-bright, var(--agent));
+  color: var(--agent-on, #fff);
+  font-family: var(--rb-figures);
+  font-size: var(--rb-caption);
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+[data-state="gone"] > .agentcount { background: var(--rb-ink-4); color: var(--rb-panel); }
+.agentcount.attention { background: var(--rb-attention); color: var(--rb-accent-ink); }
+.agentdoing {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--rb-ink-3);
+}
+
+/* The agent surfaces' small buttons are the shell's own; only their size is said here. */
+.agentcard-ask .primarybtn.small, .agentcard-foot .ghostbtn.small, .agentinfobar .primarybtn.small,
+.agentcard-ask .ghostbtn.small, .agentinfobar .ghostbtn.small {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--ads-sp-3);
+  font-size: var(--rb-caption);
+  white-space: nowrap;
+}
+.agentcard-ask .ghostbtn.small, .agentcard-foot .ghostbtn.small, .agentinfobar .ghostbtn.small { border: 1px solid var(--rb-surface-stroke); }
+
+/* ---- the start page ---- */
+.agentsonstart {
+  position: fixed;
+  right: var(--ads-sp-5);
+  bottom: var(--ads-sp-5);
+  z-index: 20;
+  width: 360px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  padding: var(--ads-sp-3);
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--rb-dock-r);
+  background: var(--rb-flyout-solid);
+  box-shadow: var(--rb-shadow-flyout);
+  color: var(--rb-ink-2);
+  font-size: var(--rb-caption);
+}
+.agentsonstart > h2 {
+  margin: 0 0 var(--ads-sp-2);
+  color: var(--rb-ink);
+  font-size: var(--rb-body);
+  font-weight: 600;
+}
+.agentsonstart-agent { padding-left: var(--ads-sp-2); border-left: 2px solid var(--agent); }
+.agentsonstart-agent + .agentsonstart-agent { margin-top: var(--ads-sp-3); }
+.agentsonstart-agent > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--ads-sp-2);
+  min-height: 24px;
+}
+.agentsonstart-agent > header > .agentdoing { flex: 1 1 100%; padding-left: 16px; }
+.agentsonstart-agent > ul { margin: 0; padding: 0; list-style: none; }
+.agentsonstart-agent > ul > li { display: flex; align-items: center; border-radius: var(--ads-radius-s); }
+.agentsonstart-agent > ul > li:hover { background: var(--rb-hover); }
+.agentsonstart-agent > ul > li .tabclose { opacity: 1; flex: none; }
+.agentsonstart-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  height: 28px;
+  padding-inline: var(--ads-sp-2);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agentsonstart-open > svg { flex: none; color: var(--agent); }
+.agentsonstart-open:hover { color: var(--rb-ink); }
+
+/* ---- over the sheet ---- */
+.agentbar {
+  position: absolute;
+  top: var(--ads-sp-3);
+  left: 0;
+  right: 0;
+  z-index: 6;
+  width: fit-content;
+  max-width: min(820px, calc(100% - 2 * var(--ads-sp-4)));
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ads-sp-1);
+  pointer-events: none;
+}
+/* WinUI InfoBar: a stroked card, the mark, the words, the actions. */
+.agentinfobar {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  min-height: 40px;
+  padding: var(--ads-sp-1) var(--ads-sp-2) var(--ads-sp-1) var(--ads-sp-3);
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-flyout-solid);
+  box-shadow: var(--rb-shadow-flyout);
+  color: var(--rb-ink-2);
+  font-size: var(--rb-caption);
+  pointer-events: auto;
+}
+.agentinfobar-text { flex: 1 1 auto; min-width: 0; }
+.agentinfobar-text > strong { color: var(--rb-ink); font-weight: 600; }
+
+/* ---- cursors on the sheet ---- */
+/* A picture of what agents are doing. It never takes the pointer. */
+.agentcursors {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+}
+.agentcursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+  transition: transform 380ms var(--rb-ease-decel), opacity var(--rb-motion-base) linear;
+}
+.agentcursor[data-quiet="true"] { opacity: .62; }
+.agentcursor-arrow {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  overflow: visible;
+  /* A dark edge outside the white one: found on white paper and on black linework alike. */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, .9)) drop-shadow(0 2px 3px rgba(0, 0, 0, .35));
+}
+.agentcursor-arrow > path {
+  fill: var(--agent-bright, var(--agent));
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.agentcursor-label {
+  position: absolute;
+  /* --shift: how far the layer pulls it back in when neither side of the arrow has room. */
+  left: calc(18px - var(--shift, 0px));
+  top: 24px;
+  /*
+   * A Windows 11 ToolTip that travels with the cursor: the flyout surface,
+   * a hairline, a 4px corner, caption type in the window's ink. The session's
+   * colour is the arrow, the dot by its name and the edge of the tip, so the
+   * words stay readable over any drawing in Light and Dark.
+   */
+  display: inline-flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  max-width: 360px;
+  padding: 5px 10px 6px 11px;
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--ads-radius-s);
+  background: var(--rb-flyout-solid);
+  box-shadow: inset 3px 0 0 var(--agent-bright, var(--agent)), var(--rb-shadow-flyout);
+  color: var(--rb-ink);
+  font-size: var(--rb-caption);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.agentcursor-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rb-ink-2); }
+.agentcursor-name::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--agent-bright, var(--agent)); }
+.agentcursor-doing { font-weight: 600; }
+/* Near the right edge the label sits to the left of the arrow; near the bottom, above it. */
+.agentcursor[data-flip="true"] > .agentcursor-label { left: auto; right: 4px; }
+.agentcursor[data-up="true"] > .agentcursor-label { top: auto; bottom: 6px; }
+/* Held at the edge: the agent is off that way. Smaller, and no arrow claiming a point. */
+.agentcursor[data-mode="edge"] > .agentcursor-arrow { display: none; }
+.agentcursor[data-mode="edge"] > .agentcursor-label { left: 0; top: 0; opacity: .92; }
+.agentcursor[data-mode="edge"][data-flip="true"] > .agentcursor-label { left: auto; right: 0; }
+.agentcursor[data-mode="edge"][data-up="true"] > .agentcursor-label { top: auto; bottom: 0; }
+/* Nowhere in particular yet: the label alone, in the corner. */
+.agentcursor[data-mode="docked"] > .agentcursor-arrow { display: none; }
+.agentcursor[data-mode="docked"] > .agentcursor-label { left: 0; top: 0; }
+/* Working this second: a ring breathes around the point. */
+.agentcursor[data-busy="true"][data-mode="on"]::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: -9px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--agent-bright, var(--agent));
+  border-radius: 50%;
+  animation: agentring 1.2s var(--rb-ease-decel) infinite;
+}
+@keyframes agentring {
+  0% { transform: scale(.4); opacity: .9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentcursor { transition: none; }
+  .agentcursor[data-busy="true"][data-mode="on"]::before { animation: none; opacity: .5; }
+  .agentdot[data-state="working"] { animation: none; }
+}
+
+/* ------------------------------------------------ the Agents list (pane) --
+ * Sessions in the bottom of the right sidebar, where a name has room (AgentsPane.tsx). A WinUI
+ * Expander per session on the card surface, its PDFs as ListView rows.
+ */
+.agentsummary {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0 var(--ads-sp-2);
+  padding: 0 10px;
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: 4px;
+  background: var(--rb-panel);
+  color: var(--rb-ink);
+  font: inherit;
+  font-size: var(--rb-caption);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.agentsummary:hover { background: var(--rb-hover); }
+.agentsummary:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 1px; }
+.agentsummary-dots { display: inline-flex; gap: 4px; }
+.agentsummary-dots:empty { display: none; }
+.agentsummary[data-needing="true"] .agentsummary-text { font-weight: 600; }
+
+.agentsdock {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--rb-surface-stroke);
+  background: var(--ads-bg);
+}
+.agentsdock[data-folded="false"] { min-height: 120px; }
+/* The splitter: a 7px strip over the dividing line, as between any two panes. */
+.agentsdock-grip { position: absolute; left: 0; right: 0; top: -4px; height: 7px; z-index: 2; cursor: row-resize; touch-action: none; }
+.agentsdock[data-folded="true"] > .agentsdock-grip { display: none; }
+.agentsdock-grip:hover, .agentsdock-grip:active { background: color-mix(in srgb, var(--rb-accent) 35%, transparent); }
+.agentsdock-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 var(--rb-pad-row, 12px);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agentsdock-head:hover { background: var(--rb-hover); }
+.agentsdock-head:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -2px; }
+.agentsdock-twisty { flex: none; display: inline-flex; color: var(--rb-ink-3); transition: transform 120ms var(--rb-ease-decel); }
+.agentsdock[data-folded="false"] .agentsdock-twisty { transform: rotate(90deg); }
+.agentsdock-title { flex: none; font-weight: 600; }
+.agentsdock-count { flex: 1 1 auto; min-width: 0; color: var(--rb-ink-3); font-size: var(--rb-caption); overflow-wrap: anywhere; }
+.agentsdock > .agentspane { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: none; }
+
+.agentspane { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3); font-size: var(--rb-caption); line-height: 16px; }
+.agentspane-label { display: flex; align-items: center; padding: var(--ads-sp-3) var(--ads-sp-2) var(--ads-sp-1); color: var(--rb-ink-3); }
+.agentcard {
+  margin-bottom: 6px;
+  padding: 4px 6px 6px 8px;
+  border-radius: 4px;
+  background: var(--rb-panel);
+  box-shadow: 0 0 0 1px var(--rb-surface-stroke), inset 3px 0 0 var(--agent);
+}
+.agentcard.finished { box-shadow: 0 0 0 1px var(--rb-surface-stroke), inset 3px 0 0 var(--rb-ink-4); }
+.agentcard-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  text-align: left;
+}
+button.agentcard-head { cursor: pointer; }
+button.agentcard-head:hover { background: var(--rb-hover); }
+button.agentcard-head:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -1px; }
+.agentcard-twisty { flex: none; display: inline-flex; margin-top: 3px; color: var(--rb-ink-3); transition: transform 120ms var(--rb-ease-decel); }
+.agentcard[data-open="true"] .agentcard-twisty { transform: rotate(90deg); }
+.agentcard-head > .agentdot { margin-top: 6px; }
+.agentcard.finished > .agentcard-head { padding-left: 22px; }
+/* The whole name, on as many lines as it takes. This is the point of the pane. */
+.agentcard-name { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.agentcard-name > strong { font-weight: 600; }
+.agentcard-head > .agentcount { margin-top: 2px; }
+.agentcard-head > .agentcount:not(.attention) { background: var(--agent); color: #fff; }
+.agentcard-status, .agentcard-hint, .agentcard-summary, .agentcard-none, .agentcard-label {
+  margin: 0 4px 2px 28px;
+  color: var(--rb-ink-3);
+  overflow-wrap: anywhere;
+}
+.agentcard[data-state="waiting"] > .agentcard-status, .agentcard[data-asking="true"] > .agentcard-status { color: var(--rb-ink); font-weight: 600; }
+.agentcard-summary { color: var(--rb-ink-2); }
+.agentcard-label { margin-top: 6px; }
+.agentcard-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 2px 6px 28px;
+  padding: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--rb-attention) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rb-attention) 30%, transparent);
+  color: var(--rb-ink);
+}
+.agentcard-askbtns { display: flex; flex-wrap: wrap; gap: 6px; }
+.agentfile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 22px);
+  min-height: var(--rb-row, 28px);
+  margin-left: 22px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agentfile:hover:not(:disabled) { background: var(--rb-hover); }
+.agentfile.active { background: var(--rb-selected); }
+.agentfile:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -1px; }
+.agentfile > svg { flex: none; color: var(--rb-ink-3); }
+.agentfile-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.agentfile-note { flex: none; color: var(--rb-ink-3); }
+.agentcard-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+.agentspane-dismiss { margin-left: auto; border: 0; background: transparent; color: var(--rb-accent-text, var(--rb-accent)); font: inherit; cursor: pointer; }
+.agentspane-dismiss:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { .agentcard-twisty, .agentsdock-twisty { transition: none; } }

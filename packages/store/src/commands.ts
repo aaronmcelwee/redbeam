@@ -454,12 +454,34 @@ const defaultInvoke: TauriInvokeFn = (cmd, args) => tauriInvoke(cmd, args ?? {})
  * clears the redo branch, which is the behaviour every editor has: once you
  * diverge, the old future is gone.
  */
+/** Whose command it is on the in-memory stack: the person, or one AI session's id. */
+export type UndoActor = string
+export const PERSON: UndoActor = 'user'
+
+/** `seq`: when it was last applied or reverted, among everything on this stack. */
+interface Entry { cmd: Command; actor: UndoActor; seq: number }
+
+/** Every entity a command touches: its own, or its children's for a batch. */
+function entitiesOf(record: UndoRecord): string[] {
+  if (record.op === 'batch') {
+    const children = (record.after as { children?: UndoRecord[] } | null)?.children ?? []
+    return children.flatMap(entitiesOf)
+  }
+  return record.entityId === null ? [] : [record.entityId]
+}
+
+/**
+ * Raised when one actor's undo would run over another's later work on the
+ * same thing. The message is written to be shown as it is.
+ */
+export class UndoBlocked extends Error {}
+
 /** The undo stack's default depth: in practice, every step of the session. */
 export const UNBOUNDED_UNDO = Number.MAX_SAFE_INTEGER
 
 export class UndoStack {
-  private done: Command[] = []
-  private undone: Command[] = []
+  private done: Entry[] = []
+  private undone: Entry[] = []
   private cached: UndoState = EMPTY_STATE
   private readonly core: boolean
   private readonly invoke: TauriInvokeFn
@@ -493,8 +515,15 @@ export class UndoStack {
     return this.core
   }
 
-  /** Apply a command and record it. */
-  async run(cmd: Command): Promise<void> {
+  /**
+   * Apply a command and record it as `actor`'s.
+   *
+   * In memory mode each actor undoes only its own work (Aaron, 2026-11-24:
+   * a person and an agent work in one open PDF at once, and Ctrl+Z must not
+   * take back what the agent just drew). The core's stack, for the old
+   * project mode, stays one chronological stack and ignores `actor`.
+   */
+  async run(cmd: Command, actor: UndoActor = PERSON): Promise<void> {
     if (this.core) {
       // The core performs the write as well as logging it. That is not an
       // optimisation: the `updated_at` the concurrency guard compares against
@@ -510,11 +539,11 @@ export class UndoStack {
       return
     }
     await cmd.apply(this.db)
-    this.remember(cmd)
+    this.remember(cmd, actor)
   }
 
   /** Record a command whose effect has ALREADY been applied. */
-  async push(cmd: Command): Promise<void> {
+  async push(cmd: Command, actor: UndoActor = PERSON): Promise<void> {
     if (this.core) {
       this.cached = readState(
         await this.invoke('undo_record', this.addressed({
@@ -525,7 +554,7 @@ export class UndoStack {
       )
       return
     }
-    this.remember(cmd)
+    this.remember(cmd, actor)
   }
 
   /**
@@ -535,22 +564,46 @@ export class UndoStack {
    * Rejects when the core refuses the revert because the entity moved under it.
    * That message is written to be shown to the estimator as it is.
    */
-  async undo(): Promise<UndoOutcome | null> {
+  async undo(actor: UndoActor = PERSON): Promise<UndoOutcome | null> {
     if (this.core) return this.step('undo_apply')
-    const cmd = this.done.pop()
-    if (!cmd) return null
-    await cmd.revert(this.db)
-    this.undone.push(cmd)
-    return { op: cmd.record.op, label: cmd.label, target: targetOf(cmd.record) }
+    const at = lastOf(this.done, actor)
+    if (at < 0) return null
+    const entry = this.done[at]!
+    // Someone else changed the same thing afterwards: reverting under them
+    // would put back an image their change was never made against.
+    this.guard(entry, this.done.slice(at + 1), 'undo')
+    await entry.cmd.revert(this.db)
+    this.done.splice(at, 1)
+    entry.seq = ++this.seq
+    this.undone.push(entry)
+    return { op: entry.cmd.record.op, label: entry.cmd.label, target: targetOf(entry.cmd.record) }
   }
 
-  async redo(): Promise<UndoOutcome | null> {
+  async redo(actor: UndoActor = PERSON): Promise<UndoOutcome | null> {
     if (this.core) return this.step('undo_redo')
-    const cmd = this.undone.pop()
-    if (!cmd) return null
-    await cmd.apply(this.db)
-    this.done.push(cmd)
-    return { op: cmd.record.op, label: cmd.label, target: targetOf(cmd.record) }
+    const at = lastOf(this.undone, actor)
+    if (at < 0) return null
+    const entry = this.undone[at]!
+    // What has been done since it was undone.
+    this.guard(entry, this.done.filter((d) => d.seq > entry.seq), 'redo')
+    await entry.cmd.apply(this.db)
+    this.undone.splice(at, 1)
+    entry.seq = ++this.seq
+    this.done.push(entry)
+    return { op: entry.cmd.record.op, label: entry.cmd.label, target: targetOf(entry.cmd.record) }
+  }
+
+  private seq = 0
+
+  private guard(entry: Entry, later: readonly Entry[], what: 'undo' | 'redo'): void {
+    const mine = new Set(entitiesOf(entry.cmd.record))
+    if (mine.size === 0) return
+    const clash = later.find((l) => l.actor !== entry.actor && entitiesOf(l.cmd.record).some((id) => mine.has(id)))
+    if (clash === undefined) return
+    const who = clash.actor === PERSON ? 'you' : entry.actor === PERSON ? 'an AI session' : 'another session'
+    throw new UndoBlocked(
+      `cannot ${what} "${entry.cmd.label}" yet: ${who} changed the same markup afterwards ("${clash.cmd.label}"). Undo that first.`,
+    )
   }
 
   /** Drop the stack without reverting anything. */
@@ -581,12 +634,20 @@ export class UndoStack {
    * refreshed by `fetchState()` otherwise.
    */
   get state(): UndoState {
+    return this.stateFor(PERSON)
+  }
+
+  /**
+   * What `actor` can undo and redo. `depth` counts everyone's commands: it
+   * answers "has anything changed since this was opened", whoever changed it.
+   */
+  stateFor(actor: UndoActor): UndoState {
     if (this.core) return this.cached
-    const top = this.done[this.done.length - 1]
-    const next = this.undone[this.undone.length - 1]
+    const top = this.done[lastOf(this.done, actor)]?.cmd
+    const next = this.undone[lastOf(this.undone, actor)]?.cmd
     return {
-      canUndo: this.done.length > 0,
-      canRedo: this.undone.length > 0,
+      canUndo: top !== undefined,
+      canRedo: next !== undefined,
       undoLabel: top?.label ?? null,
       redoLabel: next?.label ?? null,
       depth: this.done.length,
@@ -617,9 +678,15 @@ export class UndoStack {
    * lands, so leaving it off the stack meant neither the app nor the person
    * could take it back (found testing 0.3.59 on a scratch copy).
    */
-  private remember(cmd: Command): void {
-    this.done.push(cmd)
-    this.undone = []
+  private remember(cmd: Command, actor: UndoActor): void {
+    this.done.push({ cmd, actor, seq: ++this.seq })
+    // Diverging drops the actor's own old future, and nobody else's.
+    this.undone = this.undone.filter((u) => u.actor !== actor)
     if (this.done.length > this.limit) this.done.shift()
   }
+}
+
+function lastOf(list: readonly Entry[], actor: UndoActor): number {
+  for (let i = list.length - 1; i >= 0; i--) if (list[i]!.actor === actor) return i
+  return -1
 }

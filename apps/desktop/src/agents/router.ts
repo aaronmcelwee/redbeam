@@ -1,0 +1,491 @@
+/**
+ * Which PDF a bridge call lands in.
+ *
+ * One window, several PDFs live at once, several agents calling at the same
+ * moment, and a person working in tabs of their own. Every call arrives here
+ * with who sent it, and this decides:
+ *
+ *  - WHERE it goes. The file the call names; else the agent's own current
+ *    PDF (the one it opened or addressed last); else, for an agent with no
+ *    PDF yet, the one the person is looking at.
+ *  - WHAT it may do there. In a tab the agent drives, anything. In the
+ *    person's tab it reads and writes, but a call that would move the view
+ *    asks the person first (handover.ts).
+ *  - That NOTHING the person is doing moves. An agent's open_file adds a tab
+ *    to its own group behind the tab showing; its close_tab closes only its
+ *    own tabs.
+ *
+ * Calls for one PDF run one at a time, so two agents sharing a PDF cannot
+ * interleave a page turn with a write.
+ *
+ * No React here: App.tsx supplies the tabs and the ways to change them, and
+ * the tests supply fakes.
+ */
+import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
+import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
+import { type HandoverStore } from './handover.js'
+import { type Agent, type AgentIdentity, callPage, callPoint, callWrites, describeCall, type EndedBy, identityOf, type RosterStore } from './roster.js'
+
+export interface RouterDeps {
+  /** Every open tab, the person's and the agents'. */
+  tabs: () => readonly LightFile[]
+  /** The PDF the person is looking at, or null on the start page. */
+  showing: () => string | null
+  /** Whether this is the window that takes PDFs opened from outside. */
+  isMain: boolean
+  /** What the workspace for `file` can do, or undefined while it is not mounted. */
+  host: (file: string) => BridgeActions | undefined
+  /** Mount `file`'s workspace behind the one showing, if it is not mounted. */
+  wake: (file: string) => void
+  /**
+   * Open `path` as a tab of `agentId`, behind whatever is showing. Resolves
+   * to the tab, or to a sentence saying why it could not open.
+   */
+  openForAgent: (path: string, agentId: string) => Promise<LightFile | string>
+  /** Open `path` the way a person does: as the tab showing. For callers with no name. */
+  openForPerson: (path: string) => void
+  /** Close one tab, saving it first. Resolves false when it stayed open. */
+  closeTab: (file: string) => Promise<boolean>
+  /** Hand a tab to an agent, or back to the person (null). */
+  setOwner: (file: string, owner: string | null) => void
+  /** Move a finished session's tab to the person's strip, marked as come from `agent` until they open it. */
+  handBack: (file: string, agent: Agent) => void
+  roster: RosterStore
+  handovers: HandoverStore
+  appVersion: string
+  now?: () => number
+  sleep?: (ms: number) => Promise<void>
+}
+
+/** Under the bridge's own twenty seconds (bridge/ui.rs), with room to answer. */
+export const CALL_BUDGET_MS = 17_500
+/** How long open_file with `wait` waits for the PDF, under the bridge's 22 s for it. */
+export const OPEN_WAIT_MS = 20_000
+/** How long a call waits for the person to answer a handover question. */
+export const HANDOVER_WAIT_MS = 12_000
+/**
+ * An AI app's server says it is alive every few seconds (mcp.rs `ALIVE_EVERY`).
+ * One that has said so before and then says nothing for this long was killed
+ * or has hung: its sessions are finished, so no cursor or status of theirs
+ * stays on screen saying something that is no longer happening.
+ */
+export const LOST_AFTER_MS = 20_000
+
+export class BridgeRouter {
+  private readonly queues = new Map<string, Promise<unknown>>()
+  /** When each AI app's server last said it was alive, by the part of an agent's id before the last "/". */
+  private readonly aliveAt = new Map<string, number>()
+  private readonly now: () => number
+  private readonly sleep: (ms: number) => Promise<void>
+
+  constructor(private readonly deps: RouterDeps) {
+    this.now = deps.now ?? (() => Date.now())
+    this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
+  }
+
+  /** Answer one request, or null when it is for another window. */
+  async answer(req: BridgeRequest): Promise<Record<string, unknown> | null> {
+    const params = req.params ?? {}
+    const who = identityOf(req.agent)
+    const agent = who === null ? null : this.deps.roster.see(who)
+    switch (req.action) {
+      case 'open_file': return this.openFile(agent, params)
+      case 'agent_bye': return this.bye(who)
+      case 'agent_alive': return this.alive(params)
+      default: return this.call(agent, req.action, params)
+    }
+  }
+
+  // ------------------------------------------------------------ a call --
+
+  private async call(agent: Agent | null, action: string, params: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    const started = this.now()
+    const left = () => CALL_BUDGET_MS - (this.now() - started)
+    const named = typeof params['file'] === 'string' ? params['file'].trim() : ''
+    // About the session itself, not about a PDF: answered with or without one open.
+    if (action === 'invoke_ui_action' && agent !== null) {
+      if (params['action'] === 'wait_for_person') return this.waitForPerson(agent, params)
+      if (params['action'] === 'end_session') {
+        const keep = Array.isArray(params['keep']) ? params['keep'].filter((k): k is string => typeof k === 'string') : []
+        return this.endSession(agent.id, 'agent', line(params['summary']), keep)
+      }
+    }
+    const tab = this.target(agent, named)
+    /*
+     * A session with no PDF of its own yet, asking what is open, is answered
+     * from the PDF the person is showing. That is a look, not a visit: it
+     * does not make the person's PDF the session's current one, puts no
+     * cursor on it and marks no guest dot (SLS, 2026-11-24: "Checking what
+     * is open" sat over Aaron's sheet while the agent worked elsewhere).
+     */
+    const glance = agent !== null && tab !== null && named === '' && tab.owner !== agent.id
+      && (action === 'get_ui_state' || action === 'get_state')
+      && (agent.current === null || !samePath(agent.current, tab.file))
+
+    if (tab === null) {
+      // No PDF anywhere in this window. Another window may have one: let it
+      // answer first, and only the main window says "nothing is open".
+      if (!this.deps.isMain) return null
+      await this.sleep(400)
+      if (action === 'get_ui_state') return this.nothingOpen(agent)
+      return { error: 'No PDF is open in REDBEAM. Open one with redbeam_open_file (wait:true), then call again.' }
+    }
+
+    // close_tab is about the tabs, which the window keeps, not about one PDF.
+    if (action === 'invoke_ui_action' && params['action'] === 'close_tab' && agent !== null) {
+      return this.closeTab(agent, params)
+    }
+
+    // What this agent's calls mean when they name no file, from here on: the
+    // PDF it just addressed. "Open A, open B, then work" stays in B, and the
+    // person switching tabs does not carry a half-drawn takeoff to another PDF.
+    if (agent !== null && !glance) this.deps.roster.setCurrent(agent.id, tab.file)
+    // Mounts it if it was let go, and counts as use either way (agents/live.ts).
+    this.deps.wake(tab.file)
+    const text = describeCall(action, params)
+    if (agent !== null) {
+      this.deps.roster.begin(agent.id, glance
+        ? { text, file: null, page: null, point: null }
+        : { text, file: tab.file, page: callPage(params), point: callPoint(params) })
+    }
+    let result: Record<string, unknown>
+    try {
+      result = await this.inTurn(tab.file, async () => {
+        const host = await this.ready(tab.file, Math.min(12_000, left() - 1500))
+        if (host === undefined) {
+          return { error: `${nameOf(tab.file)} is still opening in the background. Try again in a few seconds.`, opening: true }
+        }
+        let ctx = this.context(agent, tab.file)
+        let out = await runOnHost(host, action, params, ctx)
+        const now = tabFor(this.deps.tabs(), tab.file)
+        if (out['handover'] === true && agent !== null && !ctx.drives && now?.owner !== undefined) {
+          // Another session's PDF: refused there and then. The person is
+          // never asked to referee between two agents (Aaron, 2026-11-24).
+          out = this.notYours(now, agent, true)
+        } else if (out['handover'] === true && agent !== null && !ctx.drives) {
+          const answer = await this.deps.handovers.ask(tab.file, agent.id, Math.min(HANDOVER_WAIT_MS, left() - 1500))
+          if (answer === 'yes') {
+            ctx = this.context(agent, tab.file)
+            const again = this.deps.host(tab.file)
+            if (ctx.drives && again !== undefined) out = await runOnHost(again, action, params, ctx)
+          } else {
+            out = this.notYours(tab, agent, answer === 'no')
+          }
+        }
+        return out
+      })
+    } catch (e) {
+      result = { error: e instanceof Error ? e.message : String(e) }
+    }
+    if (agent !== null) {
+      const failed = typeof result['error'] === 'string'
+      this.deps.roster.end(agent.id, glance ? { failed } : {
+        failed,
+        page: typeof result['page'] === 'number' ? result['page'] : null,
+        file: tab.file,
+      })
+      const now = tabFor(this.deps.tabs(), tab.file)
+      if (now !== undefined && !glance) {
+        this.deps.roster.touch(agent.id, tab.file, { wrote: !failed && callWrites(action, params), guest: now.owner !== agent.id })
+      }
+    }
+    return action === 'get_ui_state' ? { ...result, ...this.about(agent, tab.file) } : result
+  }
+
+  /** The tab a call is for, or null when the window has none for it. */
+  private target(agent: Agent | null, named: string): LightFile | null {
+    const tabs = this.deps.tabs()
+    if (named !== '') {
+      const hit = tabNamed(tabs, named)
+      if (hit !== undefined) return hit
+      // A document id, or a file that is not open: the workspace it lands in
+      // says so, naming what it is showing (Workspace.tsx `file`).
+    }
+    if (agent !== null) {
+      const mine = agent.current === null ? undefined : tabFor(tabs, agent.current)
+      if (mine !== undefined) return mine
+      // Its current PDF closed: the last of its own tabs, if it has any.
+      const own = agentTabs(tabs, agent.id)
+      if (own.length > 0) return own[own.length - 1]!
+    }
+    const showing = this.deps.showing()
+    return showing === null ? null : (tabFor(tabs, showing) ?? null)
+  }
+
+  private context(agent: Agent | null, file: string): CallContext {
+    if (agent === null) return UNNAMED_CALL
+    const tab = tabFor(this.deps.tabs(), file)
+    const fresh = this.deps.roster.agent(agent.id) ?? agent
+    return { agent: fresh, drives: tab?.owner === agent.id }
+  }
+
+  /** The workspace for `file`, mounted and with its PDF read, or undefined if that takes longer than `waitMs`. */
+  private async ready(file: string, waitMs: number): Promise<BridgeActions | undefined> {
+    const until = this.now() + Math.max(0, waitMs)
+    for (;;) {
+      const host = this.deps.host(file)
+      if (host !== undefined) return host
+      if (this.now() >= until) return undefined
+      await this.sleep(60)
+    }
+  }
+
+  /** One call at a time per PDF. A call that throws does not hold up the next. */
+  private inTurn<T>(file: string, run: () => Promise<T>): Promise<T> {
+    const k = file.replace(/\//g, '\\').toLowerCase()
+    const before = this.queues.get(k) ?? Promise.resolve()
+    const mine = before.then(run, run)
+    const tail = mine.catch(() => undefined)
+    this.queues.set(k, tail)
+    void tail.then(() => { if (this.queues.get(k) === tail) this.queues.delete(k) })
+    return mine
+  }
+
+  private notYours(tab: LightFile, agent: Agent, refused: boolean): Record<string, unknown> {
+    const whose = tab.owner === undefined ? 'the person\'s own tab' : `${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab`
+    const name = nameOf(tab.file)
+    if (tab.owner !== undefined) {
+      return {
+        error: `${name} is ${whose}. One session does not move another session's view or draw away from the sheet it is showing. `
+          + 'Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy. Reading it works as it is.',
+        handover: 'refused',
+        file: tab.file,
+      }
+    }
+    return {
+      error: refused
+        ? `${name} is ${whose}, and the person said not now to ${agent.name} working in it. `
+          + 'REDBEAM does not move a view someone else is using. Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy.'
+        : `${name} is ${whose}. REDBEAM does not move a view someone else is using, so the person has been asked whether ${agent.name} may work in it; they have not answered yet. `
+          + 'Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. '
+          + 'Reading, and drawing on the sheet that is showing (leave `page` out), work without asking.',
+      handover: refused ? 'refused' : 'asked',
+      file: tab.file,
+    }
+  }
+
+  // ---------------------------------------------------------- open_file --
+
+  private async openFile(agent: Agent | null, params: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    const path = typeof params['path'] === 'string' ? params['path'].trim() : ''
+    if (path === '') return { error: 'open_file needs `path`' }
+    const wait = params['wait'] === true
+    const open = tabFor(this.deps.tabs(), path)
+    // The window that has it answers; else the main one; else, once asked twice, any.
+    if (open === undefined && !this.deps.isMain && params['any'] !== true) return null
+
+    let tab: LightFile
+    if (agent === null) {
+      // A caller with no name: the PDF opens as the person's, showing.
+      this.deps.openForPerson(path)
+      tab = open ?? { folder: '', file: path, relativePath: nameOf(path) }
+    } else if (open !== undefined) {
+      tab = open
+      this.deps.wake(open.file)
+    } else {
+      this.deps.roster.begin(agent.id, { text: `Opening ${nameOf(path)}`, file: path, page: null, point: null })
+      const made = await this.deps.openForAgent(path, agent.id)
+      if (typeof made === 'string') {
+        this.deps.roster.end(agent.id, { failed: true })
+        return { error: made }
+      }
+      tab = made
+    }
+    if (agent !== null) {
+      this.deps.roster.setCurrent(agent.id, tab.file)
+      if (open !== undefined) this.deps.roster.begin(agent.id, { text: `Opening ${nameOf(path)}`, file: tab.file, page: null, point: null })
+    }
+
+    const whose = agent === null ? {} : this.whose(agent, tabFor(this.deps.tabs(), tab.file) ?? tab)
+    if (!wait) {
+      if (agent !== null) this.deps.roster.end(agent.id, { failed: false, file: tab.file })
+      return {
+        accepted: true, path: tab.file, ...whose,
+        note: 'poll redbeam_get_ui_state until pageCount > 0, or pass wait:true to be answered once it has opened',
+      }
+    }
+    const until = this.now() + OPEN_WAIT_MS
+    for (;;) {
+      const host = this.deps.host(tab.file)
+      const pages = host === undefined ? 0 : Number(host.uiState()['pageCount'] ?? 0)
+      if (pages > 0) {
+        if (agent !== null) this.deps.roster.end(agent.id, { failed: false, file: tab.file })
+        return { accepted: true, opened: true, path: tab.file, pageCount: pages, ...whose }
+      }
+      // Gone again: it failed to open and its tab was closed.
+      if (agent !== null && tabFor(this.deps.tabs(), tab.file) === undefined) {
+        this.deps.roster.end(agent.id, { failed: true })
+        return { error: `${nameOf(tab.file)} could not be opened` }
+      }
+      if (this.now() >= until) break
+      await this.sleep(150)
+    }
+    if (agent !== null) this.deps.roster.end(agent.id, { failed: false, file: tab.file })
+    return {
+      accepted: true, opened: false, path: tab.file, ...whose,
+      note: 'still opening after 20 seconds; poll redbeam_get_ui_state until pageCount > 0',
+    }
+  }
+
+  private whose(agent: Agent, tab: LightFile): Record<string, unknown> {
+    if (tab.owner === agent.id) {
+      return { yours: true, tab: `${agent.name}'s own tab, open behind whatever the person is looking at. Nothing on their screen moved.` }
+    }
+    return {
+      yours: false,
+      tab: tab.owner === undefined
+        ? 'This PDF is open in the person\'s own tab. You can read it and draw on the sheet it is showing. A call that would turn its pages or zoom it asks them first; for free rein, redbeam_save_copy and open the copy.'
+        : `This PDF is ${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab. You can read it; to change its view, work in a copy (redbeam_save_copy, then open the copy).`,
+    }
+  }
+
+  // ---------------------------------------------------------- close_tab --
+
+  private async closeTab(agent: Agent, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const tabs = this.deps.tabs()
+    const want = typeof params['path'] === 'string' && params['path'].trim() !== ''
+      ? params['path'].trim()
+      : typeof params['file'] === 'string' && params['file'].trim() !== '' ? params['file'].trim() : ''
+    const tab = want !== '' ? tabNamed(tabs, want) : (agent.current === null ? undefined : tabFor(tabs, agent.current))
+    const mine = agentTabs(tabs, agent.id).map((t) => t.file)
+    if (tab === undefined) return { error: want === '' ? 'you have no tab open to close' : `no open tab ${want}`, yourTabs: mine }
+    if (tab.owner !== agent.id) {
+      return {
+        error: `${nameOf(tab.file)} is ${tab.owner === undefined ? 'the person\'s own tab' : 'another agent\'s tab'}; an agent closes only the tabs it opened`,
+        yourTabs: mine,
+      }
+    }
+    this.deps.roster.begin(agent.id, { text: `Closing ${nameOf(tab.file)}`, file: tab.file, page: null, point: null })
+    const closed = await this.inTurn(tab.file, () => this.deps.closeTab(tab.file))
+    this.deps.roster.end(agent.id, { failed: !closed })
+    if (!closed) return { error: `${nameOf(tab.file)} could not be saved, so it was left open` }
+    const rest = agentTabs(this.deps.tabs(), agent.id)
+    this.deps.roster.setCurrent(agent.id, rest.length > 0 ? rest[rest.length - 1]!.file : null)
+    return { closed: tab.file, yourTabs: rest.map((t) => t.file) }
+  }
+
+  // ---------------------------------------------------------------- bye --
+
+  private bye(who: AgentIdentity | null): Record<string, unknown> | null {
+    if (who !== null && this.deps.roster.agent(who.id) !== undefined) void this.endSession(who.id, 'app', null, [])
+    return this.deps.isMain ? { ok: true } : null
+  }
+
+  // ------------------------------------------------------- the session --
+
+  /** The agent has stopped for the person's answer. Its tabs stay as they are; its next call puts it back to work. */
+  private waitForPerson(agent: Agent, params: Record<string, unknown>): Record<string, unknown> {
+    const forWhat = line(params['for'])
+    this.deps.roster.wait(agent.id, forWhat)
+    return {
+      waiting: true,
+      ...(forWhat !== null ? { for: forWhat } : {}),
+      note: 'REDBEAM shows the person that this session is waiting for them. Your tabs stay open. Your next call puts the session back to work; call redbeam_end_session when the job is done.',
+    }
+  }
+
+  /**
+   * Finish a session, and settle its tabs so the person is left nothing to
+   * referee (Aaron, 2026-11-24):
+   *
+   *  - a PDF it wrote in, or named in `keep`, goes to the person's own tab
+   *    strip, saved, without being shown;
+   *  - a PDF it only read is closed, and listed in the session's summary to
+   *    reopen;
+   *  - a PDF the person is looking at, or one that could not be saved, is
+   *    never closed: it goes to their strip;
+   *  - a PDF of the person's it worked in as a guest is left as it is.
+   */
+  async endSession(agentId: string, by: EndedBy, summary: string | null, keep: readonly string[]): Promise<Record<string, unknown>> {
+    const agent = this.deps.roster.agent(agentId)
+    if (agent === undefined) return { error: 'no such session' }
+    if (agent.state === 'gone') return { ended: true, note: 'This session had already finished.' }
+    const own = agentTabs(this.deps.tabs(), agentId)
+    const kept = (file: string) => keep.some((k) => tabNamed(own, k)?.file === file)
+    const wrote = (file: string) => agent.wrote.some((f) => samePath(f, file))
+    const handedBack: string[] = []
+    const closed: string[] = []
+    // Finished first: from here it has no cursor, no call in flight, and asks nothing.
+    this.deps.roster.finish(agentId, { by, summary, handedBack: [], closed: [] })
+    this.deps.handovers.dropAgent(agentId)
+    for (const tab of own) {
+      const showing = this.deps.showing()
+      const watched = showing !== null && samePath(showing, tab.file)
+      if (!wrote(tab.file) && !kept(tab.file) && !watched) {
+        const shut = await this.inTurn(tab.file, () => this.deps.closeTab(tab.file)).catch(() => false)
+        if (shut) { closed.push(tab.file); continue }
+      }
+      this.deps.handBack(tab.file, agent)
+      handedBack.push(tab.file)
+    }
+    this.deps.roster.settle(agentId, handedBack, closed)
+    return {
+      ended: true, handedBack, closed,
+      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed. A new job starts with redbeam_start_session.',
+    }
+  }
+
+  /** An AI app's server saying it is still there. */
+  private alive(params: Record<string, unknown>): Record<string, unknown> | null {
+    const server = line(params['server'])
+    if (server !== null) this.aliveAt.set(server, this.now())
+    return this.deps.isMain ? { ok: true } : null
+  }
+
+  /**
+   * Finish the sessions of any AI app whose server was saying it was alive
+   * and has stopped: killed, crashed or hung. Called on the window's tick.
+   */
+  sweep(): void {
+    const now = this.now()
+    for (const [server, at] of [...this.aliveAt]) {
+      if (now - at < LOST_AFTER_MS) continue
+      this.aliveAt.delete(server)
+      for (const a of this.deps.roster.get().agents) {
+        if (a.state !== 'gone' && a.id.startsWith(`${server}/`)) void this.endSession(a.id, 'lost', null, [])
+      }
+    }
+  }
+
+  // -------------------------------------------------------------- state --
+
+  /** What an agent needs to know about the window beyond the PDF it asked about. */
+  private about(agent: Agent | null, file: string | null): Record<string, unknown> {
+    const tabs = this.deps.tabs()
+    const showing = this.deps.showing()
+    const name = (owner: string | undefined) => (owner === undefined ? 'person' : owner === agent?.id ? 'you' : (this.deps.roster.agent(owner)?.name ?? 'another agent'))
+    return {
+      tabs: tabs.map((t) => t.file),
+      tabOwners: tabs.map((t) => ({ file: t.file, owner: name(t.owner) })),
+      personShowing: showing,
+      ...(agent === null ? {} : {
+        agent: {
+          name: agent.name,
+          colour: agent.color.name,
+          tabs: agentTabs(tabs, agent.id).map((t) => t.file),
+          ...(file !== null ? { drives: tabFor(tabs, file)?.owner === agent.id } : {}),
+        },
+      }),
+    }
+  }
+
+  private nothingOpen(agent: Agent | null): Record<string, unknown> {
+    return {
+      file: null,
+      pageCount: 0,
+      appVersion: this.deps.appVersion,
+      note: 'No PDF is open. Open one with redbeam_open_file (wait:true).',
+      ...this.about(agent, null),
+    }
+  }
+}
+
+/** One line of the agent's own words, or null. */
+function line(v: unknown): string | null {
+  const t = typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : ''
+  return t === '' ? null : t.length > 160 ? `${t.slice(0, 159)}…` : t
+}
+
+function nameOf(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^.*\//, '')
+}

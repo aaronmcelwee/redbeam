@@ -56,6 +56,28 @@ fn next_id() -> u64 {
     N.fetch_add(1, Ordering::Relaxed)
 }
 
+thread_local! {
+    /// Who the call being served on this thread came from.
+    ///
+    /// Several AI agents drive one window at once, each in its own tabs
+    /// (Aaron, 2026-11-24: "MULTIPLE agents ... ALONGSIDE a human"). The
+    /// window decides whose tab a call lands in, so every request it is sent
+    /// says who asked. Each bridge connection has a thread of its own
+    /// (mod.rs), which is why a thread-local is enough and no method had to
+    /// grow a parameter.
+    static CALLER: std::cell::RefCell<Value> = const { std::cell::RefCell::new(Value::Null) };
+}
+
+/// Name the agent this thread's call came from. Null for a caller with no name.
+pub fn set_caller(agent: Value) {
+    CALLER.with(|c| *c.borrow_mut() = agent);
+}
+
+/// The agent this thread's call came from, or Null.
+pub fn caller() -> Value {
+    CALLER.with(|c| c.borrow().clone())
+}
+
 /// Ask the frontend to do something and wait for its answer, for as long
 /// as the window keeps saying it is working on it.
 pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, String> {
@@ -80,7 +102,7 @@ pub fn request_within(app: &AppHandle, action: &str, params: &Value, silence: Du
 
     let emitted = app.emit(
         "redbeam://bridge/request",
-        json!({ "id": id, "action": action, "params": params }),
+        json!({ "id": id, "action": action, "params": params, "agent": caller() }),
     );
     if let Err(e) = emitted {
         forget(id);
@@ -156,6 +178,21 @@ pub async fn bridge_alive(id: u64) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_caller_is_this_threads_own() {
+        // Two agents' calls are served on two threads at the same moment.
+        set_caller(json!({ "id": "a" }));
+        let other = std::thread::spawn(|| {
+            assert!(caller().is_null());
+            set_caller(json!({ "id": "b" }));
+            caller()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(other["id"], "b");
+        assert_eq!(caller()["id"], "a");
+    }
 
     #[test]
     fn ids_do_not_repeat() {

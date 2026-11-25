@@ -775,7 +775,11 @@ export function ensureDocumentAndPageStatements(
   }, {
     sql: `INSERT INTO pages(id, document_id, page_number, width_pdf_points, height_pdf_points,
                        created_at, updated_at)
-     VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+     VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+       width_pdf_points = excluded.width_pdf_points, height_pdf_points = excluded.height_pdf_points
+     WHERE COALESCE(pages.width_pdf_points, 0) = 0 AND COALESCE(excluded.width_pdf_points, 0) > 0`,
+    // A row written before its sheet's size was known gets the size the first
+    // time someone who knows it comes by; a row that has one keeps it.
     params: [page.id, page.documentId, page.pageNumber, page.width, page.height, nowIso(), nowIso()],
   }]
 }

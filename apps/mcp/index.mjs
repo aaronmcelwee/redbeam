@@ -46,7 +46,7 @@ function readDiscovery() {
  * handle would fail with a confusing connection error long after the real
  * cause (a restart) had scrolled away.
  */
-function bridgeCall(method, params = {}, onAlive = () => {}) {
+function bridgeCall(method, params = {}, agent = null, onAlive = () => {}) {
   const d = readDiscovery()
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(d.port, '127.0.0.1')
@@ -67,7 +67,7 @@ function bridgeCall(method, params = {}, onAlive = () => {}) {
     arm()
 
     socket.on('connect', () =>
-      socket.write(JSON.stringify({ id: 1, method, token: d.token, params, keepalive: true }) + '\n'))
+      socket.write(JSON.stringify({ id: 1, method, token: d.token, params, keepalive: true, ...(agent ? { agent } : {}) }) + '\n'))
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8')
       for (;;) {
@@ -126,11 +126,87 @@ const METHOD_OF = SPEC.methodOf
 /** Named tools that are one invoke_ui_action under a clearer name. */
 const ACTION_OF = SPEC.actionOf
 
+/**
+ * Who a call is from. Several chats work in REDBEAM at once, each in tabs of
+ * its own with its own colour and cursor; the app tells them apart by this.
+ *
+ * An AI app runs ONE server process for all its chats, and nothing in MCP
+ * says which chat a call is from. So a chat starts a session
+ * (redbeam_start_session) and is handed a value to pass back on every call.
+ * The server makes that value, with a code no other session has, so two
+ * chats that call their job the same thing still get a group each, and a
+ * chat that passes none, or makes one up, is refused rather than landing in
+ * another chat's tabs (mcp.rs does the same).
+ */
+const SESSION = `${process.pid.toString(16)}-${Date.now().toString(16)}`
+let clientName = null
+const SESSION_ARG = 'session'
+const SESSION_TOOL = SPEC.sessions.tool
+/** code -> the task its chat named. */
+const sessions = new Map()
+const CODE_LETTERS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+function newCode() {
+  for (;;) {
+    let code = ''
+    for (let i = 0; i < 3; i++) code += CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)]
+    if (!sessions.has(code)) return code
+  }
+}
+/** Start a session for a chat: the value it passes back from now on. */
+function startSession(task) {
+  const t = (typeof task === 'string' ? task : '').trim().replace(/\s+/g, ' ').replace(/#/g, '').slice(0, 60).trim()
+  if (t === '') throw new Error('Give `task`: a short name for the job this chat is doing.')
+  const code = newCode()
+  sessions.set(code, t)
+  return `${t} #${code}`
+}
+/** The session a call named, or null when it named none this server issued. Only the code is read: a chat may tidy the words. */
+function sessionOf(value) {
+  if (typeof value !== 'string') return null
+  const hash = value.lastIndexOf('#')
+  if (hash < 0) return null
+  const code = value.slice(hash + 1).trim().toUpperCase()
+  const task = sessions.get(code)
+  return task === undefined ? null : { code, task }
+}
+function identity(session) {
+  return { id: `${SESSION}/${session.code}`, client: clientName, label: session.task }
+}
+/** The tool list: the session tool first, then every tool with the required `session` input. */
+function toolsWithAgent() {
+  return [SESSION_TOOL, ...tools.map((t) => {
+    const schema = t.inputSchema ?? { type: 'object', properties: {} }
+    if (schema.properties?.[SESSION_ARG] !== undefined) return t
+    return {
+      ...t,
+      inputSchema: {
+        ...schema,
+        properties: {
+          ...(schema.properties ?? {}),
+          [SESSION_ARG]: { type: 'string', description: SPEC.sessions.input },
+        },
+        required: [...(schema.required ?? []), SESSION_ARG],
+      },
+    }
+  })]
+}
+
 async function callTool(name, args = {}, onAlive = () => {}) {
+  if (name === SESSION_TOOL.name) {
+    const session = startSession(args?.task)
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.' }, null, 2) }],
+      structuredContent: { session },
+    }
+  }
   const method = METHOD_OF[name]
   if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
-  const bound = ACTION_OF[name] ? { ...args, action: ACTION_OF[name] } : args
-  const result = await bridgeCall(method, bound, onAlive)
+  // Who is calling is not an input of the tool: it rides beside them.
+  const { [SESSION_ARG]: named, ...inputs } = args ?? {}
+  const session = sessionOf(named)
+  if (session === null) throw new Error(SPEC.sessions.refused)
+  const bound = ACTION_OF[name] ? { ...inputs, action: ACTION_OF[name] } : inputs
+  const result = await bridgeCall(method, bound, identity(session), onAlive)
 
   // A screenshot is returned as an image block, not as a data URL in text: a
   // 2 MB base64 string pasted into a transcript is unreadable and expensive.
@@ -155,12 +231,13 @@ async function handleRequest(req) {
   const { id, method, params } = req
   try {
     if (method === 'initialize') {
+      if (typeof params?.clientInfo?.name === 'string') clientName = params.clientInfo.name
       send({
         jsonrpc: '2.0',
         id,
         result: {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {} },
           serverInfo: SERVER_INFO,
           instructions: SPEC.instructions,
         },
@@ -169,7 +246,16 @@ async function handleRequest(req) {
     }
     if (method === 'notifications/initialized') return
     if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} })
-    if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools } })
+    if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools: toolsWithAgent() } })
+    if (method === 'resources/list') {
+      return send({ jsonrpc: '2.0', id, result: { resources: [{
+        uri: GUIDE_URI, name: 'Working beside a person in REDBEAM', mimeType: 'text/plain',
+        description: 'How a session starts, waits, and ends, and how to keep what the person sees about you true.',
+      }] } })
+    }
+    if (method === 'resources/read') {
+      return send({ jsonrpc: '2.0', id, result: { contents: [{ uri: GUIDE_URI, mimeType: 'text/plain', text: guide() }] } })
+    }
     if (method === 'tools/call') {
       // A long call tells an AI app that asked (`_meta.progressToken`) that
       // it is still working, so the app keeps waiting.
@@ -198,8 +284,36 @@ async function handleRequest(req) {
   }
 }
 
+/** The one resource: the part of the instructions about working beside a person, to read again. */
+const GUIDE_URI = 'redbeam://guide/working-beside-a-person'
+function guide() {
+  const at = SPEC.instructions.indexOf('WORKING BESIDE A PERSON')
+  return at < 0 ? SPEC.instructions : SPEC.instructions.slice(at)
+}
+
+/**
+ * How often this server tells REDBEAM it is still running. REDBEAM cannot
+ * see a server die (every call is a connection of its own), so one with a
+ * session says so every few seconds, and the window finishes the sessions of
+ * one that stops (agents/router.ts LOST_AFTER_MS). mcp.rs does the same.
+ */
+const ALIVE_EVERY_MS = 5000
+function sayAlive() {
+  if (sessions.size === 0 || !fs.existsSync(DISCOVERY_FILE)) return
+  bridgeCall('agent_alive', { server: SESSION }).catch(() => {})
+}
+/** The AI app closed the connection: its sessions are finished, if REDBEAM is running to hear it. */
+async function sayGoodbye() {
+  if (!fs.existsSync(DISCOVERY_FILE)) return
+  for (const [code, task] of sessions) {
+    await bridgeCall('agent_bye', {}, identity({ code, task })).catch(() => {})
+  }
+}
+
 function startServer() {
   let buffer = ''
+  setInterval(sayAlive, ALIVE_EVERY_MS).unref()
+  process.stdin.on('end', () => { void sayGoodbye().finally(() => process.exit(0)) })
   process.stdin.setEncoding('utf8')
   process.stdin.on('data', (chunk) => {
     buffer += chunk
@@ -219,6 +333,6 @@ function startServer() {
   process.stderr.write(`REDBEAM MCP server ready. Discovery: ${DISCOVERY_FILE}\n`)
 }
 
-export { bridgeCall, callTool, tools, METHOD_OF, ACTION_OF, startServer }
+export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, guide, METHOD_OF, ACTION_OF, startServer }
 
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/')) startServer()

@@ -15,11 +15,12 @@ import { createPortal } from 'react-dom'
 import { useReturnFocus } from '../returnFocus.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
 import { Glyph, Sparkles, X } from '../shell/icons.js'
+import { roster } from '../agents/roster.js'
 import { APP_VERSION } from '../update/updates.js'
 import { friendlyDate, inlineRuns, recentReleases, unseenReleases, type Release } from './changelog.js'
 import { RELEASES } from './changelogSource.js'
 import { WHATS_NEW_EVENT } from './open.js'
-import { browserSeenStorage, launchDecision, markSeen, type LaunchDecision } from './seen.js'
+import { browserSeenStorage, launchDecision, markSeen, notesMayOpen, type LaunchDecision } from './seen.js'
 import './whatsnew.css'
 
 /** How many releases the dialog shows when opened by hand. */
@@ -40,19 +41,37 @@ type Shown = { kind: 'update'; releases: Release[]; since: string | null } | { k
  * Mount once per window. `auto` is false where the window is not the person's
  * own launch (a second view on a project), so the notes show once.
  */
+const liveSessions = (): number => roster.get().agents.filter((a) => a.state !== 'gone').length
+
 export function WhatsNewHost({ auto }: { auto: boolean }) {
-  const [shown, setShown] = useState<Shown | null>(() => {
+  const due = useCallback((): Shown | null => {
     if (!auto || launchHandled || !LAUNCH.show) return null
     const releases = unseenReleases(RELEASES, LAUNCH.since, APP_VERSION)
     return releases.length === 0 ? null : { kind: 'update', releases, since: LAUNCH.since }
-  })
+  }, [auto])
+  const [shown, setShown] = useState<Shown | null>(() => (notesMayOpen(document.hasFocus(), liveSessions()) ? due() : null))
 
   useEffect(() => {
-    // Seen as soon as it is decided, so a second window opened meanwhile does not show it again.
-    if (!auto) return
-    launchHandled = true
-    markSeen(browserSeenStorage(), APP_VERSION)
-  }, [auto])
+    if (!auto || launchHandled) return
+    const settle = () => {
+      // Seen as soon as it is decided, so a second window opened meanwhile does not show it again.
+      launchHandled = true
+      markSeen(browserSeenStorage(), APP_VERSION)
+    }
+    const waiting = due()
+    if (waiting === null || shown !== null) { settle(); return }
+    // Held: nothing is marked seen, so a run nobody came to shows them next launch.
+    const look = () => {
+      if (launchHandled || !notesMayOpen(document.hasFocus(), liveSessions())) return
+      setShown(waiting)
+      settle()
+    }
+    window.addEventListener('focus', look)
+    const stop = roster.subscribe(look)
+    return () => { window.removeEventListener('focus', look); stop() }
+  // Decided once per mount: `shown` here is what the first render decided.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, due])
 
   useEffect(() => {
     const open = () => setShown({ kind: 'manual', releases: recentReleases(RELEASES, APP_VERSION, RECENT_COUNT) })
