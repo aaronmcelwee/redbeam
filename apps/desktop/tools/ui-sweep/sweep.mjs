@@ -480,30 +480,51 @@ const STEPS = [
     await page.waitForTimeout(400)
     const after = await person(page)
     if (JSON.stringify(after) !== JSON.stringify(before)) problems.push(`agents: the person's view moved: ${JSON.stringify(before)} became ${JSON.stringify(after)}`)
-    const seen = await page.evaluate(() => ({
-      chips: [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((c) => c.querySelector('.agentpill-name')?.textContent),
-      colours: [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((g) => g.style.getPropertyValue('--agent-bright')),
-      unfolded: document.querySelectorAll('.wshost[data-showing="true"] .agenttab').length,
-      flyouts: document.querySelectorAll('.agentflyout, [role="dialog"]').length,
-      strip: (() => {
-        const tab = document.querySelector('.wshost[data-showing="true"] [data-tab][role="tab"]')?.getBoundingClientRect()
-        const chips = [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((c) => c.getBoundingClientRect())
-        return { tab: tab?.width ?? 0, widest: Math.max(0, ...chips.map((r) => r.width)), over: chips.some((r) => tab !== undefined && r.left < tab.right - 1) }
-      })(),
-      behind: document.querySelectorAll('.wshost[data-showing="false"]').length,
-      inert: document.querySelectorAll('.wshost[data-showing="false"][inert]').length,
-      tabs: [...document.querySelectorAll('.wshost[data-showing="true"] [data-tab][role="tab"] .tabname')].map((n) => n.textContent),
-    }))
-    const want = 'Claude · Nokia Canada North Campus takeoff|Claude · Level 2 ceilings|ChatGPT · Clinic framing'
-    if (seen.chips.join('|') !== want) problems.push(`agents: expected one group pill per session (${want}), saw ${seen.chips.join('|') || 'none'}`)
-    if (seen.unfolded !== 0) problems.push(`agents: groups should arrive folded, ${seen.unfolded} of their tabs are on the strip`)
-    if (new Set(seen.colours).size !== 3) problems.push('agents: the three sessions do not have three colours')
+    const seen = await page.evaluate(() => {
+      const ws = document.querySelector('.wshost[data-showing="true"]')
+      const tab = ws.querySelector('[data-tab][role="tab"]')?.getBoundingClientRect()
+      const sum = ws.querySelector('.agentsummary')
+      const r = sum?.getBoundingClientRect()
+      return {
+        summary: sum?.querySelector('.agentsummary-text')?.textContent ?? null,
+        clipped: sum !== null && sum !== undefined && sum.scrollWidth > sum.clientWidth + 1,
+        dots: [...ws.querySelectorAll('.agentsummary .agentdot')].map((d) => d.style.getPropertyValue('--agent-bright')),
+        over: r !== undefined && tab !== undefined && r.left < tab.right - 1,
+        tab: tab?.width ?? 0,
+        flyouts: document.querySelectorAll('.agentflyout, [role="dialog"]').length,
+        pane: ws.querySelectorAll('.agentspane').length,
+        offered: ws.querySelector('.contentsview [data-view="agents"]')?.textContent ?? null,
+        behind: document.querySelectorAll('.wshost[data-showing="false"]').length,
+        inert: document.querySelectorAll('.wshost[data-showing="false"][inert]').length,
+        tabs: [...ws.querySelectorAll('[data-tab][role="tab"] .tabname')].map((n) => n.textContent),
+      }
+    })
+    if (seen.summary !== '3 AI sessions') problems.push(`agents: the title bar should say "3 AI sessions", says ${seen.summary ?? 'nothing'}`)
+    if (seen.clipped) problems.push('agents: the title bar\'s summary of the sessions is cut off')
+    if (new Set(seen.dots).size !== 3) problems.push('agents: the three sessions do not have three colours')
     if (seen.flyouts !== 0) problems.push('agents: something opened over the person\'s work when agents arrived')
-    if (seen.strip.over) problems.push('agents: a session chip sits over the person\'s tab')
-    if (seen.strip.tab < 100) problems.push(`agents: the sessions squeezed the person's tab to ${Math.round(seen.strip.tab)} px`)
-    if (seen.strip.widest > 330) problems.push(`agents: a collapsed session takes ${Math.round(seen.strip.widest)} px of the strip`)
+    if (seen.pane !== 0) problems.push('agents: the left pane changed to the Agents list by itself when agents arrived')
+    if (seen.offered !== 'Agents3') problems.push(`agents: Contents should offer an Agents view counting 3, offers ${seen.offered ?? 'none'}`)
+    if (seen.over) problems.push('agents: the sessions\' summary sits over the person\'s tab')
+    if (seen.tab < 100) problems.push(`agents: the person's tab is squeezed to ${Math.round(seen.tab)} px`)
     if (seen.behind !== 3 || seen.inert !== 3) problems.push(`agents: ${seen.behind} PDFs live behind the one showing, ${seen.inert} of them inert (want 3 and 3)`)
     if (seen.tabs.join() !== 'Sweep set') problems.push(`agents: the person's strip should hold only their tab, holds ${seen.tabs.join()}`)
+    // The list itself: every session by its whole name, none cut off, with its PDF.
+    await shown(page).locator('.agentsummary').click()
+    await page.waitForTimeout(250)
+    const list = await page.evaluate(() => [...document.querySelectorAll('.wshost[data-showing="true"] .agentcard')].map((c) => {
+      const n = c.querySelector('.agentcard-name')
+      return { name: n?.textContent, cut: n !== null && (n.scrollWidth > n.clientWidth + 1 || getComputedStyle(n).textOverflow === 'ellipsis'), files: [...c.querySelectorAll('.agentfile-name')].map((f) => f.textContent).join() }
+    }))
+    const want = 'Claude · Nokia Canada North Campus takeoff:Tower A|Claude · Level 2 ceilings:Tower B|ChatGPT · Clinic framing:Clinic'
+    const got = list.map((c) => `${c.name}:${c.files}`).join('|')
+    if (got !== want) problems.push(`agents: the Agents list should name each session with its PDF (${want}), lists ${got || 'nothing'}`)
+    if (list.some((c) => c.cut)) problems.push('agents: a session\'s name is cut off in the Agents list')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}agents-list.png`) })
+    // Back to the sheets: the list is one click away, not in the way.
+    await shown(page).locator('.contentsview').getByRole('tab', { name: 'Sheets' }).click()
+    await page.waitForTimeout(150)
     return problems
   }],
   ['agents-typing', async (page) => {
@@ -536,22 +557,28 @@ const STEPS = [
     const problems = []
     const before = await person(page)
     const going = agentAct(page, AGENTS[1], 'go_to_page', { page: 5, file: FILE })
-    // The question is on the session's pill, never over the sheet the person is working on.
-    const asking = shown(page).locator('.agentpill[data-asking="true"]')
-    try { await asking.waitFor({ timeout: 4000 }) } catch { problems.push('agent-ask: no "!" on the pill when an agent asked to work in the person\'s PDF') }
+    // The question is counted in the title bar and asked in the Agents list, never over the sheet the person is working on.
+    const needing = shown(page).locator('.agentsummary[data-needing="true"]')
+    try { await needing.waitFor({ timeout: 4000 }) } catch { problems.push('agent-ask: the title bar does not say a session is waiting when one asked to work in the person\'s PDF') }
+    const said = await needing.locator('.agentsummary-text').textContent().catch(() => null)
+    if (said !== '3 AI sessions · 1 waiting for you') problems.push(`agent-ask: the title bar should say "3 AI sessions · 1 waiting for you", says ${said ?? 'nothing'}`)
     if (await shown(page).locator('.agentbar .agentinfobar').count() > 0) problems.push('agent-ask: a question was put over the sheet the person is working on')
+    if (await page.locator('.agentflyout, [role="dialog"]').count() > 0) problems.push('agent-ask: a question opened something over the person\'s work')
     problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-question.png`) })
     if (JSON.stringify(await person(page)) !== JSON.stringify(before)) problems.push('agent-ask: the person\'s sheet moved before they answered')
-    await asking.click().catch(() => {})
-    const ask = page.locator('.agentflyout-ask')
-    if (await ask.getByRole('button', { name: 'Let it work there' }).count() !== 1) problems.push('agent-ask: the pill\'s menu has no way to say yes')
+    await needing.click().catch(() => {})
+    const ask = shown(page).locator('.agentcard[data-asking="true"] .agentcard-ask')
+    if (await ask.getByRole('button', { name: 'Let it work there' }).count() !== 1) problems.push('agent-ask: the Agents list has no way to say yes')
+    problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-menu.png`) })
     await ask.getByRole('button', { name: 'Not now' }).click().catch(() => problems.push('agent-ask: no Not now'))
     const told = await going
     if (told.handover !== 'refused') problems.push(`agent-ask: the agent was not told the person said not now: ${JSON.stringify(told).slice(0, 160)}`)
     await page.waitForTimeout(200)
-    if (await shown(page).locator('.agentpill[data-asking="true"]').count() > 0) problems.push('agent-ask: the question stayed up after Not now')
+    if (await shown(page).locator('.agentcard[data-asking="true"], .agentsummary[data-needing="true"]').count() > 0) problems.push('agent-ask: the question stayed up after Not now')
+    await shown(page).locator('.contentsview').getByRole('tab', { name: 'Sheets' }).click()
+    await page.waitForTimeout(150)
     // Reading the person's PDF, and drawing on the sheet they are on, needs no asking.
     const settled = await person(page)
     const read = await agentAct(page, AGENTS[1], 'find_text', { query: 'CEILING', file: FILE })
@@ -560,38 +587,36 @@ const STEPS = [
     return problems
   }],
   ['agent-watch', async (page) => {
-    // The person looks in on a session: its pill unfolds its PDFs as real tabs, a tab shows the PDF, its cursor says what it is doing.
+    // The person looks in on a session: its card lists its PDFs by name, one click shows the PDF as a full tab of theirs, its cursor says what it is doing.
     const problems = []
-    const pill = shown(page).locator('.agentpill').first()
-    await pill.click()
+    await shown(page).locator('.agentsummary').click()
     await page.waitForTimeout(250)
-    const tabs = await shown(page).locator('.agenttab .tabname').allTextContents()
-    if (tabs.join() !== 'Tower A') problems.push(`agent-watch: clicking a session's pill should unfold its PDFs as tabs (Tower A), saw ${tabs.join() || 'none'}`)
-    if (await page.locator('.agentflyout, [role="dialog"]').count() > 0) problems.push('agent-watch: unfolding a group opened something over the sheet')
-    problems.push(...await inspect(page))
-    await page.screenshot({ path: join(out, `${shotPrefix}agent-group-open.png`) })
-    // The same click folds it away again.
-    await pill.click()
+    const card = shown(page).locator('.agentcard').first()
+    const head = await card.locator('.agentcard-head').textContent().catch(() => null)
+    if (head === null || !/Claude · Nokia Canada North Campus takeoff/.test(head)) problems.push(`agent-watch: the session's card should carry its whole name, reads "${head}"`)
+    if (await card.getByRole('button', { name: 'End this session' }).count() !== 1) problems.push('agent-watch: the session\'s card has no End this session')
+    // Folding a card away and back.
+    await card.locator('.agentcard-head').click()
     await page.waitForTimeout(150)
-    if (await shown(page).locator('.agenttab').count() > 0) problems.push('agent-watch: clicking the pill again did not fold its tabs away')
-    // Right-click: who it is, what it is doing, and the way to end it.
-    await pill.click({ button: 'right' })
-    await page.waitForTimeout(200)
-    const flyout = page.locator('.agentflyout')
-    const head = await flyout.locator('.agentflyout-head').textContent().catch(() => null)
-    if (head === null) problems.push('agent-watch: right-clicking a session opened no menu')
-    else if (!/Claude · Nokia Canada North Campus takeoff/.test(head) || !/is operating this PDF/.test(head)) problems.push(`agent-watch: the menu should name the session and say it is operating its PDF, reads "${head}"`)
-    if (await flyout.getByRole('menuitem', { name: 'End this session' }).count() !== 1) problems.push('agent-watch: the session menu has no End this session')
-    problems.push(...await inspect(page))
-    await page.screenshot({ path: join(out, `${shotPrefix}agent-menu.png`) })
-    await page.keyboard.press('Escape')
+    if (await card.locator('.agentfile').count() > 0) problems.push('agent-watch: clicking a session\'s name did not fold its PDFs away')
+    await card.locator('.agentcard-head').click()
     await page.waitForTimeout(150)
-    if (await flyout.count() > 0) problems.push('agent-watch: Escape did not close the session menu')
-    await pill.click()
-    await shown(page).locator('.agenttab').first().click()
+    await card.locator('.agentfile').first().click()
     await page.waitForTimeout(1200)
-    const showing = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agenttab.active .tabname')?.textContent)
-    if (showing !== 'Tower A') problems.push(`agent-watch: clicking the session's tab should show its PDF, showing ${showing ?? 'none'}`)
+    const showing = await page.evaluate(() => {
+      const ws = document.querySelector('.wshost[data-showing="true"]')
+      const t = ws?.querySelector('[data-tab][role="tab"].active')
+      const n = t?.querySelector('.tabname')
+      return {
+        tab: n?.textContent ?? null, cut: n !== null && n !== undefined && n.scrollWidth > n.clientWidth + 1, mark: t?.querySelector('.tabmark')?.getAttribute('title') ?? null,
+        list: ws?.querySelectorAll('.agentspane').length, row: ws?.querySelector('.agentfile.active .agentfile-name')?.textContent ?? null,
+      }
+    })
+    if (showing.tab !== 'Tower A') problems.push(`agent-watch: picking a session's PDF should show it as the active tab, showing ${showing.tab ?? 'none'}`)
+    if (showing.cut) problems.push('agent-watch: the active tab\'s name is cut off')
+    if (!/Claude · Nokia Canada North Campus takeoff is operating this PDF/.test(showing.mark ?? '')) problems.push(`agent-watch: the tab of a session's PDF should carry the session's dot, carries ${showing.mark ?? 'none'}`)
+    if (showing.list !== 1 || showing.row !== 'Tower A') problems.push('agent-watch: the Agents list should stay up, with the PDF being looked at marked, after picking a PDF from it')
+    if (await page.locator('.agentflyout, [role="dialog"]').count() > 0) problems.push('agent-watch: looking in on a session opened something over the sheet')
     await agentAct(page, AGENTS[0], 'find_text', { query: 'CL-105' })
     await page.waitForTimeout(300)
     const searching = await page.evaluate(() => document.querySelector('.wshost[data-showing="true"] .agentcursor-doing')?.textContent)
@@ -632,6 +657,8 @@ const STEPS = [
     const problems = []
     await shown(page).locator('[data-tab][role="tab"]').first().click()
     await page.waitForTimeout(900)
+    await shown(page).locator('.contentsview').getByRole('tab', { name: 'Sheets' }).click()
+    await page.waitForTimeout(150)
     // The sheet list says "no scale" beside a sheet once it has takeoff on it: that is the list telling the truth, not the view moving.
     const where = async () => { const p = await person(page); return JSON.stringify({ ...p, sheet: String(p.sheet).replace('no scale', '') }) }
     const before = await where()
@@ -667,35 +694,39 @@ const STEPS = [
     const before = await person(page)
     await agentAct(page, AGENTS[0], 'wait_for_person', { for: 'approve the scope definition' })
     await page.waitForTimeout(250)
-    const waiting = await shown(page).locator('.agentpill[data-state="waiting"] .agentpill-state').allTextContents()
-    if (waiting.join() !== 'Waiting for you') problems.push(`agent-finish: a waiting session's pill should say Waiting for you, says ${waiting.join() || 'nothing'}`)
+    const waiting = await shown(page).locator('.agentsummary-text').textContent().catch(() => null)
+    if (waiting !== '3 AI sessions · 1 waiting for you') problems.push(`agent-finish: the title bar should say a session is waiting, says ${waiting ?? 'nothing'}`)
+    await shown(page).locator('.agentsummary').click()
+    await page.waitForTimeout(250)
+    const why = await shown(page).locator('.agentcard[data-state="waiting"] .agentcard-status').allTextContents()
+    if (why.join() !== 'Waiting for you: approve the scope definition') problems.push(`agent-finish: a waiting session's card should say what it waits for, says ${why.join() || 'nothing'}`)
     problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}agent-waiting.png`) })
     const ended = await agentAct(page, AGENTS[0], 'end_session', { summary: 'Takeoff saved in Tower A: 1 scope, 1 area.' })
     if (JSON.stringify(ended.handedBack) !== JSON.stringify([AGENT_FILES[0]])) problems.push(`agent-finish: the PDF the session wrote in should be handed back: ${JSON.stringify(ended).slice(0, 200)}`)
+    await shown(page).locator('.contentsview').getByRole('tab', { name: 'Sheets' }).click()
     await agentCall(page, AGENTS[1], 'agent_bye', {})
     await page.waitForTimeout(900)
     const strip = await page.evaluate(() => ({
       mine: [...document.querySelectorAll('.wshost[data-showing="true"] [data-tab][role="tab"]')].map((t) => `${t.querySelector('.tabname')?.textContent}${t.querySelector('.tabmark') ? '*' : ''}`),
-      pills: [...document.querySelectorAll('.wshost[data-showing="true"] .agentpill')].map((p) => p.textContent),
+      summary: document.querySelector('.wshost[data-showing="true"] .agentsummary-text')?.textContent ?? null,
       cursors: [...document.querySelectorAll('.wshost[data-showing="true"] .agentcursor')].map((c) => c.dataset.agent),
       asks: document.querySelectorAll('.agentinfobar[role="alert"], .agentflyout, [role="dialog"]').length,
     }))
     if (strip.mine.join('|') !== 'Sweep set*|Tower A*') problems.push(`agent-finish: the person's strip should hold their PDF and the one handed back, each with its dot: ${strip.mine.join('|')}`)
-    if (strip.pills.join('|') !== 'ChatGPT · Clinic framing1|Finished2') problems.push(`agent-finish: one live group and a Finished pill of 2 should remain, saw ${strip.pills.join('|')}`)
+    if (strip.summary !== '1 AI session') problems.push(`agent-finish: the title bar should count the one session still at work, says ${strip.summary ?? 'nothing'}`)
     if (strip.cursors.some((c) => /Nokia|Level 2/.test(c ?? ''))) problems.push('agent-finish: a finished session still has a cursor on the sheet')
     if (strip.asks !== 0) problems.push('agent-finish: a session finishing put something in front of the person')
     if (JSON.stringify(await person(page)) !== JSON.stringify(before)) problems.push('agent-finish: the person\'s view moved when sessions finished')
-    await shown(page).locator('.agentpill.finished').click()
+    await shown(page).locator('.agentsummary').click()
     await page.waitForTimeout(250)
-    const list = await page.locator('.agentfinished').textContent().catch(() => '')
+    if (await shown(page).locator('.agentcard:not(.finished)').count() !== 1 || await shown(page).locator('.agentcard.finished').count() !== 2) problems.push('agent-finish: the Agents list should hold one session at work and two finished')
+    const list = (await shown(page).locator('.agentcard.finished').allTextContents()).join(' ')
     for (const want of ['Takeoff saved in Tower A: 1 scope, 1 area.', 'Now in your tabs', 'Only read, so closed', 'Tower B', 'its app closed']) {
       if (!String(list).includes(want)) problems.push(`agent-finish: the Finished list should say "${want}"`)
     }
     problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}agent-finished.png`) })
-    await page.keyboard.press('Escape')
-    await page.waitForTimeout(150)
     return problems
   }],
   ['agents-start', async (page) => {

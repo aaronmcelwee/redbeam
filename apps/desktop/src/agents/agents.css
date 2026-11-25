@@ -407,3 +407,133 @@
   .agentcursor[data-busy="true"][data-mode="on"]::before { animation: none; opacity: .5; }
   .agentdot[data-state="working"] { animation: none; }
 }
+
+/* ------------------------------------------------ the Agents list (pane) --
+ * Sessions in the left pane, where a name has room (AgentsPane.tsx). A WinUI
+ * Expander per session on the card surface, its PDFs as ListView rows.
+ */
+.agentsummary {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0 var(--ads-sp-2);
+  padding: 0 10px;
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: 4px;
+  background: var(--rb-panel);
+  color: var(--rb-ink);
+  font: inherit;
+  font-size: var(--rb-caption);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.agentsummary:hover { background: var(--rb-hover); }
+.agentsummary:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 1px; }
+.agentsummary-dots { display: inline-flex; gap: 4px; }
+.agentsummary-dots:empty { display: none; }
+.agentsummary[data-needing="true"] .agentsummary-text { font-weight: 600; }
+
+.contentsview > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.contentsview-badge {
+  min-width: 16px;
+  height: 16px;
+  padding-inline: 4px;
+  border-radius: 8px;
+  background: var(--rb-ink-3);
+  color: var(--rb-panel);
+  font-family: var(--rb-figures);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  box-sizing: border-box;
+}
+.contentsview-badge.attention { background: var(--rb-attention); color: var(--rb-accent-ink); }
+
+.agentspane { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3); font-size: var(--rb-caption); line-height: 16px; }
+.agentspane-label { padding: var(--ads-sp-3) var(--ads-sp-2) var(--ads-sp-1); color: var(--rb-ink-3); }
+.agentcard {
+  margin-bottom: 6px;
+  padding: 4px 6px 6px 8px;
+  border-radius: 4px;
+  background: var(--rb-panel);
+  box-shadow: 0 0 0 1px var(--rb-surface-stroke), inset 3px 0 0 var(--agent);
+}
+.agentcard.finished { box-shadow: 0 0 0 1px var(--rb-surface-stroke), inset 3px 0 0 var(--rb-ink-4); }
+.agentcard-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  text-align: left;
+}
+button.agentcard-head { cursor: pointer; }
+button.agentcard-head:hover { background: var(--rb-hover); }
+button.agentcard-head:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -1px; }
+.agentcard-twisty { flex: none; display: inline-flex; margin-top: 3px; color: var(--rb-ink-3); transition: transform 120ms var(--rb-ease-decel); }
+.agentcard[data-open="true"] .agentcard-twisty { transform: rotate(90deg); }
+.agentcard-head > .agentdot { margin-top: 6px; }
+.agentcard.finished > .agentcard-head { padding-left: 22px; }
+/* The whole name, on as many lines as it takes. This is the point of the pane. */
+.agentcard-name { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.agentcard-name > strong { font-weight: 600; }
+.agentcard-head > .agentcount { margin-top: 2px; }
+.agentcard-head > .agentcount:not(.attention) { background: var(--agent); color: #fff; }
+.agentcard-status, .agentcard-hint, .agentcard-summary, .agentcard-none, .agentcard-label {
+  margin: 0 4px 2px 28px;
+  color: var(--rb-ink-3);
+  overflow-wrap: anywhere;
+}
+.agentcard[data-state="waiting"] > .agentcard-status, .agentcard[data-asking="true"] > .agentcard-status { color: var(--rb-ink); font-weight: 600; }
+.agentcard-summary { color: var(--rb-ink-2); }
+.agentcard-label { margin-top: 6px; }
+.agentcard-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 2px 6px 28px;
+  padding: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--rb-attention) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--rb-attention) 30%, transparent);
+  color: var(--rb-ink);
+}
+.agentcard-askbtns { display: flex; flex-wrap: wrap; gap: 6px; }
+.agentfile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 22px);
+  min-height: var(--rb-row, 28px);
+  margin-left: 22px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agentfile:hover:not(:disabled) { background: var(--rb-hover); }
+.agentfile.active { background: var(--rb-selected); }
+.agentfile:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -1px; }
+.agentfile > svg { flex: none; color: var(--rb-ink-3); }
+.agentfile-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.agentfile-note { flex: none; color: var(--rb-ink-3); }
+.agentcard-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+.panefoot:has(.agentspane-dismiss) { display: flex; align-items: center; gap: 8px; }
+.agentspane-dismiss { margin-left: auto; border: 0; background: transparent; color: var(--rb-accent-text, var(--rb-accent)); font: inherit; cursor: pointer; }
+.agentspane-dismiss:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { .agentcard-twisty { transition: none; } }

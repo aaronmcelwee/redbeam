@@ -213,6 +213,12 @@
 .tab.active > svg { color: var(--rb-accent); }
 .tab.missing, .tab.missing > svg { color: var(--rb-bad); }
 .tabname { overflow: hidden; text-overflow: ellipsis; }
+/*
+ * The tab being worked in says its whole name. Aaron, 2026-11-24: "It's all
+ * very truncated and unusable." The others keep 32ch so the strip still holds
+ * several; this one gives way only when the name alone would take the strip.
+ */
+.tab.active { max-width: min(72ch, 70%); }
 
 .tabclose {
   display: grid;
