@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.85 — 2026-11-25
+
+### Agents work on other sheets without asking
+
+- **An agent marks up a sheet you are not looking at, in the background.** When an agent working in your PDF adds a markup to a different sheet from the one you have open, it is written there straight away. You are not asked, and your sheet, zoom and tool stay where they are. Turning your pages or zooming your view still asks first.
+- **A session whose app quits right away is cleared.** An AI app that closed within seconds of starting used to leave its session listed as Quiet until REDBEAM closed. It is now marked finished within seconds, like any other session that stops.
+
 ## 0.3.84 — 2026-11-25
 
 ### Sheet names from the title block
