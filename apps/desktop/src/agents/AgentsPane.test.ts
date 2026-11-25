@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fileNote, needingYou, OPEN_UP_TO, sessionOpen, summaryLine } from './AgentsPane.js'
+import { clampDock, DOCK_MAX, DOCK_MIN, fileNote, needingFirst, needingYou, OPEN_UP_TO, sessionOpen, summaryLine } from './AgentsPane.js'
 import type { AgentGroup } from './AgentTabs.js'
 import { AGENT_COLORS, type Agent } from './roster.js'
 
@@ -45,5 +45,17 @@ describe('the Agents list', () => {
     expect(fileNote(busy, 'C:\\c.pdf', true)).toBe('on screen')
     // An action that is over is not still "here".
     expect(fileNote({ ...busy, state: 'idle' }, 'C:\\a.pdf', false)).toBe('read')
+  })
+
+  it('puts a question first, then a session waiting in its chat, then the rest as they arrived', () => {
+    const quiet = group(agent({ id: 'q' })), other = group(agent({ id: 'o' }))
+    const waiting = group(agent({ id: 'w', state: 'waiting' })), asking = group(agent({ id: 'k' }), 1)
+    expect(needingFirst([quiet, waiting, other, asking]).map((g) => g.agent.id)).toEqual(['k', 'w', 'q', 'o'])
+  })
+
+  it('keeps the agents between a sliver and most of the sidebar, however far the divider is dragged', () => {
+    expect(clampDock(0)).toBe(DOCK_MIN)
+    expect(clampDock(2)).toBe(DOCK_MAX)
+    expect(clampDock(0.4)).toBe(0.4)
   })
 })

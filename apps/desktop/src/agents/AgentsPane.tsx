@@ -1,22 +1,24 @@
 /**
- * AI sessions in the left pane, and one summary button in the title bar.
+ * AI sessions in the bottom of the right sidebar, and one summary button in
+ * the title bar.
  *
  * Aaron, 2026-11-24, of sessions as pills in the tab strip: "It's all very
  * truncated and unusable." The title bar has room for his own tabs and
- * little else, so three sessions there read "Chat…", "Cl…" and a PDF named
- * "T.". The pane is 300 px wide and as tall as the window: a session's whole
- * name wraps onto a second line, its PDFs are listed by their whole names,
- * and ten sessions scroll instead of crowding one another out.
+ * little else. He turned down a list in the left pane and a row under the
+ * title bar, and on 2026-11-25 said where it goes: "split the right sidebar,
+ * bottom half/third is agent."
  *
- * So the title bar says only how many sessions there are and whether one
- * needs him (`AgentSummary`), and this pane says the rest: who, on what job,
- * doing what, in which PDFs, and what each is asking. Nothing here opens over
- * the sheet.
+ * So the right sidebar is Takeoff on top and Agents underneath (`AgentsDock`),
+ * a third of its height to begin with, with a divider to drag and a header
+ * that folds it down to one line. A session's whole name wraps onto a second
+ * line, its PDFs are listed by their whole names, and ten sessions scroll.
+ * The title bar says only how many sessions there are and whether one needs
+ * him (`AgentSummary`). Nothing here opens over the sheet.
  *
- * WinUI primitives: an Expander per session, ListView rows for its PDFs,
- * InfoBadge for the count and the attention mark, standard buttons.
+ * WinUI primitives: a splitter, an Expander per session, ListView rows for
+ * its PDFs, InfoBadge for the count and the attention mark, standard buttons.
  */
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useRef, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react'
 import { ChevronRight, FileText, Glyph, X } from '../shell/icons.js'
 import { samePath } from '../lightTabs.js'
 import {
@@ -28,9 +30,6 @@ import './agents.css'
 
 const plainName = (name: string): string => name.replace(/\.pdf$/i, '')
 const baseName = (file: string): string => plainName(file.replace(/\\/g, '/').replace(/^.*\//, ''))
-
-/** For a window with no tabs of its own. */
-export const NO_AGENT_TABS: readonly AgentTabItem[] = []
 
 /** The dot on an agent's PDF while the person looks in on it from his own strip. */
 export function peekMarks(owner: string, agents: readonly Agent[]): { color: string; title: string }[] {
@@ -85,6 +84,16 @@ export function summaryLine(live: number, needing: number, finished: number): st
 export const needingYou = (groups: readonly AgentGroup[]): number =>
   groups.filter((g) => g.asks.length > 0 || g.agent.state === 'waiting').length
 
+/**
+ * The sessions that need the person first: a question, then one waiting in
+ * its chat, then the rest, each in the order it arrived. The list has a third
+ * of the sidebar, and what he has to answer must not start below the fold.
+ */
+export function needingFirst(groups: readonly AgentGroup[]): AgentGroup[] {
+  const rank = (g: AgentGroup) => (g.asks.length > 0 ? 0 : g.agent.state === 'waiting' ? 1 : 2)
+  return groups.map((g, i) => ({ g, i })).sort((a, b) => rank(a.g) - rank(b.g) || a.i - b.i).map((x) => x.g)
+}
+
 /** The sessions and what they need, for the pane's switch and the title bar. */
 export function useAgentCounts(tabs: readonly AgentTabItem[]): { live: number; needing: number; finished: number } {
   const agents = useAgents()
@@ -94,6 +103,31 @@ export function useAgentCounts(tabs: readonly AgentTabItem[]): { live: number; n
     [agents, groups],
   )
 }
+
+// ------------------------------------------------------------ the dock --
+
+const DOCK_KEY = 'redbeam.agents-dock'
+/** The share of the sidebar's height the agents take: a third, unless he drags it. */
+export const DOCK_DEFAULT = 1 / 3
+export const DOCK_MIN = 0.15
+export const DOCK_MAX = 0.7
+export const clampDock = (share: number): number => Math.min(DOCK_MAX, Math.max(DOCK_MIN, share))
+
+interface DockState { share: number; folded: boolean }
+/* One for the window: every open PDF has its own sidebar, and they should not disagree. */
+let dock: DockState = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(DOCK_KEY) ?? 'null') as Partial<DockState> | null
+    return { share: clampDock(typeof v?.share === 'number' ? v.share : DOCK_DEFAULT), folded: v?.folded === true }
+  } catch { return { share: DOCK_DEFAULT, folded: false } }
+})()
+function setDock(next: Partial<DockState>): void {
+  dock = { ...dock, ...next }
+  try { localStorage.setItem(DOCK_KEY, JSON.stringify(dock)) } catch { /* a convenience only */ }
+  for (const fn of watchers) fn()
+}
+/** Unfold the agents' part of the sidebar: what the title bar's button does. */
+export const showAgentsDock = (): void => setDock({ folded: false })
 
 /**
  * The title bar's one word on agents. Renders nothing while no session is
@@ -131,14 +165,14 @@ export function AgentsPane({
   onReopenFile?: ((file: string) => void) | undefined
 }) {
   const agents = useAgents()
-  const groups = useAgentTabGroups(tabs)
+  const arrived = useAgentTabGroups(tabs)
+  const groups = useMemo(() => needingFirst(arrived), [arrived])
   const finished = useMemo(() => finishedSessions(agents), [agents])
   useSyncExternalStore(subscribe, () => version, () => version)
   const isShowing = (file: string) => activeFile !== null && samePath(file, activeFile)
 
   return (
-    <>
-      <div className="panebody agentspane" role="list" aria-label="AI sessions">
+      <div className="agentspane" role="list" aria-label="AI sessions">
         {groups.length === 0 && finished.length === 0 && (
           <div className="paneempty">
             <div>No AI sessions.</div>
@@ -210,7 +244,14 @@ export function AgentsPane({
             </section>
           )
         })}
-        {finished.length > 0 && <div className="agentspane-label">Finished</div>}
+        {finished.length > 0 && (
+          <div className="agentspane-label">
+            <span>Finished</span>
+            {onDismissSession !== undefined && finished.length > 1 && (
+              <button type="button" className="agentspane-dismiss" onClick={() => { for (const a of finished) onDismissSession(a.id) }}>Dismiss all</button>
+            )}
+          </div>
+        )}
         {finished.map((a) => {
           const end = a.ended!
           return (
@@ -246,12 +287,50 @@ export function AgentsPane({
           )
         })}
       </div>
-      <div className="panefoot">
-        {summaryLine(groups.length, needingYou(groups), finished.length)}
-        {onDismissSession !== undefined && finished.length > 1 && (
-          <button type="button" className="agentspane-dismiss" onClick={() => { for (const a of finished) onDismissSession(a.id) }}>Dismiss finished</button>
-        )}
-      </div>
-    </>
+  )
+}
+
+/**
+ * The bottom of the right sidebar. Renders nothing while no session is about
+ * and none has finished, so the sidebar of a window nobody is driving is all
+ * Takeoff, as it always was.
+ */
+export function AgentsDock(props: Parameters<typeof AgentsPane>[0]) {
+  const { live, needing, finished } = useAgentCounts(props.tabs)
+  useSyncExternalStore(subscribe, () => version + dock.share + (dock.folded ? 1 : 0), () => 0)
+  const ref = useRef<HTMLElement | null>(null)
+  if (live === 0 && finished === 0) return null
+  const drag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const side = ref.current?.parentElement
+    if (side === null || side === undefined) return
+    e.preventDefault()
+    const grip = e.currentTarget
+    grip.setPointerCapture(e.pointerId)
+    const move = (m: PointerEvent) => {
+      const r = side.getBoundingClientRect()
+      if (r.height > 0) setDock({ share: clampDock((r.bottom - m.clientY) / r.height), folded: false })
+    }
+    const done = () => { grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', done); grip.removeEventListener('pointercancel', done) }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('pointerup', done)
+    grip.addEventListener('pointercancel', done)
+  }
+  return (
+    <section
+      ref={ref} className="agentsdock" aria-label="AI sessions" data-folded={dock.folded ? 'true' : 'false'}
+      style={dock.folded ? undefined : { height: `${(dock.share * 100).toFixed(2)}%` }}
+    >
+      <div
+        className="agentsdock-grip" role="separator" aria-orientation="horizontal" aria-label="Resize Agents"
+        title="Drag to resize. Double-click for a third." onPointerDown={drag} onDoubleClick={() => setDock({ share: DOCK_DEFAULT, folded: false })}
+      />
+      <button type="button" className="agentsdock-head" aria-expanded={!dock.folded} onClick={() => setDock({ folded: !dock.folded })}>
+        <span className="agentsdock-twisty"><Glyph icon={ChevronRight} role="small" /></span>
+        <span className="agentsdock-title">Agents</span>
+        <span className="agentsdock-count">{summaryLine(live, needing, finished)}</span>
+        {needing > 0 && <span className="agentcount attention" aria-hidden="true">!</span>}
+      </button>
+      {!dock.folded && <AgentsPane {...props} />}
+    </section>
   )
 }

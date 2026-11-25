@@ -11,7 +11,7 @@
  * only renders and filters. The one behaviour that lives here is scrolling the
  * current sheet into view, because that is a DOM concern.
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Glyph, Search } from './icons.js'
 import { hasSheetActions, SheetMenu, type SheetActions } from './SheetMenu.js'
 import { BookmarkTree } from './BookmarkTree.js'
@@ -26,27 +26,6 @@ import {
 /** Which view of Contents was last shown, kept per viewer. */
 const VIEW_KEY = 'redbeam.contents-view'
 
-export type ContentsView = 'sheets' | 'bookmarks' | 'agents'
-
-/*
- * One choice for the window, not one per open PDF. Every PDF has its own
- * pane, and picking an agent's PDF from the Agents list switches panes: the
- * list has to still be there in the one that comes up.
- */
-let contentsView: ContentsView = (() => {
-  try {
-    const v = localStorage.getItem(VIEW_KEY)
-    return v === 'bookmarks' || v === 'agents' ? v : 'sheets'
-  } catch { return 'sheets' }
-})()
-const viewWatchers = new Set<() => void>()
-const watchView = (fn: () => void) => { viewWatchers.add(fn); return () => { viewWatchers.delete(fn) } }
-export function showContentsView(v: ContentsView): void {
-  contentsView = v
-  try { localStorage.setItem(VIEW_KEY, v) } catch { /* a convenience only */ }
-  for (const fn of viewWatchers) fn()
-}
-
 export interface SheetIndexProps extends SheetIndexInput, SheetActions {
   /** 0-based index of the sheet on screen. */
   current: number
@@ -59,15 +38,10 @@ export interface SheetIndexProps extends SheetIndexInput, SheetActions {
    * index that has not finished loading must not claim to be empty.
    */
   pending?: string | null
-  /**
-   * The AI sessions in this window, as a third view beside Sheets and
-   * Bookmarks. Offered only while there are sessions to list.
-   */
-  agents?: { count: number; needing: number; pane: ReactNode } | undefined
 }
 
 export function SheetIndex({
-  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, agents, ...input
+  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, ...input
 }: SheetIndexProps) {
   const actions: SheetActions = {
     ...(onSetScale !== undefined ? { onSetScale } : {}),
@@ -75,8 +49,13 @@ export function SheetIndex({
     ...(onPrint !== undefined ? { onPrint } : {}),
   }
   const [query, setQuery] = useState('')
-  const view = useSyncExternalStore(watchView, () => contentsView, () => contentsView)
-  const chooseView = showContentsView
+  const [view, setView] = useState<'sheets' | 'bookmarks'>(() => {
+    try { return localStorage.getItem(VIEW_KEY) === 'bookmarks' ? 'bookmarks' : 'sheets' } catch { return 'sheets' }
+  })
+  const chooseView = (v: 'sheets' | 'bookmarks') => {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* a convenience only */ }
+  }
   const [selection, setSelection] = useState<SheetSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{ x: number, y: number, pages: number[] } | null>(null)
   const groups = useMemo(() => buildSheetIndex(input), [
@@ -174,33 +153,13 @@ export function SheetIndex({
     </button>
   )
 
-  // Sheets, the PDF's own bookmarks, or the AI sessions. A switch only when there is a choice.
-  const hasAgents = agents !== undefined && agents.count > 0
-  const viewSwitch = input.outline.length === 0 && !hasAgents ? null : (
+  // Sheets or the PDF's own bookmarks. Offered only when the PDF has bookmarks.
+  const viewSwitch = input.outline.length === 0 ? null : (
     <div className="contentsview" role="tablist" aria-label="Show">
-      <button role="tab" aria-selected={view !== 'bookmarks' && !(view === 'agents' && hasAgents)} className={view !== 'bookmarks' && !(view === 'agents' && hasAgents) ? 'on' : ''} onClick={() => chooseView('sheets')}>Sheets</button>
-      {input.outline.length > 0 && (
-        <button role="tab" aria-selected={view === 'bookmarks'} className={view === 'bookmarks' ? 'on' : ''} onClick={() => chooseView('bookmarks')}>Bookmarks</button>
-      )}
-      {hasAgents && (
-        <button role="tab" aria-selected={view === 'agents'} className={view === 'agents' ? 'on' : ''} data-view="agents" onClick={() => chooseView('agents')}>
-          Agents
-          <span className={`contentsview-badge${agents.needing > 0 ? ' attention' : ''}`} aria-label={agents.needing > 0 ? `${agents.needing} waiting for you` : `${agents.count} sessions`}>
-            {agents.needing > 0 ? '!' : agents.count}
-          </span>
-        </button>
-      )}
+      <button role="tab" aria-selected={view === 'sheets'} className={view === 'sheets' ? 'on' : ''} onClick={() => chooseView('sheets')}>Sheets</button>
+      <button role="tab" aria-selected={view === 'bookmarks'} className={view === 'bookmarks' ? 'on' : ''} onClick={() => chooseView('bookmarks')}>Bookmarks</button>
     </div>
   )
-
-  if (view === 'agents' && hasAgents) {
-    return (
-      <>
-        {viewSwitch}
-        {agents.pane}
-      </>
-    )
-  }
 
   if (view === 'bookmarks' && input.outline.length > 0) {
     return (

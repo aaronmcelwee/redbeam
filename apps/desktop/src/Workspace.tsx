@@ -64,7 +64,7 @@ import {
 import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
 import { newScope, nextScopeColor, SCOPE_PALETTE } from './shell/scopeFactory.js'
 import { clipOf, notePaste, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
-import { SheetIndex, showContentsView } from './shell/SheetIndex.js'
+import { SheetIndex } from './shell/SheetIndex.js'
 import { useClampedPopover } from './shell/popover.js'
 import { pageStepForKey, steppedPage, toolForKey } from './shell/sheetKeys.js'
 import type { SheetScope } from './shell/sheets.js'
@@ -155,7 +155,7 @@ import { HandoverNeeded, UNNAMED_CALL, useBridgeHost, type CallContext } from '.
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
-import { AgentsPane, AgentSummary, NO_AGENT_TABS, peekMarks, useAgentCounts } from './agents/AgentsPane.js'
+import { AgentsDock, AgentSummary, peekMarks, showAgentsDock } from './agents/AgentsPane.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -5662,7 +5662,6 @@ export default function Workspace({
   }, [quickView, leaveSaving])
   const lightTabs = quickView?.tabs
   const agentsNow = useAgents()
-  const agentCounts = useAgentCounts(lightTabs?.list ?? NO_AGENT_TABS)
   const saveOpenFile = useCallback(() => {
     const id = leftDocRef.current
     if (id === null) return
@@ -10413,6 +10412,19 @@ export default function Workspace({
     paletteOpen, lightTabs, quickView,
   ])
 
+  // The bottom of the right sidebar: the AI sessions (Aaron, 2026-11-25: "split the right sidebar, bottom half/third is agent").
+  const agentsDock = light && lightTabs !== undefined ? (
+    <AgentsDock
+      tabs={lightTabs.list}
+      activeFile={quickView!.file}
+      onSelect={lightTabs.onSelect}
+      onHandOver={lightTabs.onHandOver}
+      onEndSession={lightTabs.onEndSession}
+      onDismissSession={lightTabs.onDismissSession}
+      onReopenFile={lightTabs.onReopenFile}
+    />
+  ) : null
+
   return (
     <div
       className="shellapp"
@@ -10486,7 +10498,7 @@ export default function Workspace({
               The person's tabs keep the strip. An agent's PDF joins it only
               while he is looking in on it, as an ordinary full-width tab
               marked in the session's colour; the sessions themselves are in
-              the Agents list, and the strip carries one summary of them.
+              the bottom of the right sidebar, and the strip carries one summary of them.
             */}
             <DocumentTabStrip
               tabs={lightTabs.list.filter((t) => t.owner === undefined || t.file === quickView!.file).map((t) => ({
@@ -10498,7 +10510,7 @@ export default function Workspace({
               onClose={lightTabs.onClose}
               {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
             />
-            <AgentSummary tabs={lightTabs.list} onShow={() => { showContentsView('agents'); setRailPanel('contents') }} />
+            <AgentSummary tabs={lightTabs.list} onShow={() => { showAgentsDock(); setWorkOpen(true) }} />
           </>
         ) : (
         <DocumentTabStrip
@@ -10604,23 +10616,6 @@ export default function Workspace({
               onPrint={(pages) => { void printSheets(pages) }}
               scaleOf={scaleOfPage}
               pending={pendingText}
-              {...(light && lightTabs !== undefined ? {
-                agents: {
-                  count: agentCounts.live + agentCounts.finished,
-                  needing: agentCounts.needing,
-                  pane: (
-                    <AgentsPane
-                      tabs={lightTabs.list}
-                      activeFile={quickView!.file}
-                      onSelect={lightTabs.onSelect}
-                      onHandOver={lightTabs.onHandOver}
-                      onEndSession={lightTabs.onEndSession}
-                      onDismissSession={lightTabs.onDismissSession}
-                      onReopenFile={lightTabs.onReopenFile}
-                    />
-                  ),
-                },
-              } : {})}
             />
           )}
           {railPanel === 'thumbnails' && (
@@ -11286,6 +11281,7 @@ export default function Workspace({
       <EstimatesPanel
         projectName={projectName}
         fileMode={light}
+        below={agentsDock}
         estimates={estimates}
         loaded={estimatesLoaded}
         openEstimateId={openEstimateId}

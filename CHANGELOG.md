@@ -9,7 +9,7 @@ SmartScreen will ask once.
 
 ### AI agents work beside you
 
-- **Several AI sessions at once, listed in the left panel.** Every Claude or ChatGPT chat that works in REDBEAM gets a session of its own, named for its app and the job it is doing, such as "ChatGPT · Nokia Canada North Campus takeoff". The title bar says only how many there are and whether one needs you. Contents has a new Agents view beside Sheets and Bookmarks that lists each session in its own colour with its whole name, what it is doing now, and its PDFs by name. Pick a PDF to look in on it as a tab of your own and work beside the agent.
+- **Several AI sessions at once, listed under Takeoff.** Every Claude or ChatGPT chat that works in REDBEAM gets a session of its own, named for its app and the job it is doing, such as "ChatGPT · Nokia Canada North Campus takeoff". The title bar says only how many there are and whether one needs you. The right sidebar is split: Takeoff on top, and Agents in the bottom third, listing each session in its own colour with its whole name, what it is doing now, and its PDFs by name. Drag the divider to give it more or less room, or click its header to fold it to one line. Pick a PDF to look in on it as a tab of your own and work beside the agent.
 - **The tab you are in shows its whole name.**
 - **An agent can work in a PDF you have open.** It does not open a second copy: it joins yours as a guest, and your tab shows a dot in the session's colour. You can do a manual takeoff while the agent searches and marks up the same sheets. Your tab, your sheet, your zoom, your tool and your selection stay exactly where you left them.
 - **Undo is yours.** Ctrl+Z takes back only your own work, never what an agent just drew, and an agent can undo only its own.

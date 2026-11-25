@@ -409,7 +409,7 @@
 }
 
 /* ------------------------------------------------ the Agents list (pane) --
- * Sessions in the left pane, where a name has room (AgentsPane.tsx). A WinUI
+ * Sessions in the bottom of the right sidebar, where a name has room (AgentsPane.tsx). A WinUI
  * Expander per session on the card surface, its PDFs as ListView rows.
  */
 .agentsummary {
@@ -437,25 +437,44 @@
 .agentsummary-dots:empty { display: none; }
 .agentsummary[data-needing="true"] .agentsummary-text { font-weight: 600; }
 
-.contentsview > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-.contentsview-badge {
-  min-width: 16px;
-  height: 16px;
-  padding-inline: 4px;
-  border-radius: 8px;
-  background: var(--rb-ink-3);
-  color: var(--rb-panel);
-  font-family: var(--rb-figures);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 16px;
-  text-align: center;
-  box-sizing: border-box;
+.agentsdock {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--rb-surface-stroke);
+  background: var(--ads-bg);
 }
-.contentsview-badge.attention { background: var(--rb-attention); color: var(--rb-accent-ink); }
+.agentsdock[data-folded="false"] { min-height: 120px; }
+/* The splitter: a 7px strip over the dividing line, as between any two panes. */
+.agentsdock-grip { position: absolute; left: 0; right: 0; top: -4px; height: 7px; z-index: 2; cursor: row-resize; touch-action: none; }
+.agentsdock[data-folded="true"] > .agentsdock-grip { display: none; }
+.agentsdock-grip:hover, .agentsdock-grip:active { background: color-mix(in srgb, var(--rb-accent) 35%, transparent); }
+.agentsdock-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 var(--rb-pad-row, 12px);
+  border: 0;
+  background: transparent;
+  color: var(--rb-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agentsdock-head:hover { background: var(--rb-hover); }
+.agentsdock-head:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -2px; }
+.agentsdock-twisty { flex: none; display: inline-flex; color: var(--rb-ink-3); transition: transform 120ms var(--rb-ease-decel); }
+.agentsdock[data-folded="false"] .agentsdock-twisty { transform: rotate(90deg); }
+.agentsdock-title { flex: none; font-weight: 600; }
+.agentsdock-count { flex: 1 1 auto; min-width: 0; color: var(--rb-ink-3); font-size: var(--rb-caption); overflow-wrap: anywhere; }
+.agentsdock > .agentspane { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: none; }
 
 .agentspane { padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3); font-size: var(--rb-caption); line-height: 16px; }
-.agentspane-label { padding: var(--ads-sp-3) var(--ads-sp-2) var(--ads-sp-1); color: var(--rb-ink-3); }
+.agentspane-label { display: flex; align-items: center; padding: var(--ads-sp-3) var(--ads-sp-2) var(--ads-sp-1); color: var(--rb-ink-3); }
 .agentcard {
   margin-bottom: 6px;
   padding: 4px 6px 6px 8px;
@@ -533,7 +552,6 @@ button.agentcard-head:focus-visible { outline: 2px solid var(--rb-accent); outli
 .agentfile-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .agentfile-note { flex: none; color: var(--rb-ink-3); }
 .agentcard-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
-.panefoot:has(.agentspane-dismiss) { display: flex; align-items: center; gap: 8px; }
 .agentspane-dismiss { margin-left: auto; border: 0; background: transparent; color: var(--rb-accent-text, var(--rb-accent)); font: inherit; cursor: pointer; }
 .agentspane-dismiss:hover { text-decoration: underline; }
-@media (prefers-reduced-motion: reduce) { .agentcard-twisty { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .agentcard-twisty, .agentsdock-twisty { transition: none; } }
