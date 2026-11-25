@@ -13,7 +13,7 @@
  * workspace already holds and the renderers take its result.
  */
 import {
-  buildBom, PRODUCT_TYPE_LABEL, readProductType,
+  buildBom, productLabelFor,
   type BomLine, type QuantityResult, type Scope, type ScopePieces,
 } from '@redbeam/domain'
 
@@ -105,7 +105,7 @@ export function buildEstimateExport<M extends ExportMarkup>(input: BuildEstimate
     return {
       id: s.id,
       label: s.label,
-      product: PRODUCT_TYPE_LABEL[readProductType(s.specifications)],
+      product: productLabelFor(s.specifications),
       color: s.color,
       note: '',
       quantities: rows.map((r) => ({ label: r.label, quantity: r.quantity, unit: r.unit })),

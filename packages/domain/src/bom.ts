@@ -231,7 +231,10 @@ const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock', 'line
 
 function lineOf(q: PieceQuantity): Pick<BomLine, 'itemKey' | 'label' | 'quantity' | 'unit'> {
   // A layered product names the layer, so "Rails" under a pattern reads as the pattern's rails.
-  const label = q.layer !== undefined && q.layer !== '' && !q.label.startsWith(q.layer) ? `${q.layer} · ${q.label}` : q.label
+  // "Triangle panel" in a layer called "Triangle panels" says it once.
+  const stem = (t: string) => t.toLowerCase().replace(/s$/, '')
+  const named = q.layer !== undefined && q.layer !== '' && !q.label.startsWith(q.layer) && !stem(q.label).startsWith(stem(q.layer))
+  const label = named ? `${q.layer} · ${q.label}` : q.label
   return { itemKey: q.itemKey, label, quantity: q.quantity, unit: q.unit }
 }
 

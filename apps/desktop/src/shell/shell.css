@@ -3617,3 +3617,23 @@ html[data-backdrop="tabbed"] .dockgroup {
 .bookmarktwisty { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
 .bookmarktwisty > svg { transition: transform var(--rb-motion-fast) var(--rb-ease-decel); }
 @media (prefers-reduced-motion: reduce) { .bookmarktwisty > svg { transition: none; } }
+
+/* ---- Custom patterns (beta, 2026-11-25): the pattern card in Setup ---- */
+.pt-wrap { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.pt-card { border: 1px solid var(--rb-line); border-radius: 8px; background: var(--rb-raised); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.pt-card.warn { background: var(--rb-warn-bg); border-color: color-mix(in srgb, var(--rb-warn) 35%, transparent); }
+.pt-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pt-name { font-weight: 600; margin-right: auto; }
+.pt-pill { font-size: var(--rb-caption); line-height: 16px; padding: 0 8px; border-radius: 10px; border: 1px solid transparent; white-space: nowrap; margin-left: 6px; }
+.pt-pill.draft { background: var(--rb-warn-bg); color: var(--rb-warn); border-color: color-mix(in srgb, var(--rb-warn) 35%, transparent); }
+.pt-pill.ok { background: var(--rb-good-bg); color: var(--rb-good); border-color: color-mix(in srgb, var(--rb-good) 30%, transparent); }
+.pt-pill.agent { background: var(--rb-hover); color: var(--rb-ink-2); }
+.pt-layers { display: flex; flex-direction: column; }
+.pt-layer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 36px; padding: 2px 0; border-top: 1px solid var(--rb-line); }
+/* A draft layer's Approve and Discard sit on a line of their own, under its name. */
+.pt-layeracts { flex: 1 0 100%; display: flex; gap: 8px; padding: 0 0 4px 20px; }
+.pt-layer:first-child { border-top: 0; }
+.pt-sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.pt-ln { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.pt-ln small { font-size: var(--rb-caption); line-height: 16px; color: var(--rb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }

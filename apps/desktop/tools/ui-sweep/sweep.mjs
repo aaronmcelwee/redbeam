@@ -390,6 +390,65 @@ const STEPS = [
    * nothing on screen (0.3.63). Now it asks within seconds, and once the save
    * lands the window goes, by destroy rather than another close request.
    */
+  ['custom-pattern', async (page) => {
+    /*
+     * Custom patterns (beta, 0.3.84): an agent designs a product as a recipe
+     * and saves it as a draft; the person sees it laid out on the sheet and
+     * its layers, draft state and approve buttons in the scope's Setup.
+     */
+    const problems = []
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    const off = await act('save_pattern', { recipe: { name: 'x', layers: [] } })
+    if (off.setting !== 'beta.customPatterns') problems.push(`custom-pattern: with the beta off, save_pattern should name the setting, said ${JSON.stringify(off).slice(0, 140)}`)
+    await act('set_setting', { setting: 'beta.customPatterns', value: true })
+    await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
+    const scope = await act('create_scope', { label: 'CL-TRI', productType: 'custom_pattern' })
+    if (typeof scope.scopeId !== 'string') return [`custom-pattern: could not add a pattern scope: ${JSON.stringify(scope).slice(0, 160)}`]
+    await act('create_markup', { kind: 'area', scopeId: scope.scopeId, rings: [[{ x: 0.3, y: 0.3 }, { x: 0.62, y: 0.3 }, { x: 0.62, y: 0.6 }, { x: 0.3, y: 0.6 }]] })
+    const fmt = await act('describe_product', { productType: 'custom_pattern' })
+    const tri = fmt.format?.examples?.triangles
+    if (tri === undefined) problems.push(`custom-pattern: describe_product gives no triangle example: ${JSON.stringify(fmt).slice(0, 160)}`)
+    const saved = await act('save_pattern', { scopeId: scope.scopeId, recipe: tri ?? {} })
+    if (saved.saved !== true) problems.push(`custom-pattern: save_pattern did not save: ${JSON.stringify(saved).slice(0, 200)}`)
+    await act('set_scope_direction', { scopeId: scope.scopeId, x1: 0.3, y1: 0.3, x2: 0.62, y2: 0.3 })
+    await act('set_active_scope', { scopeId: scope.scopeId })
+    await page.waitForTimeout(1200)
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-sheet.png`) })
+    const listed = await act('list_scopes', {})
+    const mine = listed.scopes?.find((x) => x.scopeId === scope.scopeId)
+    if (mine?.productLabel !== tri?.name) problems.push(`custom-pattern: list_scopes should name the scope's product by its pattern, says ${mine?.productLabel}`)
+    await page.locator('.es-row', { hasText: 'CL-TRI' }).first().click()
+    await page.waitForTimeout(500)
+    const setup = page.getByRole('button', { name: /^Setup/ }).first()
+    if (await setup.getAttribute('aria-expanded') !== 'true') await setup.click()
+    await page.waitForTimeout(500)
+    if (await page.locator('.pt-card').count() === 0) problems.push('custom-pattern: the scope\'s Setup shows no pattern card')
+    await page.evaluate(() => document.querySelector('.pt-card')?.scrollIntoView({ block: 'end' }))
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-setup.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card.png`) })
+    // The person approves it: its lines are verified from then on.
+    await page.getByRole('button', { name: 'Approve, add to library' }).click()
+    await page.waitForTimeout(900)
+    const listedNow = await act('list_patterns', {})
+    if (listedNow.library?.length !== 1) problems.push(`custom-pattern: approving into the library should list one pattern, lists ${JSON.stringify(listedNow.library).slice(0, 120)}`)
+    const bom = await act('get_bom', {})
+    const unverified = (bom.lines ?? []).filter((l) => l.confidence !== 'verified')
+    if (unverified.length > 0) problems.push(`custom-pattern: an approved pattern's lines should be verified: ${JSON.stringify(unverified).slice(0, 400)}`)
+    await page.evaluate(() => document.querySelector('.pt-card')?.scrollIntoView({ block: 'end' }))
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-approved.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card-approved.png`) })
+    // The agent adds rails: only the new layer waits for the person.
+    const withRails = { ...tri, layers: [...tri.layers.filter((l) => l.kind !== 'hardware'), { id: 'rails', kind: 'lines', name: 'Rails', run: 'across', spacing: "4'", stock: "16'" }, ...tri.layers.filter((l) => l.kind === 'hardware')] }
+    const again = await act('save_pattern', { scopeId: scope.scopeId, recipe: withRails })
+    if (JSON.stringify(again.draftLayers) !== JSON.stringify(['rails'])) problems.push(`custom-pattern: adding a layer to an approved pattern should leave only it a draft, drafts ${JSON.stringify(again.draftLayers ?? again).slice(0, 160)}`)
+    await page.waitForTimeout(700)
+    await page.evaluate(() => document.querySelector('.pt-wrap')?.scrollIntoView({ block: 'end' }))
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-new-layer.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card-new-layer.png`) })
+    return problems
+  }],
   ['slow-close', async (page) => {
     const problems = []
     await page.keyboard.press('Escape')

@@ -17,6 +17,9 @@ import {
   canonicalProductType, scopeDefaultDirectionFrom as scopeDirectionOf, formatFeetInches,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
+  PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, readPatternRecipe, builtInAsRecipe,
+  approvePatternRecipe, approvePatternLayer, removePatternLayer,
+  type PatternRecipe,
 } from '@redbeam/domain'
 import {
   ensureDocumentAndPage, ensureDocumentAndPageStatements, runBatch, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
@@ -150,7 +153,9 @@ import {
   hiddenOnPage, hiddenStorageKey, hideAll, hideAnnotation, parseHiddenBook, showHidden,
   visibleAnnotations, type HiddenBook,
 } from './tools/foreignMarkups.js'
-import { drawPanelLayout, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
+import { drawPanelLayout, drawPatternShapes, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
+import { libraryEntry, readLibrary, saveToLibrary, newerInLibrary } from './patterns/library.js'
+import type { PatternControls } from './shell/PatternCard.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { HandoverNeeded, UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
 import { keepingFocus } from './agents/focusGuard.js'
@@ -706,6 +711,14 @@ export default function Workspace({
   /** Orderable piece counts per scope. Separate from measurements — see takeoff.ts. */
   // paint() is a stable callback; state alone would give it last render's data.
   const piecesRef = useRef<Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>>([])
+  /** Custom patterns (beta): a recipe an agent is previewing, per scope, not yet saved. */
+  const [patternPreviews, setPatternPreviews] = useState<ReadonlyMap<string, unknown>>(() => new Map())
+  const patternPreviewsRef = useRef(patternPreviews)
+  patternPreviewsRef.current = patternPreviews
+  /** Pattern layers hidden from the sheet, per scope: a reading preference, never saved. */
+  const [hiddenLayers, setHiddenLayers] = useState<ReadonlyMap<string, ReadonlySet<string>>>(() => new Map())
+  const hiddenLayersRef = useRef(hiddenLayers)
+  hiddenLayersRef.current = hiddenLayers
   const activeScopeRef = useRef<string | null>(null)
   /*
    * The scopes, for write paths that must not be wrong about what they are
@@ -1413,10 +1426,20 @@ export default function Workspace({
               : {}),
             ...(entry.factoryCut !== undefined ? { factoryCut: entry.factoryCut } : {}),
           }
-          const cells = entry.result.cells.filter((c) => c.pageId === undefined || c.pageId === here)
-          const runs = entry.result.runs.filter((r) => r.pageId === here)
+          /*
+           * A pattern's layers can each be hidden from its layer list, so the
+           * rails can be checked without the panels over them. A built-in
+           * layer's geometry is the cells and runs; the rest are shapes.
+           */
+          const hidden = hiddenLayersRef.current.get(entry.scope.id)
+          const layers = entry.result.layers ?? []
+          const builtInHidden = hidden !== undefined && layers.some((l) => hidden.has(l.id) && l.kind !== 'tiles' && l.kind !== 'members' && l.kind !== 'lines' && l.kind !== 'hardware')
+          const cells = builtInHidden ? [] : entry.result.cells.filter((c) => c.pageId === undefined || c.pageId === here)
+          const runs = builtInHidden ? [] : entry.result.runs.filter((r) => r.pageId === here)
           if (cells.length > 0) drawPanelLayout(oc, cells, viewRef.current, opts)
-          else if (runs.length > 0) drawRunLayout(oc, runs, viewRef.current, opts)
+          if (runs.length > 0 && (cells.length === 0 || entry.result.shapes !== undefined)) drawRunLayout(oc, runs, viewRef.current, opts)
+          const shapes = (entry.result.shapes ?? []).filter((sh) => sh.pageId === here && !(hidden?.has(sh.layer) ?? false))
+          if (shapes.length > 0) drawPatternShapes(oc, shapes, layers, viewRef.current, opts)
         }
       }
       const hereId = pageIdFor(docIdRef.current, pageIndexRef.current)
@@ -2495,7 +2518,16 @@ export default function Workspace({
     const withCuts = (scope: Scope, result: PieceResult) =>
       devices.length === 0 ? { scope, result } : { scope, result, factoryCut: factoryCutPieces(result, devices) }
 
-    const pieces = scopes.map((s) => withCuts(s,
+    /*
+     * A pattern an agent is previewing (redbeam_preview_pattern) is laid on
+     * its scope in place of what the scope holds, until it is saved or
+     * dropped. Nothing is written: the PDF and the undo list never see it.
+     */
+    const asPreviewed = (s: Scope): Scope => {
+      const recipe = patternPreviews.get(s.id)
+      return recipe === undefined ? s : { ...s, specifications: { ...s.specifications, productType: 'custom_pattern', [PATTERN_RECIPE_KEY]: recipe } }
+    }
+    const pieces = scopes.map(asPreviewed).map((s) => withCuts(s,
       calculatePieces(s, projectMarkups, fallbackCal, {
         scopeDirection: scopeDefaultDirectionFrom(s.specifications),
         // AREA beats PAGE beats SCOPE. See `directionFrom` in the domain.
@@ -2515,7 +2547,7 @@ export default function Workspace({
       }),
     ))
     return { quantities, pieces }
-  }, [projectMarkups, projectCalibrations, projectPageBoxes, projectRegions, scopes, cal, prefs])
+  }, [projectMarkups, projectCalibrations, projectPageBoxes, projectRegions, scopes, cal, prefs, patternPreviews])
   const { quantities, pieces } = takeoffTotals
 
   useEffect(() => { piecesRef.current = pieces }, [pieces])
@@ -5864,6 +5896,122 @@ export default function Workspace({
 
   /** The areas an agent's call is about: by id, by a point, or every area of the scope on this sheet. */
   /** A refusal that names the scopes there are, so the next call can be right. */
+  /*
+   * ---- custom patterns (beta): helpers for the bridge ----
+   */
+  const patternsOff = (): Record<string, unknown> | null => prefsRef.current['beta.customPatterns'] === true ? null : {
+    error: 'Custom patterns are a beta feature and it is off. The person turns it on in Settings › Beta › Custom patterns '
+      + '(or, if they asked you to, redbeam_set_setting {id:"beta.customPatterns", value:true}).',
+    setting: 'beta.customPatterns',
+  }
+  /*
+   * What an agent sends is a draft, whatever it says. On a scope whose
+   * pattern a person already approved, the layers that are unchanged keep
+   * that approval and only what is new or changed waits for them, so adding
+   * rails never reopens the panels (the design Aaron approved, 2026-11-25).
+   */
+  const asAgentDraft = (recipe: PatternRecipe, sc: Scope, by: string): PatternRecipe => {
+    const prior = checkPatternRecipe(readPatternRecipe(sc.specifications))
+    const base: PatternRecipe = { ...recipe, source: recipe.source ?? by }
+    delete base.approvedBy
+    delete base.approvedAt
+    if (prior.ok && prior.recipe.status === 'approved' && readProductType(sc.specifications) === 'custom_pattern') {
+      const same = (l: PatternRecipe['layers'][number]) => {
+        const old = prior.recipe.layers.find((o) => o.id === l.id)
+        if (old === undefined || old.status === 'draft') return false
+        const strip = (x: object) => JSON.stringify({ ...x, status: undefined, source: undefined })
+        return strip(old) === strip(l)
+      }
+      return {
+        ...base, status: 'approved',
+        approvedBy: prior.recipe.approvedBy ?? '', approvedAt: prior.recipe.approvedAt ?? '',
+        layers: base.layers.map((l) => (same(l) ? { ...l, status: 'approved' as const } : { ...l, status: 'draft' as const, source: l.source ?? by })),
+      }
+    }
+    return { ...base, status: 'draft', layers: base.layers.map((l) => { const { status: _s, ...rest } = l; void _s; return rest as typeof l }) }
+  }
+  /** The scope's counts once the layout has caught up with a change, or what there is after 3 s. */
+  const settledPieces = async (scopeId: string, ready: (r: PieceResult) => boolean): Promise<PieceResult | undefined> => {
+    for (let waited = 0; waited < 3000; waited += 40) {
+      const e = piecesRef.current.find((p) => p.scope.id === scopeId)
+      if (e !== undefined && (ready(e.result) || e.result.blockers.length > 0)) return e.result
+      await new Promise((r) => setTimeout(r, 40))
+    }
+    return piecesRef.current.find((p) => p.scope.id === scopeId)?.result
+  }
+  const patternAnswer = (r: PieceResult | undefined): Record<string, unknown> => {
+    if (r === undefined) return { note: 'the scope has no calibrated sheet yet, so nothing could be counted' }
+    if (r.blockers.length > 0) return { blockers: r.blockers }
+    const layers = (r.layers ?? []).map((l) => ({
+      id: l.id, name: l.name, kind: l.kind, draft: l.draft,
+      quantities: r.quantities.filter((q) => q.layer === l.name).map((q) => ({ item: q.itemKey, label: q.label, quantity: q.quantity, unit: q.unit })),
+    }))
+    return { layers, confidence: r.confidence ?? 'verified', drawn: (r.shapes?.length ?? 0) + r.cells.length + r.runs.length }
+  }
+  /*
+   * ---- custom patterns (beta): the person's side, in the scope's setup ----
+   * Approval only ever happens here, by a person. Every change goes through
+   * saveScope, so it is one undoable step saved in the PDF.
+   */
+  const withRecipe = (scopeId: string, change: (r: PatternRecipe, sc: Scope) => PatternRecipe | null): void => {
+    const sc = scopesRef.current.find((x) => x.id === scopeId)
+    if (sc === undefined) return
+    const c = checkPatternRecipe(readPatternRecipe(sc.specifications))
+    if (!c.ok) return
+    const next = change(c.recipe, sc)
+    if (next === null) return
+    void saveScope({ ...sc, specifications: { ...sc.specifications, [PATTERN_RECIPE_KEY]: next } })
+  }
+  const setRecipe = (scopeId: string, recipe: PatternRecipe): void => {
+    const sc = scopesRef.current.find((x) => x.id === scopeId)
+    if (sc === undefined) return
+    const specs = writeProductType({ ...sc.specifications, [PATTERN_RECIPE_KEY]: recipe }, 'custom_pattern')
+    void saveScope({ ...sc, scopeType: 'area', specifications: specs })
+  }
+  const today = (): string => new Date().toISOString().slice(0, 10)
+  const patternControls: PatternControls = {
+    enabled: prefs['beta.customPatterns'] === true,
+    library: readLibrary().map((e) => ({ id: e.id, name: e.recipe.name, version: e.version })),
+    hiddenLayers,
+    onToggleLayer: (scopeId, layerId) => setHiddenLayers((m) => {
+      const next = new Map(m)
+      const set = new Set(next.get(scopeId) ?? [])
+      if (set.has(layerId)) set.delete(layerId)
+      else set.add(layerId)
+      next.set(scopeId, set)
+      return next
+    }),
+    onApprove: (scopeId, addToLibrary) => withRecipe(scopeId, (r) => {
+      setPatternPreviews((m) => { if (!m.has(scopeId)) return m; const n = new Map(m); n.delete(scopeId); return n })
+      const approved = approvePatternRecipe(r, 'You', today())
+      return addToLibrary ? saveToLibrary(approved, 'You', today()) : approved
+    }),
+    onApproveLayer: (scopeId, layerId) => withRecipe(scopeId, (r) => approvePatternLayer(r, layerId)),
+    onDiscardLayer: (scopeId, layerId) => withRecipe(scopeId, (r) => removePatternLayer(r, layerId)),
+    onDiscard: (scopeId) => {
+      const sc = scopesRef.current.find((x) => x.id === scopeId)
+      if (sc === undefined) return
+      setPatternPreviews((m) => { if (!m.has(scopeId)) return m; const n = new Map(m); n.delete(scopeId); return n })
+      const specs: Record<string, unknown> = { ...sc.specifications }
+      delete specs[PATTERN_RECIPE_KEY]
+      void saveScope({ ...sc, specifications: writeProductType(specs, 'panels') })
+    },
+    onUsePattern: (scopeId, patternId) => {
+      const e = libraryEntry(patternId)
+      if (e !== undefined) setRecipe(scopeId, e.recipe)
+    },
+    onUpdateFromLibrary: (scopeId) => withRecipe(scopeId, (r) => {
+      const e = newerInLibrary(r)
+      return e === null ? null : e.recipe
+    }),
+    onMakePattern: (scopeId) => {
+      const sc = scopesRef.current.find((x) => x.id === scopeId)
+      if (sc === undefined) return
+      const r = builtInAsRecipe(sc.specifications, `${sc.label} ${productLabelFor(sc.specifications).toLowerCase()}`)
+      if (r !== null) setRecipe(scopeId, r)
+    },
+    newerVersion: (recipe) => newerInLibrary(recipe)?.version ?? null,
+  }
   const noScope = (id: string | null): { error: string; scopes: Array<{ scopeId: string; label: string }> } => ({
     error: `no such scope: ${id === null || id === '' ? '(none given, and none is active)' : id}. Use a scopeId from \`scopes\`, or create_scope`,
     scopes: scopesRef.current.slice(0, 60).map((x) => ({ scopeId: x.id, label: x.label })),
@@ -6892,6 +7040,13 @@ export default function Workspace({
           if (product !== null && product === 'baffle' && !/baffle/i.test(productRaw)) {
             return { error: `unknown productType "${productRaw}": use one of ${PRODUCT_TYPES.join(', ')}` }
           }
+          if (product === 'custom_pattern') {
+            const off = patternsOff()
+            if (off !== null) return off
+          }
+          if (objectParam(params['specifications'])?.[PATTERN_RECIPE_KEY] !== undefined) {
+            return { error: 'a pattern goes on a scope through redbeam_save_pattern, which checks it and keeps it a draft until the person approves it' }
+          }
           const implied = product === null ? null : scopeTypeForProduct(product)
           const scopeType = String(params['scopeType'] ?? implied ?? '') as Scope['scopeType']
           if (!types.includes(scopeType)) {
@@ -6972,7 +7127,14 @@ export default function Workspace({
             if (np === 'baffle' && !/baffle/i.test(nextProductRaw)) {
               return { error: `unknown productType "${nextProductRaw}": use one of ${PRODUCT_TYPES.join(', ')}` }
             }
+            if (np === 'custom_pattern' && readProductType(sc.specifications) !== 'custom_pattern') {
+              const off = patternsOff()
+              if (off !== null) return off
+            }
             merged = writeProductType(merged, np)
+          }
+          if (specs !== undefined && specs[PATTERN_RECIPE_KEY] !== undefined && specs[PATTERN_RECIPE_KEY] !== null) {
+            return { error: 'change a pattern with redbeam_save_pattern (or try it first with redbeam_preview_pattern); update_scope does not write recipes' }
           }
           if (specs !== undefined) {
             merged = { ...sc.specifications }
@@ -7472,8 +7634,114 @@ export default function Workspace({
          */
         case 'describe_product': {
           const t = typeof params['productType'] === 'string' ? params['productType'].trim() : ''
-          if (t === '') return { products: describeAllProducts() }
+          const beta = prefsRef.current['beta.customPatterns'] === true
+          if (t === '') {
+            return {
+              products: describeAllProducts(),
+              ...(beta ? { customPatterns: 'On (beta): describe_product {productType:"custom_pattern"} gives the recipe format for a product of your own, with layers and hardware.' } : {}),
+            }
+          }
+          if (canonicalProductType(t) === 'custom_pattern') {
+            return {
+              productType: 'custom_pattern',
+              label: 'Custom pattern',
+              beta: beta ? 'on' : 'off: the person turns it on in Settings › Beta › Custom patterns',
+              format: PATTERN_FORMAT,
+              library: readLibrary().map((e) => ({ patternId: e.id, name: e.recipe.name, version: e.version })),
+              tools: 'redbeam_preview_pattern shows a recipe on the sheet without saving; redbeam_save_pattern keeps it on a scope as a draft; '
+                + 'redbeam_list_patterns and redbeam_use_pattern reuse the library; redbeam_clear_pattern_preview drops a preview.',
+            }
+          }
           return { ...describeProduct(t) }
+        }
+        /*
+         * ---- custom patterns (beta, Aaron 2026-11-25) ----
+         *
+         * An agent designs a product as a recipe, sees it on the sheet, and
+         * saves it on a scope as a DRAFT. Nothing here can approve one: the
+         * person does that in the scope's Setup, and until then every line it
+         * produces is unverified in the BOM.
+         */
+        case 'preview_pattern':
+        case 'save_pattern': {
+          const off = patternsOff()
+          if (off !== null) return off
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
+          const sc = scopesRef.current.find((x) => x.id === id)
+          if (!sc) return noScope(id)
+          const raw = typeof params['recipe'] === 'string' ? ((): unknown => { try { return JSON.parse(params['recipe'] as string) } catch { return params['recipe'] } })() : params['recipe']
+          const check = checkPatternRecipe(raw)
+          if (!check.ok) return { error: 'the recipe does not check', errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
+          const by = agentCtxRef.current.agent?.name ?? agentCtxRef.current.agent?.app ?? 'an AI app'
+          const recipe = asAgentDraft(check.recipe, sc, by)
+          if (action === 'preview_pattern') {
+            setPatternPreviews((m) => new Map(m).set(id, recipe))
+            const result = await settledPieces(id, (r) => r.productLabel === recipe.name)
+            return {
+              scopeId: id, previewing: true, saved: false, name: recipe.name,
+              ...patternAnswer(result), warnings: check.warnings,
+              note: 'Shown on the sheet, not saved. Check it with redbeam_screenshot; redbeam_save_pattern keeps it, redbeam_clear_pattern_preview drops it.',
+            }
+          }
+          const label = typeof params['label'] === 'string' && params['label'].trim() !== '' ? params['label'].trim() : sc.label
+          if (label !== sc.label && scopesRef.current.some((x) => x.label === label)) return { error: `a scope called "${label}" already exists` }
+          await saveScope({
+            ...sc, label, scopeType: 'area',
+            specifications: { ...sc.specifications, productType: 'custom_pattern', [PATTERN_RECIPE_KEY]: recipe },
+          })
+          setPatternPreviews((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n })
+          const result = await settledPieces(id, (r) => r.productLabel === recipe.name)
+          return {
+            scopeId: id, saved: true, name: recipe.name, status: recipe.status,
+            draftLayers: recipe.status === 'draft' ? 'all' : recipe.layers.filter((l) => l.status === 'draft').map((l) => l.id),
+            ...patternAnswer(result), warnings: check.warnings,
+            note: 'Saved on the scope as a draft: it counts now, and its lines stay unverified until the person approves it in the scope\'s Setup.',
+          }
+        }
+        case 'clear_pattern_preview': {
+          const id = typeof params['scopeId'] === 'string' ? params['scopeId'] : null
+          const had = id === null ? [...patternPreviewsRef.current.keys()] : patternPreviewsRef.current.has(id) ? [id] : []
+          setPatternPreviews((m) => { if (id === null) return new Map(); const n = new Map(m); n.delete(id); return n })
+          return { cleared: had }
+        }
+        case 'list_patterns': {
+          const off = patternsOff()
+          if (off !== null) return off
+          return {
+            library: readLibrary().map((e) => ({
+              patternId: e.id, name: e.recipe.name, version: e.version, savedBy: e.savedBy, savedAt: e.savedAt,
+              layers: e.recipe.layers.map((l) => ({ id: l.id, kind: l.kind, name: l.name ?? l.id })),
+              ...(params['withRecipes'] === true ? { recipe: e.recipe } : {}),
+            })),
+            onScopes: scopesRef.current.flatMap((x): Array<Record<string, unknown>> => {
+              if (readProductType(x.specifications) !== 'custom_pattern') return []
+              const c = checkPatternRecipe(readPatternRecipe(x.specifications))
+              if (!c.ok) return [{ scopeId: x.id, label: x.label, problem: c.errors }]
+              return [{
+                scopeId: x.id, label: x.label, name: c.recipe.name, status: c.recipe.status,
+                draftLayers: c.resolved.layers.filter((l) => l.draft).map((l) => l.id),
+                ...(c.recipe.libraryId !== undefined ? { patternId: c.recipe.libraryId, version: c.recipe.libraryVersion } : {}),
+                ...(params['withRecipes'] === true ? { recipe: c.recipe } : {}),
+              }]
+            }),
+            note: 'withRecipes:true includes each recipe. redbeam_use_pattern puts a library pattern on a scope.',
+          }
+        }
+        case 'use_pattern': {
+          const off = patternsOff()
+          if (off !== null) return off
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
+          const sc = scopesRef.current.find((x) => x.id === id)
+          if (!sc) return noScope(id)
+          const pid = String(params['patternId'] ?? '')
+          const entry = libraryEntry(pid)
+          if (entry === undefined) return { error: `no pattern "${pid}" in the library`, library: readLibrary().map((e) => ({ patternId: e.id, name: e.recipe.name })) }
+          await saveScope({
+            ...sc, scopeType: 'area',
+            specifications: { ...sc.specifications, productType: 'custom_pattern', [PATTERN_RECIPE_KEY]: entry.recipe },
+          })
+          const result = await settledPieces(id, (r) => r.productLabel === entry.recipe.name)
+          return { scopeId: id, name: entry.recipe.name, patternId: entry.id, version: entry.version, status: entry.recipe.status, ...patternAnswer(result) }
         }
         /*
          * Where an area's pattern starts. Per area, in the same specification
@@ -7976,7 +8244,7 @@ export default function Workspace({
             const type = typeof x.specifications['productType'] === 'string' ? x.specifications['productType'] : null
             return {
               scopeId: x.id, label: x.label, scopeType: x.scopeType, color: x.color,
-              productType: type, specifications: x.specifications,
+              productType: type, productLabel: productLabelFor(x.specifications), specifications: x.specifications,
               ...(type !== null ? { needs: missingKeys(readProductType(x.specifications), x.specifications) } : {}),
               markups: counts.get(x.id) ?? 0, archived, active: x.id === activeScopeRef.current,
             }
@@ -9378,7 +9646,7 @@ export default function Workspace({
         .map((sc): Command => ({
           ...then(sc),
           id: `pick-${sc.id}`, kind: 'scope', title: sc.label,
-          detail: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}`,
+          detail: `${productLabelFor(sc.specifications)} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}`,
         })),
     })
     const renameCommand = (id: string): Command => ({
@@ -9584,7 +9852,7 @@ export default function Workspace({
                   step: {
                     kind: 'choose', label: 'Move to', note: 'which scope',
                     options: () => estimateScopes.filter((sc) => sc.id !== id).map((sc): Command => ({
-                      id: `markup-${r.id}-move-${sc.id}`, kind: 'scope', title: sc.label, detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+                      id: `markup-${r.id}-move-${sc.id}`, kind: 'scope', title: sc.label, detail: productLabelFor(sc.specifications),
                       run: () => { setSelectedIds([r.id]); selectedRef.current = [r.id]; void reassignSelection(sc.id) },
                     })),
                   },
@@ -9619,7 +9887,7 @@ export default function Workspace({
 
     /** Everything the prompt can do to one scope. Enter on a scope row opens this. */
     const scopeHub = (sc: Scope): Step => ({
-      kind: 'choose', label: sc.label, note: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}${sc.id === shownScopeId ? ' · open in the sidebar' : ''}`,
+      kind: 'choose', label: sc.label, note: `${productLabelFor(sc.specifications)} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}${sc.id === shownScopeId ? ' · open in the sidebar' : ''}`,
       options: () => [
         {
           // Drawing needs a sheet, not a scale: the sidebar's own Take off
@@ -9630,7 +9898,7 @@ export default function Workspace({
           ...stuck(noSheet), run: () => { setActiveScope(sc.id); beginTakeoff(true); setTool(firstToolFor(sc.id)) },
         },
         { ...configureCommand(sc.id), title: 'Configure…', detail: 'product, each measure, yield, seams' },
-        { ...productCommand(sc.id, { then: 'configure' }), title: 'Set product…', detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)] },
+        { ...productCommand(sc.id, { then: 'configure' }), title: 'Set product…', detail: productLabelFor(sc.specifications) },
         ...(readProductType(sc.specifications) === 'custom_assembly' ? [{ ...countsCommand(sc.id, { then: 'configure' }), title: 'Measured as…', detail: SCOPE_TYPE_LABEL[sc.scopeType] }] : []),
         colourCommand(sc.id),
         edgeDirectionCommand(sc.id),
@@ -10122,7 +10390,7 @@ export default function Workspace({
           kind: 'choose', label: 'Restore scope', note: `into ${openRound?.name ?? 'the round'}`,
           options: () => archivedScopes.map((sc): Command => ({
             id: `restore-${sc.id}`, kind: 'command', title: sc.label,
-            detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+            detail: productLabelFor(sc.specifications),
             run: () => void restoreScope(sc.id),
           })),
         },
@@ -10184,7 +10452,7 @@ export default function Workspace({
           kind: 'choose', label: 'Move to', note: `${selectedIds.length} markup${selectedIds.length === 1 ? '' : 's'}`,
           options: () => [
             ...estimateScopes.map((sc): Command => ({
-              id: `move-${sc.id}`, kind: 'scope', title: sc.label, detail: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)],
+              id: `move-${sc.id}`, kind: 'scope', title: sc.label, detail: productLabelFor(sc.specifications),
               run: () => void reassignSelection(sc.id),
             })),
             { id: 'move-none', kind: 'command', title: 'No scope', detail: 'Kept on the sheet, counted nowhere', run: () => void reassignSelection(null) },
@@ -10382,7 +10650,7 @@ export default function Workspace({
       const n = markupCounts[sc.id] ?? 0
       out.push({
         id: `scope-${sc.id}`, kind: 'scope', title: sc.label, color: sc.color,
-        detail: `${PRODUCT_TYPE_LABEL[readProductType(sc.specifications)]} · ${n} markup${n === 1 ? '' : 's'}${total === undefined ? '' : ` · ${total.quantity.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${total.unit}`}`,
+        detail: `${productLabelFor(sc.specifications)} · ${n} markup${n === 1 ? '' : 's'}${total === undefined ? '' : ` · ${total.quantity.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${total.unit}`}`,
         // Enter opens it; Tab lists everything that can be done to it (the prompt's actions).
         alt: { label: 'Open in the sidebar', run: () => { setActiveScope(sc.id); setOpenScopeId(sc.id); setWorkOpen(true) } },
         step: scopeHub(sc),
@@ -10682,7 +10950,7 @@ export default function Workspace({
               onUnmarkHits={unmarkHits}
               targets={estimateScopes.map((sc) => ({
                 id: sc.id, label: sc.label, color: sc.color,
-                product: PRODUCT_TYPE_LABEL[readProductType(sc.specifications)], markups: markupCounts[sc.id] ?? 0,
+                product: productLabelFor(sc.specifications), markups: markupCounts[sc.id] ?? 0,
               }))}
               onNewTarget={() => { setOpenScopeId(null); setWorkOpen(true); setAddScopeRequest((n) => n + 1) }}
               sheetFor={(pageId) => {
@@ -11406,6 +11674,7 @@ export default function Workspace({
 
       <EstimatesPanel
         projectName={projectName}
+        patterns={patternControls}
         fileMode={light}
         below={agentsDock}
         estimates={estimates}
