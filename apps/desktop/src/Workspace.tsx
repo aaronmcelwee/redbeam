@@ -19,7 +19,7 @@ import {
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
 } from '@redbeam/domain'
 import {
-  ensureDocumentAndPage, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
+  ensureDocumentAndPage, ensureDocumentAndPageStatements, runBatch, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
   listEstimates, createEstimate as createEstimateRow, listEstimateScopeIds,
   estimateDocuments, addScopeToEstimate,
   upsertScope, setScopeArchived, logActivity, type SqlDriver,
@@ -37,6 +37,7 @@ import {
   copyEstimate,
   renameEstimate, deleteEstimate, removeScopeFromEstimate,
 } from '@redbeam/store'
+import { pagesNamed } from './agents/pagesNamed.js'
 import { openDatabase, openMemory, openOldProjectDatabase, debounceSave, undoOptionsFor, type DbBackend } from './db.js'
 import {
   resolveMarkups, deleteMarkupsCommand, rescopeMarkupsCommand, duplicateMarkupsCommand,
@@ -849,6 +850,10 @@ export default function Workspace({
    * quantity comes out confidently wrong.
    */
   const [pageSizes, setPageSizes] = useState<Array<{ width: number; height: number }>>([])
+  const pageSizesRef = useRef(pageSizes)
+  /** Set below, where the documents are in reach (`ensurePageRows`). */
+  const ensurePageRowsRef = useRef<(pages: readonly number[]) => Promise<void>>(async () => {})
+  pageSizesRef.current = pageSizes
   /** Calibration per page id, for the whole open document. */
   const [docCalibrations, setDocCalibrations] = useState<Map<string, number>>(new Map())
   const [docIndex, setDocIndex] = useState<{
@@ -2614,6 +2619,7 @@ export default function Workspace({
     const db = dbRef.current
     if (db === null || pages.length === 0) return
     const documentId = docIdRef.current
+    await ensurePageRowsRef.current(pages)
     await applyScaleToPages(
       db,
       pages.map((targetPage) => ({ documentId, pageId: pageIdFor(documentId, targetPage) })),
@@ -5812,6 +5818,25 @@ export default function Workspace({
     if (ctx.drives) return activeScopeRef.current
     return guestScopeRef.current.get(ctx.agent?.id ?? '') ?? null
   }
+  /*
+   * A sheet's row in the store is written the first time the sheet is shown,
+   * and by the search index as it works through the set. An agent writes to
+   * sheets nobody has shown, in a tab that may never have been on screen: a
+   * scale there failed with "FOREIGN KEY constraint failed", and a batch of
+   * markups across six sheets kept only the first sheet's (SLS benchmark,
+   * 2026-11-25). So every sheet a call names has its row before the call runs.
+   */
+  const ensurePageRows = async (pages: readonly number[]): Promise<void> => {
+    const db = dbRef.current
+    if (db === null || pages.length === 0) return
+    const doc = documents.find((d) => d.id === docIdRef.current) ?? FALLBACK_DOC
+    // `targetPage`: sheets the call named, not a read of the one showing.
+    await runBatch(db, pages.flatMap((targetPage) => ensureDocumentAndPageStatements(doc, {
+      id: pageIdFor(doc.id, targetPage), documentId: doc.id, pageNumber: targetPage,
+      width: pageSizesRef.current[targetPage]?.width ?? 0, height: pageSizesRef.current[targetPage]?.height ?? 0,
+    })))
+  }
+  ensurePageRowsRef.current = ensurePageRows
   const showPageForAgent = async (n: number): Promise<void> => {
     if (!Number.isInteger(n) || n < 0 || n >= pageCount) throw new Error(`page ${n} out of range (0..${pageCount - 1})`)
     if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
@@ -6088,6 +6113,7 @@ export default function Workspace({
           if (at === null) return { error: `no single sheet is called ${given} in this document; redbeam_list_sheets has every sheet` }
           params = { ...params, page: at }
         }
+        await ensurePageRows(pagesNamed(params, pageCount))
         // A write that names a page lands on that page, after it shows (P1-2).
         if (PAGE_BOUND.has(action) && params['page'] !== undefined) {
           const n = Number(params['page'])
@@ -7211,7 +7237,7 @@ export default function Workspace({
           return {
             saved: ok, outcome: out.kind,
             ...(out.kind === 'failed' ? { message: out.message } : {}),
-            ...(out.kind === 'held' && out.reason !== null ? { message: out.reason } : {}),
+            ...(out.kind === 'held' ? { message: out.reason ?? 'the takeoff in this PDF has not finished loading, so nothing was written; call save again in a few seconds' } : {}),
             ...(out.kind === 'busy' ? { message: 'the PDF is open in another app; close it there, or save_copy' } : {}),
             ...(out.kind === 'elsewhere' ? { message: 'someone else saved a takeoff into this PDF since it was opened; nothing was written. save_copy keeps this one' } : {}),
           }

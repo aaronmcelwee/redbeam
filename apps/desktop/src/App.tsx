@@ -28,7 +28,7 @@ import { BridgeRouter } from './agents/router.js'
 import { roster } from './agents/roster.js'
 import { handovers } from './agents/handover.js'
 import { AgentsOnStart, type AgentTabItem } from './agents/AgentTabs.js'
-import { LIVE_LIMIT, sleepers, type LiveUse } from './agents/live.js'
+import { sleepers, type LiveUse } from './agents/live.js'
 import { APP_VERSION } from './update/updates.js'
 import {
   choosePdfHandler, defaultOfferDismissed, dismissDefaultOffer, onOpenFile, openElsewhere,
@@ -392,10 +392,15 @@ export default function App() {
       router.sweep()
       const uses: LiveUse[] = liveRef.current.map((file) => ({ file, usedAt: usedRef.current.get(foldPath(file)) ?? 0 }))
       const busy = (file: string) => roster.get().agents.some((a) => a.activity?.busy === true && a.activity.file !== null && samePath(a.activity.file, file))
-      for (const file of sleepers(uses, { now: Date.now(), busy, limit: LIVE_LIMIT })) {
+      // A PDF a live session drives, or is a guest in, stays: the session is still working in it.
+      const held = (file: string) => {
+        const owner = tabFor(tabsRef.current, file)?.owner
+        return roster.get().agents.some((a) => a.state !== 'gone' && (a.id === owner || a.guestIn.some((f) => samePath(f, file))))
+      }
+      for (const file of sleepers(uses, { now: Date.now(), busy, held })) {
         void quietSave(file, 15_000).then((saved) => {
           // Called for again while it saved, or not saved: it stays live.
-          if (!saved || busy(file) || Date.now() - (usedRef.current.get(foldPath(file)) ?? 0) < 5000) return
+          if (!saved || busy(file) || held(file) || Date.now() - (usedRef.current.get(foldPath(file)) ?? 0) < 5000) return
           setLive((l) => l.filter((f) => !samePath(f, file)))
         })
       }
