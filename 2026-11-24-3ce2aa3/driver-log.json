@@ -1,0 +1,923 @@
+[
+  {
+    "k": "init",
+    "v": [
+      {
+        "v": "0.3.78",
+        "tools": 71,
+        "startTool": true
+      },
+      {
+        "v": "0.3.78",
+        "tools": 71,
+        "startTool": true
+      }
+    ]
+  },
+  {
+    "k": "z.beforeLaunch",
+    "v": {
+      "none": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S1.sessions",
+    "v": [
+      "Tower A ceilings takeoff #FXR",
+      "Clinic intake review #C74",
+      "Nokia Canada North Campus takeoff #RR7"
+    ]
+  },
+  {
+    "k": "S1.appProcesses",
+    "v": "1"
+  },
+  {
+    "k": "S1.opens",
+    "v": {
+      "secs": 4.762,
+      "r": [
+        {
+          "ok": true,
+          "data": {
+            "accepted": true,
+            "opened": true,
+            "pageCount": 8,
+            "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+            "tab": "Claude · Tower A ceilings takeoff's own tab, open behind whatever the person is looking at. Nothing on their screen moved.",
+            "yours": true
+          }
+        },
+        {
+          "ok": true,
+          "data": {
+            "accepted": true,
+            "opened": true,
+            "pageCount": 8,
+            "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+            "tab": "Claude · Clinic intake review's own tab, open behind whatever the person is looking at. Nothing on their screen moved.",
+            "yours": true
+          }
+        },
+        {
+          "ok": true,
+          "data": {
+            "accepted": true,
+            "opened": true,
+            "pageCount": 8,
+            "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+            "tab": "ChatGPT · Nokia Canada North Campus takeoff's own tab, open behind whatever the person is looking at. Nothing on their screen moved.",
+            "yours": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "k": "theme",
+    "v": {
+      "was": "light",
+      "set": {
+        "ok": true,
+        "data": {
+          "file": "Tower-A.pdf",
+          "setting": "general.theme",
+          "value": "light"
+        }
+      }
+    }
+  },
+  {
+    "k": "size",
+    "v": "rect=480,326,1936,1235 zoomed=False fg=False"
+  },
+  {
+    "k": "S5.zAfterAgentLaunch",
+    "v": {
+      "above": [],
+      "rank": 0,
+      "iconic": false,
+      "locked": true,
+      "foreground": false,
+      "title": "scratch-6 — REDBEAM"
+    }
+  },
+  {
+    "k": "S5.whatsNewAfterAgentLaunch",
+    "v": []
+  },
+  {
+    "k": "S1.noSession",
+    "v": {
+      "ok": false,
+      "text": "Error: Start a session first: call redbeam_start_session with a short name for the job this chat is doing, then pass the `session` it returns on every call. This call carried no session that REDBEAM issued to a chat on this connection."
+    }
+  },
+  {
+    "k": "S1.fakeSession",
+    "v": {
+      "ok": false,
+      "text": "Error: Start a session first: call redbeam_start_session with a short name for the job this chat is doing, then pass the `session` it returns on every call. This call carried no session that REDBEAM issued to a chat on this connection."
+    }
+  },
+  {
+    "k": "S1.states",
+    "v": [
+      {
+        "ok": true,
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+        "agent": {
+          "colour": "violet",
+          "drives": true,
+          "name": "Claude · Tower A ceilings takeoff",
+          "tabs": [
+            "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf"
+          ]
+        },
+        "tabOwners": [
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-scratch-pdfs\\scratch-6.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\set-171.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\set-1000.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\Red Beam Test\\Hyundai working.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+            "owner": "you"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+            "owner": "Claude · Clinic intake review"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+            "owner": "ChatGPT · Nokia Canada North Campus takeoff"
+          }
+        ]
+      },
+      {
+        "ok": true,
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+        "agent": {
+          "colour": "teal",
+          "drives": true,
+          "name": "Claude · Clinic intake review",
+          "tabs": [
+            "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf"
+          ]
+        },
+        "tabOwners": [
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-scratch-pdfs\\scratch-6.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\set-171.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\set-1000.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\Red Beam Test\\Hyundai working.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+            "owner": "Claude · Tower A ceilings takeoff"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+            "owner": "you"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+            "owner": "ChatGPT · Nokia Canada North Campus takeoff"
+          }
+        ]
+      },
+      {
+        "ok": true,
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+        "agent": {
+          "colour": "orange",
+          "drives": true,
+          "name": "ChatGPT · Nokia Canada North Campus takeoff",
+          "tabs": [
+            "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf"
+          ]
+        },
+        "tabOwners": [
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-scratch-pdfs\\scratch-6.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\set-171.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\set-1000.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\temp\\rb-89\\Red Beam Test\\Hyundai working.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+            "owner": "person"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+            "owner": "Claude · Tower A ceilings takeoff"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+            "owner": "Claude · Clinic intake review"
+          },
+          {
+            "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+            "owner": "you"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "k": "S2.uiaPills",
+    "v": [
+      "ControlType.Button | Claude · Tower A ceilings takeoff 1 PDF",
+      "ControlType.Text |  · Tower A ceilings takeoff",
+      "ControlType.Button | Claude · Clinic intake review 1 PDF",
+      "ControlType.Text |  · Clinic intake review",
+      "ControlType.Button | ChatGPT · Nokia Canada North Campus takeoff 1 PDF",
+      "ControlType.Text |  · Nokia Canada North Campus takeoff"
+    ]
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "01-three-sessions-folded",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\01-three-sessions-folded.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S9.personOpened",
+    "v": [
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-scratch-pdfs\\scratch-6.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\temp\\rb-89\\set-171.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\temp\\rb-89\\set-1000.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\temp\\rb-89\\Red Beam Test\\Hyundai working.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+        "owner": "you"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+        "owner": "Claude · Clinic intake review"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+        "owner": "ChatGPT · Nokia Canada North Campus takeoff"
+      }
+    ]
+  },
+  {
+    "k": "S5.zAfterPersonOpen",
+    "v": {
+      "above": [],
+      "rank": 0,
+      "iconic": false,
+      "locked": true,
+      "foreground": false,
+      "title": "Person-North-Campus — REDBEAM"
+    }
+  },
+  {
+    "k": "S5.person0",
+    "v": {
+      "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+      "page": 0,
+      "zoom": 0.2814814814814815,
+      "tool": "pan"
+    }
+  },
+  {
+    "k": "S3.pillA",
+    "v": "Claude · Tower A ceilings takeoff 1 PDF"
+  },
+  {
+    "k": "S3.unfold",
+    "v": "expanded: Claude · Tower A ceilings takeoff 1 PDF"
+  },
+  {
+    "k": "S3.afterUnfold",
+    "v": [
+      "ControlType.TabItem | Tower-A Close Tower-A"
+    ]
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "02-pill-unfolded",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\02-pill-unfolded.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S3.pillAopen",
+    "v": "Claude · Tower A ceilings takeoff"
+  },
+  {
+    "k": "S3.fold",
+    "v": "collapsed: Claude · Tower A ceilings takeoff"
+  },
+  {
+    "k": "S3.afterFold",
+    "v": []
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "03-pill-folded-again",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\03-pill-folded-again.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S4.unfoldC",
+    "v": "expanded: ChatGPT · Nokia Canada North Campus takeoff 1 PDF"
+  },
+  {
+    "k": "S4.lookInC",
+    "v": "selected: Tower-B Close Tower-B"
+  },
+  {
+    "k": "S4.work",
+    "v": [
+      [
+        "Error: Person-North-Campus.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the perso",
+        "ok",
+        "Error: Person-North-Campus.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the perso",
+        "ok",
+        "Error: Person-North-Campus.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the perso",
+        "ok",
+        "Error: Person-North-Campus.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the perso",
+        "ok"
+      ],
+      [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ]
+    ]
+  },
+  {
+    "k": "S5.zBeforeAfterWork",
+    "v": {
+      "before": {
+        "above": [],
+        "rank": 0,
+        "iconic": false,
+        "locked": true,
+        "foreground": false,
+        "title": "Tower-B — REDBEAM"
+      },
+      "after": {
+        "above": [],
+        "rank": 0,
+        "iconic": false,
+        "locked": true,
+        "foreground": false,
+        "title": "Tower-B — REDBEAM"
+      }
+    }
+  },
+  {
+    "k": "S5.person1",
+    "v": {
+      "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+      "page": 0,
+      "zoom": 0.2814814814814815,
+      "tool": "pan"
+    }
+  },
+  {
+    "k": "S5.dialogs",
+    "v": []
+  },
+  {
+    "k": "S6.closeOther",
+    "v": {
+      "ok": false,
+      "text": "Error: Tower-A.pdf is another agent's tab; an agent closes only the tabs it opened"
+    }
+  },
+  {
+    "k": "S6.driveOther",
+    "v": {
+      "ok": false,
+      "text": "Error: Tower-A.pdf is Claude · Tower A ceilings takeoff's tab. REDBEAM does not move a view someone else is using, so the person has been asked whether Claude · Clinic intake review may work in it; they have not answered yet. Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. Reading, and drawing on the sheet that is showing (leave `page` ou"
+    }
+  },
+  {
+    "k": "S6.drawOther",
+    "v": {
+      "ok": false,
+      "text": "Error: Clinic.pdf is Claude · Clinic intake review's tab. REDBEAM does not move a view someone else is using, so the person has been asked whether ChatGPT · Nokia Canada North Campus takeoff may work in it; they have not answered yet. Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. Reading, and drawing on the sheet that is showing (leave "
+    }
+  },
+  {
+    "k": "S7",
+    "v": [
+      {
+        "s": "Tower A ceilings takeoff #FXR",
+        "median": 22,
+        "p95": 37,
+        "worst": 61,
+        "fails": 0
+      },
+      {
+        "s": "Clinic intake review #C74",
+        "median": 21,
+        "p95": 40,
+        "worst": 43,
+        "fails": 0
+      },
+      {
+        "s": "Nokia Canada North Campus takeoff #RR7",
+        "median": 21,
+        "p95": 35,
+        "worst": 60,
+        "fails": 0
+      }
+    ]
+  },
+  {
+    "k": "S9.scope",
+    "v": {
+      "ok": true,
+      "data": {
+        "estimateId": "estimate-bee62de8-9aaa-470d-8676-b85ba8453d09",
+        "file": "Person-North-Campus.pdf",
+        "inEstimate": true,
+        "label": "ACT-9",
+        "needs": [
+          {
+            "key": "spacing",
+            "label": "Spacing OC",
+            "unitKey": "spacingUnit"
+          },
+          {
+            "key": "stockLength",
+            "label": "Stock",
+            "unitKey": "stockLengthUnit"
+          },
+          {
+            "key": "maxConnectorSpacing",
+            "label": "Conn. Max",
+            "unitKey": "maxConnectorSpacingUnit"
+          }
+        ],
+        "note": "set these with update_scope {specifications}; describe_product lists every field",
+        "productType": "baffle",
+        "scopeId": "sc-mwvhcef9-gv24m",
+        "scopeType": "area"
+      }
+    }
+  },
+  {
+    "k": "S9.markups",
+    "v": [
+      {
+        "ok": true,
+        "data": {
+          "file": "Person-North-Campus.pdf",
+          "id": "mk-mwvhceg1-z8tavy",
+          "kind": "area",
+          "measure": {
+            "areaSquareFeet": null,
+            "perimeter": null,
+            "perimeterFeet": null
+          },
+          "page": 0,
+          "pageId": "doc-1c33c342093b3d84-p0",
+          "scopeId": "sc-mwvhcef9-gv24m",
+          "sheet": "G0.00",
+          "warnings": [
+            "G0.00 has no scale, so this measures nothing yet; set_page_scale or read_scale"
+          ]
+        }
+      },
+      {
+        "ok": true,
+        "data": {
+          "file": "Person-North-Campus.pdf",
+          "id": "mk-mwvhcegg-dqdyln",
+          "kind": "area",
+          "measure": {
+            "areaSquareFeet": null,
+            "perimeter": null,
+            "perimeterFeet": null
+          },
+          "page": 0,
+          "pageId": "doc-1c33c342093b3d84-p0",
+          "scopeId": "sc-mwvhcef9-gv24m",
+          "sheet": "G0.00",
+          "warnings": [
+            "G0.00 has no scale, so this measures nothing yet; set_page_scale or read_scale"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "k": "S9.before",
+    "v": {
+      "ok": true,
+      "n": 2,
+      "ids": [
+        "mk-mwvhceg1-z8tavy",
+        "mk-mwvhcegg-dqdyln"
+      ]
+    }
+  },
+  {
+    "k": "S9.dotUia",
+    "v": [
+      "ControlType.Text | Person-North-Campus"
+    ]
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "09-person-tab-guest-dot",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\09-person-tab-guest-dot.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S9.ctrlZ",
+    "v": "ERR desktop locked: real key input cannot reach the window\r\n"
+  },
+  {
+    "k": "S9.afterCtrlZ",
+    "v": {
+      "ok": true,
+      "n": 2,
+      "ids": [
+        "mk-mwvhceg1-z8tavy",
+        "mk-mwvhcegg-dqdyln"
+      ]
+    }
+  },
+  {
+    "k": "S9.undo",
+    "v": {
+      "ok": true,
+      "data": {
+        "file": "Person-North-Campus.pdf",
+        "op": "create_markup",
+        "undid": "create area",
+        "undo": {
+          "canRedo": true,
+          "canUndo": true,
+          "depth": 1,
+          "redoLabel": "create area",
+          "redoTarget": {
+            "documentId": "doc-1c33c342093b3d84",
+            "entityId": "mk-mwvhcegg-dqdyln",
+            "entityType": "markup",
+            "pageId": "doc-1c33c342093b3d84-p0"
+          },
+          "undoLabel": "create area",
+          "undoTarget": {
+            "documentId": "doc-1c33c342093b3d84",
+            "entityId": "mk-mwvhceg1-z8tavy",
+            "entityType": "markup",
+            "pageId": "doc-1c33c342093b3d84-p0"
+          }
+        }
+      }
+    }
+  },
+  {
+    "k": "S9.afterUndo",
+    "v": {
+      "ok": true,
+      "n": 1,
+      "ids": [
+        "mk-mwvhceg1-z8tavy"
+      ]
+    }
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "09b-after-agent-undo",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\09b-after-agent-undo.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S8.wait",
+    "v": {
+      "ok": true,
+      "data": {
+        "for": "approve the scope definition",
+        "note": "REDBEAM shows the person that this session is waiting for them. Your tabs stay open. Your next call puts the session back to work; call redbeam_end_session when the job is done.",
+        "waiting": true
+      }
+    }
+  },
+  {
+    "k": "S8.waitingUia",
+    "v": [
+      "ControlType.Button | Claude · Tower A ceilings takeoff Waiting for you Asking you something",
+      "ControlType.Text | Waiting for you"
+    ]
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "08a-waiting-for-you",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\08a-waiting-for-you.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S8.openRef",
+    "v": {
+      "ok": true,
+      "data": {
+        "accepted": true,
+        "opened": true,
+        "pageCount": 8,
+        "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Ref-Spec.pdf",
+        "tab": "Claude · Tower A ceilings takeoff's own tab, open behind whatever the person is looking at. Nothing on their screen moved.",
+        "yours": true
+      }
+    }
+  },
+  {
+    "k": "S8.end",
+    "v": {
+      "ok": true,
+      "data": {
+        "closed": [
+          "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-A.pdf",
+          "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Ref-Spec.pdf"
+        ],
+        "ended": true,
+        "handedBack": [],
+        "note": "The session is finished. PDFs you changed are now the person's own tabs; PDFs you only read were closed. A new job starts with redbeam_start_session."
+      }
+    }
+  },
+  {
+    "k": "S8.tabOwnersAfterEnd",
+    "v": [
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-scratch-pdfs\\scratch-6.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\temp\\rb-89\\set-171.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\temp\\rb-89\\set-1000.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\temp\\rb-89\\Red Beam Test\\Hyundai working.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Person-North-Campus.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Clinic.pdf",
+        "owner": "you"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+        "owner": "ChatGPT · Nokia Canada North Campus takeoff"
+      }
+    ]
+  },
+  {
+    "k": "S8.finishedUia",
+    "v": [
+      "ControlType.Button | Finished 1"
+    ]
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "08b-after-end-session",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\08b-after-end-session.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S8.newSessionOpensClosed",
+    "v": {
+      "ok": true,
+      "data": {
+        "accepted": true,
+        "opened": true,
+        "pageCount": 8,
+        "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Ref-Spec.pdf",
+        "tab": "ChatGPT · Reference check's own tab, open behind whatever the person is looking at. Nothing on their screen moved.",
+        "yours": true
+      }
+    }
+  },
+  {
+    "k": "S8.newSessionDrives",
+    "v": {
+      "ok": true,
+      "data": {
+        "file": "Ref-Spec.pdf",
+        "page": 2,
+        "sheet": "Page 3"
+      }
+    }
+  },
+  {
+    "k": "S4.openBig",
+    "v": {
+      "ok": true,
+      "data": {
+        "accepted": true,
+        "opened": true,
+        "pageCount": 300,
+        "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Big-300.pdf",
+        "tab": "ChatGPT · Nokia Canada North Campus takeoff's own tab, open behind whatever the person is looking at. Nothing on their screen moved.",
+        "yours": true
+      }
+    }
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "04a-before-kill",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\04a-before-kill.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "S4.kill",
+    "v": "SUCCESS: The process with PID 8372 has been terminated."
+  },
+  {
+    "k": "S4.longResult",
+    "v": {
+      "ok": false,
+      "text": "process exited"
+    }
+  },
+  {
+    "k": "S4.afterKill",
+    "v": {
+      "secondsUntilGone": 21.826,
+      "samples": [
+        {
+          "t": 61,
+          "live": false,
+          "fin": 0
+        },
+        {
+          "t": 63,
+          "live": false,
+          "fin": 0
+        },
+        {
+          "t": 64,
+          "live": false,
+          "fin": 0
+        },
+        {
+          "t": 66,
+          "live": false,
+          "fin": 0
+        },
+        {
+          "t": 67,
+          "live": false,
+          "fin": 0
+        },
+        {
+          "t": 69,
+          "live": false,
+          "fin": 0
+        }
+      ]
+    }
+  },
+  {
+    "k": "S4.finishedText",
+    "v": []
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "04b-after-kill",
+      "path": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\cap-3ce2aa3-run3\\04b-after-kill.png",
+      "width": 1456,
+      "height": 909,
+      "printWindow": true,
+      "locked": true
+    }
+  },
+  {
+    "k": "themeRestore",
+    "v": {
+      "ok": true,
+      "data": {
+        "file": "Person-North-Campus.pdf",
+        "setting": "general.theme",
+        "value": "light"
+      }
+    }
+  }
+]
