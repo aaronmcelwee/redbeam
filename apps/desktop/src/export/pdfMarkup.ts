@@ -29,9 +29,19 @@
  *     page the two disagree about which axis is which.
  */
 import {
-  PDFDocument, PDFName, PDFString, PDFArray,
+  PDFDocument, PDFHexString, PDFName, PDFString, PDFArray,
   PDFRef, type PDFContext, type PDFDict, type PDFPage,
 } from 'pdf-lib'
+
+/**
+ * A text string for a PDF dict. pdf-lib's PDFString.of keeps only the low
+ * byte of each character, so an em dash in a scope name came out as a control
+ * byte. Plain ASCII stays a literal string (what Revu writes); anything else
+ * goes as UTF-16 with a byte-order mark, which every reader decodes.
+ */
+export function pdfText(s: string): PDFString | PDFHexString {
+  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s)
+}
 
 export interface WritablePoint { x: number, y: number }
 
@@ -232,7 +242,7 @@ const INTENT: Record<AnnotShape, string | null> = {
 function numberFormat(ctx: PDFContext, unit: string, conversion: number): PDFDict {
   return ctx.obj({
     Type: 'NumberFormat',
-    U: PDFString.of(unit),
+    U: pdfText(unit),
     C: conversion,
     F: PDFName.of('D'), // decimal, not a fraction
     D: 100,
@@ -325,7 +335,7 @@ function writePageScale(
     viewports.push(ctx.obj({
       Type: 'Viewport',
       BBox: ctx.obj(bbox),
-      Name: PDFString.of(region.label === '' ? 'REDBEAM scale region' : region.label),
+      Name: pdfText(region.label === '' ? 'REDBEAM scale region' : region.label),
       Measure: measureDict(ctx, region.feetPerPoint),
     }) as PDFDict)
   }
@@ -484,9 +494,9 @@ export function writeMarkupsInto(
       // The annotation's own copy of the scale, so it still measures correctly
       // if it is copied onto a sheet whose page scale differs or is missing.
       ...(feetPerPoint === undefined ? {} : { Measure: measureDict(ctx, feetPerPoint) }),
-      T: PDFString.of(markup.scopeLabel),
+      T: pdfText(markup.scopeLabel),
       Subj: PDFString.of(SUBJECT[markup.kind] ?? 'Markup'),
-      Contents: PDFString.of(markup.note ?? ''),
+      Contents: pdfText(markup.note ?? ''),
       NM: PDFString.of(markup.id),
       AP: ctx.obj({ N: apRef }),
     })

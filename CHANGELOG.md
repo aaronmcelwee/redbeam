@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.81 — 2026-11-25
+## 0.3.83 — 2026-11-25
 
 ### AI agents work beside you
 
@@ -18,6 +18,14 @@ SmartScreen will ask once.
 - **A session that dies cleans up after itself.** If an AI app is closed or stops answering mid-job, its session is marked finished within seconds, its cursor goes away and its tabs are settled the same way. You can also end a session yourself from the Agents list.
 - **Agents never take the keyboard or the window.** An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, the question waits in the Agents list, with a "!" in the title bar, until you choose to answer; nothing opens over your drawing, and you are never asked to settle things between two agents. "What's new" no longer opens over a window an AI app started.
 - **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
+## 0.3.82 — 2026-11-25
+
+### Product details no longer lost over a dash
+
+- **Scope names with a dash, accent or curly quote now save correctly.** REDBEAM wrote characters like "—" or "é" into the takeoff it keeps in the PDF incorrectly. That made the takeoff unreadable on the next open, so REDBEAM rebuilt it from the markups and the scopes lost their product details (product, mark, finish, room, base or alternate, lengths).
+- **Files already affected open with their details again.** REDBEAM now reads takeoffs that the older versions mangled, as long as the latest save still holds the details. Markup labels in Bluebeam show the dash correctly too.
+
+
 ## 0.3.80 — 2026-11-24
 
 ### AI apps keep going on long work
