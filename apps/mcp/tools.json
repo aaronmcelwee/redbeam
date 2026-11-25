@@ -70,6 +70,8 @@
     "redbeam_select_markups": "invoke_ui_action",
     "redbeam_wait_for_person": "invoke_ui_action",
     "redbeam_end_session": "invoke_ui_action",
+    "redbeam_set_title_blocks": "invoke_ui_action",
+    "redbeam_rename_sheets": "invoke_ui_action",
     "redbeam_preview_pattern": "invoke_ui_action",
     "redbeam_save_pattern": "invoke_ui_action",
     "redbeam_clear_pattern_preview": "invoke_ui_action",
@@ -139,6 +141,8 @@
     "redbeam_list_scopes": "list_scopes",
     "redbeam_wait_for_person": "wait_for_person",
     "redbeam_end_session": "end_session",
+    "redbeam_set_title_blocks": "set_title_blocks",
+    "redbeam_rename_sheets": "rename_sheets",
     "redbeam_preview_pattern": "preview_pattern",
     "redbeam_save_pattern": "save_pattern",
     "redbeam_clear_pattern_preview": "clear_pattern_preview",
@@ -341,7 +345,7 @@
     },
     {
       "name": "redbeam_list_sheets",
-      "description": "Every page of the open document with its sheet number and title (\"A4.0\", \"FLOOR PLAN - LEVEL 03\"), from the PDF's bookmarks, then its page labels, then the title block printed on the sheet. `sheet` is null where none of them names the page. Use the page numbers here (ZERO-based) for go_to_page, find_text and screenshot. Needs a window.",
+      "description": "Every page of the open document with its sheet number and title (\"A4.0\", \"FLOOR PLAN - LEVEL 03\"). `source` says where each name came from: `renamed` (set with rename_sheets), `title block` (read from the boxes set with set_title_blocks or drawn by the person), or `document` (the PDF's bookmarks, then its page labels, then an automatic guess at the title block, which can be wrong: a contract number repeated on every sheet is the usual mistake). `sheet` is null where nothing names the page. `titleBlocks` gives the boxes in use and `reading` while they are still being read. Use the page numbers here (ZERO-based) for go_to_page, find_text and screenshot. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -353,6 +357,114 @@
       },
       "annotations": {
         "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_set_title_blocks",
+      "description": "Name every sheet of the open set from two boxes on its title block, the way a person does with Read from title block: `numberBox` around the drawing (sheet) number and `titleBox` around the drawing title, normalized like get_words. Every sheet is read in those two places, in the background; the names replace the bookmark, page label and automatic reading in list_sheets, and on save they are written into the PDF as its page labels, so Bluebeam shows them too. The answer shows what the boxes read on `page` (default: the sheet showing) and on a sample of other sheets, so a box that caught the wrong field is seen before trusting it. Find the boxes first with get_words on one sheet's title block. `clear: true` removes the boxes. Not on the undo stack: call again to change. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "numberBox": {
+            "type": "object",
+            "description": "The box around the drawing number on the title block: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points (the space get_words and find_text report boxes in). Only words whose centre is inside are read.",
+            "properties": {
+              "x0": {
+                "type": "number"
+              },
+              "y0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "y1": {
+                "type": "number"
+              }
+            }
+          },
+          "titleBox": {
+            "type": "object",
+            "description": "The box around the drawing title (optional; leave out to read numbers only) on the title block: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points (the space get_words and find_text report boxes in). Only words whose centre is inside are read.",
+            "properties": {
+              "x0": {
+                "type": "number"
+              },
+              "y0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "y1": {
+                "type": "number"
+              }
+            }
+          },
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based. The sheet to preview the boxes on; default the one showing."
+          },
+          "clear": {
+            "type": "boolean",
+            "description": "Remove the title block boxes; names set with rename_sheets stay."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_rename_sheets",
+      "description": "Set the sheet number and title of one or more pages yourself, for sheets whose title block reads wrongly or not at all (a cover, a scan, a sheet with a different title block). `sheets`: [{page, number, title}] with ZERO-based pages; a name set here beats the title block boxes and every other source, shows in the Contents list at once, and goes into the PDF as the page's label on save. {page, clear: true} in the list takes a page's name back off. Check list_sheets first: its `source` says where each name came from, and a `sheet` that is a contract or project number repeated on many pages is a wrong name. Not on the undo stack: call again to change. Needs a window.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "description": "ZERO-based page."
+                },
+                "number": {
+                  "type": "string",
+                  "description": "The drawing number as printed, e.g. A3001."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "The drawing title, e.g. OVERALL SITE PLAN. May be empty."
+                },
+                "clear": {
+                  "type": "boolean",
+                  "description": "Take this page's name back off."
+                }
+              },
+              "required": [
+                "page"
+              ]
+            }
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "sheets"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
       }
     },
     {
@@ -803,7 +915,7 @@
     },
     {
       "name": "redbeam_preview_pattern",
-      "description": "Try a custom pattern (beta) on a scope without saving it: REDBEAM checks the recipe, draws it on the sheet over the scope's areas, and returns the counts per layer. Check the drawing with redbeam_screenshot, change the recipe and preview again until it is right, then redbeam_save_pattern. A recipe that does not check comes back with `errors` saying what to fix. Needs Settings › Beta › Custom patterns on.",
+      "description": "Try a custom pattern (beta) on a scope without saving it: REDBEAM checks the recipe, draws it on the sheet over the scope's areas, and returns the counts per layer. Check the drawing with redbeam_screenshot, change the recipe and preview again until it is right, then redbeam_save_pattern. A recipe that does not check comes back with `errors` saying what to fix. The scope needs a pattern direction (redbeam_set_scope_direction) before anything is laid out. Needs Settings › Beta › Custom patterns on.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2236,7 +2348,7 @@
     },
     {
       "name": "redbeam_invoke_ui_action",
-      "description": "Drive the app the way a person would. Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
+      "description": "Drive the app the way a person would. Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page, and where each came from), set_title_blocks (name every sheet from a number box and a title box on the title block), rename_sheets (name pages yourself), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: set_title_blocks and rename_sheets are not undone (call them again to change a name); commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2305,6 +2417,8 @@
               "list_scopes",
               "wait_for_person",
               "end_session",
+              "set_title_blocks",
+              "rename_sheets",
               "preview_pattern",
               "save_pattern",
               "clear_pattern_preview",
@@ -2665,6 +2779,73 @@
           "offset": {
             "type": "integer",
             "description": "For get_words, get_lines, list_markups and list_bookmarks: the `nextOffset` a previous call returned."
+          },
+          "numberBox": {
+            "type": "object",
+            "description": "The box around the drawing number on the title block: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points (the space get_words and find_text report boxes in). Only words whose centre is inside are read.",
+            "properties": {
+              "x0": {
+                "type": "number"
+              },
+              "y0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "y1": {
+                "type": "number"
+              }
+            }
+          },
+          "titleBox": {
+            "type": "object",
+            "description": "The box around the drawing title (optional; leave out to read numbers only) on the title block: {x0,y0,x1,y1} in NORMALIZED [0,1] page coordinates, y DOWN from the top, NOT PDF points (the space get_words and find_text report boxes in). Only words whose centre is inside are read.",
+            "properties": {
+              "x0": {
+                "type": "number"
+              },
+              "y0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "y1": {
+                "type": "number"
+              }
+            }
+          },
+          "clear": {
+            "type": "boolean",
+            "description": "Remove the title block boxes; names set with rename_sheets stay."
+          },
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "description": "ZERO-based page."
+                },
+                "number": {
+                  "type": "string",
+                  "description": "The drawing number as printed, e.g. A3001."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "The drawing title, e.g. OVERALL SITE PLAN. May be empty."
+                },
+                "clear": {
+                  "type": "boolean",
+                  "description": "Take this page's name back off."
+                }
+              },
+              "required": [
+                "page"
+              ]
+            }
           },
           "recipe": {
             "type": "object",

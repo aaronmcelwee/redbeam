@@ -79,6 +79,12 @@ export interface SheetIndexInput {
    * disagree about whether a sheet has anything on it.
    */
   pageScopes?: ReadonlyMap<number, ReadonlyArray<SheetScope>>
+  /**
+   * Names read from the estimator's own title-block boxes (titleBlock.ts),
+   * by page. They beat the outline, the page labels and the automatic
+   * reading: the estimator pointed at where the name is.
+   */
+  named?: ReadonlyArray<{ number: string; title: string } | null>
 }
 
 /**
@@ -121,7 +127,16 @@ function markingsOf(page: number, input: SheetIndexInput): Pick<SheetRow, 'hasTa
   return { hasTakeoff: input.takeoffPages.has(page) || scopes.length > 0, scopes }
 }
 
+/** The estimator's title-block reading for this page, as a row, when there is one. */
+function namedRow(page: number, input: SheetIndexInput): SheetRow | null {
+  const n = input.named?.[page] ?? null
+  if (n === null || n.number.trim() === '') return null
+  return { page, number: n.number, title: n.title, ...markingsOf(page, input) }
+}
+
 function fallbackRow(page: number, input: SheetIndexInput): SheetRow {
+  const named = namedRow(page, input)
+  if (named !== null) return named
   const label = input.labels[page] ?? null
   // A page label is the publisher's own name for the page and beats our
   // ordinal. When there is none, `Page 40` is honest — inventing `A-040`
@@ -177,6 +192,8 @@ export function buildSheetIndex(input: SheetIndexInput): SheetGroup[] {
   })
 
   const rowFor = (page: number): SheetRow => {
+    const named = namedRow(page, input)
+    if (named !== null) return named
     const t = titleFor.get(page)
     if (t === undefined) return fallbackRow(page, input)
     const split = splitSheetTitle(t)

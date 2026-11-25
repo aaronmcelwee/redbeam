@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.84 — 2026-11-25
+
+### Sheet names from the title block
+
+- **Point at the title block and every sheet is named.** If the sheet list shows the wrong names, such as a contract number on every sheet or "Page 14", click Read from title block under the list. Drag a box around the drawing number, then one around the drawing title. REDBEAM shows what each box reads, then reads the same two spots on every sheet and names them all.
+- **The names are saved in the PDF.** They are written as the PDF's page labels, such as "A3001 - OVERALL SITE PLAN", so Bluebeam and other PDF viewers show the same names.
+- **AI agents can fix sheet names.** Claude and ChatGPT can set the two boxes themselves, rename any single sheet, and see where each sheet's name came from, so they can spot a set that is named wrongly and fix it.
+
+
 ## 0.3.83 — 2026-11-25
 
 ### AI agents work beside you
