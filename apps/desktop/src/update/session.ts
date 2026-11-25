@@ -19,6 +19,22 @@ let state: UpdateState = UPDATES_CONFIGURED ? { kind: 'idle' } : { kind: 'unconf
 let lastCheckedAt = 0
 let busy = false
 let started = false
+/** The copy from the portable zip (src-tauri/src/portable.rs). */
+let portable = false
+
+export function isPortableCopy(): boolean {
+  return portable
+}
+
+async function loadPortable(): Promise<void> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const info = await invoke<{ portable: boolean }>('app_portable')
+    portable = info.portable === true
+  } catch {
+    portable = false
+  }
+}
 const listeners = new Set<Listener>()
 
 function emit(next: UpdateState): void {
@@ -70,7 +86,10 @@ export function startAutomaticUpdateChecks(): void {
   if (started || !UPDATES_CONFIGURED) return
   if (typeof window === 'undefined') return
   started = true
-  void maybeCheck('startup')
+  void loadPortable().then(() => {
+    emit(state)
+    return maybeCheck('startup')
+  })
   window.setInterval(() => { void maybeCheck('interval') }, UPDATE_CHECK_INTERVAL_MS)
   window.addEventListener('focus', () => { void maybeCheck('focus') })
 }
@@ -91,6 +110,19 @@ export function setBeforeQuit(fn: ((leave: () => void) => Promise<boolean>) | nu
  * the timer above.
  */
 export async function performUpdateAction(action: 'check' | 'install' | 'restart', saved = false): Promise<void> {
+  /*
+   * The portable copy updates by downloading the new zip. Nothing quits, so
+   * there is nothing to save first.
+   */
+  if (action === 'install' && portable) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('portable_open_download')
+    } catch (err) {
+      emit({ kind: 'failed', message: messageOf(err) })
+    }
+    return
+  }
   /*
    * Installing and restarting both end this process without the window ever
    * being asked to close, so an open Light file is saved into its PDF here

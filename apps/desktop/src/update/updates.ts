@@ -51,7 +51,7 @@ export type UpdateState =
  * different thing from "up to date" and an estimator deciding whether to trust
  * a number needs to know which one they are looking at.
  */
-export function updateMessage(state: UpdateState): string {
+export function updateMessage(state: UpdateState, portable = false): string {
   switch (state.kind) {
     case 'unconfigured':
       return 'No update channel is set up, so this copy cannot check for or '
@@ -60,7 +60,13 @@ export function updateMessage(state: UpdateState): string {
     case 'idle': return `You are on ${APP_VERSION}.`
     case 'checking': return 'Checking…'
     case 'current': return `You are on ${APP_VERSION}, which is the latest.`
-    case 'available': return `Version ${state.version} is available.`
+    case 'available':
+      // The portable copy cannot run the installer as its update: that would
+      // install a second REDBEAM and leave this one where it is.
+      return portable
+        ? `Version ${state.version} is available. This is the portable copy, so `
+          + 'download the new zip and unzip it over this folder.'
+        : `Version ${state.version} is available.`
     case 'downloading':
       return state.percent === null
         ? 'Downloading…'
