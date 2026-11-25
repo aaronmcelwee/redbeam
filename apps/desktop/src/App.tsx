@@ -6,7 +6,7 @@
  * their database and bidding rounds no longer have a way in from here, from
  * Settings or from an AI agent (bridge/methods.rs).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ProjectStartScreen, useProject } from './project/index.js'
 import { destroyThisWindow, getWindowRole, guardWindowClose, isTauri } from './tauri/window.js'
 import { useWindowControls } from './tauri/useWindowControls.js'
@@ -19,7 +19,17 @@ import { WhatsNewHost } from './whatsnew/WhatsNew.js'
 import { setBeforeQuit } from './update/session.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
 import { projectBridge } from './project/bridge.js'
-import { lightFileOf, readSession, samePath, stepTab, withoutTab, withTab, writeSession, type LightFile } from './lightTabs.js'
+import {
+  lightFileOf, nextOwnTab, ownTabs, readSession, samePath, stepOwnTab, tabFor, withHanded, withOwner,
+  withoutTab, withTab, writeSession, type LightFile,
+} from './lightTabs.js'
+import { bridgeHosts, UNNAMED_CALL, useBridgeListener } from './bridge/useBridgeRequests.js'
+import { BridgeRouter } from './agents/router.js'
+import { roster } from './agents/roster.js'
+import { handovers } from './agents/handover.js'
+import { AgentsOnStart, type AgentTabItem } from './agents/AgentTabs.js'
+import { sleepers, type LiveUse } from './agents/live.js'
+import { APP_VERSION } from './update/updates.js'
 import {
   choosePdfHandler, defaultOfferDismissed, dismissDefaultOffer, onOpenFile, openElsewhere,
   reportShowing, takeLaunchFile, usePdfHandlerStatus,
@@ -45,8 +55,12 @@ export default function App() {
    * title bar and a frameless window still has to be closable from it.
    */
   const win = useWindowControls()
-  /** What the open workspace must finish before this window closes (Light: save into the PDF). */
-  const beforeCloseRef = useRef<((leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>) | null>(null)
+  /**
+   * What each mounted PDF must finish before it goes (Light: save into the
+   * PDF), by file. Several are mounted at once now: the one showing, and the
+   * ones agents are working in behind it.
+   */
+  const beforeRef = useRef(new Map<string, (leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>>())
   /**
    * The listener that hears every close of this window. One, for the
    * window's whole life: it used to come and go with the open file, and a
@@ -63,18 +77,19 @@ export default function App() {
     const stop = () => (guard === null ? Promise.resolve() : guard.then((s) => s()))
     void destroyThisWindow(stop).then((gone) => { if (!gone) closingRef.current = false })
   }, [])
+  /** Set below, once the tabs exist: save every mounted PDF, then say whether the window may go. */
+  const saveAllRef = useRef<(leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>>(() => Promise.resolve(true))
   /**
    * Every close goes through here: the X button, Alt+F4, the taskbar,
    * Windows shutting down. Light saves into the PDF first, and stays open
    * (asking) when that save is refused or is slow to answer.
    */
   const requestClose = useCallback(() => {
-    const before = beforeCloseRef.current
-    if (before === null) { closeNow(); return }
     // Already saving to close: that save asks within seconds if it cannot finish.
     if (closeAskingRef.current) return
     closeAskingRef.current = true
-    void before(closeNow, { closing: true })
+    // `closing`: only a closing window asks while a slow save runs (Workspace saveBeforeLeaving).
+    void saveAllRef.current(closeNow, { closing: true })
       .then((ok) => { if (ok) closeNow() }, (err: unknown) => {
         console.error('[window] saving before close failed; closing.', err)
         closeNow()
@@ -91,10 +106,10 @@ export default function App() {
       void guard.then((stop) => stop())
     }
   }, [])
-  const registerBeforeClose = useCallback((fn: ((leave: () => void, opts?: { closing?: boolean }) => Promise<boolean>) | null) => {
-    beforeCloseRef.current = fn
+  useEffect(() => {
     // An update that installs or restarts ends the app without closing the window.
-    setBeforeQuit(fn)
+    setBeforeQuit((leave) => saveAllRef.current(leave))
+    return () => setBeforeQuit(null)
   }, [])
   useEffect(() => {
     document.documentElement.toggleAttribute('data-frameless', win.frameless)
@@ -113,31 +128,100 @@ export default function App() {
    * project folder first." So a picked or dropped PDF that no job already
    * holds opens here, in memory; one that a job holds opens that job.
    */
-  const [quick, setQuick] = useState<LightFile | null>(null)
+  const [quick, setQuickState] = useState<LightFile | null>(null)
   const quickRef = useRef(quick)
-  quickRef.current = quick
   /**
    * LIGHT: the PDFs open in this window, as tabs (lightTabs.ts). `quick` is
-   * the one showing; the rest hold nothing that is not already in their files.
+   * the one showing. The person's other tabs hold nothing that is not
+   * already in their files; an agent's tabs stay live behind it (`live`).
    */
-  const [tabs, setTabs] = useState<LightFile[]>([])
+  const [tabs, setTabsState] = useState<LightFile[]>([])
   const tabsRef = useRef(tabs)
-  tabsRef.current = tabs
+  /**
+   * The PDFs mounted behind the one showing, each with an agent at work in
+   * it (agents/live.ts). Aaron, 2026-11-24: "MULTIPLE agents ... ALONGSIDE a
+   * human ... human working in 2-3 tabs, then collapsed tab groups showing
+   * different agents with their own environments".
+   */
+  const [live, setLiveState] = useState<string[]>([])
+  const liveRef = useRef(live)
+  /** When each background PDF was last called for. A ref: a call must not re-render the window. */
+  const usedRef = useRef(new Map<string, number>())
+  /*
+   * The refs are written with the state, not on the next render: a bridge
+   * call that opens a tab and one that asks for it a millisecond later must
+   * see the same list.
+   */
+  const setQuick = useCallback((next: LightFile | null) => { quickRef.current = next; setQuickState(next) }, [])
+  const setTabs = useCallback((next: LightFile[] | ((t: LightFile[]) => LightFile[])) => {
+    const value = typeof next === 'function' ? next(tabsRef.current) : next
+    tabsRef.current = value
+    setTabsState(value)
+  }, [])
+  const setLive = useCallback((next: (l: string[]) => string[]) => {
+    const value = next(liveRef.current)
+    if (value.length === liveRef.current.length && value.every((f, i) => f === liveRef.current[i])) return
+    liveRef.current = value
+    setLiveState(value)
+  }, [])
+  const isLive = useCallback((file: string) => liveRef.current.some((f) => samePath(f, file)), [])
   /** Tabs closed this session, newest last: what Ctrl+Shift+T brings back. */
   const closedTabsRef = useRef<string[]>([])
-  /** Save the showing file into its PDF, then `go`. Stays put when the save is refused and the person keeps the file. */
-  const leaveThen = useCallback((go: () => void) => {
-    const before = beforeCloseRef.current
-    if (before === null) { go(); return }
+
+  /** Save `file` into its PDF the way leaving it does, then `go`. Stays put when the save is refused and the person keeps the file. */
+  const saveThen = useCallback((file: string, go: () => void) => {
+    const before = beforeRef.current.get(foldPath(file))
+    if (before === undefined) { go(); return }
     void before(go).then((ok) => { if (ok) go() }, go)
   }, [])
+  /**
+   * Save a PDF mounted behind the one showing, with nothing put on screen.
+   * False when the PDF does not hold everything afterwards (open in another
+   * app, or slow): its tab then stays as it is.
+   */
+  const quietSave = useCallback(async (file: string, withinMs: number): Promise<boolean> => {
+    const host = bridgeHosts.get(file)
+    if (host === undefined) return true
+    const out = await Promise.race([
+      Promise.resolve(host.invoke('save', {}, UNNAMED_CALL)).catch((): Record<string, unknown> => ({ saved: false })),
+      new Promise<Record<string, unknown>>((resolve) => setTimeout(() => resolve({ saved: false }), withinMs)),
+    ])
+    // Still opening, or it never opened: there is no takeoff in it to lose.
+    if (typeof out['error'] === 'string' && /no document is open/i.test(out['error'])) return true
+    return out['saved'] === true
+  }, [])
 
+  /** Every tab gone: back to the start page. */
   const closeProject = useCallback(() => {
     setQuick(null)
     setTabs([])
+    setLive(() => [])
     setFiles(recentFiles())
     project.close()
-  }, [project])
+  }, [project, setQuick, setTabs, setLive])
+
+  /**
+   * Whether an agent is at work in `file`: it is an agent's tab, or one was
+   * called for in it in the last couple of minutes. Such a PDF stays live
+   * when the person leaves it, so the agent's next call finds it as it was.
+   */
+  const agentsUse = useCallback((file: string) => {
+    const tab = tabFor(tabsRef.current, file)
+    if (tab === undefined) return false
+    if (tab.owner !== undefined && roster.agent(tab.owner)?.state !== 'gone') return true
+    return Date.now() - (usedRef.current.get(foldPath(file)) ?? 0) < 120_000
+  }, [])
+
+  /** Show a tab. The one left is saved first, unless it stays live behind the new one. */
+  const showTab = useCallback((f: LightFile) => {
+    const now = quickRef.current
+    if (now !== null && samePath(now.file, f.file)) return
+    // Opened: it is no longer news that a session handed it back.
+    if (f.handed !== undefined) setTabs((t) => withHanded(t, f.file, null))
+    if (now !== null && !isLive(now.file) && agentsUse(now.file)) setLive((l) => [...l, now.file])
+    if (now === null || isLive(now.file)) { setQuick(f); return }
+    saveThen(now.file, () => setQuick(f))
+  }, [isLive, saveThen, setQuick, agentsUse, setLive, setTabs])
 
   /** A drawing, picked or dropped: it opens as a tab, or comes forward if it is one. */
   const showDrawing = useCallback((pick: { path: string | null }) => {
@@ -151,13 +235,17 @@ export default function App() {
     setFiles(recentFiles())
     setQuickNote(null)
     const path = pick.path
-    const f = tabsRef.current.find((t) => samePath(t.file, path)) ?? lightFileOf(path)
+    const open = tabFor(tabsRef.current, path)
+    // Already a tab, the person's or an agent's: it comes forward as it is.
+    if (open !== undefined) { showTab(open); return }
+    const f = lightFileOf(path)
     const now = quickRef.current
-    if (now === null) { setTabs((t) => withTab(t, f)); setQuick(f); return }
-    if (samePath(now.file, f.file)) return
+    const add = () => { setTabs((t) => withTab(t, f)); setQuick(f) }
+    if (now !== null && !isLive(now.file) && agentsUse(now.file)) setLive((l) => [...l, now.file])
+    if (now === null || isLive(now.file)) { add(); return }
     // Another PDF opens beside this one: save this one first, as leaving does.
-    leaveThen(() => { setTabs((t) => withTab(withTab(t, now), f)); setQuick(f) })
-  }, [leaveThen])
+    saveThen(now.file, add)
+  }, [showTab, isLive, saveThen, setTabs, setQuick, agentsUse, setLive])
 
   const viewDrawing = useCallback(() => {
     void project.viewDrawing().then((pick) => { if (pick !== null) showDrawing(pick) })
@@ -171,35 +259,65 @@ export default function App() {
 
   /** Light: show another open tab, saving the one left first. */
   const selectTab = useCallback((file: string) => {
-    const f = tabsRef.current.find((t) => samePath(t.file, file))
-    const now = quickRef.current
-    if (f === undefined || (now !== null && samePath(now.file, file))) return
-    leaveThen(() => setQuick(f))
-  }, [leaveThen])
-  /** Light: close a tab. The one showing is saved first, and its neighbour shows; the last goes to the start page. */
-  const closeTab = useCallback((file: string) => {
-    const remember = () => {
+    const f = tabFor(tabsRef.current, file)
+    if (f !== undefined) showTab(f)
+  }, [showTab])
+
+  /** Take a tab away, with nothing left to save. The person's own neighbour shows when it was the one showing. */
+  const dropTab = useCallback((file: string) => {
+    const tab = tabFor(tabsRef.current, file)
+    if (tab === undefined) return
+    // An agent's tab is not what Ctrl+Shift+T is for: the person did not open it.
+    if (tab.owner === undefined) {
       closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file]
     }
-    const now = quickRef.current
-    if (now === null || !samePath(now.file, file)) {
-      remember()
-      setTabs((t) => withoutTab(t, file, null).tabs)
-      return
-    }
-    leaveThen(() => {
-      remember()
-      const { tabs: rest, next } = withoutTab(tabsRef.current, file, file)
-      if (next === null) { closeProject(); return }
-      setTabs(rest)
+    handovers.dropFile(file)
+    usedRef.current.delete(foldPath(file))
+    setLive((l) => l.filter((f) => !samePath(f, file)))
+    const showing = quickRef.current !== null && samePath(quickRef.current.file, file)
+    const next = showing ? nextOwnTab(tabsRef.current, file) : null
+    const rest = withoutTab(tabsRef.current, file, null).tabs
+    if (rest.length === 0) { closeProject(); return }
+    setTabs(rest)
+    if (showing) {
       setQuick(next)
+      // The person's last tab closed and only agents' are left: the start page, with them listed.
+      if (next === null) setFiles(recentFiles())
+    }
+  }, [closeProject, setLive, setTabs, setQuick])
+
+  /**
+   * Light: close a tab. It is saved first: the one showing as leaving it
+   * does, one behind it quietly. Resolves false when it stayed open because
+   * its PDF could not take the save.
+   */
+  const closeTab = useCallback((file: string, by: 'person' | 'agent' = 'person'): Promise<boolean> => {
+    const tab = tabFor(tabsRef.current, file)
+    if (tab === undefined) return Promise.resolve(true)
+    const showing = quickRef.current !== null && samePath(quickRef.current.file, file)
+    if (showing) {
+      return new Promise((resolve) => {
+        const before = beforeRef.current.get(foldPath(file))
+        if (before === undefined) { dropTab(file); resolve(true); return }
+        const go = () => { dropTab(file); resolve(true) }
+        void before(go).then((ok) => { if (ok) go(); else resolve(false) }, go)
+      })
+    }
+    if (!isLive(file)) { dropTab(file); return Promise.resolve(true) }
+    return quietSave(file, 15_000).then((saved) => {
+      if (saved) { dropTab(file); return true }
+      // The person closing it is shown why it will not close; an agent is told.
+      if (by === 'person') { showTab(tab); setTimeout(() => saveThen(file, () => dropTab(file)), 300) }
+      return false
     })
-  }, [leaveThen, closeProject])
-  /** Light: Ctrl+Tab and Ctrl+Shift+Tab. */
+  }, [dropTab, isLive, quietSave, showTab, saveThen])
+  const closeTabByPerson = useCallback((file: string) => { void closeTab(file, 'person') }, [closeTab])
+
+  /** Light: Ctrl+Tab and Ctrl+Shift+Tab, through the person's own tabs. */
   const stepTabBy = useCallback((step: 1 | -1) => {
     const now = quickRef.current
     if (now === null) return
-    const next = stepTab(tabsRef.current, now.file, step)
+    const next = stepOwnTab(tabsRef.current, now.file, step)
     if (next !== null) selectTab(next.file)
   }, [selectTab])
   /** Light: Ctrl+Shift+T brings back the tab closed last. */
@@ -209,6 +327,114 @@ export default function App() {
   }, [dropPath])
 
   const [quickNote, setQuickNote] = useState<string | null>(null)
+
+  // ------------------------------------------------------------ agents --
+
+  /** Keep `file` mounted behind the one showing, and note that it was just called for. */
+  const wake = useCallback((file: string) => {
+    usedRef.current.set(foldPath(file), Date.now())
+    if (quickRef.current !== null && samePath(quickRef.current.file, file)) return
+    if (tabFor(tabsRef.current, file) === undefined) return
+    setLive((l) => (l.some((f) => samePath(f, file)) ? l : [...l, file]))
+  }, [setLive])
+
+  /** Hand a tab to an agent, or back to the person. A tab an agent drives stays live. */
+  const setOwner = useCallback((file: string, owner: string | null) => {
+    setTabs((t) => withOwner(t, file, owner))
+    handovers.dropFile(file)
+    if (owner !== null) wake(file)
+  }, [setTabs, wake])
+
+  const router = useMemo(() => new BridgeRouter({
+    tabs: () => tabsRef.current,
+    showing: () => quickRef.current?.file ?? null,
+    isMain: identity.role === 'main',
+    host: (file) => bridgeHosts.get(file),
+    wake,
+    openForAgent: async (path, agentId) => {
+      const found = await projectBridge.locateFile(path).then((o) => o.path, () => null)
+      if (found === null) return `${path} could not be opened`
+      const open = tabFor(tabsRef.current, found)
+      if (open !== undefined) { wake(open.file); return open }
+      const f: LightFile = { ...lightFileOf(found), owner: agentId }
+      rememberFile(found)
+      setTabs((t) => withTab(t, f))
+      wake(f.file)
+      return f
+    },
+    openForPerson: (path) => dropPathRef.current(path),
+    closeTab: (file) => closeTab(file, 'agent'),
+    setOwner,
+    handBack: (file, agent) => {
+      const showing = quickRef.current !== null && samePath(quickRef.current.file, file)
+      setTabs((t) => {
+        const mine = withOwner(t, file, null)
+        // To the end of the person's strip; one they are looking at needs no mark.
+        const tab = tabFor(mine, file)
+        const rest = mine.filter((x) => !samePath(x.file, file))
+        const moved = tab === undefined ? mine : [...rest, tab]
+        return showing ? moved : withHanded(moved, file, { by: agent.name, color: agent.color.bright })
+      })
+      handovers.dropFile(file)
+    },
+    roster,
+    handovers,
+    appVersion: APP_VERSION,
+  // The router lives as long as the window; what it calls reads refs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
+  useBridgeListener(useCallback((req) => router.answer(req), [router]))
+
+  /** Let go of background PDFs nobody is calling for: saved first, tabs kept (agents/live.ts). */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      roster.tick()
+      router.sweep()
+      const uses: LiveUse[] = liveRef.current.map((file) => ({ file, usedAt: usedRef.current.get(foldPath(file)) ?? 0 }))
+      const busy = (file: string) => roster.get().agents.some((a) => a.activity?.busy === true && a.activity.file !== null && samePath(a.activity.file, file))
+      // A PDF a live session drives, or is a guest in, stays: the session is still working in it.
+      const held = (file: string) => {
+        const owner = tabFor(tabsRef.current, file)?.owner
+        return roster.get().agents.some((a) => a.state !== 'gone' && (a.id === owner || a.guestIn.some((f) => samePath(f, file))))
+      }
+      for (const file of sleepers(uses, { now: Date.now(), busy, held })) {
+        void quietSave(file, 15_000).then((saved) => {
+          // Called for again while it saved, or not saved: it stays live.
+          if (!saved || busy(file) || held(file) || Date.now() - (usedRef.current.get(foldPath(file)) ?? 0) < 5000) return
+          setLive((l) => l.filter((f) => !samePath(f, file)))
+        })
+      }
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [quietSave, setLive, router])
+
+  /*
+   * Closing the window: every mounted PDF is saved, the one showing first.
+   * One behind it that cannot be saved is brought up, so its question is on
+   * screen rather than asked where nobody can see it.
+   */
+  saveAllRef.current = (leave, opts) => {
+    const showing = quickRef.current?.file ?? null
+    const order = [...(showing === null ? [] : [showing]), ...liveRef.current.filter((f) => showing === null || !samePath(f, showing))]
+    const step = async (i: number): Promise<boolean> => {
+      const file = order[i]
+      if (file === undefined) return true
+      const resume = () => { void step(i + 1).then((ok) => { if (ok) leave() }) }
+      const ask = async (): Promise<boolean> => {
+        const before = beforeRef.current.get(foldPath(file))
+        if (before === undefined) return step(i + 1)
+        return (await before(resume, opts)) ? step(i + 1) : false
+      }
+      if (showing !== null && samePath(file, showing)) return ask()
+      if (await quietSave(file, 6000)) return step(i + 1)
+      const tab = tabFor(tabsRef.current, file)
+      if (tab === undefined) return step(i + 1)
+      setQuick(tab)
+      await new Promise((r) => setTimeout(r, 300))
+      return ask()
+    }
+    return step(0)
+  }
 
   /**
    * A window asked to view a file from outside — `?view=<path>` in its URL,
@@ -228,12 +454,16 @@ export default function App() {
     }
     if (found.length === 0 || quickRef.current !== null) return
     const active = saved.active
-    setTabs(found)
+    // An agent may have opened tabs already: the person's come back before them.
+    setTabs((t) => [...found.filter((f) => tabFor(t, f.file) === undefined), ...t])
     setQuick(found.find((f) => active !== null && samePath(f.file, active)) ?? found[0]!)
-  }, [])
+  }, [setTabs, setQuick])
   useEffect(() => {
     if (!sessionReadyRef.current || identity.role !== 'main') return
-    writeSession({ files: tabs.map((t) => t.file), active: quick?.file ?? null })
+    // The person's own tabs: an agent's are its work, not where they were.
+    const own = ownTabs(tabs)
+    const active = quick !== null && own.some((t) => samePath(t.file, quick.file)) ? quick.file : (own[0]?.file ?? null)
+    writeSession({ files: own.map((t) => t.file), active })
   }, [tabs, quick, identity.role])
   useEffect(() => {
     if (viewedFromUrl.current || !project.desktop) return
@@ -311,69 +541,171 @@ export default function App() {
       )
     : null
 
-  if (quick !== null) {
-    return (
-      <>
-        {controls}
-        {/* Keyed on the file, so a broken one closed and another opened gets a fresh boundary. */}
-        <ErrorBoundary key={`boundary-view:${quick.file}`} onCloseProject={closeProject}>
-          <Workspace
-            key={`view:${quick.file}`}
-            projectPath={quick.folder}
-            onCloseProject={closeProject}
-            onRecentsChanged={project.refreshRecents}
-            onBeforeClose={registerBeforeClose}
-            initialDocumentPath={quick.relativePath}
-            quickView={{
-              file: quick.file, relativePath: quick.relativePath,
-              // Light never asks for a project folder: the PDF is the record.
-              onAdopt: () => undefined,
-              light: true,
-              ...(project.desktop ? { onOpenAnother: viewDrawing } : {}),
-              tabs: {
-                list: tabs.map((t) => ({ file: t.file, name: t.relativePath })),
-                onSelect: selectTab, onClose: closeTab, onStep: stepTabBy,
-                onReopen: reopenTab,
-              },
-            }}
-          />
-        </ErrorBoundary>
-        <UpdateOffer desktop={isTauri()} />
-        <WhatsNewHost auto={identity.role !== 'context'} />
-      </>
-    )
-  }
+  /*
+   * Each mounted PDF is told the same handlers for the life of the window:
+   * a workspace is eleven thousand lines, and one that re-rendered whenever
+   * the window did would re-render for every agent call in every other tab.
+   */
+  const handlersRef = useRef({ selectTab, closeTabByPerson, stepTabBy, reopenTab, viewDrawing, dropTab, refreshRecents: project.refreshRecents })
+  handlersRef.current = { selectTab, closeTabByPerson, stepTabBy, reopenTab, viewDrawing, dropTab, refreshRecents: project.refreshRecents }
+  const stable = useMemo(() => ({
+    onSelect: (file: string) => handlersRef.current.selectTab(file),
+    onClose: (file: string) => handlersRef.current.closeTabByPerson(file),
+    onStep: (step: 1 | -1) => handlersRef.current.stepTabBy(step),
+    onReopen: () => handlersRef.current.reopenTab(),
+    onOpenAnother: () => handlersRef.current.viewDrawing(),
+    onDrop: (file: string) => handlersRef.current.dropTab(file),
+    onRecentsChanged: () => { void handlersRef.current.refreshRecents() },
+    onBeforeClose: (file: string, fn: ((leave: () => void) => Promise<boolean>) | null) => {
+      if (fn === null) beforeRef.current.delete(foldPath(file))
+      else beforeRef.current.set(foldPath(file), fn)
+    },
+    onHandOver: (file: string, agentId: string, yes: boolean) => {
+      if (yes) setOwner(file, agentId)
+      handovers.answer(file, agentId, yes)
+    },
+    onTakeOver: (file: string) => setOwner(file, null),
+    onEndSession: (agentId: string) => { void router.endSession(agentId, 'person', null, []) },
+    onDismissSession: (agentId: string) => roster.forget(agentId),
+    onReopenFile: (file: string) => dropPathRef.current(file),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
+  const tabList = useMemo(
+    () => tabs.map((t) => ({
+      file: t.file, name: t.relativePath,
+      ...(t.owner !== undefined ? { owner: t.owner } : {}),
+      ...(t.handed !== undefined ? { handed: t.handed } : {}),
+    })),
+    [tabs],
+  )
+
+  /** The PDFs with a workspace: the one showing and the ones live behind it, in tab order so none moves in the page. */
+  const mounted = tabs.filter((t) => (quick !== null && samePath(t.file, quick.file)) || live.some((f) => samePath(f, t.file)))
 
   return (
     <>
-    {controls}
-    <ProjectStartScreen
-      mode="light"
-      {...(defaultViewerOffer !== undefined ? { defaultViewerOffer } : {})}
-      recents={files}
-      // A typed path takes the same road as a dropped one.
-      onOpenPath={(path) => dropPath(path)}
-      onOpenRecent={(p) => void project.locateFile(p.path).then((pick) => {
-        if (pick !== null) showDrawing(pick)
-        else setQuickNote(`${p.path} could not be opened. It may have moved; right-click it to take it off the list.`)
-      })}
-      onForgetRecent={(p) => { forgetFile(p.path); setFiles(recentFiles()) }}
-      {...(project.desktop ? { onViewDrawing: viewDrawing, onDropPath: dropPath } : {})}
-      // exactOptionalPropertyTypes: an optional prop must be absent, not
-      // explicitly undefined — so this is spread in rather than passed as null.
-      {...(project.desktop ? { onBrowse: project.browse } : {})}
-      busy={project.busy}
-      busyPath={project.busyPath}
-      error={quickNote ?? project.error}
-      notice={
-        project.desktop
-          ? null
-          : 'Running in a browser, so there are no file dialogs — type a folder ' +
-            'path. Full-text search and multi-window are desktop-only.'
-      }
-    />
-    <UpdateOffer desktop={isTauri()} />
-    <WhatsNewHost auto={identity.role !== 'context'} />
+      {controls}
+      {mounted.map((t) => (
+        <LiveWorkspace
+          key={`view:${foldPath(t.file)}`}
+          tab={t}
+          showing={quick !== null && samePath(t.file, quick.file)}
+          tabList={tabList}
+          desktop={project.desktop}
+          handlers={stable}
+        />
+      ))}
+      {quick === null && (
+        <>
+          <ProjectStartScreen
+            mode="light"
+            {...(defaultViewerOffer !== undefined ? { defaultViewerOffer } : {})}
+            recents={files}
+            // A typed path takes the same road as a dropped one.
+            onOpenPath={(path) => dropPath(path)}
+            onOpenRecent={(p) => void project.locateFile(p.path).then((pick) => {
+              if (pick !== null) showDrawing(pick)
+              else setQuickNote(`${p.path} could not be opened. It may have moved; right-click it to take it off the list.`)
+            })}
+            onForgetRecent={(p) => { forgetFile(p.path); setFiles(recentFiles()) }}
+            {...(project.desktop ? { onViewDrawing: viewDrawing, onDropPath: dropPath } : {})}
+            // exactOptionalPropertyTypes: an optional prop must be absent, not
+            // explicitly undefined — so this is spread in rather than passed as null.
+            {...(project.desktop ? { onBrowse: project.browse } : {})}
+            busy={project.busy}
+            busyPath={project.busyPath}
+            error={quickNote ?? project.error}
+            notice={
+              project.desktop
+                ? null
+                : 'Running in a browser, so there are no file dialogs — type a folder ' +
+                  'path. Full-text search and multi-window are desktop-only.'
+            }
+          />
+          {/* Agents at work while the person has nothing open: their tabs, to look in on. */}
+          <AgentsOnStart tabs={tabList} onSelect={stable.onSelect} onClose={stable.onClose} />
+        </>
+      )}
+      <UpdateOffer desktop={isTauri()} />
+      <WhatsNewHost auto={identity.role !== 'context'} />
     </>
   )
 }
+
+/** Windows paths: case and slash direction do not make a different file. */
+function foldPath(file: string): string {
+  return file.replace(/\//g, '\\').toLowerCase()
+}
+
+interface WorkspaceHandlers {
+  onSelect: (file: string) => void
+  onClose: (file: string) => void
+  onStep: (step: 1 | -1) => void
+  onReopen: () => void
+  onOpenAnother: () => void
+  onDrop: (file: string) => void
+  onRecentsChanged: () => void
+  onBeforeClose: (file: string, fn: ((leave: () => void) => Promise<boolean>) | null) => void
+  onHandOver: (file: string, agentId: string, yes: boolean) => void
+  onTakeOver: (file: string) => void
+  onEndSession: (agentId: string) => void
+  onDismissSession: (agentId: string) => void
+  onReopenFile: (file: string) => void
+}
+
+/**
+ * One open PDF: showing, or live behind the one that is.
+ *
+ * A PDF behind the one showing is laid out at the window's size, so its
+ * canvas renders and an agent's screenshot of it is a real one, but it is
+ * not drawn, takes no pointer and cannot hold the keyboard (`inert`): the
+ * person's keys and clicks go to the tab they are in, and nothing an agent
+ * does behind it can take them.
+ */
+const LiveWorkspace = memo(function LiveWorkspace({
+  tab, showing, tabList, desktop, handlers,
+}: {
+  tab: LightFile
+  showing: boolean
+  tabList: AgentTabItem[]
+  desktop: boolean
+  handlers: WorkspaceHandlers
+}) {
+  const { file, folder, relativePath } = tab
+  const onBeforeClose = useCallback(
+    (fn: ((leave: () => void) => Promise<boolean>) | null) => handlers.onBeforeClose(file, fn),
+    [handlers, file],
+  )
+  // This PDF's boundary closes this tab; the others carry on.
+  const closeThis = useCallback(() => handlers.onDrop(file), [handlers, file])
+  const quickView = useMemo(() => ({
+    file, relativePath,
+    // Light never asks for a project folder: the PDF is the record.
+    onAdopt: () => undefined,
+    light: true,
+    ...(desktop ? { onOpenAnother: handlers.onOpenAnother } : {}),
+    tabs: {
+      list: tabList,
+      onSelect: handlers.onSelect, onClose: handlers.onClose, onStep: handlers.onStep,
+      onReopen: handlers.onReopen,
+      onHandOver: handlers.onHandOver, onTakeOver: handlers.onTakeOver,
+      onEndSession: handlers.onEndSession, onDismissSession: handlers.onDismissSession, onReopenFile: handlers.onReopenFile,
+    },
+  }), [file, relativePath, desktop, tabList, handlers])
+  return (
+    <div className="wshost" data-showing={showing ? 'true' : 'false'} {...(showing ? {} : { inert: '' })} aria-hidden={!showing}>
+      {/* Keyed on the file, so a broken one closed and another opened gets a fresh boundary. */}
+      <ErrorBoundary key={`boundary-view:${file}`} onCloseProject={closeThis}>
+        <Workspace
+          projectPath={folder}
+          onCloseProject={closeThis}
+          onRecentsChanged={handlers.onRecentsChanged}
+          onBeforeClose={onBeforeClose}
+          initialDocumentPath={relativePath}
+          showing={showing}
+          quickView={quickView}
+        />
+      </ErrorBoundary>
+    </div>
+  )
+})

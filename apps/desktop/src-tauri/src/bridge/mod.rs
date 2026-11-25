@@ -84,6 +84,11 @@ struct Request {
     token: String,
     #[serde(default)]
     params: Value,
+    /// Who is calling: `{id, client, label}` from the MCP server (mcp.rs).
+    /// Absent from a script or an older server, which is then nobody in
+    /// particular and acts on the PDF showing, as every call once did.
+    #[serde(default)]
+    agent: Value,
     /// The client reads `{"keepalive":true}` lines while the call is still
     /// running (apps/mcp/index.mjs, mcp.rs), so it can wait on long work by
     /// silence rather than by a fixed clock. Old clients leave it off and get
@@ -229,8 +234,13 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
                 // The work runs beside this thread, which says "still
                 // running" to the client until the answer is in.
                 let (tx, rx) = std::sync::mpsc::channel();
-                let (app2, method, params) = (app.clone(), req.method.clone(), req.params.clone());
+                let (app2, method, params, agent) = (app.clone(), req.method.clone(), req.params.clone(), req.agent.clone());
                 std::thread::spawn(move || {
+                    // The caller is kept per thread (ui.rs), and this is the
+                    // thread the call runs on. Without it every keepalive call
+                    // reached the window as nobody: no session, and its work
+                    // landed outside the PDF it named (SLS, 2026-11-25).
+                    ui::set_caller(agent);
                     let _ = tx.send(methods::dispatch(&app2, &method, &params));
                 });
                 let answer = loop {
@@ -250,6 +260,9 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
                     Err(e) => json!({ "id": req.id, "ok": false, "error": e }),
                 }
             } else {
+                // One connection, one thread, one call: whatever this call
+                // asks of a window carries who asked (ui.rs).
+                ui::set_caller(req.agent.clone());
                 match methods::dispatch(app, &req.method, &req.params) {
                     Ok(result) => json!({ "id": req.id, "ok": true, "result": result }),
                     Err(e) => json!({ "id": req.id, "ok": false, "error": e }),

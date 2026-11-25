@@ -5,6 +5,20 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.83 — 2026-11-25
+
+### AI agents work beside you
+
+- **Several AI sessions at once, listed under Takeoff.** Every Claude or ChatGPT chat that works in REDBEAM gets a session of its own, named for its app and the job it is doing, such as "ChatGPT · Nokia Canada North Campus takeoff". The title bar says only how many there are and whether one needs you. The right sidebar is split: Takeoff on top, and Agents in the bottom third, listing each session in its own colour with its whole name, what it is doing now, and its PDFs by name. Drag the divider to give it more or less room, or click its header to fold it to one line. Pick a PDF to look in on it as a tab of your own and work beside the agent.
+- **The tab you are in shows its whole name.**
+- **An agent can work in a PDF you have open.** It does not open a second copy: it joins yours as a guest, and your tab shows a dot in the session's colour. You can do a manual takeoff while the agent searches and marks up the same sheets. Your tab, your sheet, your zoom, your tool and your selection stay exactly where you left them.
+- **Undo is yours.** Ctrl+Z takes back only your own work, never what an agent just drew, and an agent can undo only its own.
+- **Bright cursors that say what the agent is doing now.** When you look at a PDF a session is working in, its cursor is on the sheet where it is acting, with the action and the session's name. The label only ever says what is happening now.
+- **Waiting for you, and Finished.** A session that stops for your approval says what it is waiting for in the Agents list, and the title bar counts it. When it finishes, the PDFs it changed move to your own tabs with a dot until you open them, and the PDFs it only read are closed. The Agents list keeps each finished session with what it said, what it left you and what it closed, to reopen with a click.
+- **A session that dies cleans up after itself.** If an AI app is closed or stops answering mid-job, its session is marked finished within seconds, its cursor goes away and its tabs are settled the same way. You can also end a session yourself from the Agents list.
+- **Agents never take the keyboard or the window.** An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, the question waits in the Agents list, with a "!" in the title bar, until you choose to answer; nothing opens over your drawing, and you are never asked to settle things between two agents. "What's new" no longer opens over a window an AI app started.
+- **Any number of sessions at once.** A PDF a session is working in stays loaded for as long as the session lives, however many there are. An agent can set a scale or add markups on sheets nobody has opened yet, and a save that cannot happen yet says why.
+- **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
 ## 0.3.82 — 2026-11-25
 
 ### Product details no longer lost over a dash

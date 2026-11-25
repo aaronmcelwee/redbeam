@@ -47,6 +47,8 @@ pub fn dispatch(app: &AppHandle, method: &str, params: &Value) -> Result<Value, 
         "project_summary" => project_summary(app),
         "execute_query" => execute_query(app, params),
         "open_file" => open_file(app, params),
+        "agent_bye" => Ok(agent_bye(app)),
+        "agent_alive" => Ok(agent_alive(app, params)),
         // UI round trips. Separated from the store-backed methods above
         // because these are the only ones a wedged or window-less app can
         // fail, and a caller deserves to know which kind it is asking for.
@@ -65,7 +67,7 @@ fn capabilities() -> Value {
         "methods": [
             "ping", "get_capabilities", "get_state", "list_documents", "list_pages",
             "list_scopes", "list_markups", "get_calibration", "project_summary",
-            "execute_query", "open_file",
+            "execute_query", "open_file", "agent_bye", "agent_alive",
             "get_ui_state", "screenshot", "invoke_ui_action",
         ],
         // Named so a client does not have to discover the gap by trying.
@@ -322,9 +324,8 @@ fn project_summary(app: &AppHandle) -> Result<Value, String> {
 /// is a guard against an agent corrupting a takeoff by "just checking
 /// something". Writes must go through the undo stack, and a DELETE issued here
 /// would leave no undo entry and no activity row.
-/// Open a PDF the way Explorer does (open_with::route): forward in the
-/// window already showing it, into an empty window, or in a new one. This is
-/// how an agent starts work in Light, where a window is one PDF.
+/// Open a PDF as a tab for the agent that asked, without bringing REDBEAM
+/// forward or changing the tab the person is looking at.
 fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
     let path = str_param(params, "path").ok_or("open_file needs `path`")?;
     let p = std::path::Path::new(path.trim());
@@ -340,9 +341,50 @@ fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
         return Err(format!("not a PDF: {path}"));
     }
     let path = p.display().to_string();
-    let waiter = app.clone();
-    let app = app.clone();
+    let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
+    /*
+     * The window keeps the tabs, so the window opens it: as the calling
+     * agent's own tab, behind whatever the person is looking at, which stays
+     * exactly where it is (Aaron, 2026-11-24: "agent actions should NEVER
+     * steal focus, from other apps or even within the app").
+     *
+     * A window that has only just started is not listening yet, so the ask is
+     * repeated until one answers. Asking twice is harmless: a PDF already
+     * open as a tab is left as it is.
+     */
+    let budget = std::time::Duration::from_secs(if wait { 22 } else { 8 });
+    let started = std::time::Instant::now();
+    let mut tries = 0u32;
+    loop {
+        tries += 1;
+        let left = budget.saturating_sub(started.elapsed());
+        if left < std::time::Duration::from_millis(300) {
+            break;
+        }
+        // The first asks go to the window that keeps the tabs; after that any window may take it.
+        let ask = json!({ "path": path, "wait": wait, "any": tries > 2 });
+        let slice = if wait && tries > 1 { left } else { left.min(std::time::Duration::from_secs(3)) };
+        match super::ui::request_within(app, "open_file", &ask, slice) {
+            Ok(v) => return Ok(v),
+            Err(e) if e.starts_with("no window answered") => {
+                if !has_window(app) {
+                    break;
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    if has_window(app) {
+        return Ok(json!({
+            "accepted": true,
+            "opened": false,
+            "path": path,
+            "note": "REDBEAM is still starting; poll get_ui_state until `file` is this path and pageCount > 0",
+        }));
+    }
+    // No window at all (the last one was closed): build one, quietly.
     let routed = path.clone();
+    let app = app.clone();
     // Off this thread and off the main one: building a window on the main
     // thread deadlocks on Windows (open_with.rs).
     tauri::async_runtime::spawn(async move {
@@ -350,43 +392,32 @@ fn open_file(app: &AppHandle, params: &Value) -> Result<Value, String> {
             eprintln!("bridge open_file failed: {e}");
         }
     });
-    // `wait`: answer once the PDF is showing, so the next call can be a
-    // read or a write rather than a poll. Bounded under the caller's timeout.
-    if params.get("wait").and_then(Value::as_bool) == Some(true) {
-        let same = |a: &str, b: &str| a.replace('\\', "/").eq_ignore_ascii_case(&b.replace('\\', "/"));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(22);
-        let asked = std::time::Instant::now();
-        let mut again = false;
-        while std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(400));
-            // Sent once more if the window has not turned to it: a window
-            // busy changing tabs can miss the first.
-            if !again && asked.elapsed() > std::time::Duration::from_secs(5) {
-                again = true;
-                let (app, routed) = (waiter.clone(), path.clone());
-                tauri::async_runtime::spawn(async move {
-                    let _ = crate::open_with::route_quietly(&app, routed).await;
-                });
-            }
-            let Ok(ui) = super::ui::request_within(&waiter, "get_ui_state", &json!({}), std::time::Duration::from_secs(2)) else { continue };
-            let showing = ui.get("file").and_then(Value::as_str).unwrap_or("");
-            let pages = ui.get("pageCount").and_then(Value::as_i64).unwrap_or(0);
-            if pages > 0 && same(showing, &path) {
-                return Ok(json!({ "accepted": true, "opened": true, "path": path, "pageCount": pages }));
-            }
-        }
-        return Ok(json!({
-            "accepted": true,
-            "opened": false,
-            "path": path,
-            "note": "still opening after 22 seconds; poll get_ui_state until pageCount > 0 and `file` is this path",
-        }));
-    }
     Ok(json!({
         "accepted": true,
+        "opened": false,
         "path": path,
-        "note": "poll get_ui_state until pageCount > 0, or pass wait:true to be answered once it is showing",
+        "note": "poll get_ui_state until `file` is this path and pageCount > 0",
     }))
+}
+
+/// Whether any window that can hold PDFs exists.
+fn has_window(app: &AppHandle) -> bool {
+    use tauri::Manager;
+    app.webview_windows().keys().any(|l| l == "main" || l.starts_with("view-"))
+}
+
+/// An AI app closed its connection: its agents are no longer at work. Their
+/// tabs stay open. Never an error; a window that is not there has nobody to tell.
+fn agent_bye(app: &AppHandle) -> Value {
+    let _ = super::ui::request_within(app, "agent_bye", &json!({}), std::time::Duration::from_secs(2));
+    json!({ "ok": true })
+}
+
+/// An AI app's server saying it is still running (mcp.rs `ALIVE_EVERY`). The
+/// window finishes the sessions of one that stops. Never an error.
+fn agent_alive(app: &AppHandle, params: &Value) -> Value {
+    let _ = super::ui::request_within(app, "agent_alive", params, std::time::Duration::from_secs(2));
+    json!({ "ok": true })
 }
 
 /// Validate the SQL and hand back the single statement to run.

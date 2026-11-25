@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { lightFileOf, readSession, samePath, stepTab, withoutTab, withTab, writeSession } from './lightTabs.js'
+import {
+  agentTabs, lightFileOf, nextOwnTab, ownTabs, readSession, samePath, stepOwnTab, stepTab, tabFor, tabNamed, withoutTab, withOwner,
+  withTab, writeSession,
+} from './lightTabs.js'
 
 const a = lightFileOf('C:\\Jobs\\A.pdf'), b = lightFileOf('C:\\Jobs\\B.pdf'), c = lightFileOf('C:/Jobs/C.pdf')
 
@@ -41,5 +44,46 @@ describe('light tabs', () => {
     const files = Array.from({ length: 75 }, (_, i) => `C:\\jobs\\set ${i}.pdf`)
     writeSession({ files, active: files[60]! }, store)
     expect(readSession(store)).toEqual({ files, active: files[60] })
+  })
+})
+
+describe('tabs with agents in the window', () => {
+  const mine = lightFileOf('C:\\Jobs\\Mine.pdf'), mine2 = lightFileOf('C:\\Jobs\\Mine 2.pdf')
+  const theirs = { ...lightFileOf('C:\\Jobs\\Tower A.pdf'), owner: 'a' }, others = { ...lightFileOf('C:\\Other\\Tower A.pdf'), owner: 'b' }
+  const tabs = [mine, theirs, mine2, others]
+  it('tells the person\'s tabs from each agent\'s', () => {
+    expect(ownTabs(tabs)).toEqual([mine, mine2])
+    expect(agentTabs(tabs, 'a')).toEqual([theirs])
+    expect(agentTabs(tabs, 'nobody')).toEqual([])
+  })
+  it('finds the tab a call names by path, or by a name only one tab has', () => {
+    expect(tabNamed(tabs, 'c:/jobs/mine.PDF')).toBe(mine)
+    expect(tabNamed(tabs, 'Mine 2.pdf')).toBe(mine2)
+    // Two open PDFs share this name: not guessed between.
+    expect(tabNamed(tabs, 'Tower A.pdf')).toBeUndefined()
+    expect(tabNamed(tabs, '  ')).toBeUndefined()
+    expect(tabFor(tabs, 'C:\\Jobs\\Nope.pdf')).toBeUndefined()
+  })
+  it('hands a tab to an agent and back', () => {
+    const handed = withOwner(tabs, mine.file, 'a')
+    expect(tabFor(handed, mine.file)!.owner).toBe('a')
+    const back = withOwner(handed, mine.file, null)
+    expect(tabFor(back, mine.file)).toEqual(mine)
+    expect('owner' in tabFor(back, mine.file)!).toBe(false)
+  })
+  it('closing the tab showing never drops the person into an agent\'s tab', () => {
+    expect(nextOwnTab(tabs, mine.file)).toBe(mine2)
+    expect(nextOwnTab(tabs, mine2.file)).toBe(mine)
+    expect(nextOwnTab([mine, theirs], mine.file)).toBeNull()
+    // Leaving an agent's tab they were watching: back to one of their own.
+    expect(nextOwnTab(tabs, theirs.file)).toBe(mine2)
+  })
+  it('Ctrl+Tab steps through the person\'s own tabs only', () => {
+    expect(stepOwnTab(tabs, mine.file, 1)).toBe(mine2)
+    expect(stepOwnTab(tabs, mine2.file, 1)).toBe(mine)
+    expect(stepOwnTab(tabs, theirs.file, 1)).toBe(mine)
+    expect(stepOwnTab(tabs, theirs.file, -1)).toBe(mine2)
+    expect(stepOwnTab([mine, theirs], mine.file, 1)).toBeNull()
+    expect(stepOwnTab([theirs], theirs.file, 1)).toBeNull()
   })
 })

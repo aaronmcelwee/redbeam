@@ -399,6 +399,56 @@ describe('agent-origin commands', () => {
   })
 })
 
+describe('undo per actor', () => {
+  /*
+   * Aaron, 2026-11-24: "I can be doing a manual takeoff while the agent
+   * searches for references to a scope and highlights them for me. This must
+   * work." With one stack, the person's Ctrl+Z took back whatever the agent
+   * drew last.
+   */
+  const AGENT = 'srv/7K2'
+  const ids = async () => (await listMarkups(db)).map((m) => m.id).sort()
+
+  it('takes back only the actor\'s own work, whoever acted last', async () => {
+    await stack.run(createMarkup(markup('mine')))
+    await stack.run(createMarkup({ ...markup('theirs'), origin: 'agent' }), AGENT)
+    await stack.undo()
+    expect(await ids()).toEqual(['theirs'])
+    await stack.undo(AGENT)
+    expect(await ids()).toEqual([])
+    await stack.redo()
+    expect(await ids()).toEqual(['mine'])
+  })
+
+  it('reports each actor\'s own undo and redo, and counts everyone\'s changes as changes', async () => {
+    await stack.run(createMarkup({ ...markup('theirs'), origin: 'agent' }), AGENT)
+    expect(stack.state).toMatchObject({ canUndo: false, depth: 1 })
+    expect(stack.stateFor(AGENT)).toMatchObject({ canUndo: true, undoLabel: 'create area' })
+    expect(await stack.undo()).toBeNull()
+    expect(await ids()).toEqual(['theirs'])
+  })
+
+  it('keeps one actor\'s redo when another acts', async () => {
+    await stack.run(createMarkup(markup('mine')))
+    await stack.undo()
+    await stack.run(createMarkup({ ...markup('theirs'), origin: 'agent' }), AGENT)
+    expect(stack.state.canRedo).toBe(true)
+    await stack.redo()
+    expect(await ids()).toEqual(['mine', 'theirs'])
+  })
+
+  it('refuses to undo under someone else\'s later change to the same markup, and says what to do', async () => {
+    await stack.run(createMarkup({ ...markup('shared'), origin: 'agent' }), AGENT)
+    await stack.run(editGeometry('shared', ringA, ringB))
+    await expect(stack.undo(AGENT)).rejects.toThrow(/you changed the same markup afterwards .* Undo that first/)
+    expect(await ids()).toEqual(['shared'])
+    // Once the later change is undone, the first one can be.
+    await stack.undo()
+    await stack.undo(AGENT)
+    expect(await ids()).toEqual([])
+  })
+})
+
 describe('command origin', () => {
   /**
    * Undo DEPTH counts only `user` entries, so Ctrl+Z steps past an agent's

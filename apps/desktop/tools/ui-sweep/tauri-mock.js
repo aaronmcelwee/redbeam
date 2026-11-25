@@ -6,6 +6,11 @@
  * open can be looked at too. Anything not listed answers null, which is what
  * a desktop command with nothing to say returns. `window.__sweepCalls` keeps
  * the commands asked for, for debugging a step.
+ *
+ * AI agents: `window.__sweepAgent(agent, action, params)` sends the window a
+ * bridge request the way the app's own bridge does (bridge/ui.rs) and
+ * resolves with what the window answers, so a step can be several agents
+ * calling at once with nobody at the keyboard.
  */
 (() => {
   const calls = (window.__sweepCalls = [])
@@ -15,7 +20,20 @@
   const files = new Map()
   const fingerprint = async (bytes) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map((b) => b.toString(16).padStart(2, '0')).join('')
+  /** Event name to the callbacks listening for it, as Tauri's event plugin keeps them. */
+  const listeners = new Map()
+  const waiting = new Map()
+  let request = 0
+  window.__sweepAgent = (agent, action, params = {}, withinMs = 25000) => new Promise((resolve) => {
+    const id = ++request
+    waiting.set(id, resolve)
+    setTimeout(() => { if (waiting.delete(id)) resolve({ error: `sweep: no answer to ${action} in ${withinMs} ms` }) }, withinMs)
+    for (const handler of listeners.get('redbeam://bridge/request') ?? []) {
+      window[`_${handler}`]?.({ event: 'redbeam://bridge/request', id: handler, payload: { id, action, params, agent } })
+    }
+  })
   const handlers = {
+    bridge_reply: (a) => { const go = waiting.get(a.id); waiting.delete(a.id); go?.(a.result); return null },
     project_locate_file: (a) => pick(a.path),
     project_pick_drawing: () => pick('C:\\Jobs\\Sweep\\Second set.pdf'),
     project_pick_file: () => pick('C:\\Jobs\\Sweep\\Second set.pdf'),
@@ -56,11 +74,17 @@
       files.set(key, next)
       return { outcome: 'written', fingerprint: await fingerprint(next) }
     }
-      if (cmd === 'plugin:event|listen') return ++next
+      if (cmd === 'plugin:event|listen') {
+        listeners.set(args.event, [...(listeners.get(args.event) ?? []), args.handler])
+        return args.handler
+      }
       if (cmd === 'plugin:window|is_maximized') return false
       if (cmd === 'plugin:app|version') return '0.0.0-sweep'
       return null
     },
   }
-  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} }
+  // Without this a listener React mounted twice in development would answer every agent call twice.
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener(event, id) { listeners.set(event, (listeners.get(event) ?? []).filter((h) => h !== id)) },
+  }
 })()

@@ -165,6 +165,26 @@ pub fn run() {
              */
             crash::init(&app.handle().clone());
 
+            /*
+             * The first window is built here rather than by tauri.conf.json
+             * (`"create": false` there), because how it opens depends on who
+             * started the app. A person starting REDBEAM gets its window in
+             * front, as ever. An AI app's server starting it (mcp.rs passes
+             * `--from-ai-app`) gets it shown without being activated: the
+             * person is working in something else, and Aaron's rule is that
+             * "agent actions should NEVER steal focus, from other apps or even
+             * within the app" (2026-11-24). It is on the taskbar and behind
+             * what they are doing, there to look at when they choose.
+             */
+            {
+                let quiet = std::env::args().any(|a| a == open_with::FROM_AI_APP);
+                if let Some(config) = app.config().app.windows.first().cloned() {
+                    let builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+                    let builder = if quiet { builder.focused(false) } else { builder };
+                    builder.build()?;
+                }
+            }
+
             // Before the window is shown, so it never paints once opaque
             // and then again with the backdrop behind it.
             backdrop::apply(&app.handle().clone());
