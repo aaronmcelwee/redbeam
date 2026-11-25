@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.91 — 2026-11-25
+
+### Agents trace hatched ceilings
+
+- **Agents find the edge of a hatched or slatted ceiling.** On drawings where every slat or wood-grain line is drawn, an agent could not find the boundary of the area: tracing landed on the hatching and the lines around it were lost in the clutter. A new agent tool, trace field, finds the direction of the hatch, follows it to where it stops, and checks the result against the sheet as you see it. One call returns the whole area with its outline, in about 2 to 4 seconds a sheet.
+- **Columns come out as cutouts.** Round and square columns the hatch stops around are returned as cutouts with their sizes, and small specks are filled. The agent can also ask for every other area of the same ceiling on the sheet, while walls drawn with the same hatch are left out.
+- **Get lines stays inside the box it was given.** Lines that run on past the box are now cut at its edge and marked, so an agent no longer picks up a corner from far away. An agent can also ask for lines in one direction only.
+- **Outlines are checked before they are trusted.** When an agent draws an area, REDBEAM now warns it if the outline crosses itself, a cutout crosses the outline or sits outside it, or a corner lands off the drawing or in the title block.
+
 ## 0.3.90 — 2026-11-25
 
 ### A portable REDBEAM for PCs that will not run the installer
