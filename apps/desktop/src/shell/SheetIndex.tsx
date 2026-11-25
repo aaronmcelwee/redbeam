@@ -38,10 +38,19 @@ export interface SheetIndexProps extends SheetIndexInput, SheetActions {
    * index that has not finished loading must not claim to be empty.
    */
   pending?: string | null
+  /**
+   * Naming the sheets from two boxes on the title block (titleBlock.ts).
+   * `reading` counts the sheets read so far while the reading runs.
+   */
+  titleBlock?: {
+    named: boolean
+    reading: { done: number; total: number } | null
+    onPick: () => void
+  }
 }
 
 export function SheetIndex({
-  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, ...input
+  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, titleBlock, ...input
 }: SheetIndexProps) {
   const actions: SheetActions = {
     ...(onSetScale !== undefined ? { onSetScale } : {}),
@@ -59,7 +68,7 @@ export function SheetIndex({
   const [selection, setSelection] = useState<SheetSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{ x: number, y: number, pages: number[] } | null>(null)
   const groups = useMemo(() => buildSheetIndex(input), [
-    input.pageCount, input.shape, input.outline, input.labels, input.takeoffPages, input.pageScopes,
+    input.pageCount, input.shape, input.outline, input.labels, input.takeoffPages, input.pageScopes, input.named,
   ])
   const shown = useMemo(() => filterSheets(groups, query), [groups, query])
 
@@ -236,6 +245,30 @@ export function SheetIndex({
           actions={actions}
           onClose={() => setMenu(null)}
         />
+      )}
+
+      {titleBlock !== undefined && input.pageCount > 0 && (
+        /*
+         * The names come from somewhere, and when they are wrong the fix is
+         * here, under the list that shows them: point at the title block.
+         * Aaron, 2026-11-25: most of a 264-sheet set read as its contract
+         * number.
+         */
+        <div className="titlefoot">
+          {titleBlock.reading !== null
+            ? (
+              <span className="titlefoot-note" role="status">
+                <progress max={titleBlock.reading.total} value={titleBlock.reading.done} />
+                Reading title blocks · {titleBlock.reading.done} of {titleBlock.reading.total}
+              </span>
+              )
+            : titleBlock.named
+              ? <span className="titlefoot-note">Names read from the title block</span>
+              : <span className="titlefoot-note">Names wrong?</span>}
+          <button type="button" className="titlefoot-link" onClick={titleBlock.onPick}>
+            {titleBlock.named ? 'Change boxes' : 'Read from title block…'}
+          </button>
+        </div>
       )}
 
       <div className="panefoot">

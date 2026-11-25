@@ -1017,6 +1017,43 @@ export function hashableTables(tables: SliceTables): SliceTables {
   return out
 }
 
+/**
+ * The page labels a slice carries (redbeam_meta `sheet_labels`, written by
+ * the title-block reading), or null when it carries none.
+ */
+export function sheetLabelsFrom(tables: SliceTables): Array<string | null> | null {
+  const row = (tables['redbeam_meta'] ?? []).find((r) => r['key'] === 'sheet_labels')
+  const raw = row?.['value']
+  if (typeof raw !== 'string' || raw === '') return null
+  try {
+    const v = JSON.parse(raw) as unknown
+    if (!Array.isArray(v) || !v.some((l) => typeof l === 'string' && l !== '')) return null
+    return v.map((l) => (typeof l === 'string' && l.trim() !== '' ? l : null))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A /PageLabels number tree: one /P entry per named page, and a decimal range
+ * (numbered as the page's position) for each run of pages with no name.
+ */
+export function pageLabelTree(ctx: PDFContext, labels: ReadonlyArray<string | null>, pageCount: number): PDFDict {
+  const nums: unknown[] = []
+  let inRange = false
+  for (let i = 0; i < pageCount; i++) {
+    const l = labels[i] ?? null
+    if (l !== null) {
+      nums.push(PDFNumber.of(i), ctx.obj({ P: pdfText(l) }))
+      inRange = false
+    } else if (!inRange) {
+      nums.push(PDFNumber.of(i), ctx.obj({ S: PDFName.of('D'), St: PDFNumber.of(i + 1) }))
+      inRange = true
+    }
+  }
+  return ctx.obj({ Nums: ctx.obj(nums as never[]) }) as PDFDict
+}
+
 /** The pages whose /Rotate differs from what REDBEAM shows them at. */
 export function rotationsToWrite(
   pages: readonly PDFPage[], wanted: ReadonlyMap<number, number> | undefined,
@@ -1280,6 +1317,12 @@ function embedInto(
   }
   doc.catalog.set(PDFName.of('PieceInfo'), merged)
   if (catalogRef instanceof PDFRef) changed.push(catalogRef)
+
+  // 5. Sheet names the estimator read off the title block, as the PDF's own
+  //    page labels: Bluebeam (and every PDF viewer) shows them as the page
+  //    names, and REDBEAM reads them back as the sheet index on reopening.
+  const labels = sheetLabelsFrom(input.tables)
+  if (labels !== null) doc.catalog.set(PDFName.of('PageLabels'), pageLabelTree(ctx, labels, pages.length))
 
   // Second carrier: every annotation of ours points at the same stream.
   for (const [, ref] of annotRefs) {

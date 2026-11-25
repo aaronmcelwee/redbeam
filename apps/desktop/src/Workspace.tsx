@@ -65,6 +65,11 @@ import { Dock, DocumentPill, ToolPill } from './shell/Dock.js'
 import { newScope, nextScopeColor, SCOPE_PALETTE } from './shell/scopeFactory.js'
 import { clipOf, notePaste, pasteStatus, planPaste, readClip, writeClip } from './markupClipboard.js'
 import { SheetIndex } from './shell/SheetIndex.js'
+import { NUMBER_BOX_COLOR, TITLE_BOX_COLOR, TitleBlockPicker, type PickStep } from './shell/TitleBlockPicker.js'
+import {
+  SHEET_LABELS_KEY, SHEET_OVERRIDES_KEY, TITLE_REGIONS_KEY, isTinyBox, labelsToWrite, mergeNames, parseOverrides,
+  parseRegions, readSheetName, textInBox, type ReadName, type TitleBlockRegions,
+} from './shell/titleBlock.js'
 import { useClampedPopover } from './shell/popover.js'
 import { pageStepForKey, steppedPage, toolForKey } from './shell/sheetKeys.js'
 import type { SheetScope } from './shell/sheets.js'
@@ -1004,6 +1009,20 @@ export default function Workspace({
   const zoomBoxArmedRef = useRef(false)
   const [zoomBoxArmed, setZoomBoxArmed] = useState(false)
   const zoomBoxRef = useRef<ScreenBox | null>(null)
+  /**
+   * Naming the sheets from the title block (shell/titleBlock.ts): the card's
+   * step, the boxes drawn so far (normalized), and the box being dragged.
+   */
+  const [titlePick, setTitlePick] = useState<{
+    step: PickStep
+    number: NormBox | null
+    title: NormBox | null
+    numberText: string | null
+    titleText: string | null
+  } | null>(null)
+  const titlePickRef = useRef<typeof titlePick>(null)
+  titlePickRef.current = titlePick
+  const titleBoxRef = useRef<ScreenBox | null>(null)
   /** The Text tool's box while it is dragged, and the words it picked. */
   const textBoxRef = useRef<ScreenBox | null>(null)
   const textPickRef = useRef<{ page: number; words: PickedWord[] } | null>(null)
@@ -1401,6 +1420,22 @@ export default function Workspace({
       drawMarquee(oc, marqueeRef.current)
       drawMarquee(oc, zoomBoxRef.current)
       drawMarquee(oc, textBoxRef.current)
+      const tp = titlePickRef.current
+      if (tp !== null) {
+        oc.save()
+        oc.lineWidth = 2
+        for (const [b, color] of [[tp.number, NUMBER_BOX_COLOR], [tp.title, TITLE_BOX_COLOR]] as const) {
+          if (b === null) continue
+          const a = normalizedToScreen(b.x0, b.y0, viewRef.current, page.width, page.height)
+          const c = normalizedToScreen(b.x1, b.y1, viewRef.current, page.width, page.height)
+          oc.strokeStyle = color
+          oc.fillStyle = `${color}1f`
+          oc.fillRect(a.x, a.y, c.x - a.x, c.y - a.y)
+          oc.strokeRect(a.x, a.y, c.x - a.x, c.y - a.y)
+        }
+        oc.restore()
+        drawMarquee(oc, titleBoxRef.current)
+      }
       const pick = textPickRef.current
       if (pick !== null && pick.page === pageIndexRef.current && pick.words.length > 0) {
         oc.save()
@@ -1909,6 +1944,194 @@ export default function Workspace({
     })()
     return () => { cancelled = true }
   }, [pageCount, docIndex.shape, docIndex.labels, activeDocId])
+
+
+  /*
+   * Sheet names from two boxes on the title block (shell/titleBlock.ts).
+   *
+   * The boxes and any names set one sheet at a time live in the file's
+   * redbeam_meta, so they travel in the PDF. Every page is read in the boxes
+   * in the background; when the reading finishes, the names go into
+   * redbeam_meta as the labels the next save writes into /PageLabels, which is
+   * what Bluebeam shows as the page names (Aaron, 2026-11-25).
+   */
+  const [titleRegions, setTitleRegions] = useState<TitleBlockRegions | null>(null)
+  const [sheetOverrides, setSheetOverrides] = useState<Map<number, ReadName>>(new Map())
+  const [regionNames, setRegionNames] = useState<Array<ReadName | null>>([])
+  const [titleReading, setTitleReading] = useState<{ done: number; total: number } | null>(null)
+  /** True once every page has been read in the current boxes. */
+  const [titleReadDone, setTitleReadDone] = useState(false)
+
+  const loadTitleMeta = useCallback(async () => {
+    const db = dbRef.current
+    if (!db) return
+    try {
+      const rows = await db.all<{ key: string, value: string }>(
+        'SELECT key, value FROM redbeam_meta WHERE key IN (?, ?)', [TITLE_REGIONS_KEY, SHEET_OVERRIDES_KEY])
+      setTitleRegions(parseRegions(rows.find((r) => r.key === TITLE_REGIONS_KEY)?.value))
+      setSheetOverrides(parseOverrides(rows.find((r) => r.key === SHEET_OVERRIDES_KEY)?.value))
+    } catch {
+      setTitleRegions(null)
+      setSheetOverrides(new Map())
+    }
+  }, [])
+  const loadTitleMetaRef = useRef(loadTitleMeta); loadTitleMetaRef.current = loadTitleMeta
+  useEffect(() => {
+    setTitleRegions(null)
+    setSheetOverrides(new Map())
+    void loadTitleMeta()
+  }, [activeDocId, loadTitleMeta])
+
+  useEffect(() => {
+    setRegionNames([])
+    setTitleReadDone(false)
+    const v = viewerRef.current
+    if (!v || titleRegions === null || pageCount === 0) { setTitleReading(null); return }
+    let cancelled = false
+    const regions = titleRegions
+    void (async () => {
+      const names: Array<ReadName | null> = new Array<ReadName | null>(pageCount).fill(null)
+      let shown = performance.now()
+      setTitleReading({ done: 0, total: pageCount })
+      // `sweepPage`: this enumerates EVERY page; see the derived-labels sweep.
+      for (let sweepPage = 0; sweepPage < pageCount; sweepPage++) {
+        if (cancelled) return
+        try {
+          const pt = v.getText(sweepPage) ?? await v.requestText(sweepPage)
+          if (cancelled) return
+          names[sweepPage] = readSheetName(pt, regions)
+        } catch {
+          // One unreadable sheet keeps its old name; the rest are still read.
+        }
+        // The list fills in as it goes, a few times a second rather than per page.
+        if (performance.now() - shown > 200 || sweepPage === pageCount - 1) {
+          shown = performance.now()
+          setRegionNames([...names])
+          setTitleReading({ done: sweepPage + 1, total: pageCount })
+        }
+      }
+      if (cancelled) return
+      setTitleReading(null)
+      setTitleReadDone(true)
+      const read = names.filter((n) => n !== null).length
+      setStatus(read === pageCount
+        ? `named all ${pageCount} sheets from the title block`
+        : `named ${read} of ${pageCount} sheets from the title block; ${pageCount - read} had nothing in the number box and keep their old names`)
+    })()
+    return () => { cancelled = true }
+  }, [pageCount, activeDocId, titleRegions, setStatus])
+
+  /** Each page's title block name: set for that sheet, else read in the boxes. */
+  const titleNames = useMemo(
+    () => (titleRegions === null && sheetOverrides.size === 0 ? [] : mergeNames(pageCount, regionNames, sheetOverrides)),
+    [pageCount, regionNames, sheetOverrides, titleRegions],
+  )
+
+  /*
+   * Into the file: once the reading is finished (or there are only names set
+   * by hand), the labels the next save writes as /PageLabels.
+   */
+  useEffect(() => {
+    const db = dbRef.current
+    if (!db || pageCount === 0) return
+    if (titleRegions !== null && !titleReadDone) return
+    if (titleRegions === null && sheetOverrides.size === 0) return
+    const labels = labelsToWrite(pageCount, titleNames, docIndex.labels)
+    if (labels === null) return
+    const value = JSON.stringify(labels)
+    void (async () => {
+      try {
+        const rows = await db.all<{ value: string }>('SELECT value FROM redbeam_meta WHERE key = ?', [SHEET_LABELS_KEY])
+        if (rows[0]?.value === value) return
+        await db.run('INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES(?, ?)', [SHEET_LABELS_KEY, value])
+        saveRef.current()
+      } catch { /* the names still show; the next change tries again */ }
+    })()
+  }, [titleNames, titleReadDone, titleRegions, sheetOverrides, pageCount, docIndex.labels])
+
+  /** Keep the boxes in the file and read every sheet in them. Null removes them. */
+  const applyTitleRegions = useCallback(async (regions: TitleBlockRegions | null) => {
+    const db = dbRef.current
+    if (!db) return
+    if (regions === null) await db.run('DELETE FROM redbeam_meta WHERE key = ?', [TITLE_REGIONS_KEY])
+    else await db.run('INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES(?, ?)', [TITLE_REGIONS_KEY, JSON.stringify(regions)])
+    setTitleRegions(regions)
+    saveRef.current()
+  }, [])
+
+  /** Names set one sheet at a time; `null` takes a page's back off. */
+  const applySheetNames = useCallback(async (names: ReadonlyArray<{ page: number; name: ReadName | null }>) => {
+    const db = dbRef.current
+    if (!db) return
+    const next = new Map(sheetOverrides)
+    for (const { page: at, name } of names) {
+      if (name === null) next.delete(at)
+      else next.set(at, name)
+    }
+    await db.run('INSERT OR REPLACE INTO redbeam_meta(key, value) VALUES(?, ?)',
+      [SHEET_OVERRIDES_KEY, JSON.stringify(Object.fromEntries([...next].map(([k, v]) => [String(k), v])))])
+    setSheetOverrides(next)
+    saveRef.current()
+  }, [sheetOverrides])
+
+  const openTitlePick = useCallback(() => {
+    if (pageCount === 0) return
+    disarmZoomBoxRef.current()
+    setTitlePick({
+      step: 'number',
+      number: titleRegions?.number ?? null,
+      title: titleRegions?.title ?? null,
+      numberText: null,
+      titleText: null,
+    })
+    // Show what the saved boxes read on this sheet, when there are some.
+    const v = viewerRef.current
+    const at = pageIndexRef.current
+    if (v && titleRegions !== null) {
+      void (async () => {
+        try {
+          const pt = v.getText(at) ?? await v.requestText(at, { priority: 0 })
+          setTitlePick((cur) => cur === null ? cur : {
+            ...cur,
+            numberText: cur.number === null ? null : textInBox(pt, cur.number),
+            titleText: cur.title === null ? null : textInBox(pt, cur.title),
+          })
+        } catch { /* the card says nothing read */ }
+      })()
+    }
+    requestPaint()
+  }, [pageCount, titleRegions, setStatus, requestPaint])
+
+  /** A box dragged while the card is up: it answers the card's current step. */
+  const finishTitleBox = useCallback((box: ScreenBox) => {
+    const v = viewerRef.current
+    if (!v || page.width === 0 || titlePickRef.current === null) return
+    const a = screenToNormalized(box.x0, box.y0, viewRef.current, page.width, page.height)
+    const b = screenToNormalized(box.x1, box.y1, viewRef.current, page.width, page.height)
+    const clamp = (n: number) => Math.min(1, Math.max(0, n))
+    const nbox = {
+      x0: clamp(Math.min(a.x, b.x)), y0: clamp(Math.min(a.y, b.y)),
+      x1: clamp(Math.max(a.x, b.x)), y1: clamp(Math.max(a.y, b.y)),
+    }
+    if (isTinyBox(nbox)) { setStatus('drag a box, not a click: around the whole field'); return }
+    const step = titlePickRef.current.step
+    setTitlePick((cur) => cur === null ? cur : (step === 'number'
+      ? { ...cur, number: nbox, numberText: '' }
+      : { ...cur, title: nbox, titleText: '' }))
+    const at = pageIndexRef.current
+    void (async () => {
+      try {
+        const pt = v.getText(at) ?? await v.requestText(at, { priority: 0 })
+        const text = textInBox(pt, nbox)
+        setTitlePick((cur) => cur === null ? cur : (step === 'number' ? { ...cur, numberText: text } : { ...cur, titleText: text }))
+        if (text === '') setStatus(pt.scanned ? 'this sheet is a scan with no text to read' : 'no text in that box; drag it around the words')
+      } catch {
+        setStatus('could not read the text on this sheet')
+      }
+    })()
+    requestPaint()
+  }, [page.width, page.height, requestPaint, setStatus])
+  const finishTitleBoxRef = useRef(finishTitleBox); finishTitleBoxRef.current = finishTitleBox
 
   const goToPage = useCallback((index: number) => {
     const v = viewerRef.current
@@ -3368,6 +3591,7 @@ export default function Workspace({
         if (pendingCalRef.current !== null) { cancelCalibration(); return }
         if (pendingRegionRef.current !== null) { cancelRegion(); return }
         if (zoomBoxArmedRef.current) { disarmZoomBoxRef.current(); zoomBoxRef.current = null; requestPaint(); return }
+        if (titlePickRef.current !== null) { titleBoxRef.current = null; setTitlePick(null); requestPaint(); return }
         if (textPickRef.current !== null) { textPickRef.current = null; requestPaint(); return }
         // The markup menu closed only on a click on its scrim; Escape, the
         // key every menu closes on, left it standing over the sheet.
@@ -3765,11 +3989,12 @@ export default function Workspace({
     const hb = e.pointerType === 'mouse' ? historyStepForButton(e.button) : null
     if (hb !== null) { e.preventDefault(); stepHistoryRef.current(hb); return }
     if (e.pointerType === 'mouse' && e.button !== 0) return
-    if (zoomBoxArmedRef.current || toolRef.current === 'text') {
+    if (zoomBoxArmedRef.current || titlePickRef.current !== null || toolRef.current === 'text') {
       const r0 = e.currentTarget.getBoundingClientRect()
       const hx = e.clientX - r0.left, hy = e.clientY - r0.top
       const box = { x0: hx, y0: hy, x1: hx, y1: hy }
       if (zoomBoxArmedRef.current) zoomBoxRef.current = box
+      else if (titlePickRef.current !== null) titleBoxRef.current = box
       else { textBoxRef.current = box; textPickRef.current = null }
       try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* see the pan */ }
       e.preventDefault()
@@ -4045,7 +4270,7 @@ export default function Workspace({
     if (!v) return
     const rect = e.currentTarget.getBoundingClientRect()
 
-    const box = zoomBoxRef.current ?? textBoxRef.current
+    const box = zoomBoxRef.current ?? textBoxRef.current ?? titleBoxRef.current
     if (box !== null) {
       box.x1 = e.clientX - rect.left
       box.y1 = e.clientY - rect.top
@@ -4268,6 +4493,13 @@ export default function Workspace({
     if (tb !== null) {
       textBoxRef.current = null
       finishTextBoxRef.current(tb)
+      requestPaint()
+      return
+    }
+    const tbb = titleBoxRef.current
+    if (tbb !== null) {
+      titleBoxRef.current = null
+      finishTitleBoxRef.current(tbb)
       requestPaint()
       return
     }
@@ -5506,6 +5738,8 @@ export default function Workspace({
             await syncMarkups()
             await refreshScopes()
           }
+          // The title block boxes and sheet names came in with the slice.
+          if (imported !== null && docIdRef.current === doc.id) await loadTitleMetaRef.current()
           // A blocked Light file says so in the warning bar; redbeam.db is not where its markups are.
           const text = light && (fileLoadRef.current.get(doc.id)?.state === 'blocked' || reading.privateDataLost) ? null : openingStatus(reading, imported, name)
           if (text !== null) setStatus(text)
@@ -6066,6 +6300,7 @@ export default function Workspace({
               page: r.page,
               sheet: unnamed ? null : r.number,
               title: r.title,
+              source: sheetOverrides.has(r.page) ? 'renamed' : (titleRegions !== null && (regionNames[r.page] ?? null) !== null) ? 'title block' : 'document',
               ...(g.label !== null ? { group: g.label } : {}),
             }
           })).sort((a, b) => a.page - b.page)
@@ -6074,8 +6309,85 @@ export default function Workspace({
             document: doc === undefined ? null : (doc.displayName || doc.relativePath),
             pageCount,
             named: sheets.filter((x) => x.sheet !== null).length,
+            ...(titleRegions !== null ? { titleBlocks: { numberBox: titleRegions.number, titleBox: titleRegions.title } } : {}),
+            ...(titleReading !== null ? { reading: { ...titleReading, note: 'the title block boxes are still being read; names fill in as they are' } } : {}),
             sheets,
             ...(sheets.some((x) => x.sheet === null) ? { note: 'sheet: null means no sheet number has been read off that page yet (they are read as the file is indexed after opening, so ask again shortly), or the page has none; `page` always works' } : {}),
+          }
+        }
+        /*
+         * Name every sheet from two boxes on the title block, the same as
+         * Read from title block in Contents (Aaron, 2026-11-25: agents must
+         * be able to see a set is misnamed and fix it on their own).
+         */
+        case 'set_title_blocks': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          if (params['clear'] === true) {
+            await applyTitleRegions(null)
+            return { cleared: true, note: 'the title block boxes are removed; names set with rename_sheets stay' }
+          }
+          const asBox = (raw: unknown): NormBox | null | 'bad' => {
+            const o = objectParam(raw)
+            if (o === undefined) return null
+            if (o === null) return 'bad'
+            const n = ['x0', 'y0', 'x1', 'y1'].map((k) => Number(o[k]))
+            if (n.some((x) => !Number.isFinite(x) || x < 0 || x > 1)) return 'bad'
+            const box = { x0: Math.min(n[0]!, n[2]!), y0: Math.min(n[1]!, n[3]!), x1: Math.max(n[0]!, n[2]!), y1: Math.max(n[1]!, n[3]!) }
+            return isTinyBox(box) ? 'bad' : box
+          }
+          const numberBox = asBox(params['numberBox'])
+          const titleBox = asBox(params['titleBox'])
+          if (numberBox === null || numberBox === 'bad') {
+            return { error: 'numberBox must be {x0,y0,x1,y1} in normalized [0,1] page coordinates, y down, around the drawing number (find it with get_words on the title block)' }
+          }
+          if (titleBox === 'bad') return { error: 'titleBox must be {x0,y0,x1,y1} in normalized [0,1] page coordinates, y down, or left out' }
+          const regions: TitleBlockRegions = { number: numberBox, title: titleBox }
+          const at = params['page'] === undefined ? pageIndexRef.current : Number(params['page'])
+          if (!Number.isInteger(at) || at < 0 || at >= pageCount) return { error: `page ${String(params['page'])} out of range (0..${pageCount - 1})` }
+          // A sample across the set, so a box that only fits one sheet shows up now.
+          const samplePages = [...new Set([at, 0, Math.floor(pageCount / 4), Math.floor(pageCount / 2), Math.floor((3 * pageCount) / 4), pageCount - 1])]
+            .filter((p) => p >= 0 && p < pageCount)
+          const sample: Array<Record<string, unknown>> = []
+          for (const p of samplePages) {
+            try {
+              const pt = v.getText(p) ?? await v.requestText(p, { priority: 0 })
+              const name = readSheetName(pt, regions)
+              sample.push({ page: p, number: name?.number ?? null, title: name?.title ?? null, ...(pt.scanned ? { scanned: true } : {}) })
+            } catch {
+              sample.push({ page: p, error: 'could not read this sheet' })
+            }
+          }
+          await applyTitleRegions(regions)
+          const empty = sample.filter((x) => x['number'] === null).length
+          return {
+            reading: { total: pageCount },
+            sample,
+            note: `every sheet is being read in these boxes in the background; list_sheets shows the names as they come in (source "title block") and the next save writes them into the PDF as page labels.${empty > 0 ? ` ${empty} of the sampled sheets read nothing in the number box: check those with get_words, and name odd ones with rename_sheets.` : ''}`,
+          }
+        }
+        /* Name pages one at a time: a cover, a scan, a sheet whose title block differs. */
+        case 'rename_sheets': {
+          if (activeDocId === null) return { error: 'no document is open' }
+          let list: unknown = params['sheets']
+          if (typeof list === 'string') { try { list = JSON.parse(list) } catch { list = null } }
+          if (!Array.isArray(list) || list.length === 0) return { error: 'sheets must be a list of {page, number, title} (ZERO-based pages), or {page, clear: true} to take a name off' }
+          const changes: Array<{ page: number; name: ReadName | null }> = []
+          for (const raw of list) {
+            const o = objectParam(raw)
+            if (o === undefined || o === null) return { error: 'each entry in sheets must be {page, number, title} or {page, clear: true}' }
+            const p = Number(o['page'])
+            if (!Number.isInteger(p) || p < 0 || p >= pageCount) return { error: `page ${String(o['page'])} out of range (0..${pageCount - 1})` }
+            if (o['clear'] === true) { changes.push({ page: p, name: null }); continue }
+            const number = String(o['number'] ?? '').replace(/\s+/g, ' ').trim()
+            if (number === '') return { error: `page ${p}: number is required (or clear: true)` }
+            changes.push({ page: p, name: { number, title: String(o['title'] ?? '').replace(/\s+/g, ' ').trim() } })
+          }
+          await applySheetNames(changes)
+          return {
+            renamed: changes.filter((c) => c.name !== null).map((c) => ({ page: c.page, sheet: c.name!.number, title: c.name!.title })),
+            cleared: changes.filter((c) => c.name === null).map((c) => c.page),
+            note: 'shown in Contents now; the next save writes them into the PDF as page labels, which Bluebeam shows too',
           }
         }
         /*
@@ -7981,7 +8293,8 @@ export default function Workspace({
     // gaps. A publisher's label is authoritative and a title block is a guess.
     labels: mergeSheetLabels(docIndex.labels, derivedLabels, pageCount),
     takeoffPages,
-  }), [pageCount, docIndex, derivedLabels, takeoffPages])
+    named: titleNames,
+  }), [pageCount, docIndex, derivedLabels, takeoffPages, titleNames])
 
   /** `AE6-01-02` for a page index — what a markup's sheet is called. */
   const sheetLabelFor = useCallback((p: number): string => {
@@ -9552,6 +9865,7 @@ export default function Workspace({
       /* ---- the view ---- */
       { id: 'fit-page', kind: 'command', title: 'Fit sheet', shortcut: 'Ctrl+0', keywords: ['zoom'], ...stuck(noSheet), run: () => applyFit('page') },
       { id: 'fit-width', kind: 'command', title: 'Fit width', shortcut: 'Ctrl+1', keywords: ['zoom'], ...stuck(noSheet), run: () => applyFit('width') },
+      { id: 'title-block-names', kind: 'command', title: 'Name sheets from the title block', keywords: ['sheet', 'names', 'page labels', 'drawing number', 'title block', 'rename'], ...stuck(noSheet), run: () => openTitlePick() },
       { id: 'zoom-box', kind: 'command', title: 'Zoom to a box', shortcut: 'Z', keywords: ['zoom', 'marquee', 'window', 'area'], ...stuck(noSheet), run: () => armZoomBox() },
       {
         id: 'history-back', kind: 'command', title: 'Back', shortcut: 'Alt+Left', keywords: ['previous view', 'return', 'history', 'last sheet'],
@@ -10538,6 +10852,12 @@ export default function Workspace({
               onPrint={(pages) => { void printSheets(pages) }}
               scaleOf={scaleOfPage}
               pending={pendingText}
+              named={titleNames}
+              titleBlock={{
+                named: titleRegions !== null,
+                reading: titleReading,
+                onPick: openTitlePick,
+              }}
             />
           )}
           {railPanel === 'thumbnails' && (
@@ -10625,7 +10945,7 @@ export default function Workspace({
         <div
           ref={stageRef}
           className="stage"
-          style={{ cursor: zoomBoxArmed ? 'zoom-in' : tool === 'text' ? 'text' : hoverCursor ?? (tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair') }}
+          style={{ cursor: zoomBoxArmed ? 'zoom-in' : titlePick !== null ? 'crosshair' : tool === 'text' ? 'text' : hoverCursor ?? (tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair') }}
           onMouseDown={(e) => { if (e.button === 1) e.preventDefault() }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -11096,6 +11416,27 @@ export default function Workspace({
               </div>
             </div>
           </div>
+        )}
+
+        {titlePick !== null && (
+          <TitleBlockPicker
+            step={titlePick.step}
+            numberText={titlePick.numberText}
+            titleText={titlePick.titleText}
+            sheetCount={pageCount}
+            onCancel={() => { setTitlePick(null); requestPaint() }}
+            onBack={() => setTitlePick((cur) => cur === null ? cur : { ...cur, step: 'number' })}
+            onNext={() => {
+              setTitlePick((cur) => cur === null ? cur : { ...cur, step: 'title' })
+            }}
+            onApply={() => {
+              const tp = titlePickRef.current
+              if (tp === null || tp.number === null) return
+              setTitlePick(null)
+              void applyTitleRegions({ number: tp.number, title: tp.title })
+              requestPaint()
+            }}
+          />
         )}
 
         <Dock

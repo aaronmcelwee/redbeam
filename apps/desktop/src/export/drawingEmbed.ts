@@ -28,7 +28,7 @@ import type { WritableScaleRegion } from './pdfMarkup.js'
  * THIS drawing's layout components.
  */
 /** redbeam_meta keys that belong to the file and travel in it. */
-export const FILE_META_KEYS = ['addenda_links'] as const
+export const FILE_META_KEYS = ['addenda_links', 'sheet_name_regions', 'sheet_labels', 'sheet_name_overrides'] as const
 
 const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
   ['documents', 'SELECT * FROM documents WHERE id = ?1'],
@@ -79,7 +79,7 @@ const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [...SLICE_
    * store there is this one PDF's, so the links are the file's. They were
    * kept in the window's memory alone, and were gone on reopening.
    */
-  ['redbeam_meta', `SELECT key, value FROM redbeam_meta WHERE key = '${FILE_META_KEYS[0]}'`],
+  ['redbeam_meta', `SELECT key, value FROM redbeam_meta WHERE key IN (${FILE_META_KEYS.map((k) => `'${k}'`).join(', ')})`],
 ]
 
 /** Volatile columns that change without the takeoff changing. */

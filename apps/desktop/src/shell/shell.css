@@ -3611,3 +3611,60 @@ html[data-backdrop="tabbed"] .dockgroup {
 .bookmarktwisty { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
 .bookmarktwisty > svg { transition: transform var(--rb-motion-fast) var(--rb-ease-decel); }
 @media (prefers-reduced-motion: reduce) { .bookmarktwisty > svg { transition: none; } }
+
+/* -------------------------------------------- sheet names: title block -- */
+
+/* Under the sheet list: where the names came from, and how to fix them. */
+.titlefoot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  padding: var(--ads-sp-1) var(--rb-pad-row);
+  border-top: 1px solid var(--ads-line);
+  font-size: var(--rb-caption);
+  line-height: 16px;
+  color: var(--ads-ink-3);
+}
+.titlefoot-note { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--ads-sp-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.titlefoot-note progress { flex: none; width: 48px; height: 4px; accent-color: var(--rb-accent); }
+.titlefoot-link {
+  flex: none;
+  border: 0; padding: 2px 4px; border-radius: 4px;
+  background: transparent; color: var(--rb-accent);
+  font: inherit; cursor: pointer; white-space: nowrap;
+}
+.titlefoot-link:hover { background: var(--rb-hover); text-decoration: underline; }
+
+/*
+ * The two-step card over the drawing. Not a dialog: the drawing has to stay
+ * usable underneath, because the answer is a box dragged on it.
+ */
+.tbpick {
+  position: absolute;
+  /* Top left, clear of the status toast at the top centre. */
+  top: 12px;
+  left: 16px;
+  z-index: 30;
+  width: min(400px, calc(100% - 32px));
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--rb-line);
+  background: var(--rb-panel);
+  color: var(--rb-ink);
+  box-shadow: var(--rb-shadow-flyout);
+  font-size: var(--rb-body);
+  line-height: 20px;
+}
+.tbpick h2 { margin: 0 0 4px; font-size: var(--rb-body); font-weight: 600; }
+.tbpick-step { margin: 0 0 12px; color: var(--rb-ink-2); }
+.tbpick-fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0 0 16px; }
+.tbpick-fields dt { color: var(--rb-ink-3); font-size: var(--rb-caption); line-height: 20px; }
+.tbpick-fields dd { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.tbpick-fields dd.empty { font-weight: 400; color: var(--rb-ink-3); }
+.tbpick-fields dt.on::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; background: var(--tb-color); vertical-align: 0; }
+.tbpick-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.tbpick-actions .grow { flex: 1 1 auto; }
+.tbpick-actions .st-btn.accent { border-color: transparent; background: var(--rb-accent); color: var(--rb-accent-ink); }
+.tbpick-actions .st-btn.accent:hover { background: var(--rb-accent-2); }
+.tbpick-actions .st-btn:disabled { opacity: 0.45; cursor: default; }
