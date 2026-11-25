@@ -178,7 +178,10 @@ export function AgentStrip({
   }
 
   return (
-    <div className="agentstrip" role="group" aria-label="AI sessions" data-many={groups.length > 3 ? 'true' : 'false'}>
+    <div
+      className="agentstrip" role="group" aria-label="AI sessions" data-many={groups.length > 3 ? 'true' : 'false'}
+      style={{ '--person-tabs': tabs.filter((t) => t.owner === undefined).length } as CSSProperties}
+    >
       {open?.kind === 'session' && shown !== null && (
         <div
           className="titlemenu tabctx agentflyout" role="menu" aria-label={shown.agent.name} ref={menuRef}
@@ -392,30 +395,27 @@ export function AgentsOnStart({
 // ------------------------------------------------------------ on the sheet --
 
 /**
- * Over the sheet of the PDF showing, as WinUI InfoBars: who else is in it,
- * and what any session is asking.
+ * Over the sheet of an agent's own PDF while the person looks in on it, as a
+ * WinUI InfoBar: "Claude · Nokia takeoff is operating this PDF. The view
+ * follows it." with the way to take the tab.
  *
- *  - An agent's own PDF, being watched: "Claude · Nokia takeoff is operating
- *    this PDF. The view follows it." with the way to take the tab.
- *  - A session wants to move the view of one of the person's PDFs, this one
- *    or another: the question, with its two answers. It is asked here
- *    whichever tab they are in, because here is where they are looking.
+ * What a session asks the person is NOT shown here. It was, on whichever tab
+ * they were in, and on the SLS four such bars stacked over the drawing Aaron
+ * was working on (2026-11-24). His rule is that nothing an agent does opens
+ * over his work, so a question lives on the session's pill ("!") and is
+ * answered from the pill's menu when he chooses to look.
  */
 export function AgentBar({
-  file, owner, tabs, onHandOver, onTakeOver,
+  file, owner, onTakeOver,
 }: {
   file: string
   /** The agent that drives this tab, if one does. */
   owner: string | undefined
-  /** Every open tab, to name the PDF a question is about. */
-  tabs?: readonly AgentTabItem[]
-  onHandOver?: (file: string, agentId: string, yes: boolean) => void
   onTakeOver?: (file: string) => void
 }) {
   const agents = useAgents()
-  const asks = useHandoverAsks()
   const driver = owner === undefined ? undefined : agents.find((a) => a.id === owner)
-  if (driver === undefined && asks.length === 0) return null
+  if (driver === undefined) return null
   return (
     <div className="agentbar">
       {driver !== undefined && (
@@ -432,22 +432,6 @@ export function AgentBar({
           )}
         </div>
       )}
-      {onHandOver !== undefined && asks.map((a) => {
-        const agent = agents.find((x) => x.id === a.agentId)
-        if (agent === undefined) return null
-        const here = samePath(a.file, file)
-        const name = tabs?.find((t) => samePath(t.file, a.file))?.name ?? a.file.replace(/\\/g, '/').replace(/^.*\//, '')
-        return (
-          <div key={`${a.agentId}|${a.file}`} className="agentinfobar" role="alert" style={tint(agent)}>
-            <span className="agentdot" aria-hidden="true" data-state={agent.state} />
-            <span className="agentinfobar-text">
-              <strong>{agent.name}</strong> wants to turn pages and zoom in {here ? 'this PDF' : <>your PDF <strong>{plainName(name)}</strong></>}. Your view stays as it is unless you allow it.
-            </span>
-            <button type="button" className="primarybtn small" onClick={() => onHandOver(a.file, agent.id, true)}>{here ? 'Let it work here' : 'Let it work there'}</button>
-            <button type="button" className="ghostbtn small" onClick={() => onHandOver(a.file, agent.id, false)}>Not now</button>
-          </div>
-        )
-      })}
     </div>
   )
 }

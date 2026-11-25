@@ -37,7 +37,13 @@
   position: relative;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 66%;
+  /*
+   * The person's own tabs come first (SLS, 2026-11-24: three long pills left
+   * one of five tabs showing). The sessions take what the person's tabs do
+   * not need, and never less than two fifths of the strip; a group the
+   * person unfolded may take more, because they asked to see it.
+   */
+  max-width: max(40%, calc(100% - var(--person-tabs, 1) * 22ch - 16ch));
   display: flex;
   align-items: center;
   gap: 6px;
@@ -51,10 +57,11 @@
  * so a session is found by colour first and read second. The same colour is
  * on its cursor on the sheet.
  */
+.agentstrip:has(.agenttab) { max-width: max(60%, calc(100% - var(--person-tabs, 1) * 22ch - 16ch)); }
 .agentpill {
-  flex: 0 2 auto;
+  flex: 0 4 auto;
   min-width: 7ch;
-  max-width: 44ch;
+  max-width: 26ch;
   height: 22px;
   display: inline-flex;
   align-items: center;
@@ -73,9 +80,11 @@
 }
 .agentpill:hover { filter: brightness(1.06); }
 .agentpill:focus-visible { outline: 2px solid var(--rb-focus, var(--rb-ink)); outline-offset: 1px; }
-.agentpill-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agentpill-name { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; }
 /* A crowd of sessions: each pill gives up length before any is lost. */
-.agentstrip[data-many="true"] .agentpill { max-width: 22ch; }
+.agentstrip[data-many="true"] .agentpill { max-width: 18ch; }
+/* A group is unfolded: the other pills fold down to make room for its tabs' names. */
+.agentstrip:has(.agenttab) .agentpill[aria-expanded="false"] { max-width: 14ch; }
 .agentpill-state {
   flex: none;
   padding: 2px 6px;
@@ -101,8 +110,8 @@
 /* A group's tab: a tab like the person's, underlined in its session's colour. */
 .agenttab {
   flex: 0 3 auto;
-  /* Down to its icon before a pill is lost. */
-  min-width: 34px;
+  /* Keeps enough of its name to tell it from its neighbours; the pills give way first. */
+  min-width: min(13ch, 100%);
   overflow: hidden;
   height: 100%;
   border-right: 0;

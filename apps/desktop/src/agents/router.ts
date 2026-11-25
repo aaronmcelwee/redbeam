@@ -111,6 +111,16 @@ export class BridgeRouter {
       }
     }
     const tab = this.target(agent, named)
+    /*
+     * A session with no PDF of its own yet, asking what is open, is answered
+     * from the PDF the person is showing. That is a look, not a visit: it
+     * does not make the person's PDF the session's current one, puts no
+     * cursor on it and marks no guest dot (SLS, 2026-11-24: "Checking what
+     * is open" sat over Aaron's sheet while the agent worked elsewhere).
+     */
+    const glance = agent !== null && tab !== null && named === '' && tab.owner !== agent.id
+      && (action === 'get_ui_state' || action === 'get_state')
+      && (agent.current === null || !samePath(agent.current, tab.file))
 
     if (tab === null) {
       // No PDF anywhere in this window. Another window may have one: let it
@@ -129,12 +139,14 @@ export class BridgeRouter {
     // What this agent's calls mean when they name no file, from here on: the
     // PDF it just addressed. "Open A, open B, then work" stays in B, and the
     // person switching tabs does not carry a half-drawn takeoff to another PDF.
-    if (agent !== null) this.deps.roster.setCurrent(agent.id, tab.file)
+    if (agent !== null && !glance) this.deps.roster.setCurrent(agent.id, tab.file)
     // Mounts it if it was let go, and counts as use either way (agents/live.ts).
     this.deps.wake(tab.file)
     const text = describeCall(action, params)
     if (agent !== null) {
-      this.deps.roster.begin(agent.id, { text, file: tab.file, page: callPage(params), point: callPoint(params) })
+      this.deps.roster.begin(agent.id, glance
+        ? { text, file: null, page: null, point: null }
+        : { text, file: tab.file, page: callPage(params), point: callPoint(params) })
     }
     let result: Record<string, unknown>
     try {
@@ -145,7 +157,12 @@ export class BridgeRouter {
         }
         let ctx = this.context(agent, tab.file)
         let out = await runOnHost(host, action, params, ctx)
-        if (out['handover'] === true && agent !== null && !ctx.drives) {
+        const now = tabFor(this.deps.tabs(), tab.file)
+        if (out['handover'] === true && agent !== null && !ctx.drives && now?.owner !== undefined) {
+          // Another session's PDF: refused there and then. The person is
+          // never asked to referee between two agents (Aaron, 2026-11-24).
+          out = this.notYours(now, agent, true)
+        } else if (out['handover'] === true && agent !== null && !ctx.drives) {
           const answer = await this.deps.handovers.ask(tab.file, agent.id, Math.min(HANDOVER_WAIT_MS, left() - 1500))
           if (answer === 'yes') {
             ctx = this.context(agent, tab.file)
@@ -162,13 +179,13 @@ export class BridgeRouter {
     }
     if (agent !== null) {
       const failed = typeof result['error'] === 'string'
-      this.deps.roster.end(agent.id, {
+      this.deps.roster.end(agent.id, glance ? { failed } : {
         failed,
         page: typeof result['page'] === 'number' ? result['page'] : null,
         file: tab.file,
       })
       const now = tabFor(this.deps.tabs(), tab.file)
-      if (now !== undefined) {
+      if (now !== undefined && !glance) {
         this.deps.roster.touch(agent.id, tab.file, { wrote: !failed && callWrites(action, params), guest: now.owner !== agent.id })
       }
     }
@@ -227,6 +244,14 @@ export class BridgeRouter {
   private notYours(tab: LightFile, agent: Agent, refused: boolean): Record<string, unknown> {
     const whose = tab.owner === undefined ? 'the person\'s own tab' : `${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab`
     const name = nameOf(tab.file)
+    if (tab.owner !== undefined) {
+      return {
+        error: `${name} is ${whose}. One session does not move another session's view or draw away from the sheet it is showing. `
+          + 'Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy. Reading it works as it is.',
+        handover: 'refused',
+        file: tab.file,
+      }
+    }
     return {
       error: refused
         ? `${name} is ${whose}, and the person said not now to ${agent.name} working in it. `

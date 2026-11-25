@@ -104,6 +104,49 @@ fn launch_app() {
     });
 }
 
+/// How long one server's claim on starting REDBEAM stands. Longer than
+/// `LAUNCH_WAIT`, so a claim outlives the launch it covers; short enough that
+/// a server killed mid-launch does not stop the next one for long.
+const LAUNCH_CLAIM: Duration = Duration::from_secs(45);
+
+fn launch_claim_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("redbeam-ai-launch.lock")
+}
+
+/// True when this server should start REDBEAM, false when another server
+/// already is and this one should only wait for the bridge.
+///
+/// Two AI chats making their first call in the same second each used to
+/// start their own REDBEAM (AARON-SLS, 2026-11-24: two windows, the sessions
+/// split between them). The app's single-instance check cannot stop that:
+/// the second copy finds the first one's mutex but not yet its window, and
+/// carries on. So the servers agree among themselves, with a file only one of
+/// them can create.
+fn claim_launch(path: &std::path::Path, now: std::time::SystemTime) -> bool {
+    for _ in 0..2 {
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
+            Ok(_) => return true,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let age = std::fs::metadata(path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| now.duration_since(t).ok());
+                match age {
+                    // Fresh: someone else is starting it.
+                    Some(a) if a < LAUNCH_CLAIM => return false,
+                    // Left behind by a server that died, or unreadable: take it over.
+                    _ => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
+            // No temp folder to write in: start it, as before.
+            Err(_) => return true,
+        }
+    }
+    false
+}
+
 /// A connection to the bridge, starting REDBEAM if it is not running.
 fn reach() -> Result<(TcpStream, String), String> {
     if let Some((port, token)) = discovery() {
@@ -117,15 +160,25 @@ fn reach() -> Result<(TcpStream, String), String> {
     if !crate::ai_apps::enabled_on_disk() {
         return Err(format!("REDBEAM is not running, or {OFF}"));
     }
-    launch_app();
+    let claim = launch_claim_path();
+    let mine = claim_launch(&claim, std::time::SystemTime::now());
+    if mine {
+        launch_app();
+    }
     let started = Instant::now();
     while started.elapsed() < LAUNCH_WAIT {
         std::thread::sleep(Duration::from_millis(400));
         if let Some((port, token)) = discovery() {
             if let Ok(s) = connect(port) {
+                if mine {
+                    let _ = std::fs::remove_file(&claim);
+                }
                 return Ok((s, token));
             }
         }
+    }
+    if mine {
+        let _ = std::fs::remove_file(&claim);
     }
     Err("Started REDBEAM, but it did not answer within 30 seconds. If it is open, check \
 Settings > Claude and ChatGPT, then try again."
@@ -443,6 +496,18 @@ pub fn serve_stdio() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_one_server_starts_the_app_and_a_dead_claim_is_taken_over() {
+        let path = std::env::temp_dir().join(format!("redbeam-claim-test-{}.lock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let now = std::time::SystemTime::now();
+        assert!(claim_launch(&path, now), "the first server starts it");
+        assert!(!claim_launch(&path, now), "the second waits for the first");
+        // The first server died mid-launch: later, the claim is stale.
+        assert!(claim_launch(&path, now + LAUNCH_CLAIM + Duration::from_secs(1)));
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn lists_the_same_tools_as_the_node_server() {

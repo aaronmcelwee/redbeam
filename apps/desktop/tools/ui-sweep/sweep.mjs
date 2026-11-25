@@ -536,16 +536,22 @@ const STEPS = [
     const problems = []
     const before = await person(page)
     const going = agentAct(page, AGENTS[1], 'go_to_page', { page: 5, file: FILE })
-    const bar = shown(page).locator('.agentbar')
-    try { await bar.getByRole('button', { name: 'Let it work here' }).waitFor({ timeout: 4000 }) } catch { problems.push('agent-ask: no question on the sheet when an agent asked to work in the person\'s PDF') }
+    // The question is on the session's pill, never over the sheet the person is working on.
+    const asking = shown(page).locator('.agentpill[data-asking="true"]')
+    try { await asking.waitFor({ timeout: 4000 }) } catch { problems.push('agent-ask: no "!" on the pill when an agent asked to work in the person\'s PDF') }
+    if (await shown(page).locator('.agentbar .agentinfobar').count() > 0) problems.push('agent-ask: a question was put over the sheet the person is working on')
     problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-question.png`) })
     if (JSON.stringify(await person(page)) !== JSON.stringify(before)) problems.push('agent-ask: the person\'s sheet moved before they answered')
-    await bar.getByRole('button', { name: 'Not now' }).click().catch(() => problems.push('agent-ask: no Not now'))
+    await asking.click().catch(() => {})
+    const ask = page.locator('.agentflyout-ask')
+    if (await ask.getByRole('button', { name: 'Let it work there' }).count() !== 1) problems.push('agent-ask: the pill\'s menu has no way to say yes')
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-menu.png`) })
+    await ask.getByRole('button', { name: 'Not now' }).click().catch(() => problems.push('agent-ask: no Not now'))
     const told = await going
     if (told.handover !== 'refused') problems.push(`agent-ask: the agent was not told the person said not now: ${JSON.stringify(told).slice(0, 160)}`)
     await page.waitForTimeout(200)
-    if (await bar.count() > 0) problems.push('agent-ask: the question stayed up after Not now')
+    if (await shown(page).locator('.agentpill[data-asking="true"]').count() > 0) problems.push('agent-ask: the question stayed up after Not now')
     // Reading the person's PDF, and drawing on the sheet they are on, needs no asking.
     const settled = await person(page)
     const read = await agentAct(page, AGENTS[1], 'find_text', { query: 'CEILING', file: FILE })

@@ -154,6 +154,14 @@ describe('where a call lands', () => {
     expect(await act(A, 'create_markup', {})).toMatchObject({ ok: true })
     expect(w.log.at(-1)).toMatchObject({ file: MINE, agent: 'Claude', drives: false })
   })
+  it('treats a session asking what is open as a look: no cursor, no dot, no claim on the person\'s PDF', async () => {
+    const { w, call } = world()
+    expect(await call(A, 'get_ui_state')).toMatchObject({ file: MINE })
+    const a = w.roster.get().agents[0]!
+    expect(a.current).toBeNull()
+    expect(a.activity).toMatchObject({ text: 'Checking what is open', file: null, busy: false })
+    expect(a.guestIn).toEqual([])
+  })
   it('stays in the PDF it was working in when the person switches tabs', async () => {
     const other = 'C:\\Jobs\\Other.pdf'
     const { w, act } = world({ tabs: [lightFileOf(MINE), lightFileOf(other)] })
@@ -243,13 +251,14 @@ describe('the person\'s own tab', () => {
     expect(String(out['error'])).toMatch(/has been asked/)
     expect(w.handovers.get()).toHaveLength(1)
   })
-  it('keeps one agent out of another agent\'s view too', async () => {
+  it('keeps one agent out of another agent\'s view, without asking the person', async () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
-    const going = act(B, 'go_to_page', { page: 2, file: 'Tower A.pdf' })
-    await vi.waitFor(() => expect(w.handovers.get()).toHaveLength(1))
-    w.handovers.answer('C:\\Jobs\\Tower A.pdf', 'b', false)
-    expect(String((await going)['error'])).toMatch(/Claude's tab/)
+    const told = await act(B, 'go_to_page', { page: 2, file: 'Tower A.pdf' })
+    expect(String(told['error'])).toMatch(/Claude's tab/)
+    expect(told['handover']).toBe('refused')
+    // And the person is not asked to referee between them.
+    expect(w.handovers.get()).toHaveLength(0)
   })
   it('marks a refused call as not done on the agent\'s cursor', async () => {
     const { w, act } = world()
@@ -389,6 +398,16 @@ describe('how a session ends', () => {
     expect(w.roster.agent('b')!.state).not.toBe('gone')
   })
 
+  it('keeps what a session said when it finished, if it only looks around before its app closes', async () => {
+    const { w, call, act } = world()
+    await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
+    await act(A, 'end_session', { summary: 'Checked the ceilings, nothing to change.' })
+    await call(A, 'get_ui_state')
+    await call(A, 'agent_bye')
+    const a = w.roster.get().agents[0]!
+    expect(a.state).toBe('gone')
+    expect(a.ended).toMatchObject({ by: 'agent', summary: 'Checked the ceilings, nothing to change.', closed: ['C:\\Jobs\\Tower A.pdf'] })
+  })
   it('lets the person end a session, and a call after that starts it again', async () => {
     const { w, router, call, act } = world()
     await call(A, 'open_file', { path: SPEC, wait: true })

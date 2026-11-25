@@ -114,6 +114,12 @@ export interface Agent {
   waitingFor: string | null
   /** Set once it is finished. */
   ended: SessionEnd | null
+  /**
+   * How it ended last time, kept when a later call brings it back. A session
+   * that said "done, here is what I did" and then only looked around before
+   * its app closed keeps that account, not "its app closed" (SLS, 2026-11-24).
+   */
+  lastEnd?: SessionEnd | null
   /** PDFs it changed: what goes back to the person when it finishes. */
   wrote: readonly string[]
   /** The person's PDFs it is working in as a guest. */
@@ -402,7 +408,7 @@ export class RosterStore {
     const known = this.agent(who.id)
     if (known !== undefined) {
       if (known.state !== 'gone') return known
-      const back: Agent = { ...known, state: 'idle', ended: null, seenAt: at }
+      const back: Agent = { ...known, state: 'idle', ended: null, lastEnd: known.ended ?? known.lastEnd ?? null, seenAt: at }
       this.replace(back)
       return back
     }
@@ -500,9 +506,13 @@ export class RosterStore {
   finish(id: string, end: Omit<SessionEnd, 'at'>): void {
     const a = this.agent(id)
     if (a === undefined || a.state === 'gone') return
+    const prior = a.lastEnd ?? null
     this.replace({
       ...a, state: 'gone', waitingFor: null, guestIn: [], current: null,
-      ended: { ...end, at: this.now() },
+      // Its app going away says nothing new: what it said when it finished stands.
+      ended: end.summary === null && (end.by === 'app' || end.by === 'lost') && prior?.summary != null
+        ? prior
+        : { ...end, at: this.now() },
       activity: a.activity === null ? null : { ...a.activity, busy: false },
     })
   }
@@ -511,7 +521,8 @@ export class RosterStore {
   settle(id: string, handedBack: readonly string[], closed: readonly string[]): void {
     const a = this.agent(id)
     if (a === undefined || a.ended === null) return
-    this.replace({ ...a, ended: { ...a.ended, handedBack, closed } })
+    const both = (was: readonly string[], now: readonly string[]) => [...was, ...now.filter((f) => !was.includes(f))]
+    this.replace({ ...a, ended: { ...a.ended, handedBack: both(a.ended.handedBack, handedBack), closed: both(a.ended.closed, closed) } })
   }
 
   /** Its app closed the connection. */

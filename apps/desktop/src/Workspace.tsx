@@ -10775,8 +10775,6 @@ export default function Workspace({
           <AgentBar
             file={quickView.file}
             owner={lightTabs.list.find((t) => t.file === quickView.file)?.owner}
-            tabs={lightTabs.list}
-            {...(lightTabs.onHandOver !== undefined ? { onHandOver: lightTabs.onHandOver } : {})}
             {...(lightTabs.onTakeOver !== undefined ? { onTakeOver: lightTabs.onTakeOver } : {})}
           />
         )}
