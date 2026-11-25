@@ -14,7 +14,7 @@
  * what starts the check; pressing the button is what downloads.
  */
 import { Glyph, Info } from '../shell/icons.js'
-import { performUpdateAction, useUpdateState } from './session.js'
+import { isPortableCopy, performUpdateAction, useUpdateState } from './session.js'
 import {
   APP_VERSION, updateAction, updateMessage, updateNeedsAttention,
 } from './updates.js'
@@ -35,17 +35,19 @@ export function UpdateRow({ desktop }: { desktop: boolean }) {
   }
 
   const action = updateAction(state)
+  const portable = isPortableCopy()
+  const label = action === 'install' && portable ? 'Download the new zip' : action === null ? '' : ACTION_LABEL[action]
 
   return (
     <div className={`prefs-card${updateNeedsAttention(state) ? ' attention' : ''}`}>
       <span className="prefs-cardicon"><Glyph icon={Info} role="card" /></span>
       <div className="prefs-cardtext">
         <div className="prefs-cardtitle">REDBEAM {APP_VERSION}</div>
-        <div className="prefs-cardnote">{updateMessage(state)}</div>
+        <div className="prefs-cardnote">{updateMessage(state, portable)}</div>
       </div>
       {action !== null && desktop && (
         <button className="act" onClick={run}>
-          {ACTION_LABEL[action]}
+          {label}
         </button>
       )}
     </div>
