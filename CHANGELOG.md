@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.87 — 2026-11-25
+
+### Markups stay on screen when you zoom in
+
+- **Areas no longer disappear at high zoom.** Zooming in close to the edge of a large area, a ceiling zone or a pattern panel made it vanish once its middle was off screen, from about 400% and worse up to 6400%. Every markup now stays drawn for as long as any part of it is in view.
+
+
 ## 0.3.85 — 2026-11-25
 
 ### Agents work on other sheets without asking

@@ -404,6 +404,52 @@ const STEPS = [
     await page.keyboard.press('Enter')
     await page.waitForTimeout(1200)
   }],
+  /*
+   * The area just drawn has to stay on screen at every zoom up to 6400%.
+   * Markups vanished "past a certain zoom point" (Aaron, 2026-11-25): the
+   * overlay culled a polygon by its centroid, so an area bigger than the
+   * window disappeared once you zoomed in near its edge. This zooms into the
+   * area's corner one Ctrl+wheel notch at a time and reads the markup layer
+   * under the cursor after each one.
+   */
+  ['deep-zoom', async (page) => {
+    const problems = []
+    await page.keyboard.press('Escape')
+    const box = await page.locator('.viewport').boundingBox()
+    // 12 px inside the top-left corner of the area the takeoff step drew.
+    const x = box.x + box.width / 2 - 108
+    const y = box.y + box.height / 2 - 68
+    const inked = () => page.evaluate(([cx, cy]) => {
+      const c = document.querySelectorAll('.viewport canvas')[1]
+      if (!c) return -1
+      const r = c.getBoundingClientRect()
+      const sx = c.width / r.width, sy = c.height / r.height
+      const d = c.getContext('2d').getImageData(Math.round((cx - r.left) * sx) - 2, Math.round((cy - r.top) * sy) - 2, 5, 5).data
+      let a = 0
+      for (let i = 3; i < d.length; i += 4) a = Math.max(a, d[i])
+      return a
+    }, [x, y])
+    await page.mouse.move(x, y)
+    await page.waitForTimeout(200)
+    if (await inked() <= 0) problems.push('deep-zoom: no markup under the cursor before zooming (the takeoff step drew nothing?)')
+    else {
+      await page.keyboard.down('Control')
+      for (let i = 0; i < 12; i++) {
+        await page.mouse.wheel(0, -120)
+        await page.waitForTimeout(150)
+        const a = await inked()
+        if (a <= 0) {
+          problems.push(`deep-zoom: the area vanished after ${i + 1} zoom-in notch(es)`)
+          break
+        }
+      }
+      await page.keyboard.up('Control')
+      await page.screenshot({ path: join(out, `${shotPrefix}deep-zoom.png`) })
+    }
+    await page.keyboard.press('Control+0')
+    await page.waitForTimeout(400)
+    return problems
+  }],
   ['takeoff-menus', async (page) => {
     const problems = []
     const count = await page.locator('button[aria-haspopup]').count()
