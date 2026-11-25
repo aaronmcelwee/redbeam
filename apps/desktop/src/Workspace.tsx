@@ -7725,10 +7725,17 @@ export default function Workspace({
          */
         case 'save': {
           if (activeDocId === null) return { error: 'no document is open' }
+          const earlier = lastSaveRef.current
           const out = await saveTakeoffIntoDrawing(activeDocId)
           const ok = out.kind === 'written' || out.kind === 'unchanged' || out.kind === 'nothing-to-embed'
           return {
             saved: ok, outcome: out.kind,
+            // REDBEAM saves by itself after each change, so a save asked for a moment later often finds nothing left to write.
+            ...(out.kind === 'unchanged' ? {
+              message: earlier?.kind === 'written'
+                ? `every change is already in the PDF: REDBEAM saved it automatically at ${earlier.at}`
+                : 'the PDF already holds everything in this takeoff; there was nothing new to write',
+            } : {}),
             ...(out.kind === 'failed' ? { message: out.message } : {}),
             ...(out.kind === 'held' ? { message: out.reason ?? 'the takeoff in this PDF has not finished loading, so nothing was written; call save again in a few seconds' } : {}),
             ...(out.kind === 'busy' ? { message: 'the PDF is open in another app; close it there, or save_copy' } : {}),

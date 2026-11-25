@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.89 — 2026-11-25
+
+### Agents get the takeoff skill from REDBEAM
+
+- **Every AI agent that connects is handed the Maxxit takeoff skill.** When Claude or ChatGPT starts a session in REDBEAM, REDBEAM gives it the current precon-takeoff skill: define each scope for your approval first, then build the takeoff, then hand back quantities, call-outs and assumptions. The agent no longer needs the skill installed in its own app to follow it.
+- **The skill looks for a typical module before assuming even spacing.** It now tells the agent to search for typical module and pattern details first, and to build a repeating module as a custom pattern when Custom patterns is turned on.
+- **Agents say when they are waiting and when they are done.** The skill has the agent mark its session as waiting for you at the approval step and finish the session at hand-back, so the Agents list shows where each one stands.
+- **Save tells an agent why nothing was written.** When REDBEAM has already saved a change automatically, an agent's own save now says so instead of only answering "unchanged".
+
 ## 0.3.88 — 2026-11-25
 
 ### Custom patterns (beta)
