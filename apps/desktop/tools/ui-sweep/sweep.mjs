@@ -228,6 +228,52 @@ async function opensAndEscapes(page, open, gone, label) {
  */
 const STEPS = [
   ['start', async (page) => { await page.goto(BASE); await page.waitForTimeout(800) }],
+  /*
+   * The start page with more recents than fit (Aaron, 2026-11-25: the last
+   * row was cut off and the version sat on top of a row). The list scrolls
+   * in its own region; the page, the header and the footer never move.
+   */
+  ['start-recents', async (page) => {
+    const problems = []
+    const long = 'C:\\Users\\estimator\\Team Site - Ramp\\Hyundai Capital\\1 Data\\Client\\261110 - Tender Docs\\'
+    const files = Array.from({ length: 24 }, (_, i) => ({
+      path: `${long}0${i % 10} - Hyundai Capital - A-MEP IFT 11092026 - BLIND TAKEOFF (${i % 2 === 0 ? 'takeoff' : 'Claude'} ${i}).pdf`,
+      at: new Date(Date.now() - (i + 1) * 3600e3).toISOString(),
+    }))
+    await page.evaluate((v) => localStorage.setItem('redbeam.recent-files', v), JSON.stringify(files))
+    await page.goto(BASE)
+    await page.locator('.st-row').first().waitFor()
+    await page.waitForTimeout(400)
+    const box = async () => page.evaluate(() => {
+      const r = (s) => document.querySelector(s)?.getBoundingClientRect() ?? null
+      const list = document.querySelector('.st-list')
+      const rows = [...document.querySelectorAll('.st-row')].map((e) => e.getBoundingClientRect())
+      return {
+        page: document.querySelector('.startscreen')?.scrollTop ?? -1,
+        doc: document.scrollingElement?.scrollTop ?? 0,
+        list: list === null ? null : { top: list.scrollTop, h: list.clientHeight, sh: list.scrollHeight },
+        listBox: r('.st-list'), foot: r('.st-foot'), head: r('.st-head'), vh: innerHeight,
+        lastVisible: rows.filter((b) => b.bottom > 0).at(-1) ?? null,
+        tail: document.querySelector('.st-row .st-nametail')?.textContent ?? null,
+      }
+    })
+    const at = await box()
+    if (at.list === null || at.list.sh <= at.list.h) problems.push('start-recents: 24 recents should overflow the list region and scroll inside it')
+    if (at.foot === null || at.foot.bottom > at.vh + 0.5) problems.push('start-recents: the footer is not inside the window')
+    if (at.listBox !== null && at.foot !== null && at.listBox.bottom > at.foot.top + 0.5) problems.push(`start-recents: the list runs under the footer (${Math.round(at.listBox.bottom)} > ${Math.round(at.foot.top)})`)
+    if (at.tail === null || !at.tail.includes('(takeoff 0)')) problems.push(`start-recents: a long name should keep its end in view, shows tail ${at.tail ?? 'none'}`)
+    await page.mouse.move(at.listBox.left + 40, at.listBox.top + 80)
+    await page.mouse.wheel(0, 4000)
+    await page.waitForTimeout(500)
+    const after = await box()
+    if (after.list === null || after.list.top <= 0) problems.push('start-recents: the wheel did not scroll the recents')
+    if (after.page !== 0 || after.doc !== 0) problems.push('start-recents: the wheel scrolled the whole page, not the list')
+    if (after.head === null || Math.abs(after.head.top - at.head.top) > 0.5) problems.push('start-recents: the header moved when the list scrolled')
+    if (after.lastVisible !== null && after.foot !== null && after.lastVisible.bottom > after.foot.top + 0.5) problems.push('start-recents: the last row sits behind the footer')
+    problems.push(...await inspect(page))
+    await page.evaluate(() => localStorage.removeItem('redbeam.recent-files'))
+    return problems
+  }],
   ['viewer', async (page) => {
     await page.goto(view(FILE))
     await page.locator('.sheetrow, [data-page]').first().waitFor({ timeout: 20000 })

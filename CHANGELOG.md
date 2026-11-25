@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.93 — 2026-11-25
+
+### A tidier start screen
+
+- **Recent files scroll in their own list.** A long list no longer runs off the bottom of the window or under the version number. The header, the window buttons and the footer stay where they are while you scroll.
+- **Long names keep their ends.** A long file name is cut in the middle, the way File Explorer does it, so two takeoffs of the same set (for example "…TAKEOFF (takeoff)" and "…TAKEOFF (Claude)") can be told apart. The line under each name shows the folder the file is in.
+- **Looks like Windows 11.** The list, search box and headings now follow Windows 11's own styles in Light and Dark, and a narrow window shows Open a PDF above the list.
+
 ## 0.3.92 — 2026-11-25
 
 ### Sheet names show as Bluebeam bookmarks
