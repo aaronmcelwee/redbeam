@@ -174,3 +174,23 @@ export function mergeNames(
   for (let i = 0; i < pageCount; i++) out.push(overrides.get(i) ?? read[i] ?? null)
   return out
 }
+
+/**
+ * Whether the file's bookmarks already list every sheet name, each pointing at
+ * its page. A file named before names became bookmarks (0.3.84 to 0.3.89) has
+ * only the page labels, and is saved once more to add them.
+ */
+export function bookmarksHaveLabels(
+  outline: ReadonlyArray<{ title: string; page: number | null; children: ReadonlyArray<unknown> }>,
+  labels: ReadonlyArray<string | null>,
+): boolean {
+  const seen = new Set<string>()
+  const walk = (nodes: ReadonlyArray<{ title: string; page: number | null; children: ReadonlyArray<unknown> }>): void => {
+    for (const n of nodes) {
+      seen.add(`${n.page}|${n.title.trim()}`)
+      walk(n.children as typeof nodes)
+    }
+  }
+  walk(outline)
+  return labels.every((l, i) => l === null || l.trim() === '' || seen.has(`${i}|${l.trim()}`))
+}

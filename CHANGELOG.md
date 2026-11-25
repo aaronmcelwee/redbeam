@@ -13,6 +13,14 @@ All are unsigned; SmartScreen will ask once.
 - **Long names keep their ends.** A long file name is cut in the middle, the way File Explorer does it, so two takeoffs of the same set (for example "…TAKEOFF (takeoff)" and "…TAKEOFF (Claude)") can be told apart. The line under each name shows the folder the file is in.
 - **Looks like Windows 11.** The list, search box and headings now follow Windows 11's own styles in Light and Dark, and a narrow window shows Open a PDF above the list.
 
+## 0.3.92 — 2026-11-25
+
+### Sheet names show as Bluebeam bookmarks
+
+- **Named sheets get bookmarks.** When sheets are named from the title block (or renamed by an agent), REDBEAM now also writes one bookmark per sheet, in page order, so Bluebeam's Bookmarks panel lists the set. Before, the names went only into the page labels.
+- **Your own bookmarks are kept.** If the file already has bookmarks, they stay as they are and the sheets go in one "Sheets" folder above them. Renaming sheets again updates REDBEAM's bookmarks instead of adding a second set.
+- **Files you named earlier catch up.** A file named with 0.3.84 to 0.3.89 gets its bookmarks the next time you open it in REDBEAM.
+
 ## 0.3.91 — 2026-11-25
 
 ### Agents trace hatched ceilings
