@@ -1927,8 +1927,11 @@ function SetupGrid({
         </>
       )}
       {laysOut && patterns?.enabled === true && (
+        <span className="es-k">Layers</span>
+      )}
+      {laysOut && patterns?.enabled === true && (
         <span className="es-ro wide">
-          <span className="es-muted">Rails, a second material or hardware on top of this product</span>
+          <span className="es-muted">Rails, coffers or hardware on top</span>
           <span className="es-sp" />
           <button className="es-link" onClick={() => patterns.onMakePattern(scope.id)}>Add layers</button>
         </span>

@@ -440,6 +440,7 @@ const STEPS = [
     const off = await act('save_pattern', { recipe: { name: 'x', layers: [] } })
     if (off.setting !== 'beta.customPatterns') problems.push(`custom-pattern: with the beta off, save_pattern should name the setting, said ${JSON.stringify(off).slice(0, 140)}`)
     await act('set_setting', { setting: 'beta.customPatterns', value: true })
+    await act('go_to_page', { page: 0 })
     await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
     const scope = await act('create_scope', { label: 'CL-TRI', productType: 'custom_pattern' })
     if (typeof scope.scopeId !== 'string') return [`custom-pattern: could not add a pattern scope: ${JSON.stringify(scope).slice(0, 160)}`]
@@ -456,6 +457,11 @@ const STEPS = [
     const listed = await act('list_scopes', {})
     const mine = listed.scopes?.find((x) => x.scopeId === scope.scopeId)
     if (mine?.productLabel !== tri?.name) problems.push(`custom-pattern: list_scopes should name the scope's product by its pattern, says ${mine?.productLabel}`)
+    // Back to the list of scopes, if a scope is open, then into this one.
+    const prior = await page.locator('nav.crumbs .crumb.current').first().textContent().catch(() => null)
+    const root = page.locator('nav.crumbs button').first()
+    if (await root.count() > 0) await root.click()
+    await page.waitForTimeout(300)
     await page.locator('.es-row', { hasText: 'CL-TRI' }).first().click()
     await page.waitForTimeout(500)
     const setup = page.getByRole('button', { name: /^Setup/ }).first()
@@ -472,7 +478,7 @@ const STEPS = [
     const listedNow = await act('list_patterns', {})
     if (listedNow.library?.length !== 1) problems.push(`custom-pattern: approving into the library should list one pattern, lists ${JSON.stringify(listedNow.library).slice(0, 120)}`)
     const bom = await act('get_bom', {})
-    const unverified = (bom.lines ?? []).filter((l) => l.confidence !== 'verified')
+    const unverified = (bom.lines ?? []).filter((l) => l.scopeId === scope.scopeId && l.confidence !== 'verified')
     if (unverified.length > 0) problems.push(`custom-pattern: an approved pattern's lines should be verified: ${JSON.stringify(unverified).slice(0, 400)}`)
     await page.evaluate(() => document.querySelector('.pt-card')?.scrollIntoView({ block: 'end' }))
     await page.waitForTimeout(200)
@@ -486,6 +492,11 @@ const STEPS = [
     await page.evaluate(() => document.querySelector('.pt-wrap')?.scrollIntoView({ block: 'end' }))
     await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-new-layer.png`) })
     await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card-new-layer.png`) })
+    // Leave the next step the scope that was open, as it found it.
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()
+    await page.waitForTimeout(300)
     return problems
   }],
   ['slow-close', async (page) => {
@@ -522,7 +533,7 @@ const STEPS = [
   }],
   ['tab-menu', async (page) => opensAndEscapes(
     page,
-    () => page.locator('[data-tab][role="tab"]').first().click({ button: 'right' }),
+    () => page.locator('[data-tab][role="tab"]').filter({ visible: true }).first().click({ button: 'right' }),
     '.tabctx', 'the tab menu',
   )],
   ['narrow', async (page) => {
