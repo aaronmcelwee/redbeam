@@ -1,0 +1,272 @@
+{
+  "pdf": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat81\\bench-replay\\REPLAY-5-Times-Square.pdf",
+  "steps": [
+    {
+      "name": "redbeam_open_file",
+      "ok": true
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "origErr": true,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "origErr": true,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        3
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "origErr": true,
+      "pages": [
+        1,
+        2,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        4
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        2
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        1
+      ]
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"CL10 - PANEL:Form 27.5x73 woodgrain\" already exists"
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"CL18 - LINE:Form plank 1x8 perf\" already exists"
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"Light Trough 4x4\" already exists"
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 6,
+      "created": 6,
+      "ids": 6,
+      "origCreated": 6,
+      "perPageSent": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 2,
+        "5": 1
+      }
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 25,
+      "created": 25,
+      "ids": 25,
+      "origCreated": 25,
+      "perPageSent": {
+        "3": 11,
+        "4": 8,
+        "5": 6
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "origPages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 4,
+      "created": 4,
+      "ids": 4,
+      "origCreated": 4,
+      "perPageSent": {
+        "1": 1,
+        "4": 2,
+        "5": 1
+      }
+    },
+    {
+      "name": "redbeam_save",
+      "ok": true,
+      "outcome": "written"
+    },
+    {
+      "name": "redbeam_save",
+      "ok": true,
+      "outcome": "unchanged"
+    }
+  ],
+  "session": "REPLAY Claude · 5 TIMES SQUARE takeoff #KMM",
+  "before": {
+    "opened": true,
+    "pages": 9,
+    "markups": 31,
+    "perSheet": {
+      "1": 1,
+      "2": 1,
+      "3": 12,
+      "4": 10,
+      "5": 7
+    }
+  },
+  "scalesBefore": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "markupsPerSheet": {
+    "1": 3,
+    "2": 2,
+    "3": 24,
+    "4": 22,
+    "5": 15
+  },
+  "markupsTotal": 66,
+  "pageCount": 9,
+  "scales": [
+    {
+      "page": 0,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 1,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 2,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 3,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 4,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 5,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 6,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 7,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 8,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    }
+  ],
+  "finalSave": {
+    "file": "REPLAY-5-Times-Square.pdf",
+    "outcome": "written",
+    "saved": true
+  }
+}

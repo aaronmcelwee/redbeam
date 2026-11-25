@@ -1,0 +1,646 @@
+{
+  "log": [
+    {
+      "k": "focusNotepad",
+      "v": "foreground is notepad: False",
+      "t": "2026-11-25T17:06:00.626Z"
+    },
+    {
+      "k": "sessions",
+      "v": [
+        "Concurrency 1 takeoff #CMM",
+        "Concurrency 2 takeoff #T3X",
+        "Concurrency 3 takeoff #FSN",
+        "Concurrency 4 takeoff #AVE",
+        "Concurrency 5 takeoff #LRC",
+        "Concurrency 6 takeoff #UCL",
+        "Concurrency 7 takeoff #3C9",
+        "Concurrency 8 takeoff #FDU",
+        "Concurrency 9 takeoff #9CM",
+        "Concurrency 10 takeoff #9FG"
+      ],
+      "t": "2026-11-25T17:06:01.001Z"
+    },
+    {
+      "k": "setup",
+      "v": [
+        {
+          "s": "Concurrency 1 takeoff #CMM",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdkspa-m1eir",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 3,
+            "2": 2,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 18,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 2 takeoff #T3X",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdkszt-0ojx0",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 7,
+            "1": 4,
+            "2": 2,
+            "3": 4,
+            "4": 4,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 25,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 3 takeoff #FSN",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdkska-tvumv",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 4,
+            "2": 3,
+            "3": 4,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 21,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 4 takeoff #AVE",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdksqn-rqjyn",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 3,
+            "2": 2,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 18,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 5 takeoff #LRC",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdksrq-0j96m",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 7,
+            "1": 4,
+            "2": 2,
+            "3": 4,
+            "4": 4,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 25,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 6 takeoff #UCL",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdkslk-zxewp",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 4,
+            "2": 3,
+            "3": 4,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 21,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 7 takeoff #3C9",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdksig-amvqf",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 3,
+            "2": 2,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 18,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 8 takeoff #FDU",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdksh4-53fti",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 7,
+            "1": 4,
+            "2": 2,
+            "3": 4,
+            "4": 4,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 25,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 9 takeoff #9CM",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdksu7-y0hhm",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 4,
+            "2": 3,
+            "3": 4,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 21,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 10 takeoff #9FG",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwdksod-04n5n",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "0": 3,
+            "1": 3,
+            "2": 2,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 18,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        }
+      ],
+      "t": "2026-11-25T17:06:13.449Z"
+    },
+    {
+      "k": "agentsUia",
+      "v": [],
+      "t": "2026-11-25T17:06:14.049Z"
+    },
+    {
+      "k": "mojibakeInAgents",
+      "v": 0,
+      "t": "2026-11-25T17:06:14.616Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "1.9",
+        "calls": 270,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:08:10.341Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "3.8",
+        "calls": 390,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:10:06.258Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "5.8",
+        "calls": 510,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:12:01.504Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "7.7",
+        "calls": 630,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:13:55.996Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "9.6",
+        "calls": 750,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:15:50.473Z"
+    },
+    {
+      "k": "e_silentSession",
+      "v": {
+        "afterMin": "11.0",
+        "pageCount": 8,
+        "markups": 18,
+        "perSheet": {
+          "0": 3,
+          "1": 3,
+          "2": 2,
+          "3": 3,
+          "4": 3,
+          "5": 2,
+          "6": 2
+        },
+        "scales": [
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok"
+        ],
+        "errs": []
+      },
+      "t": "2026-11-25T17:17:16.735Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "11.5",
+        "calls": 880,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:17:45.304Z"
+    },
+    {
+      "k": "f_saves",
+      "v": [
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged"
+      ],
+      "t": "2026-11-25T17:18:16.979Z"
+    },
+    {
+      "k": "f_end",
+      "v": [
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        }
+      ],
+      "t": "2026-11-25T17:18:17.380Z"
+    },
+    {
+      "k": "f_reopen",
+      "v": [
+        {
+          "file": "Conc-one-kmgj-01-reopen.pdf",
+          "opened": true,
+          "markups": 18,
+          "perSheet": {
+            "0": 3,
+            "1": 3,
+            "2": 2,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ]
+        },
+        {
+          "file": "Conc-one-kmgj-10-reopen.pdf",
+          "opened": true,
+          "markups": 18,
+          "perSheet": {
+            "0": 3,
+            "1": 3,
+            "2": 2,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2
+          },
+          "scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ]
+        }
+      ],
+      "t": "2026-11-25T17:18:19.890Z"
+    },
+    {
+      "k": "foreground",
+      "v": {
+        "changes": [
+          "0.1s ShellExperienceHost"
+        ],
+        "byProcess": {
+          "ShellExperienceHost": 1832
+        },
+        "samples": 1832
+      },
+      "t": "2026-11-25T17:22:01.722Z"
+    },
+    {
+      "k": "errorTally",
+      "v": {},
+      "t": "2026-11-25T17:22:01.722Z"
+    },
+    {
+      "k": "watchedErrors",
+      "v": {
+        "out of range \\(0\\.\\.-1\\)": 0,
+        "no document is open": 0,
+        "no canvas": 0,
+        "FOREIGN KEY": 0,
+        "no such scope": 0
+      },
+      "t": "2026-11-25T17:22:01.722Z"
+    },
+    {
+      "k": "callCount",
+      "v": 953,
+      "t": "2026-11-25T17:22:01.722Z"
+    }
+  ],
+  "errors": {},
+  "calls": 953
+}

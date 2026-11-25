@@ -1,0 +1,59 @@
+[
+  {
+    "k": "B.activateForDraw",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T17:41:37.604Z"
+  },
+  {
+    "k": "click.dimension",
+    "v": "clicked 937,1495",
+    "t": "2026-11-25T17:41:38.473Z"
+  },
+  {
+    "k": "B.ctrlZ",
+    "v": "sent ctrl+z (no activation)",
+    "t": "2026-11-25T17:41:44.123Z"
+  },
+  {
+    "k": "B",
+    "v": {
+      "before": 0,
+      "afterDraw": 0,
+      "guest": "mk-mwweujv6-vb3woo",
+      "focusBeforeKey": "ok=True redbeamFg=True active= focus= topLevel=",
+      "undoBefore": {
+        "canUndo": false,
+        "undoLabel": null,
+        "depth": 1
+      },
+      "undoAfter": {
+        "canUndo": false,
+        "undoLabel": null,
+        "depth": 1
+      },
+      "afterCtrlZ": 1,
+      "afterIds": [
+        "mk-mwweujv6-vb3woo:area"
+      ],
+      "status": [
+        "ControlType.Pane | Undo-Cases-u58n — REDBEAM",
+        "ControlType.Pane | Undo-Cases-u58n — REDBEAM - Web content",
+        "ControlType.Document | Undo-Cases-u58n — REDBEAM",
+        "ControlType.Text | Undo-Cases-u58n",
+        "ControlType.Button | Undo-Cases-u58n menu",
+        "ControlType.ListItem | ChatGPT · Guest for undo cases1Reading the markupsUndo-Cases-u58nyour PDFEnd this session"
+      ]
+    },
+    "t": "2026-11-25T17:41:51.244Z"
+  },
+  {
+    "k": "E.dimensionsLeft",
+    "v": [],
+    "t": "2026-11-25T17:41:51.341Z"
+  },
+  {
+    "k": "E.foreground",
+    "v": "foreground: redbeam",
+    "t": "2026-11-25T17:41:51.931Z"
+  }
+]

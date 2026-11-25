@@ -1,0 +1,363 @@
+{
+  "pdf": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat81\\bench-replay\\REPLAY-Verge-Condo.pdf",
+  "steps": [
+    {
+      "name": "redbeam_open_file",
+      "ok": true
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "origPages": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "origErr": true,
+      "pages": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "origErr": true,
+      "pages": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        0
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "origErr": true,
+      "pages": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        1
+      ],
+      "origPages": [
+        1
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        2
+      ],
+      "origPages": [
+        2
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        3
+      ],
+      "origPages": [
+        3
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        4
+      ],
+      "origPages": [
+        4
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        5
+      ],
+      "origPages": [
+        5
+      ]
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"ACT-03 Perforated Baffle\" already exists"
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"ACT-04 Non-Perforated Baffle\" already exists"
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"ACT-06 Lay-in Mesh Panels\" already exists"
+    },
+    {
+      "name": "redbeam_create_scope",
+      "ok": false,
+      "err": "Error: a scope called \"ACT-07 Perforated Baffle\" already exists"
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 22,
+      "created": 19,
+      "ids": 19,
+      "origCreated": 19,
+      "perPageSent": {
+        "0": 4,
+        "1": 5,
+        "2": 3,
+        "3": 5,
+        "4": 2,
+        "5": 3
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        0
+      ],
+      "origPages": [
+        0
+      ]
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        1
+      ],
+      "origPages": [
+        1
+      ]
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 5,
+      "created": 5,
+      "ids": 5,
+      "origCreated": 5,
+      "perPageSent": {
+        "1": 5
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        2
+      ],
+      "origPages": [
+        2
+      ]
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 3,
+      "created": 3,
+      "ids": 3,
+      "origCreated": 3,
+      "perPageSent": {
+        "2": 3
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        3
+      ],
+      "origPages": [
+        3
+      ]
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 5,
+      "created": 2,
+      "ids": 2,
+      "origCreated": 2,
+      "perPageSent": {
+        "3": 5
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        4
+      ],
+      "origPages": [
+        4
+      ]
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 2,
+      "created": 2,
+      "ids": 2,
+      "origCreated": 2,
+      "perPageSent": {
+        "4": 2
+      }
+    },
+    {
+      "name": "redbeam_set_page_scale",
+      "ok": true,
+      "pages": [
+        5
+      ],
+      "origPages": [
+        5
+      ]
+    },
+    {
+      "name": "redbeam_create_markups",
+      "ok": true,
+      "sent": 3,
+      "created": 3,
+      "ids": 3,
+      "origCreated": 3,
+      "perPageSent": {
+        "5": 3
+      }
+    },
+    {
+      "name": "redbeam_save",
+      "ok": true,
+      "outcome": "written"
+    },
+    {
+      "name": "redbeam_save",
+      "ok": true,
+      "outcome": "unchanged"
+    }
+  ],
+  "session": "REPLAY Claude · Verge Condo takeoff #Q6S",
+  "before": {
+    "opened": true,
+    "pages": 6,
+    "markups": 19,
+    "perSheet": {
+      "0": 4,
+      "1": 5,
+      "2": 3,
+      "3": 2,
+      "4": 2,
+      "5": 3
+    }
+  },
+  "scalesBefore": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "markupsPerSheet": {
+    "0": 8,
+    "1": 15,
+    "2": 9,
+    "3": 6,
+    "4": 6,
+    "5": 9
+  },
+  "markupsTotal": 53,
+  "pageCount": 6,
+  "scales": [
+    {
+      "page": 0,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 1,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 2,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 3,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 4,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    },
+    {
+      "page": 5,
+      "ok": true,
+      "scale": null,
+      "fpp": null
+    }
+  ],
+  "finalSave": {
+    "file": "REPLAY-Verge-Condo.pdf",
+    "outcome": "written",
+    "saved": true
+  }
+}

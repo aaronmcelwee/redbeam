@@ -1,0 +1,694 @@
+{
+  "log": [
+    {
+      "k": "focusNotepad",
+      "v": "foreground is notepad: False",
+      "t": "2026-11-25T17:23:08.586Z"
+    },
+    {
+      "k": "sessions",
+      "v": [
+        "Concurrency 1 takeoff #N7R",
+        "Concurrency 2 takeoff #KDV",
+        "Concurrency 3 takeoff #ZY6",
+        "Concurrency 4 takeoff #JTP",
+        "Concurrency 5 takeoff #T4D",
+        "Concurrency 6 takeoff #MCV",
+        "Concurrency 7 takeoff #TPS",
+        "Concurrency 8 takeoff #F8T",
+        "Concurrency 9 takeoff #MFA",
+        "Concurrency 10 takeoff #U8S"
+      ],
+      "t": "2026-11-25T17:23:08.697Z"
+    },
+    {
+      "k": "setup",
+      "v": [
+        {
+          "s": "Concurrency 1 takeoff #N7R",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6t7x-l15c3",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 2 takeoff #KDV",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6toh-wp789",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 3 takeoff #ZY6",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6sw6-lkgr4",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 4 takeoff #JTP",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6t3i-9n8lx",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 5 takeoff #T4D",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6tgj-4hi9u",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 6 takeoff #MCV",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6szw-1uext",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 7 takeoff #TPS",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6tk5-582rk",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 8 takeoff #F8T",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6tbr-3gsmv",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 9 takeoff #MFA",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6ttu-6m62b",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        },
+        {
+          "s": "Concurrency 10 takeoff #U8S",
+          "open": {
+            "opened": true,
+            "pages": 8,
+            "yours": true
+          },
+          "a_scale": {
+            "pages": 8
+          },
+          "scopeId": "sc-mwwe6tyj-x5wsl",
+          "b_created": {
+            "created": 12,
+            "ids": 12
+          },
+          "c_perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "c_total": 12,
+          "c_scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ],
+          "d_update": "ok"
+        }
+      ],
+      "t": "2026-11-25T17:23:30.273Z"
+    },
+    {
+      "k": "agentsUia",
+      "v": [
+        "ControlType.ListItem | Claude · Concurrency 1 takeoff1Editing a scope",
+        "ControlType.Button | Claude · Concurrency 1 takeoff 1 PDF",
+        "ControlType.ListItem | ChatGPT · Concurrency 8 takeoff1Editing a scope",
+        "ControlType.Button | ChatGPT · Concurrency 8 takeoff 1 PDF",
+        "ControlType.ListItem | ChatGPT · Concurrency 5 takeoff1Editing a scope",
+        "ControlType.Button | ChatGPT · Concurrency 5 takeoff 1 PDF",
+        "ControlType.ListItem | Claude · Concurrency 7 takeoff1Editing a scope",
+        "ControlType.Button | Claude · Concurrency 7 takeoff 1 PDF",
+        "ControlType.ListItem | ChatGPT · Concurrency 2 takeoff1Editing a scope",
+        "ControlType.Button | ChatGPT · Concurrency 2 takeoff 1 PDF",
+        "ControlType.ListItem | Claude Code · Concurrency 9 takeoff1Editing a scope",
+        "ControlType.Button | Claude Code · Concurrency 9 takeoff 1 PDF"
+      ],
+      "t": "2026-11-25T17:23:30.956Z"
+    },
+    {
+      "k": "mojibakeInAgents",
+      "v": 0,
+      "t": "2026-11-25T17:23:31.482Z"
+    },
+    {
+      "k": "calibrationSample",
+      "v": {
+        "calibrations": [
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p0",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p1",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p2",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p3",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p4",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p5",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p6",
+            "source": "preset:arch-1-8"
+          },
+          {
+            "document_id": "doc-a805b0fd8fdac5fb",
+            "feet_per_pdf_point": 0.1111111111111111,
+            "page_id": "doc-a805b0fd8fdac5fb-p7",
+            "source": "preset:arch-1-8"
+          }
+        ],
+        "count": 8
+      },
+      "t": "2026-11-25T17:23:35.001Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "2.1",
+        "calls": 271,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:25:38.809Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "4.1",
+        "calls": 391,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:27:43.480Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "6.1",
+        "calls": 511,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:29:43.021Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "8.1",
+        "calls": 631,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:31:40.592Z"
+    },
+    {
+      "k": "progress",
+      "v": {
+        "min": "10.1",
+        "calls": 751,
+        "errors": 0
+      },
+      "t": "2026-11-25T17:33:38.129Z"
+    },
+    {
+      "k": "e_silentSession",
+      "v": {
+        "afterMin": "11.0",
+        "pageCount": 8,
+        "markups": 12,
+        "perSheet": {
+          "1": 2,
+          "2": 2,
+          "3": 2,
+          "4": 2,
+          "5": 2,
+          "6": 2
+        },
+        "scales": [
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok",
+          "ok"
+        ],
+        "errs": []
+      },
+      "t": "2026-11-25T17:34:35.696Z"
+    },
+    {
+      "k": "f_saves",
+      "v": [
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged",
+        "unchanged"
+      ],
+      "t": "2026-11-25T17:35:37.036Z"
+    },
+    {
+      "k": "f_end",
+      "v": [
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        },
+        {
+          "handedBack": 1,
+          "closed": 0
+        }
+      ],
+      "t": "2026-11-25T17:35:37.655Z"
+    },
+    {
+      "k": "f_reopen",
+      "v": [
+        {
+          "file": "Conc-many-6nmw-01-reopen.pdf",
+          "opened": true,
+          "markups": 12,
+          "perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ]
+        },
+        {
+          "file": "Conc-many-6nmw-10-reopen.pdf",
+          "opened": true,
+          "markups": 12,
+          "perSheet": {
+            "1": 2,
+            "2": 2,
+            "3": 2,
+            "4": 2,
+            "5": 2,
+            "6": 2
+          },
+          "scales": [
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok",
+            "ok"
+          ]
+        }
+      ],
+      "t": "2026-11-25T17:35:40.969Z"
+    },
+    {
+      "k": "foreground",
+      "v": {
+        "changes": [
+          "0.1s ShellExperienceHost"
+        ],
+        "byProcess": {
+          "ShellExperienceHost": 1830
+        },
+        "samples": 1830
+      },
+      "t": "2026-11-25T17:39:09.467Z"
+    },
+    {
+      "k": "errorTally",
+      "v": {},
+      "t": "2026-11-25T17:39:09.467Z"
+    },
+    {
+      "k": "watchedErrors",
+      "v": {
+        "out of range \\(0\\.\\.-1\\)": 0,
+        "no document is open": 0,
+        "no canvas": 0,
+        "FOREIGN KEY": 0,
+        "no such scope": 0
+      },
+      "t": "2026-11-25T17:39:09.468Z"
+    },
+    {
+      "k": "callCount",
+      "v": 921,
+      "t": "2026-11-25T17:39:09.468Z"
+    }
+  ],
+  "errors": {},
+  "calls": 921
+}
