@@ -709,6 +709,22 @@ const STEPS = [
     const mine = await agentAct(page, AGENTS[2], 'undo', { file: FILE })
     await page.waitForTimeout(300)
     if (typeof mine.undid !== 'string' || await count() !== had) problems.push(`agent-together: the session's undo should take back the area it drew after the person: ${JSON.stringify(mine).slice(0, 160)}`)
+    /*
+     * One markup for a sheet the person is not on (Aaron, 2026-11-25: agents
+     * "can work independently of the user ... even on the same document").
+     * It is written there in the background: nothing asked, nothing moved.
+     */
+    const elsewhere = await agentAct(page, AGENTS[2], 'create_markup', { kind: 'area', scopeId: scope.scopeId, file: FILE, page: 3, rings: [[{ x: 0.2, y: 0.2 }, { x: 0.3, y: 0.2 }, { x: 0.3, y: 0.3 }, { x: 0.2, y: 0.3 }]] })
+    await page.waitForTimeout(400)
+    if (typeof elsewhere.error === 'string' || typeof elsewhere.id !== 'string') problems.push(`agent-together: a guest session could not add a markup to a sheet the person is not showing: ${JSON.stringify(elsewhere).slice(0, 200)}`)
+    if (await shown(page).locator('.agentcard[data-asking="true"]').count() > 0) problems.push('agent-together: the person was asked about a markup on another sheet')
+    if (await where() !== before) problems.push(`agent-together: the person's view moved for a markup on another sheet: ${before} became ${await where()}`)
+    const listed = await agentAct(page, AGENTS[2], 'list_markups', { file: FILE })
+    if (!(Array.isArray(listed.markups) && listed.markups.some((m) => m.id === elsewhere.id))) problems.push('agent-together: the markup for another sheet is not in the document')
+    // And it is the session's to take back, like anything else it drew.
+    const back = await agentAct(page, AGENTS[2], 'undo', { file: FILE })
+    await page.waitForTimeout(300)
+    if (typeof back.undid !== 'string' || await count() !== had) problems.push(`agent-together: the session could not undo its markup on another sheet: ${JSON.stringify(back).slice(0, 160)}`)
     await page.keyboard.press('Escape')
     const undone = await agentAct(page, AGENTS[2], 'undo', { file: FILE })
     await page.waitForTimeout(300)

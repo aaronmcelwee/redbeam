@@ -6114,6 +6114,25 @@ export default function Workspace({
           params = { ...params, page: at }
         }
         await ensurePageRows(pagesNamed(params, pageCount))
+        /*
+         * A guest adding one markup to a sheet that is not showing. It used
+         * to ask the person to hand the tab over, because one markup is drawn
+         * on the sheet showing and so the sheet was shown first. Aaron,
+         * 2026-11-25: "it's almost like they have their own tools and can
+         * work independently of the user ... even on the same document." The
+         * batch tool already writes to any sheet without showing it, so one
+         * markup for another sheet goes the same way: nothing of the
+         * person's moves and nothing is asked.
+         */
+        if (action === 'create_markup' && !ctx.drives && typeof params['page'] === 'number' && params['page'] !== pageIndexRef.current) {
+          const { page: at, file: _file, ...one } = params
+          const out = showingRef.current
+            ? await keepingFocus(() => invokeAction('create_markups', { markups: [{ ...one, page: at }] }))
+            : await invokeAction('create_markups', { markups: [{ ...one, page: at }] })
+          if (typeof out['error'] === 'string') return { error: out['error'].replace(/^markup 0: /, '') }
+          const made = (out['markups'] as Array<Record<string, unknown>> | undefined)?.[0] ?? {}
+          return { ...made, page: at, note: 'written to that sheet in the background; the person\'s view did not move' }
+        }
         // A write that names a page lands on that page, after it shows (P1-2).
         if (PAGE_BOUND.has(action) && params['page'] !== undefined) {
           const n = Number(params['page'])

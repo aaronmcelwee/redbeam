@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.85 — 2026-11-25
+
+### Agents work on other sheets without asking
+
+- **An agent marks up a sheet you are not looking at, in the background.** When an agent working in your PDF adds a markup to a different sheet from the one you have open, it is written there straight away. You are not asked, and your sheet, zoom and tool stay where they are. Turning your pages or zooming your view still asks first.
+
 ## 0.3.83 — 2026-11-25
 
 ### AI agents work beside you

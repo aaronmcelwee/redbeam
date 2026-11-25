@@ -258,7 +258,7 @@ export class BridgeRouter {
           + 'REDBEAM does not move a view someone else is using. Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy.'
         : `${name} is ${whose}. REDBEAM does not move a view someone else is using, so the person has been asked whether ${agent.name} may work in it; they have not answered yet. `
           + 'Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. '
-          + 'Reading, and drawing on the sheet that is showing (leave `page` out), work without asking.',
+          + 'Reading works without asking, and so does adding markups on any sheet: redbeam_create_markup or redbeam_create_markups with `page` writes there in the background.',
       handover: refused ? 'refused' : 'asked',
       file: tab.file,
     }
@@ -334,7 +334,7 @@ export class BridgeRouter {
     return {
       yours: false,
       tab: tab.owner === undefined
-        ? 'This PDF is open in the person\'s own tab. You can read it and draw on the sheet it is showing. A call that would turn its pages or zoom it asks them first; for free rein, redbeam_save_copy and open the copy.'
+        ? 'This PDF is open in the person\'s own tab. You can read it and add markups on any of its sheets (name the sheet with `page`; it is written in the background). A call that would turn its pages or zoom it asks them first; for free rein, redbeam_save_copy and open the copy.'
         : `This PDF is ${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab. You can read it; to change its view, work in a copy (redbeam_save_copy, then open the copy).`,
     }
   }
