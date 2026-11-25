@@ -1,0 +1,118 @@
+[
+  {
+    "k": "D.activateForDraw",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:01:32.859Z"
+  },
+  {
+    "k": "click.dimension",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T16:01:33.856Z"
+  },
+  {
+    "k": "D.notepadFront",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T16:01:38.986Z"
+  },
+  {
+    "k": "D.reactivate",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:01:40.856Z"
+  },
+  {
+    "k": "D.neutralClick",
+    "v": "clicked 64,1500",
+    "t": "2026-11-25T16:01:41.983Z"
+  },
+  {
+    "k": "D.ctrlZ",
+    "v": "sent ctrl+z (no activation)",
+    "t": "2026-11-25T16:01:44.244Z"
+  },
+  {
+    "k": "D",
+    "v": {
+      "before": 0,
+      "afterDraw": 1,
+      "guest": "mk-mwwb9uot-0g9jyg",
+      "focusBeforeKey": "ok=True redbeamFg=True active= focus= topLevel=",
+      "undoBefore": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 2
+      },
+      "undoAfter": {
+        "canUndo": false,
+        "undoLabel": null,
+        "depth": 1
+      },
+      "afterCtrlZ": 1,
+      "afterIds": [
+        "mk-mwwb9uot-0g9jyg:area"
+      ],
+      "status": [
+        "ControlType.Pane | Undo-Cases-9g7t — REDBEAM",
+        "ControlType.Pane | Undo-Cases-9g7t — REDBEAM - Web content",
+        "ControlType.Document | Undo-Cases-9g7t — REDBEAM",
+        "ControlType.Text | undid create dimension",
+        "ControlType.Text | Undo-Cases-9g7t",
+        "ControlType.Button | Undo-Cases-9g7t menu"
+      ]
+    },
+    "t": "2026-11-25T16:01:47.390Z"
+  },
+  {
+    "k": "E.activate",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:01:48.331Z"
+  },
+  {
+    "k": "click.dimension",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T16:01:49.739Z"
+  },
+  {
+    "k": "E.dimensionsLeft",
+    "v": [
+      "mk-0lwih06n:dimension"
+    ],
+    "t": "2026-11-25T16:01:53.962Z"
+  },
+  {
+    "k": "E.foreground",
+    "v": "foreground: redbeam",
+    "t": "2026-11-25T16:01:54.878Z"
+  },
+  {
+    "k": "E.palette",
+    "v": "palette: ctrl+k, typed 'Undo', enter",
+    "t": "2026-11-25T16:01:56.995Z"
+  },
+  {
+    "k": "E",
+    "v": {
+      "undoBefore": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 2
+      },
+      "undoAfter": {
+        "canUndo": false,
+        "undoLabel": null,
+        "depth": 1
+      },
+      "after": [
+        "mk-mwwb9uot-0g9jyg:area"
+      ],
+      "status": [
+        "ControlType.Pane | Undo-Cases-9g7t — REDBEAM",
+        "ControlType.Pane | Undo-Cases-9g7t — REDBEAM - Web content",
+        "ControlType.Document | Undo-Cases-9g7t — REDBEAM",
+        "ControlType.Text | undid create dimension",
+        "ControlType.Text | Undo-Cases-9g7t",
+        "ControlType.Button | Undo-Cases-9g7t menu"
+      ]
+    },
+    "t": "2026-11-25T16:01:59.403Z"
+  }
+]

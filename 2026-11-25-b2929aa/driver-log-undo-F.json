@@ -1,0 +1,196 @@
+[
+  {
+    "k": "F.activateForDraw",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:02:36.156Z"
+  },
+  {
+    "k": "click.dimension",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T16:02:37.186Z"
+  },
+  {
+    "k": "F.notepadFront",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T16:02:42.165Z"
+  },
+  {
+    "k": "F.reactivate",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:02:43.959Z"
+  },
+  {
+    "k": "F.ctrlZ",
+    "v": "redbeam foreground before keys: True; sent ctrl+z",
+    "t": "2026-11-25T16:02:46.171Z"
+  },
+  {
+    "k": "F",
+    "v": {
+      "before": 0,
+      "afterDraw": 1,
+      "guest": "mk-mwwbb7ig-6pn4tn",
+      "focusBeforeKey": "ok=True redbeamFg=True active= focus= topLevel=",
+      "undoBefore": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 2
+      },
+      "undoAfter": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 2
+      },
+      "afterCtrlZ": 2,
+      "afterIds": [
+        "mk-rsfy2gf8:dimension",
+        "mk-mwwbb7ig-6pn4tn:area"
+      ],
+      "status": [
+        "ControlType.Pane | Undo-Cases-at4t — REDBEAM",
+        "ControlType.Pane | Undo-Cases-at4t — REDBEAM - Web content",
+        "ControlType.Document | Undo-Cases-at4t — REDBEAM",
+        "ControlType.Text | Undo-Cases-at4t",
+        "ControlType.Button | Undo-Cases-at4t menu",
+        "ControlType.ListItem | ChatGPT · Guest for undo cases1Reading the markupsUndo-Cases-at4tyour PDFEnd this session"
+      ]
+    },
+    "t": "2026-11-25T16:02:49.919Z"
+  },
+  {
+    "k": "F.activateForDraw",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:02:50.887Z"
+  },
+  {
+    "k": "click.dimension",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T16:02:51.883Z"
+  },
+  {
+    "k": "F.notepadFront",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T16:02:57.172Z"
+  },
+  {
+    "k": "F.reactivate",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:02:59.084Z"
+  },
+  {
+    "k": "F.ctrlZ",
+    "v": "redbeam foreground before keys: True; sent ctrl+z",
+    "t": "2026-11-25T16:03:01.250Z"
+  },
+  {
+    "k": "F",
+    "v": {
+      "before": 2,
+      "afterDraw": 3,
+      "guest": "mk-mwwbbizs-oj71em",
+      "focusBeforeKey": "ok=True redbeamFg=True active= focus= topLevel=",
+      "undoBefore": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 4
+      },
+      "undoAfter": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 4
+      },
+      "afterCtrlZ": 4,
+      "afterIds": [
+        "mk-rsfy2gf8:dimension",
+        "mk-mwwbb7ig-6pn4tn:area",
+        "mk-485b3dqp:dimension",
+        "mk-mwwbbizs-oj71em:area"
+      ],
+      "status": [
+        "ControlType.Pane | Undo-Cases-at4t — REDBEAM",
+        "ControlType.Pane | Undo-Cases-at4t — REDBEAM - Web content",
+        "ControlType.Document | Undo-Cases-at4t — REDBEAM",
+        "ControlType.Text | Undo-Cases-at4t",
+        "ControlType.Button | Undo-Cases-at4t menu",
+        "ControlType.ListItem | ChatGPT · Guest for undo cases1Reading the markupsUndo-Cases-at4tyour PDFEnd this session"
+      ]
+    },
+    "t": "2026-11-25T16:03:04.606Z"
+  },
+  {
+    "k": "F.activateForDraw",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:03:05.630Z"
+  },
+  {
+    "k": "click.dimension",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T16:03:06.552Z"
+  },
+  {
+    "k": "F.notepadFront",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T16:03:11.730Z"
+  },
+  {
+    "k": "F.reactivate",
+    "v": "activated programmatically; redbeam fg=True",
+    "t": "2026-11-25T16:03:13.668Z"
+  },
+  {
+    "k": "F.ctrlZ",
+    "v": "redbeam foreground before keys: True; sent ctrl+z",
+    "t": "2026-11-25T16:03:16.034Z"
+  },
+  {
+    "k": "F",
+    "v": {
+      "before": 4,
+      "afterDraw": 5,
+      "guest": "mk-mwwbbual-j7xyhi",
+      "focusBeforeKey": "ok=True redbeamFg=True active= focus= topLevel=",
+      "undoBefore": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 6
+      },
+      "undoAfter": {
+        "canUndo": true,
+        "undoLabel": "create dimension",
+        "depth": 6
+      },
+      "afterCtrlZ": 6,
+      "afterIds": [
+        "mk-rsfy2gf8:dimension",
+        "mk-mwwbb7ig-6pn4tn:area",
+        "mk-485b3dqp:dimension",
+        "mk-mwwbbizs-oj71em:area",
+        "mk-rub61ri1:dimension",
+        "mk-mwwbbual-j7xyhi:area"
+      ],
+      "status": [
+        "ControlType.Pane | Undo-Cases-at4t — REDBEAM",
+        "ControlType.Pane | Undo-Cases-at4t — REDBEAM - Web content",
+        "ControlType.Document | Undo-Cases-at4t — REDBEAM",
+        "ControlType.Text | Undo-Cases-at4t",
+        "ControlType.Button | Undo-Cases-at4t menu",
+        "ControlType.ListItem | ChatGPT · Guest for undo cases1Reading the markupsUndo-Cases-at4tyour PDFEnd this session"
+      ]
+    },
+    "t": "2026-11-25T16:03:19.375Z"
+  },
+  {
+    "k": "E.dimensionsLeft",
+    "v": [
+      "mk-rsfy2gf8:dimension",
+      "mk-485b3dqp:dimension",
+      "mk-rub61ri1:dimension"
+    ],
+    "t": "2026-11-25T16:03:19.397Z"
+  },
+  {
+    "k": "E.foreground",
+    "v": "foreground: redbeam",
+    "t": "2026-11-25T16:03:20.006Z"
+  }
+]
