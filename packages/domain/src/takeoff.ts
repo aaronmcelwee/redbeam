@@ -37,6 +37,8 @@ import {
   measureToFeet, missingRequiredMeasures, readGranularity,
   readProductType, type ProductType, type Specifications,
 } from './specs.js'
+import { checkPatternRecipe, readPatternRecipe, PATTERN_RECIPE_KEY, type ResolvedRecipe } from './patternRecipe.js'
+import { layoutPattern, type BuiltInGeometry, type PatternShape } from './patternEngine.js'
 
 /**
  * The length a scope's perimeter trim is cut in, feet, or null when it has
@@ -79,6 +81,13 @@ export interface PieceQuantity {
   label: string
   quantity: number
   unit: string
+  /**
+   * The layer it belongs to, on a product made of layers (custom patterns):
+   * the parts list and the BOM group by it. Absent on a one-layer product.
+   */
+  layer?: string
+  /** A breakdown of the line above it (whole / cut); folded in the sidebar, kept in the BOM. */
+  detail?: boolean
 }
 
 export interface PieceResult {
@@ -113,6 +122,22 @@ export interface PieceResult {
    * number impossible to check by eye.
    */
   runs: RunLayoutEntry[]
+  /**
+   * A custom pattern's geometry, every layer, for the preview (patternEngine).
+   * Absent for the built-in products, whose geometry is `cells` and `runs`.
+   */
+  shapes?: PatternShape[]
+  /** The product's own name when it is not the type's: a pattern's name. */
+  productLabel?: string
+  /** A pattern's layers, in order, for the layer list and the preview legend. */
+  layers?: Array<{ id: string; name: string; kind: string; draft: boolean }>
+  /**
+   * How far to trust these numbers, when the product decides it rather than
+   * its type: a pattern nobody has approved is unverified, an approved one is
+   * verified. Absent: the type decides (bom.ts VERIFIED_PRODUCTS).
+   */
+  confidence?: 'verified' | 'unverified'
+  confidenceNote?: string
 }
 
 export interface PieceOptions {
@@ -598,6 +623,8 @@ export function calculatePieces(
   const product = readProductType(specs)
   const mine = markups.filter((m) => m.scopeId === scope.id)
 
+  if (product === 'custom_pattern') return calculatePattern(scope, markups, cal, opts)
+
   const blockers = missingRequiredMeasures(product, specs)
   if (product === 'custom_assembly') {
     // Quantified by hand. Not a blocker and not a zero — there is simply no
@@ -788,5 +815,95 @@ export function calculatePieces(
     cells: [],
     runs: entries,
     quantities: runQuantities(product, summary),
+  }
+}
+
+/**
+ * A custom pattern: every layer on the same areas, counted on its own.
+ *
+ * Built-in layers go through calculatePieces exactly as a scope of that
+ * product would — same keys, same directions, same origins — so "Panels" in a
+ * pattern is the verified panel count, not a re-derivation of it. Their
+ * geometry is then handed to the pattern engine so hardware can be counted
+ * against it (a clip where a rail crosses a panel joint).
+ */
+export function calculatePattern(
+  scope: Scope,
+  markups: readonly Markup[],
+  cal: Calibration,
+  opts: PieceOptions,
+  recipeOverride?: unknown,
+): PieceResult {
+  const specs = scope.specifications as Specifications
+  const empty = { productType: 'custom_pattern' as const, quantities: [], cells: [], runs: [] }
+  const raw = recipeOverride ?? readPatternRecipe(specs)
+  if (raw === null) {
+    return { ...empty, blockers: ['a pattern: pick one from the library, or have an agent design one (redbeam_save_pattern)'] }
+  }
+  const check = checkPatternRecipe(raw)
+  if (!check.ok) return { ...empty, blockers: check.errors.map((e) => `the pattern: ${e}`) }
+  const resolved: ResolvedRecipe = check.resolved
+  const recipe = check.recipe
+  const layers = resolved.layers.map((l) => ({ id: l.id, name: l.name, kind: l.kind, draft: l.draft }))
+  const labelled = { ...empty, productLabel: recipe.name, layers }
+
+  const mine = markups.filter((m) => m.scopeId === scope.id)
+  const pageDirections = opts.pageDirections ?? pageDirectionsFrom(specs)
+  const areaDirections = opts.areaDirections ?? areaDirectionsFrom(specs)
+  const areaOrigins = opts.areaOrigins ?? areaOriginsFrom(specs)
+  if (opts.scopeDirection == null && pageDirections.size === 0 && areaDirections.size === 0) {
+    return { ...labelled, blockers: ['a pattern direction — add a Scope Default Orientation, or run the pattern along a markup edge'] }
+  }
+  const withDirections: PieceOptions = { ...opts, pageDirections, areaDirections, areaOrigins }
+  const groups = runGroupsFor(mine, cal, withDirections)
+  if (groups.length === 0) return { ...labelled, blockers: noGroups(mine) }
+
+  const blockers: string[] = []
+  const cells: PanelCell[] = []
+  const runs: RunLayoutEntry[] = []
+  const builtInQuantities = new Map<string, PieceQuantity[]>()
+  const geometry: BuiltInGeometry[] = []
+  const { [PATTERN_RECIPE_KEY]: _recipe, ...baseSpecs } = specs
+  void _recipe
+  for (const layer of resolved.layers) {
+    if (layer.kind === 'tiles' || layer.kind === 'members' || layer.kind === 'lines' || layer.kind === 'hardware') continue
+    const sub = calculatePieces(
+      { ...scope, specifications: { ...baseSpecs, ...layer.specifications, productType: layer.kind } },
+      markups, cal, opts,
+    )
+    if (sub.blockers.length > 0) {
+      blockers.push(...sub.blockers.map((b) => `${layer.name}: ${b}`))
+      continue
+    }
+    cells.push(...sub.cells)
+    runs.push(...sub.runs)
+    builtInQuantities.set(layer.id, sub.quantities.map((q) => ({ ...q, itemKey: `${layer.id}.${q.itemKey}`, layer: layer.name })))
+    geometry.push({
+      layerId: layer.id,
+      polygons: sub.cells.filter((c) => c.clippedArea > 0).map((c) => ({ pageId: c.pageId ?? '', points: c.fullPath })),
+      segments: sub.runs.flatMap((e) => e.layout.pieces.map((p) => ({ pageId: e.pageId, a: p.insideSegment.a, b: p.insideSegment.b }))),
+    })
+  }
+  if (blockers.length > 0) return { ...labelled, blockers }
+
+  const laid = layoutPattern(resolved, groups, geometry)
+  if (laid.blockers.length > 0) return { ...labelled, blockers: laid.blockers }
+
+  const quantities: PieceQuantity[] = []
+  for (const layer of resolved.layers) {
+    const fromBuiltIn = builtInQuantities.get(layer.id)
+    if (fromBuiltIn !== undefined) { quantities.push(...fromBuiltIn); continue }
+    quantities.push(...laid.quantities.filter((q) => q.itemKey.startsWith(`${layer.id}.`)))
+  }
+  const draft = resolved.draft
+  return {
+    ...labelled,
+    blockers: [],
+    cells,
+    runs,
+    shapes: laid.shapes,
+    quantities,
+    confidence: draft ? 'unverified' : 'verified',
+    ...(draft ? { confidenceNote: `${recipe.name} is a draft pattern: the counts follow its recipe, but nobody has approved it yet` } : {}),
   }
 }

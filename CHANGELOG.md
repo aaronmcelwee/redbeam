@@ -5,6 +5,17 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.88 — 2026-11-25
+
+### Custom patterns (beta)
+
+- **Products REDBEAM does not have yet, made by your AI agent.** Turn on Settings › Beta › Custom patterns. Then ask Claude or ChatGPT for a product such as triangle panels, a repeating "random" baffle module, panels on suspension rails, or an open cell ceiling with coffers in every other cell. The agent writes it as a pattern, shows it laid out on the sheet, and saves it on the scope.
+- **Layers and hardware.** A pattern can stack several materials on one area: panels with rails across them, a grid with lay-in coffers, and so on. Hardware counts with them, for example hangers every 4' along each rail, clips where rails cross panel joints, end caps on each baffle, and trim around the edge. Each layer is drawn in its own colour, and you can hide any layer on the sheet.
+- **You approve it.** A pattern an agent makes is a draft. It counts straight away, but its lines show as unverified in the estimate until you approve it in the scope's Setup. Choose "Approve, add to library" to keep it for other jobs, or "Use here only". When an agent later adds a layer, such as rails, only the new layer waits for you.
+- **One product system.** Every built-in product (panels, planks, baffles, cassettes, linear parts) is now part of the same system as a one-layer product. Its counts are unchanged. With the beta on, Setup offers "Add layers" on a built-in product, so you can put rails or hardware on top of it.
+- **Saved in the PDF.** A scope keeps its own copy of its pattern in the PDF, so it opens the same on another computer.
+
+
 ## 0.3.87 — 2026-11-25
 
 ### Markups stay on screen when you zoom in
