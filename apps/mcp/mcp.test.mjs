@@ -196,3 +196,18 @@ test('a chat starts a session, and a call without one is refused', async () => {
   assert.match(started.structuredContent.session, /^Level 2 ceilings #[2-9A-Z]{3}$/)
   await assert.rejects(callTool('redbeam_start_session', {}), /task/)
 })
+
+test('every agent is handed the takeoff skill when its session starts', async () => {
+  // Aaron, 2026-11-25: the local server gives agents the current precon-takeoff
+  // skill. skills/precon-takeoff.md is the copy that ships.
+  const { callTool, SKILL, SKILL_URI, skillHandout } = await import('./index.mjs')
+  assert.ok(SKILL.startsWith('# Precon takeoff'), 'the skill is served without its front matter')
+  assert.match(SKILL, /typical module or pattern detail/)
+  for (const tool of SKILL.match(/`redbeam_[a-z_]+/g) ?? []) {
+    const name = tool.slice(1)
+    assert.ok(name === 'redbeam_start_session' || tools.some((t) => t.name === name), `the skill names ${name}, which is not a tool`)
+  }
+  const started = await callTool('redbeam_start_session', { task: 'Skill check' })
+  assert.equal(started.structuredContent.takeoffSkill, SKILL_URI)
+  assert.equal(started.content[1].text, skillHandout())
+})

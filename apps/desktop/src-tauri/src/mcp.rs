@@ -353,7 +353,26 @@ fn say_alive() {
     }
 }
 
-/// The one resource: the part of the instructions about working beside a person, to read again.
+/// The takeoff skill every agent is handed: how Maxxit wants a takeoff done.
+/// A copy of the precon-takeoff skill (apps/mcp/skills/precon-takeoff.md); when
+/// the skill changes, that file changes with it and the next release carries it.
+const SKILL_NAME: &str = "precon-takeoff";
+const SKILL_URI: &str = "redbeam://skill/precon-takeoff";
+const SKILL_ABOUT: &str = "How to do a takeoff in REDBEAM the way Maxxit does it: scope definition for approval, then layouts, quantities and call-outs. Follow it for any takeoff.";
+const SKILL_MD: &str = include_str!("../../../mcp/skills/precon-takeoff.md");
+
+/// The skill without its front matter: from its first heading on.
+fn skill() -> &'static str {
+    if SKILL_MD.starts_with("# ") { return SKILL_MD; }
+    SKILL_MD.find("\n# ").map(|i| &SKILL_MD[i + 1..]).unwrap_or(SKILL_MD)
+}
+
+/// The skill as an agent is given it when its session starts.
+fn skill_handout() -> String {
+    format!("Follow this skill for any takeoff in this chat. It is also the resource {SKILL_URI}, to read again.\n\n{}", skill())
+}
+
+/// The part of the instructions about working beside a person, to read again.
 const GUIDE_URI: &str = "redbeam://guide/working-beside-a-person";
 
 fn guide(spec: &Spec) -> String {
@@ -394,9 +413,13 @@ fn call_tool(spec: &Spec, name: &str, args: &Value, alive: &dyn Fn()) -> Result<
     if name == SESSION_TOOL {
         let session = start_session(args.get("task").and_then(Value::as_str).unwrap_or(""))?;
         let text = serde_json::to_string_pretty(&json!({ "session": session,
-            "use": "Pass this exact value as `session` on every other REDBEAM call in this chat." }))
+            "use": "Pass this exact value as `session` on every other REDBEAM call in this chat.",
+            "takeoffSkill": SKILL_URI }))
             .unwrap_or_default();
-        return Ok(json!({ "content": [{ "type": "text", "text": text }], "structuredContent": { "session": session } }));
+        return Ok(json!({
+            "content": [{ "type": "text", "text": text }, { "type": "text", "text": skill_handout() }],
+            "structuredContent": { "session": session, "takeoffSkill": SKILL_URI },
+        }));
     }
     let method = spec.method_of.get(name).and_then(Value::as_str)
         .ok_or_else(|| format!("Unknown REDBEAM tool: {name}"))?;
@@ -447,7 +470,7 @@ fn handle_with(spec: &Spec, req: &Value, notify: &dyn Fn(Value)) -> Option<Value
             }
             ok(json!({
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
-            "capabilities": { "tools": {}, "resources": {} },
+            "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
             "instructions": spec.instructions,
             }))
@@ -457,9 +480,17 @@ fn handle_with(spec: &Spec, req: &Value, notify: &dyn Fn(Value)) -> Option<Value
         "resources/list" => ok(json!({ "resources": [{
             "uri": GUIDE_URI, "name": "Working beside a person in REDBEAM", "mimeType": "text/plain",
             "description": "How a session starts, waits, and ends, and how to keep what the person sees about you true.",
+        }, {
+            "uri": SKILL_URI, "name": "Precon takeoff skill", "mimeType": "text/markdown", "description": SKILL_ABOUT,
         }] })),
+        "resources/read" if params.get("uri").and_then(Value::as_str) == Some(SKILL_URI) =>
+            ok(json!({ "contents": [{ "uri": SKILL_URI, "mimeType": "text/markdown", "text": skill() }] })),
         "resources/read" => ok(json!({ "contents": [{ "uri": GUIDE_URI, "mimeType": "text/plain", "text": guide(spec) }] })),
-        "prompts/list" => ok(json!({ "prompts": [] })),
+        "prompts/list" => ok(json!({ "prompts": [{ "name": SKILL_NAME, "description": SKILL_ABOUT }] })),
+        "prompts/get" if params.get("name").and_then(Value::as_str) == Some(SKILL_NAME) => ok(json!({
+            "description": SKILL_ABOUT,
+            "messages": [{ "role": "user", "content": { "type": "text", "text": skill_handout() } }],
+        })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -529,6 +560,24 @@ pub fn serve_stdio() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_agent_is_handed_the_takeoff_skill() {
+        let spec = spec();
+        assert!(skill().starts_with("# Precon takeoff"));
+        assert!(!skill().contains("\ndescription:"));
+        let started = call_tool(&spec, SESSION_TOOL, &json!({ "task": "Skill check" }), &|| {}).unwrap();
+        assert!(started["content"][1]["text"].as_str().unwrap().contains("typical module or pattern detail"));
+        assert_eq!(started["structuredContent"]["takeoffSkill"], SKILL_URI);
+        let listed = handle(&spec, &json!({ "jsonrpc": "2.0", "id": 1, "method": "resources/list" })).unwrap();
+        assert!(listed["result"]["resources"].as_array().unwrap().iter().any(|r| r["uri"] == SKILL_URI));
+        let read = handle(&spec, &json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/read", "params": { "uri": SKILL_URI } })).unwrap();
+        assert!(read["result"]["contents"][0]["text"].as_str().unwrap().starts_with("# Precon takeoff"));
+        let guide = handle(&spec, &json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/read", "params": { "uri": GUIDE_URI } })).unwrap();
+        assert!(guide["result"]["contents"][0]["text"].as_str().unwrap().contains("WORKING BESIDE A PERSON"));
+        let prompt = handle(&spec, &json!({ "jsonrpc": "2.0", "id": 4, "method": "prompts/get", "params": { "name": SKILL_NAME } })).unwrap();
+        assert!(prompt["result"]["messages"][0]["content"]["text"].as_str().unwrap().contains("# Precon takeoff"));
+    }
 
     #[test]
     fn only_one_server_starts_the_app_and_a_dead_claim_is_taken_over() {
