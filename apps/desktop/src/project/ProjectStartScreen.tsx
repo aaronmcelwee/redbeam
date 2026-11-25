@@ -87,9 +87,50 @@ function writePins(pins: string[]): void {
 }
 
 /** The folder a job lives in, with the head elided: "…\Team Site - Ramp\Bentall Towers 1 & 2". */
-function shortFolder(path: string): string {
+export function shortFolder(path: string): string {
   const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/)
   return parts.length <= 3 ? path : `…\\${parts.slice(-2).join('\\')}`
+}
+
+/**
+ * The folder a file sits in, not the file again: the row's first line
+ * already names it, so the second says where it is.
+ */
+export function shortParent(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/)
+  parts.pop()
+  if (parts.length === 0) return ''
+  return parts.length <= 3 ? parts.join('\\') : `…\\${parts.slice(-2).join('\\')}`
+}
+
+/**
+ * A long name cut in the middle, as File Explorer does, so the end that
+ * tells two takeoffs of one set apart ("(takeoff)" and "(Claude)") stays in
+ * view. The tail is the last few words, at most 18 characters, and the
+ * space before it becomes the tail's padding; CSS elides
+ * the head only when the row is too narrow for the whole name.
+ */
+export function splitName(name: string): [string, string] {
+  if (name.length <= 28) return [name, '']
+  let cut = -1
+  for (let i = name.length - 1; i > 0; i--) {
+    if (name[i] !== ' ') continue
+    if (name.length - i > 18) break
+    cut = i
+  }
+  // One long word: no tail worth keeping, so it elides at the end.
+  if (cut < 0) return [name, '']
+  return [name.slice(0, cut), name.slice(cut + 1)]
+}
+
+function Name({ text }: { text: string }) {
+  const [head, tail] = splitName(text)
+  return (
+    <span className="st-name">
+      <span className="st-namehead">{head}</span>
+      {tail !== '' && <span className="st-nametail">{tail}</span>}
+    </span>
+  )
 }
 
 export function ProjectStartScreen({
@@ -224,14 +265,14 @@ export function ProjectStartScreen({
       <div className="startdrag" data-tauri-drag-region />
 
       <div className="st-body">
+        <header className="st-head">
+          <AppMark size={40} />
+          <div>
+            <h1 className="st-title">REDBEAM</h1>
+            <p className="st-tag">Quantity takeoff from construction drawings</p>
+          </div>
+        </header>
         <div className="st-left">
-          <header className="st-head">
-            <AppMark size={40} />
-            <div>
-              <h1 className="st-title">REDBEAM</h1>
-              <p className="st-tag">Quantity takeoff from construction drawings</p>
-            </div>
-          </header>
 
           {notice !== null && notice !== '' && <p className="st-notice">{notice}</p>}
           {error !== null && error !== '' && (
@@ -243,7 +284,6 @@ export function ProjectStartScreen({
 
           <h2 className="st-sec">Open recent</h2>
           <label className="st-find">
-            <Glyph icon={Search} role="inline" />
             <input
               ref={filterRef}
               value={query}
@@ -260,7 +300,7 @@ export function ProjectStartScreen({
                 else if (e.key === 'Escape' && query !== '') setQuery('')
               }}
             />
-            <span className="st-keys"><kbd>↑↓</kbd><kbd>↵</kbd></span>
+            <Glyph icon={Search} role="inline" />
           </label>
 
           <div className="st-list" role="listbox" aria-label={light ? 'Recent files' : 'Recent projects'}>
@@ -313,16 +353,16 @@ export function ProjectStartScreen({
                   role="option"
                   aria-selected={i === at}
                   className={`st-row${onRemoveData !== undefined ? ' has-trash' : ''}${i === at ? ' armed' : ''}${p.missing ? ' missing' : ''}${isBusy ? ' busy' : ''}`}
-                  title={p.path}
+                  title={`${shownName(p)}\n${p.path}`}
                   onMouseEnter={() => setArmed(i)}
                   onClick={() => open(p)}
                   onDoubleClick={() => open(p)}
                   onContextMenu={(e) => { e.preventDefault(); setArmed(i); setMenu({ path: p.path, x: e.clientX, y: e.clientY }) }}
                 >
-                  <span className="st-ico"><Glyph icon={light ? DocumentPdf : Folder} role="card" filled={i === at} /></span>
+                  <span className="st-ico"><Glyph icon={light ? DocumentPdf : Folder} role="card" /></span>
                   <span className="st-rowtext">
-                    <span className="st-name">{shownName(p)}</span>
-                    <span className="st-path">{p.missing ? `${p.path} · not found` : shortFolder(p.path)}</span>
+                    <Name text={shownName(p)} />
+                    <span className="st-path">{p.missing ? `${p.path} · not found` : light ? shortParent(p.path) : shortFolder(p.path)}</span>
                   </span>
                   {p.missing && onLocateRecent !== undefined
                     ? <button className="st-link" onClick={(e) => { e.stopPropagation(); onLocateRecent(p) }}>Locate…</button>
@@ -427,11 +467,10 @@ export function ProjectStartScreen({
             <div className="st-drop"><b>{light ? 'Drop a PDF anywhere on this window' : 'Drop a PDF or a folder anywhere on this window'}</b> to open it</div>
           )}
         </div>
+        <footer className="st-foot">
+          <span>REDBEAM {APP_VERSION}</span>
+        </footer>
       </div>
-
-      <footer className="st-foot">
-        <span>REDBEAM {APP_VERSION}</span>
-      </footer>
 
       {menu !== null && menuFor !== null && (
         <div className="dockmenu st-menu" role="menu" aria-label={shownName(menuFor)} ref={menuRef} style={{ left: menu.x, top: menu.y }} onClick={() => setMenu(null)}>

@@ -326,10 +326,11 @@ h4 {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: var(--rb-topbar-h) 1fr;
-  padding: 0 var(--ads-sp-6) var(--ads-sp-6);
-  overflow-y: auto; overscroll-behavior: none;
-  overflow-x: hidden;
+  /* The window never scrolls as a whole: the recents scroll in their own
+     region, so the title-bar strip, the header and the footer stay put and
+     nothing slides under anything (Aaron, 2026-11-25). */
+  grid-template-rows: var(--rb-topbar-h) minmax(0, 1fr);
+  overflow: hidden;
   /* Opaque unless a backdrop was confirmed — see shell.css. Transparent here
      unconditionally would be a hole onto the desktop on any machine without
      Mica, which is the one failure the gate exists to prevent. */
@@ -349,55 +350,84 @@ h4 {
 .st-body {
   grid-row: 2;
   display: grid;
+  /* Header across both columns; the columns share one top line, so "Open
+     recent" and "Get started" sit level; the footer closes the page. */
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 64px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  column-gap: var(--ads-sp-9);
   width: 100%;
   max-width: 1440px;
+  min-height: 0;
   justify-self: center;
-  padding: var(--ads-sp-8) 72px 64px;
+  padding: var(--ads-sp-4) var(--ads-sp-10) 0;
 }
-.st-left, .st-right { min-width: 0; }
-.st-right { padding-top: 66px; }
-.st-head { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.st-left, .st-right { min-width: 0; min-height: 0; }
+.st-left { display: flex; flex-direction: column; }
+/* The cards are short; on a short window they scroll rather than spill. */
+.st-right { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--rb-ink-4) transparent; }
+.st-head { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--ads-sp-4); margin-bottom: var(--ads-sp-7); }
 /* The app icon (brand/AppMark), wherever it is drawn. It carries its own red,
    so no rule spends any on it. */
 .appmark { display: block; flex: none; user-select: none; }
 .st-title { margin: 0; font-size: var(--rb-title); line-height: 36px; font-weight: 600; }
-.st-tag { margin: 0; color: var(--rb-ink-3); font-size: var(--rb-caption); }
+.st-tag { margin: 0; color: var(--rb-ink-2); font-size: var(--rb-body); line-height: 20px; }
 .st-notice { margin: 0 0 var(--ads-sp-3); color: var(--rb-ink-3); font-size: var(--rb-caption); }
 .st-error { display: flex; align-items: center; gap: var(--ads-sp-2); margin: 0 0 var(--ads-sp-3); padding: var(--ads-sp-2) var(--ads-sp-3); border-radius: 4px; background: var(--rb-bad-bg); font-size: var(--rb-caption); }
 .st-error > svg { color: var(--rb-bad); flex: none; }
-.st-sec { margin: 0 0 10px; font-size: var(--rb-caption); line-height: 16px; font-weight: 600; color: var(--rb-ink-3); }
+/* Fluent's BodyStrong section header. */
+.st-sec { margin: 0 0 var(--ads-sp-2); font-size: var(--rb-body); line-height: 20px; font-weight: 600; color: var(--rb-ink); }
+/* An AutoSuggestBox: the query glyph on the right, the accent underline on focus. */
 .st-find {
-  display: flex; align-items: center; gap: var(--ads-sp-2);
-  height: 32px; padding: 0 10px; margin-bottom: var(--ads-sp-2);
+  display: flex; align-items: center; gap: var(--ads-sp-2); flex: none;
+  height: 32px; padding: 0 var(--ads-sp-3) 0 var(--ads-sp-3); margin-bottom: var(--ads-sp-2);
   border: 1px solid var(--rb-line); border-bottom-color: var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-3);
 }
-.st-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-canvas); }
+.st-find:focus-within { border-bottom: 2px solid var(--rb-accent); background: var(--rb-input-active); }
 .st-find > input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--rb-ink); font: var(--rb-body) var(--ads-sans); }
 .st-find > input:focus { outline: 0; }
-.st-find > input::placeholder { color: var(--rb-ink-4); }
-.st-keys { display: inline-flex; gap: 4px; }
-.st-keys kbd, .st-card kbd {
+.st-find > input::placeholder { color: var(--rb-ink-3); }
+.st-card kbd {
   display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px;
   border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink-2); font: var(--rb-caption) var(--ads-sans);
 }
-.st-list { display: flex; flex-direction: column; }
+/*
+ * The recents are a ListView: they scroll inside their own region, with a
+ * thin scrollbar in the list's own gutter, and stop above the footer.
+ */
+.st-list {
+  display: flex; flex-direction: column; gap: 2px;
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--rb-ink-4) transparent; scrollbar-gutter: stable;
+  margin-right: calc(-1 * var(--ads-sp-3)); padding-right: var(--ads-sp-1);
+  padding-bottom: var(--ads-sp-2);
+}
 .st-empty { padding: var(--ads-sp-3) var(--ads-sp-2); color: var(--rb-ink-3); font-size: var(--rb-caption); }
 .st-row {
-  display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 24px; gap: 12px; align-items: center;
-  height: 56px; padding: 0 10px 0 6px; border-radius: 4px; cursor: pointer;
+  position: relative; flex: none;
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 24px; gap: var(--ads-sp-3); align-items: center;
+  height: 56px; padding: 0 var(--ads-sp-2) 0 var(--ads-sp-3); border-radius: 4px; cursor: pointer;
 }
-.st-row:hover, .st-row.armed { background: var(--rb-raised); }
-.st-row.renaming, .st-row.confirming { grid-template-columns: 36px minmax(0, 1fr) auto auto; cursor: default; }
+.st-row:hover { background: var(--rb-hover); }
+/* Selected, as Fluent draws it: the selected fill and the 3x16 accent pill. */
+.st-row.armed { background: var(--rb-selected); }
+.st-row.armed::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: 16px; margin-top: -8px;
+  border-radius: 2px; background: var(--rb-accent);
+}
+.st-row.renaming, .st-row.confirming { grid-template-columns: 24px minmax(0, 1fr) auto auto; cursor: default; }
 .st-row.confirming { height: auto; min-height: 56px; padding-block: var(--ads-sp-2); }
 .st-row.busy { opacity: .7; }
-.st-ico { width: 36px; height: 36px; border-radius: 4px; background: var(--rb-raised); display: grid; place-items: center; color: var(--rb-ink-2); }
-.st-row.armed .st-ico { background: var(--rb-hover); color: var(--rb-ink); }
+.st-ico { width: 24px; height: 24px; display: grid; place-items: center; color: var(--rb-ink-2); }
+.st-row.renaming .st-ico, .st-row.confirming .st-ico { width: 24px; }
 .st-row.missing .st-name { color: var(--rb-ink-3); }
 .st-row.missing .st-ico { color: var(--rb-ink-4); }
 .st-rowtext { min-width: 0; display: flex; flex-direction: column; }
-.st-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Cut in the middle (splitName): the head elides, the tail always shows. */
+.st-name { display: flex; min-width: 0; white-space: pre; color: var(--rb-ink); }
+.st-namehead { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-nametail { flex: none; padding-left: .3em; }
+.st-row.confirming .st-name { display: block; white-space: normal; font-weight: 600; }
 .st-path { font: var(--rb-caption) var(--rb-figures); color: var(--rb-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-row.confirming .st-path { font-family: var(--ads-sans); white-space: normal; }
 .st-when { font-size: var(--rb-caption); color: var(--rb-ink-3); white-space: nowrap; }
@@ -406,7 +436,7 @@ h4 {
 .st-pin { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--rb-ink-4); cursor: pointer; opacity: 0; }
 .st-row:hover .st-pin, .st-row.armed .st-pin, .st-pin.on { opacity: 1; }
 .st-pin.on { color: var(--rb-ink-2); }
-.st-row.has-trash { grid-template-columns: 36px minmax(0, 1fr) auto 24px 24px; }
+.st-row.has-trash { grid-template-columns: 24px minmax(0, 1fr) auto 24px 24px; }
 .st-pin:hover { background: var(--rb-hover); color: var(--rb-ink); }
 .st-trash:hover { color: var(--rb-bad); }
 .nesting {
@@ -427,7 +457,7 @@ h4 {
 .st-btn { height: 28px; padding: 0 10px; border: 1px solid var(--rb-line-2); border-radius: 4px; background: var(--rb-raised); color: var(--rb-ink); font: var(--rb-caption) var(--ads-sans); cursor: pointer; white-space: nowrap; }
 .st-btn.subtle { border-color: transparent; background: transparent; color: var(--rb-ink-2); }
 .st-btn.danger { color: var(--rb-bad); }
-.st-count { padding: 10px 8px; color: var(--rb-ink-4); font-size: var(--rb-caption); }
+.st-count { flex: none; padding: var(--ads-sp-2) var(--ads-sp-3) 0; color: var(--rb-ink-3); font-size: var(--rb-caption); }
 /* The ways in, as cards. */
 .st-card {
   display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; width: 100%;
@@ -455,7 +485,16 @@ h4 {
 .st-drop { margin-top: 6px; padding: 22px; border: 1px dashed var(--rb-line-2); border-radius: 8px; color: var(--rb-ink-3); font-size: var(--rb-caption); text-align: center; }
 .st-drop b { color: var(--rb-ink-2); }
 .st.dropping .st-drop { border-color: var(--rb-accent); color: var(--rb-ink); }
-.st-foot { position: absolute; left: 96px; right: 96px; bottom: 22px; display: flex; align-items: center; gap: 18px; color: var(--rb-ink-3); font-size: var(--rb-caption); }
+/* In the flow, under both columns: the list ends above it, never behind it. */
+.st-foot { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--ads-sp-4); height: 48px; border-top: 1px solid var(--rb-line); margin-top: var(--ads-sp-2); color: var(--rb-ink-3); font-size: var(--rb-caption); }
+/* A narrow window: one column, the ways in first, then the list in what is left. */
+@media (max-width: 960px) {
+  .st-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; padding-inline: var(--ads-sp-7); }
+  .st-head { margin-bottom: var(--ads-sp-5); }
+  .st-right { grid-row: 2; overflow: visible; margin-bottom: var(--ads-sp-4); }
+  .st-left { grid-row: 3; }
+  .st-right .st-carddesc, .st-drop { display: none; }
+}
 /* Light / Pro, bottom right: a choice made once, so small and out of the way. */
 /* Compound, so it outranks shell.css's bare .dockmenu whatever order the
  * bundler loads the sheets in; and `bottom: auto`, or the dock menu's

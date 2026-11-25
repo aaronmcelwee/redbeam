@@ -45,6 +45,7 @@
    * preference, and both are in the comps.
    */
   --rb-canvas:    #161719;  /* the drawing surround — darkest step */
+  --rb-input-active: #1E1E1E;  /* ControlFillColorInputActive: a focused text box */
   --rb-chrome:    #1C1D1F;  /* title bar, rail, dock */
   --rb-panel:     #232427;  /* sidebars */
   /*
@@ -427,6 +428,7 @@
 :root[data-surface="oled"] .ads,
 .ads[data-surface="oled"] {
   --rb-canvas:    #000000;
+  --rb-input-active: #000000;  /* ControlFillColorInputActive: a focused text box */
   --rb-chrome:    #050505;
   --rb-panel:     #050505;
   --rb-raised:    #0B0B0B;
@@ -461,6 +463,7 @@
 :root[data-theme="light"] .ads,
 .ads[data-theme="light"] {
   --rb-canvas:    #C9C9C9;
+  --rb-input-active: #FFFFFF;  /* ControlFillColorInputActive: a focused text box */
   --rb-chrome:    #EEEEEE;  /* SolidBackgroundFillColorSecondary */
   --rb-panel:     #F3F3F3;  /* SolidBackgroundFillColorBase */
   --rb-raised:    rgba(255, 255, 255, .70);   /* CardBackgroundFillColorDefault */
