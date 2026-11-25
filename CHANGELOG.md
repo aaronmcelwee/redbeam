@@ -12,6 +12,7 @@ All are unsigned; SmartScreen will ask once.
 - **Named sheets get bookmarks.** When sheets are named from the title block (or renamed by an agent), REDBEAM now also writes one bookmark per sheet, in page order, so Bluebeam's Bookmarks panel lists the set. Before, the names went only into the page labels.
 - **Your own bookmarks are kept.** If the file already has bookmarks, they stay as they are and the sheets go in one "Sheets" folder above them. Renaming sheets again updates REDBEAM's bookmarks instead of adding a second set.
 - **Files you named earlier catch up.** A file named with 0.3.84 to 0.3.89 gets its bookmarks the next time you open it in REDBEAM.
+
 ## 0.3.90 — 2026-11-25
 
 ### A portable REDBEAM for PCs that will not run the installer
