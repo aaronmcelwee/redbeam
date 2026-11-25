@@ -29,11 +29,19 @@ import { parseNumberOrFraction, unitToFeet } from './units.js'
  * this." The workaround was a panel sized to the trough's width, which
  * double-counts the moment the run is an eighth of an inch wide.
  */
-export type ProductType = 'panels' | 'planks' | 'baffle_cassette' | 'baffle' | 'custom_assembly' | 'linear_parts'
+export type ProductType = 'panels' | 'planks' | 'baffle_cassette' | 'baffle' | 'custom_assembly' | 'linear_parts' | 'custom_pattern'
 
 export const PRODUCT_TYPES: readonly ProductType[] = [
   'panels', 'planks', 'baffle_cassette', 'baffle', 'linear_parts', 'custom_assembly',
 ] as const
+
+/**
+ * Every product type, the beta one included. `custom_pattern` (Aaron,
+ * 2026-11-25) is a product described by a recipe stored on the scope
+ * (patternRecipe.ts); it is offered only while Settings › Beta › Custom
+ * patterns is on, so menus list PRODUCT_TYPES and add it themselves.
+ */
+export const ALL_PRODUCT_TYPES: readonly ProductType[] = [...PRODUCT_TYPES, 'custom_pattern'] as const
 
 /** Display names, matching the QStringLiteral labels the engine compares against. */
 export const PRODUCT_TYPE_LABEL: Record<ProductType, string> = {
@@ -43,6 +51,7 @@ export const PRODUCT_TYPE_LABEL: Record<ProductType, string> = {
   baffle: 'Baffle',
   custom_assembly: 'Custom Assembly',
   linear_parts: 'Linear parts',
+  custom_pattern: 'Custom pattern',
 }
 
 /**
@@ -60,6 +69,7 @@ export function canonicalProductType(type: string): ProductType {
   if (n === 'plank' || n === 'planks') return 'planks'
   if (n === 'linear_parts' || n === 'linear' || n === 'linearparts') return 'linear_parts'
   if (n === 'custom' || n === 'custom_assembly' || n === 'customassembly') return 'custom_assembly'
+  if (n === 'custom_pattern' || n === 'pattern' || n === 'custompattern') return 'custom_pattern'
   return 'baffle'
 }
 
@@ -140,6 +150,8 @@ export function unitDisplayText(unit: string): string {
 export function requiredMeasures(product: ProductType): MeasureField[] {
   switch (product) {
     case 'custom_assembly':
+    case 'custom_pattern':
+      // A pattern's sizes are in its recipe, which checkPatternRecipe reads.
       return []
     case 'linear_parts':
       return [measure('partLength', 'Part Len')]
@@ -282,6 +294,7 @@ export function editableMeasures(product: ProductType): MeasureField[] {
   const profileWidth = measure('profileWidth', 'Profile W')
   switch (product) {
     case 'custom_assembly':
+    case 'custom_pattern':
       return []
     case 'linear_parts':
       return [measure('partLength', 'Part Len')]

@@ -404,6 +404,52 @@ const STEPS = [
     await page.keyboard.press('Enter')
     await page.waitForTimeout(1200)
   }],
+  /*
+   * The area just drawn has to stay on screen at every zoom up to 6400%.
+   * Markups vanished "past a certain zoom point" (Aaron, 2026-11-25): the
+   * overlay culled a polygon by its centroid, so an area bigger than the
+   * window disappeared once you zoomed in near its edge. This zooms into the
+   * area's corner one Ctrl+wheel notch at a time and reads the markup layer
+   * under the cursor after each one.
+   */
+  ['deep-zoom', async (page) => {
+    const problems = []
+    await page.keyboard.press('Escape')
+    const box = await page.locator('.viewport').boundingBox()
+    // 12 px inside the top-left corner of the area the takeoff step drew.
+    const x = box.x + box.width / 2 - 108
+    const y = box.y + box.height / 2 - 68
+    const inked = () => page.evaluate(([cx, cy]) => {
+      const c = document.querySelectorAll('.viewport canvas')[1]
+      if (!c) return -1
+      const r = c.getBoundingClientRect()
+      const sx = c.width / r.width, sy = c.height / r.height
+      const d = c.getContext('2d').getImageData(Math.round((cx - r.left) * sx) - 2, Math.round((cy - r.top) * sy) - 2, 5, 5).data
+      let a = 0
+      for (let i = 3; i < d.length; i += 4) a = Math.max(a, d[i])
+      return a
+    }, [x, y])
+    await page.mouse.move(x, y)
+    await page.waitForTimeout(200)
+    if (await inked() <= 0) problems.push('deep-zoom: no markup under the cursor before zooming (the takeoff step drew nothing?)')
+    else {
+      await page.keyboard.down('Control')
+      for (let i = 0; i < 12; i++) {
+        await page.mouse.wheel(0, -120)
+        await page.waitForTimeout(150)
+        const a = await inked()
+        if (a <= 0) {
+          problems.push(`deep-zoom: the area vanished after ${i + 1} zoom-in notch(es)`)
+          break
+        }
+      }
+      await page.keyboard.up('Control')
+      await page.screenshot({ path: join(out, `${shotPrefix}deep-zoom.png`) })
+    }
+    await page.keyboard.press('Control+0')
+    await page.waitForTimeout(400)
+    return problems
+  }],
   ['takeoff-menus', async (page) => {
     const problems = []
     const count = await page.locator('button[aria-haspopup]').count()
@@ -429,6 +475,76 @@ const STEPS = [
    * nothing on screen (0.3.63). Now it asks within seconds, and once the save
    * lands the window goes, by destroy rather than another close request.
    */
+  ['custom-pattern', async (page) => {
+    /*
+     * Custom patterns (beta, 0.3.84): an agent designs a product as a recipe
+     * and saves it as a draft; the person sees it laid out on the sheet and
+     * its layers, draft state and approve buttons in the scope's Setup.
+     */
+    const problems = []
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    const off = await act('save_pattern', { recipe: { name: 'x', layers: [] } })
+    if (off.setting !== 'beta.customPatterns') problems.push(`custom-pattern: with the beta off, save_pattern should name the setting, said ${JSON.stringify(off).slice(0, 140)}`)
+    await act('set_setting', { setting: 'beta.customPatterns', value: true })
+    await act('go_to_page', { page: 0 })
+    await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
+    const scope = await act('create_scope', { label: 'CL-TRI', productType: 'custom_pattern' })
+    if (typeof scope.scopeId !== 'string') return [`custom-pattern: could not add a pattern scope: ${JSON.stringify(scope).slice(0, 160)}`]
+    await act('create_markup', { kind: 'area', scopeId: scope.scopeId, rings: [[{ x: 0.3, y: 0.3 }, { x: 0.62, y: 0.3 }, { x: 0.62, y: 0.6 }, { x: 0.3, y: 0.6 }]] })
+    const fmt = await act('describe_product', { productType: 'custom_pattern' })
+    const tri = fmt.format?.examples?.triangles
+    if (tri === undefined) problems.push(`custom-pattern: describe_product gives no triangle example: ${JSON.stringify(fmt).slice(0, 160)}`)
+    const saved = await act('save_pattern', { scopeId: scope.scopeId, recipe: tri ?? {} })
+    if (saved.saved !== true) problems.push(`custom-pattern: save_pattern did not save: ${JSON.stringify(saved).slice(0, 200)}`)
+    await act('set_scope_direction', { scopeId: scope.scopeId, x1: 0.3, y1: 0.3, x2: 0.62, y2: 0.3 })
+    await act('set_active_scope', { scopeId: scope.scopeId })
+    await page.waitForTimeout(1200)
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-sheet.png`) })
+    const listed = await act('list_scopes', {})
+    const mine = listed.scopes?.find((x) => x.scopeId === scope.scopeId)
+    if (mine?.productLabel !== tri?.name) problems.push(`custom-pattern: list_scopes should name the scope's product by its pattern, says ${mine?.productLabel}`)
+    // Back to the list of scopes, if a scope is open, then into this one.
+    const prior = await page.locator('nav.crumbs .crumb.current').first().textContent().catch(() => null)
+    const root = page.locator('nav.crumbs button').first()
+    if (await root.count() > 0) await root.click()
+    await page.waitForTimeout(300)
+    await page.locator('.es-row', { hasText: 'CL-TRI' }).first().click()
+    await page.waitForTimeout(500)
+    const setup = page.getByRole('button', { name: /^Setup/ }).first()
+    if (await setup.getAttribute('aria-expanded') !== 'true') await setup.click()
+    await page.waitForTimeout(500)
+    if (await page.locator('.pt-card').count() === 0) problems.push('custom-pattern: the scope\'s Setup shows no pattern card')
+    await page.evaluate(() => document.querySelector('.pt-card')?.scrollIntoView({ block: 'end' }))
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-setup.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card.png`) })
+    // The person approves it: its lines are verified from then on.
+    await page.getByRole('button', { name: 'Approve, add to library' }).click()
+    await page.waitForTimeout(900)
+    const listedNow = await act('list_patterns', {})
+    if (listedNow.library?.length !== 1) problems.push(`custom-pattern: approving into the library should list one pattern, lists ${JSON.stringify(listedNow.library).slice(0, 120)}`)
+    const bom = await act('get_bom', {})
+    const unverified = (bom.lines ?? []).filter((l) => l.scopeId === scope.scopeId && l.confidence !== 'verified')
+    if (unverified.length > 0) problems.push(`custom-pattern: an approved pattern's lines should be verified: ${JSON.stringify(unverified).slice(0, 400)}`)
+    await page.evaluate(() => document.querySelector('.pt-card')?.scrollIntoView({ block: 'end' }))
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-approved.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card-approved.png`) })
+    // The agent adds rails: only the new layer waits for the person.
+    const withRails = { ...tri, layers: [...tri.layers.filter((l) => l.kind !== 'hardware'), { id: 'rails', kind: 'lines', name: 'Rails', run: 'across', spacing: "4'", stock: "16'" }, ...tri.layers.filter((l) => l.kind === 'hardware')] }
+    const again = await act('save_pattern', { scopeId: scope.scopeId, recipe: withRails })
+    if (JSON.stringify(again.draftLayers) !== JSON.stringify(['rails'])) problems.push(`custom-pattern: adding a layer to an approved pattern should leave only it a draft, drafts ${JSON.stringify(again.draftLayers ?? again).slice(0, 160)}`)
+    await page.waitForTimeout(700)
+    await page.evaluate(() => document.querySelector('.pt-wrap')?.scrollIntoView({ block: 'end' }))
+    await page.screenshot({ path: join(out, `${shotPrefix}custom-pattern-new-layer.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}custom-pattern-card-new-layer.png`) })
+    // Leave the next step the scope that was open, as it found it.
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()
+    await page.waitForTimeout(300)
+    return problems
+  }],
   ['slow-close', async (page) => {
     const problems = []
     await page.keyboard.press('Escape')
@@ -463,7 +579,7 @@ const STEPS = [
   }],
   ['tab-menu', async (page) => opensAndEscapes(
     page,
-    () => page.locator('[data-tab][role="tab"]').first().click({ button: 'right' }),
+    () => page.locator('[data-tab][role="tab"]').filter({ visible: true }).first().click({ button: 'right' }),
     '.tabctx', 'the tab menu',
   )],
   ['narrow', async (page) => {

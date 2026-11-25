@@ -34,7 +34,7 @@
  * category is a heading on one scrolling page now, and it earns its heading
  * by holding a setting somebody reads.
  */
-export type SettingCategory = 'general' | 'viewer' | 'takeoff' | 'performance'
+export type SettingCategory = 'general' | 'viewer' | 'takeoff' | 'performance' | 'beta'
 
 /*
  * "Drawing", not "Viewer": the rest of the shell says the drawing and the
@@ -47,6 +47,7 @@ export const CATEGORY_LABEL: Record<SettingCategory, string> = {
   viewer: 'Drawing',
   takeoff: 'Takeoff',
   performance: 'Performance',
+  beta: 'Beta',
 }
 
 export type SettingValue = boolean | number | string
@@ -336,6 +337,24 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     default: false,
     label: 'Show frame time',
     description: 'Show the rolling frame time in the corner of the drawing.',
+  },
+  {
+    /*
+     * Aaron, 2026-11-25: "build it as a beta feature that needs to be
+     * enabled under settings". Off: no pattern in the product list, and the
+     * pattern tools tell an agent where the switch is. A scope that already
+     * holds a pattern still counts with it either way, so a PDF someone else
+     * priced reads the same on every machine.
+     */
+    id: 'beta.customPatterns',
+    category: 'beta',
+    section: 'Beta',
+    type: 'bool',
+    default: false,
+    label: 'Custom patterns',
+    description: 'Products described as a recipe of layers: triangles, a repeating random baffle module, '
+      + 'panels on rails, open cell with coffers, and the hardware on them. Claude and ChatGPT can design one '
+      + 'and show it on the sheet; you approve it before its counts are verified.',
   },
 ] as const
 

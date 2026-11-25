@@ -98,6 +98,7 @@ const OTHER_KNOWN = [
   PRODUCT_TYPE_KEY, 'alignSeams', 'profileWidthInches', 'scopeColor', 'scopeDefaultDirection',
   'pageDirections', 'areaDirections', 'areaOrigins', 'panelGranularity', 'yieldGranularity',
   'layoutPreviewActive', 'showConnectors', 'showEndCaps', 'showJoiners', 'showOverflowPreview', 'dimPageContent',
+  'patternRecipe',
 ]
 
 /**

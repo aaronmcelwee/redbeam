@@ -10,7 +10,7 @@
  * Measured ceiling: ~3,700 markups simultaneously in view stays inside a 60fps
  * budget; past ~5,000 in view it degrades. Culling below is what buys that.
  */
-import type { OverlaySet, Viewport } from './types.js'
+import type { OverlaySet, PolygonOverlay, Viewport } from './types.js'
 
 export interface OverlayOptions {
   /** Draw measurement labels. Suppressed when zoomed out, where they'd be soup. */
@@ -28,6 +28,32 @@ export interface OverlayOptions {
 export interface OverlayStats {
   drawn: number
   culled: number
+}
+
+/** Stroke width plus the round join, in CSS px, kept outside the cull edge. */
+const margin = 16
+
+const boxes = new WeakMap<PolygonOverlay, readonly [number, number, number, number]>()
+
+/** Normalized [minX, minY, maxX, maxY] of a polygon's outline, cached. */
+export function boundsOf(p: PolygonOverlay): readonly [number, number, number, number] {
+  let b = boxes.get(p)
+  if (b) return b
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  // Every ring counts: after an opening splits an area, its further rings
+  // can be pieces outside the first one, not only holes inside it.
+  for (const ring of p.holes === undefined ? [p.poly] : [p.poly, ...p.holes]) {
+    for (const [x, y] of ring) {
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+      if (y < y0) y0 = y
+      if (y > y1) y1 = y
+    }
+  }
+  if (x0 > x1) { x0 = x1 = p.cx; y0 = y1 = p.cy }
+  b = [x0, y0, x1, y1] as const
+  boxes.set(p, b)
+  return b
 }
 
 export function drawOverlay(
@@ -54,9 +80,15 @@ export function drawOverlay(
   // ---- polygons (area takeoff) ----
   for (const p of set.polygons) {
     const cx = px(p.cx), cy = py(p.cy)
-    // Cheap centroid cull with a generous margin. Exact bbox culling would be
-    // more precise but costs more than it saves at these counts.
-    if (cx < -120 || cy < -120 || cx > vw + 120 || cy > vh + 120) { culled++; continue }
+    // Cull by the shape's bounding box, never by its centroid. A centroid cull
+    // (it was "centroid more than 120 px off screen") hid every area bigger
+    // than the window as soon as you zoomed in past its middle: at 6400% a
+    // whole room is many screens wide, so its centroid is off screen while
+    // its fill covers the view. Aaron, 2026-11-25: "Markups disappear past a
+    // certain zoom point." The box is cached per polygon, so this costs four
+    // compares, the same as the centroid did.
+    const b = boundsOf(p)
+    if (px(b[2]) < -margin || py(b[3]) < -margin || px(b[0]) > vw + margin || py(b[1]) > vh + margin) { culled++; continue }
 
     ctx.beginPath()
     for (const ring of p.holes === undefined ? [p.poly] : [p.poly, ...p.holes]) {
