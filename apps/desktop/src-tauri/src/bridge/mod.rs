@@ -89,7 +89,16 @@ struct Request {
     /// particular and acts on the PDF showing, as every call once did.
     #[serde(default)]
     agent: Value,
+    /// The client reads `{"keepalive":true}` lines while the call is still
+    /// running (apps/mcp/index.mjs, mcp.rs), so it can wait on long work by
+    /// silence rather than by a fixed clock. Old clients leave it off and get
+    /// one line, as before.
+    #[serde(default)]
+    keepalive: bool,
 }
+
+/// How often a running call tells a keepalive client it is still running.
+const KEEPALIVE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub fn discovery_path() -> PathBuf {
     std::env::temp_dir().join(DISCOVERY_FILE)
@@ -221,6 +230,30 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
             } else if !accepting() {
                 json!({ "id": req.id, "ok": false, "error":
                     "AI control is off. Turn on Settings > Claude and ChatGPT > Let AI apps use REDBEAM." })
+            } else if req.keepalive {
+                // The work runs beside this thread, which says "still
+                // running" to the client until the answer is in.
+                let (tx, rx) = std::sync::mpsc::channel();
+                let (app2, method, params) = (app.clone(), req.method.clone(), req.params.clone());
+                std::thread::spawn(move || {
+                    let _ = tx.send(methods::dispatch(&app2, &method, &params));
+                });
+                let answer = loop {
+                    match rx.recv_timeout(KEEPALIVE_EVERY) {
+                        Ok(a) => break a,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            out.write_all(b"{\"keepalive\":true}\n")?;
+                            out.flush()?;
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            break Err("the call stopped without an answer".to_string())
+                        }
+                    }
+                };
+                match answer {
+                    Ok(result) => json!({ "id": req.id, "ok": true, "result": result }),
+                    Err(e) => json!({ "id": req.id, "ok": false, "error": e }),
+                }
             } else {
                 // One connection, one thread, one call: whatever this call
                 // asks of a window carries who asked (ui.rs).

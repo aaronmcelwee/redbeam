@@ -18,6 +18,18 @@ SmartScreen will ask once.
 - **A session that dies cleans up after itself.** If an AI app is closed or stops answering mid-job, its session is marked finished within seconds, its cursor goes away and its tabs are settled the same way. You can also end a session yourself from the Agents list.
 - **Agents never take the keyboard or the window.** An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, the question waits in the Agents list, with a "!" in the title bar, until you choose to answer; nothing opens over your drawing, and you are never asked to settle things between two agents. "What's new" no longer opens over a window an AI app started.
 - **Agents close only their own tabs**, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf.
+## 0.3.80 — 2026-11-24
+
+### AI apps keep going on long work
+
+- **Long jobs from Claude and ChatGPT no longer time out.** A call used to give up after 20 or 60 seconds even while REDBEAM was still busy, so a big export or search on a 1,000-sheet set could fail halfway. REDBEAM now tells the AI app it is still working, and the call waits as long as the work takes.
+- **Every page, markup and history entry.** Lists for AI apps stopped at 5,000 items, history at 2,000 events, the piece list at 5,000 runs and a batch of markups at 500. They now hand back everything, a page at a time.
+- **Save a copy keeps numbering.** It used to give up after "name 20.pdf".
+- **Auto-trace keeps every hole.** Tracing an area kept at most 16 column holes; it now keeps them all.
+- **Search fixes.** The zoom readout keeps up while you zoom, the match count no longer shows early while a big set is still being read, and pressing Enter after changing the words runs the new search instead of stepping through the old matches.
+- **Long sheet titles in full.** Sheet names were cut at 60 characters.
+
+
 ## 0.3.79 — 2026-11-24
 
 ### Big sets, everywhere

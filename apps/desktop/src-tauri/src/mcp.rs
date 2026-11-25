@@ -24,8 +24,11 @@ use serde_json::{json, Value};
 
 const TOOLS_JSON: &str = include_str!("../../../mcp/tools.json");
 
-/// How long one bridge call may take. UI calls time out at 20 s in the app.
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a bridge call may go without a word from REDBEAM. Not a limit on
+/// the work: the app sends a keepalive line every few seconds while a call
+/// runs, and each one restarts this clock (Aaron, 2026-11-24: no arbitrary
+/// caps). Only an app that has gone quiet fails the call.
+const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long to wait for a freshly started REDBEAM to bring its bridge up.
 const LAUNCH_WAIT: Duration = Duration::from_secs(30);
 
@@ -354,18 +357,27 @@ fn guide(spec: &Spec) -> String {
     text.find("WORKING BESIDE A PERSON").map(|i| &text[i..]).unwrap_or(text).to_string()
 }
 
-fn bridge_call(method: &str, params: &Value, agent: &Value) -> Result<Value, String> {
+fn bridge_call(method: &str, params: &Value, agent: &Value, alive: &dyn Fn()) -> Result<Value, String> {
     let (mut stream, token) = reach()?;
     let _ = stream.set_read_timeout(Some(CALL_TIMEOUT));
-    let line = json!({ "id": 1, "method": method, "token": token, "params": params, "agent": agent });
+    let line = json!({ "id": 1, "method": method, "token": token, "params": params, "agent": agent, "keepalive": true });
     stream
         .write_all(format!("{line}\n").as_bytes())
         .map_err(|e| format!("could not reach REDBEAM: {e}"))?;
-    let mut reply = String::new();
-    BufReader::new(stream)
-        .read_line(&mut reply)
-        .map_err(|e| format!("REDBEAM did not answer {method}: {e}"))?;
-    let v: Value = serde_json::from_str(reply.trim()).map_err(|e| format!("bad reply from REDBEAM: {e}"))?;
+    let mut reader = BufReader::new(stream);
+    let v: Value = loop {
+        let mut reply = String::new();
+        reader
+            .read_line(&mut reply)
+            .map_err(|e| format!("REDBEAM did not answer {method}: {e}"))?;
+        let v: Value = serde_json::from_str(reply.trim()).map_err(|e| format!("bad reply from REDBEAM: {e}"))?;
+        // Still working: wait on, and let the AI app know.
+        if v.get("keepalive").and_then(Value::as_bool) == Some(true) {
+            alive();
+            continue;
+        }
+        break v;
+    };
     if v.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(v.get("result").cloned().unwrap_or(Value::Null))
     } else {
@@ -374,7 +386,7 @@ fn bridge_call(method: &str, params: &Value, agent: &Value) -> Result<Value, Str
 }
 
 /// One tools/call, as MCP content. Mirrors apps/mcp/index.mjs callTool.
-fn call_tool(spec: &Spec, name: &str, args: &Value) -> Result<Value, String> {
+fn call_tool(spec: &Spec, name: &str, args: &Value, alive: &dyn Fn()) -> Result<Value, String> {
     if name == SESSION_TOOL {
         let session = start_session(args.get("task").and_then(Value::as_str).unwrap_or(""))?;
         let text = serde_json::to_string_pretty(&json!({ "session": session,
@@ -395,7 +407,7 @@ fn call_tool(spec: &Spec, name: &str, args: &Value) -> Result<Value, String> {
     if let Some(action) = spec.action_of.get(name).and_then(Value::as_str) {
         params["action"] = json!(action);
     }
-    let result = bridge_call(method, &params, &identity(&code, &task))?;
+    let result = bridge_call(method, &params, &identity(&code, &task), alive)?;
 
     // A screenshot goes back as an image, not a 2 MB data URL in text.
     if name == "redbeam_screenshot" {
@@ -411,6 +423,13 @@ fn call_tool(spec: &Spec, name: &str, args: &Value) -> Result<Value, String> {
 
 /// Answer one JSON-RPC message; None for a notification.
 fn handle(spec: &Spec, req: &Value) -> Option<Value> {
+    handle_with(spec, req, &|_| {})
+}
+
+/// [`handle`], with a way to send notifications while a call runs: a long
+/// tools/call reports progress to an AI app that asked for it
+/// (`_meta.progressToken`), so the app knows the work is still going.
+fn handle_with(spec: &Spec, req: &Value, notify: &dyn Fn(Value)) -> Option<Value> {
     let id = req.get("id").cloned()?;
     let method = req.get("method").and_then(Value::as_str).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(Value::Null);
@@ -440,7 +459,16 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            match call_tool(spec, name, &args) {
+            let token = params.get("_meta").and_then(|m| m.get("progressToken")).cloned();
+            let beats = std::cell::Cell::new(0u64);
+            let alive = || {
+                if let Some(t) = &token {
+                    beats.set(beats.get() + 1);
+                    notify(json!({ "jsonrpc": "2.0", "method": "notifications/progress",
+                        "params": { "progressToken": t, "progress": beats.get(), "message": "still working" } }));
+                }
+            };
+            match call_tool(spec, name, &args, &alive) {
                 Ok(r) => ok(r),
                 // A tool result, not an RPC error: the agent should read WHY.
                 Err(e) => ok(json!({ "content": [{ "type": "text", "text": format!("Error: {e}") }], "isError": true })),
@@ -483,7 +511,8 @@ pub fn serve_stdio() {
         // queue behind them, so each request gets its own thread.
         let (spec, out) = (spec.clone(), out.clone());
         std::thread::spawn(move || {
-            if let Some(reply) = handle(&spec, &req) {
+            let notify = |v: Value| send(&out, &v);
+            if let Some(reply) = handle_with(&spec, &req, &notify) {
                 send(&out, &reply);
             }
         });

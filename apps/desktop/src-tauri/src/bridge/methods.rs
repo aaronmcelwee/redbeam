@@ -121,30 +121,37 @@ fn usize_param(params: &Value, key: &str) -> Option<i64> {
     params.get(key).and_then(|v| v.as_i64())
 }
 
-/// Row cap for any listing.
+/// Rows in one page of a listing.
 ///
-/// A sheet can carry thousands of markups; an unbounded list would hand an
-/// agent a response it has to page through anyway. The cap is reported back so
-/// truncation is never silent.
+/// A page, not a cap (Aaron, 2026-11-24: no arbitrary caps): a listing that
+/// has more says `truncated` and gives `nextOffset`, and `offset` reads on
+/// from there, so a set of any size can be walked. A caller may ask for a
+/// page of any size.
 const DEFAULT_LIMIT: i64 = 500;
-const MAX_LIMIT: i64 = 5000;
 
 fn limit_of(params: &Value) -> i64 {
-    usize_param(params, "limit")
-        .unwrap_or(DEFAULT_LIMIT)
-        .clamp(1, MAX_LIMIT)
+    usize_param(params, "limit").unwrap_or(DEFAULT_LIMIT).max(1)
 }
 
-fn listing(rows: Vec<Map<String, Value>>, limit: i64, key: &str) -> Value {
+/// Rows already read: the `nextOffset` of the previous page.
+fn offset_of(params: &Value) -> i64 {
+    usize_param(params, "offset").unwrap_or(0).max(0)
+}
+
+fn listing(rows: Vec<Map<String, Value>>, limit: i64, offset: i64, key: &str) -> Value {
     let truncated = rows.len() as i64 >= limit;
-    json!({
+    let mut out = json!({
         key: rows,
         "count": rows.len(),
         "limit": limit,
         // Reported rather than inferred: a client cannot tell a full page from
         // a coincidentally-exact count.
         "truncated": truncated,
-    })
+    });
+    if truncated {
+        out["nextOffset"] = json!(offset + limit);
+    }
+    out
 }
 
 // ------------------------------------------------------------------ methods --
@@ -182,7 +189,7 @@ fn light_state(app: &AppHandle) -> Value {
 fn list_documents(app: &AppHandle, params: &Value) -> Result<Value, String> {
     // A real bid package is 693 documents; an unbounded listing is a response
     // nobody can read.
-    let limit = limit_of(params);
+    let (limit, offset) = (limit_of(params), offset_of(params));
     let rows = query(
         app,
         // Columns are checked against packages/store/migrations, not guessed.
@@ -190,29 +197,29 @@ fn list_documents(app: &AppHandle, params: &Value) -> Result<Value, String> {
         // `pages` table, and asking for one here failed the whole listing.
         "SELECT id, relative_path, display_name, kind, status, availability,
                 missing, size_bytes, content_fingerprint
-           FROM documents ORDER BY relative_path LIMIT ?1",
-        vec![json!(limit)],
+           FROM documents ORDER BY relative_path LIMIT ?1 OFFSET ?2",
+        vec![json!(limit), json!(offset)],
     )?;
-    Ok(listing(rows, limit, "documents"))
+    Ok(listing(rows, limit, offset, "documents"))
 }
 
 fn list_pages(app: &AppHandle, params: &Value) -> Result<Value, String> {
-    let limit = limit_of(params);
+    let (limit, offset) = (limit_of(params), offset_of(params));
     let rows = match str_param(params, "documentId") {
         Some(doc) => query(
             app,
             "SELECT id, document_id, page_number, width_pdf_points, height_pdf_points
-               FROM pages WHERE document_id = ?1 ORDER BY page_number LIMIT ?2",
-            vec![json!(doc), json!(limit)],
+               FROM pages WHERE document_id = ?1 ORDER BY page_number LIMIT ?2 OFFSET ?3",
+            vec![json!(doc), json!(limit), json!(offset)],
         )?,
         None => query(
             app,
             "SELECT id, document_id, page_number, width_pdf_points, height_pdf_points
-               FROM pages ORDER BY document_id, page_number LIMIT ?1",
-            vec![json!(limit)],
+               FROM pages ORDER BY document_id, page_number LIMIT ?1 OFFSET ?2",
+            vec![json!(limit), json!(offset)],
         )?,
     };
-    Ok(listing(rows, limit, "pages"))
+    Ok(listing(rows, limit, offset, "pages"))
 }
 
 fn list_scopes(app: &AppHandle, params: &Value) -> Result<Value, String> {
@@ -232,7 +239,7 @@ fn list_scopes(app: &AppHandle, params: &Value) -> Result<Value, String> {
 }
 
 fn list_markups(app: &AppHandle, params: &Value) -> Result<Value, String> {
-    let limit = limit_of(params);
+    let (limit, offset) = (limit_of(params), offset_of(params));
     // deleted_at IS NULL by default: soft-deleted markups are kept for audit
     // and must not appear as live takeoff unless asked for explicitly.
     let include_deleted = params
@@ -263,14 +270,16 @@ fn list_markups(app: &AppHandle, params: &Value) -> Result<Value, String> {
         format!(" WHERE {}", where_parts.join(" AND "))
     };
     args.push(json!(limit));
+    let limit_at = args.len();
+    args.push(json!(offset));
     let sql = format!(
         "SELECT id, document_id, page_id, scope_id, kind, geometry_json, content_json,
                 origin, review_state, created_at, updated_at, deleted_at
-           FROM markups{where_sql} ORDER BY created_at LIMIT ?{}",
+           FROM markups{where_sql} ORDER BY created_at, id LIMIT ?{limit_at} OFFSET ?{}",
         args.len()
     );
     let rows = query(app, &sql, args)?;
-    Ok(listing(rows, limit, "markups"))
+    Ok(listing(rows, limit, offset, "markups"))
 }
 
 fn get_calibration(app: &AppHandle, params: &Value) -> Result<Value, String> {
@@ -500,7 +509,13 @@ mod tests {
     fn limit_is_clamped_rather_than_trusted() {
         assert_eq!(limit_of(&json!({})), DEFAULT_LIMIT);
         assert_eq!(limit_of(&json!({ "limit": 0 })), 1);
-        assert_eq!(limit_of(&json!({ "limit": 9_999_999 })), MAX_LIMIT);
+        // A page of any size: no ceiling.
+        assert_eq!(limit_of(&json!({ "limit": 9_999_999 })), 9_999_999);
+        assert_eq!(offset_of(&json!({})), 0);
+        assert_eq!(offset_of(&json!({ "offset": 1500 })), 1500);
+        let page = listing(vec![Map::new(); 3], 3, 6, "rows");
+        assert_eq!(page["nextOffset"], json!(9));
+        assert!(listing(vec![Map::new(); 2], 3, 6, "rows").get("nextOffset").is_none());
         assert_eq!(limit_of(&json!({ "limit": 42 })), 42);
     }
 

@@ -937,7 +937,7 @@
         "properties": {
           "markups": {
             "type": "array",
-            "description": "For create_markups: up to 500 entries, each {kind, rings, scopeId?, page?} as create_markup takes them. One undo step."
+            "description": "For create_markups: any number of entries, each {kind, rings, scopeId?, page?} as create_markup takes them. One undo step."
           },
           "file": {
             "type": "string",
@@ -967,6 +967,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many runs: the `nextOffset` a previous call returned."
           }
         }
       },
@@ -991,6 +995,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip this many events: the `nextOffset` a previous call returned."
           }
         }
       },

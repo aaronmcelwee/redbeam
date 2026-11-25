@@ -1289,9 +1289,20 @@ export default function Workspace({
     return normalizedToScreen(p.x, p.y, viewRef.current, size.width, size.height)
   }, [])
 
+  /*
+   * The toolbar's zoom readout. It read viewRef straight off the last
+   * render, so wheel zoom (which repaints without rendering) left it on the
+   * old percent until something else re-rendered. Each paint now hands it
+   * the zoom, settled for a tenth of a second so a pinch or a run of wheel
+   * notches re-renders the window once, not every frame.
+   */
+  const [zoomShown, setZoomShown] = useState(0.35)
+  const zoomShownTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const paint = useCallback(() => {
     const v = viewerRef.current
     if (!v) return
+    if (zoomShownTimer.current !== null) clearTimeout(zoomShownTimer.current)
+    zoomShownTimer.current = setTimeout(() => { zoomShownTimer.current = null; setZoomShown(viewRef.current.zoom) }, 100)
     const t0 = performance.now()
     const bg = surround()
     if (bg === undefined) v.paint(viewRef.current)
@@ -2091,6 +2102,8 @@ export default function Workspace({
       : scope === 'document' ? { documentId: docId }
       : scope === 'folder' && folder !== '' ? { pathPrefix: folder }
       : {}
+    // A new search takes the last one's highlight off the sheet.
+    if (offset === 0 && hitHighlightRef.current !== null) { hitHighlightRef.current = null; requestPaint() }
     const report = await searchProjectText(db, q, {
       ...reach,
       offset,
@@ -2111,8 +2124,17 @@ export default function Workspace({
      * scan. Over one PDF that is the right search, not a degraded one, and the
      * "Limited search … page_text_fts" note was database talk on every search.
      */
+    /*
+     * Light indexes a PDF's pages as it reads them after opening, and only
+     * read pages have rows, so the store's own count says 100% while a big
+     * set is still being read (a search on set-171 said 32, then 57). The
+     * document's real page count says how much is left.
+     */
+    if (light && scope === 'document' && pageCount > report.totalPageCount) {
+      return { ...report, degraded: null, totalPageCount: pageCount }
+    }
     return light ? { ...report, degraded: null } : report
-  }, [documents, light])
+  }, [documents, light, pageCount, requestPaint])
 
   /**
    * Read the project folder again.
@@ -6464,7 +6486,8 @@ export default function Workspace({
             if (elsewhere && projectBridge.writeExport === undefined) return { error: 'this build cannot write files' }
             const folder = elsewhere ? target.folder : (target.folder === '' ? beside : (target.folder.toLowerCase().startsWith(beside.toLowerCase()) ? target.folder : beside + target.folder))
             const named = target.name !== '' ? target.name : copyName(doc.relativePath)
-            for (let n = 1; n <= 20; n++) {
+            // "name 2.pdf", "name 3.pdf" and on, until a name is free (it gave up after 20).
+            for (let n = 1; ; n++) {
               const name = n === 1 ? named : named.replace(/\.pdf$/i, ` ${n}.pdf`)
               try {
                 let path: string
@@ -6489,7 +6512,6 @@ export default function Workspace({
                 if (!/already there/.test(msg)) return { error: `could not save a copy: ${msg}` }
               }
             }
-            return { error: 'could not find a free name for the copy' }
           } finally {
             big?.release()
           }
@@ -7751,7 +7773,7 @@ export default function Workspace({
         case 'create_markups': {
           const list = Array.isArray(params['markups']) ? params['markups'] as Array<Record<string, unknown>> : null
           if (list === null || list.length === 0) return { error: 'create_markups needs `markups`: [{kind, rings, scopeId?}, …]' }
-          if (list.length > 500) return { error: 'at most 500 markups in one call' }
+          // Any number in one call and one undo step (the old 500 cap is gone).
           const docId = docIdRef.current
           const pending: Markup[] = []
           const edits: Array<{ id: string; before: Markup['rings']; after: Markup['rings'] }> = []
@@ -7803,8 +7825,11 @@ export default function Workspace({
           if (p.result.runs.length === 0) {
             return { scopeId: id, productType: p.result.productType, note: 'this product is laid out as panels, not runs; get_bom has the panel counts', parts: p.result.quantities }
           }
-          const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 1000) || 1000))
-          return { scopeId: id, label: sc.label, ...pieceList(p.result, { maxRuns: limit }) }
+          // A page of runs at a time, as many pages as the scope has (no cap).
+          const limit = Math.max(1, Number(params['limit'] ?? 1000) || 1000)
+          const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
+          const list = pieceList(p.result, { maxRuns: limit, offset })
+          return { scopeId: id, label: sc.label, ...list, ...(list.nextOffset !== undefined ? { note: 'more runs follow; ask again with `offset` set to nextOffset' } : {}) }
         }
         /*
          * Who changed what, and when: the activity trail, which travels in
@@ -7813,10 +7838,13 @@ export default function Workspace({
         case 'get_history': {
           const db = dbRef.current
           if (!db) return { error: 'no document is open' }
-          const limit = Math.max(1, Math.min(2000, Number(params['limit'] ?? 200) || 200))
+          // Paged, with no ceiling: `offset` walks back through the whole trail.
+          const limit = Math.max(1, Number(params['limit'] ?? 200) || 200)
+          const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           const filter = typeof params['id'] === 'string' ? params['id'] : null
-          const rows = await listActivity(db, filter === null ? limit : 5000)
-          const events = rows.filter((r) => filter === null || r.entityId === filter).slice(0, limit)
+          const fetched = await listActivity(db, limit + 1, { offset, ...(filter !== null ? { entityId: filter } : {}) })
+          const more = fetched.length > limit
+          const events = fetched.slice(0, limit)
           const info = new Map<string, Record<string, unknown>>()
           const ids = [...new Set(events.filter((e) => e.entityType === 'markup' && e.entityId !== null).map((e) => e.entityId!))]
           for (let i = 0; i < ids.length; i += 200) {
@@ -7847,6 +7875,7 @@ export default function Workspace({
               ...(Object.keys(e.details ?? {}).length > 0 ? { details: e.details } : {}),
               ...(e.entityId !== null && info.has(e.entityId) ? { markup: info.get(e.entityId) } : {}),
             })),
+            ...(more ? { nextOffset: offset + events.length, note: 'older events follow; ask again with `offset` set to nextOffset' } : {}),
           }
         }
         /*
@@ -11338,7 +11367,7 @@ export default function Workspace({
                     },
                   }
                 : {})}
-              zoom={viewRef.current.zoom}
+              zoom={zoomShown}
               onZoom={setZoom}
               onZoomBox={armZoomBox}
               onRotate={(d) => { void rotateSheet(d) }}

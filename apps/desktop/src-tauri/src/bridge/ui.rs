@@ -12,12 +12,13 @@
 //! Routing through the frontend means a bridge-driven action takes exactly the
 //! path a click takes, so it cannot drift from what a person would get.
 //!
-//! # Every wait is bounded
+//! # Every wait ends, but not on a clock
 //!
 //! A frontend that is wedged, mid-reload, or simply has no window open will
-//! never reply. Each request carries a deadline and fails with a message
-//! saying so, because a bridge call that hangs forever is worse than one that
-//! fails: the caller cannot tell it apart from slow work.
+//! never reply, and a bridge call that hangs forever is worse than one that
+//! fails. So a request fails once the window has been SILENT for a while; a
+//! window working on it says so (`bridge_alive`) and is waited on for as long
+//! as the work takes.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -27,13 +28,22 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
-/// How long a UI request waits before giving up.
+/// How long a UI request waits on a SILENT window before giving up.
 ///
-/// Generous enough for a full-page render on a slow machine, short enough that
-/// a driving agent notices a wedged frontend rather than blocking a run.
+/// Not a limit on how long the work may take (Aaron, 2026-11-24: no arbitrary
+/// caps). While the window works on a request it says so every couple of
+/// seconds (`bridge_alive`), and each word restarts this clock, so an export
+/// of a 1,800-sheet set runs to the end. Only a window that has gone quiet,
+/// wedged or closed, fails, and it fails this long after its last word.
 const UI_TIMEOUT: Duration = Duration::from_secs(20);
 
-type Pending = Mutex<HashMap<u64, Sender<Value>>>;
+/// What a waiter hears: the answer, or that the window is still at it.
+enum Word {
+    Answer(Value),
+    Alive,
+}
+
+type Pending = Mutex<HashMap<u64, Sender<Word>>>;
 
 fn pending() -> &'static Pending {
     static P: OnceLock<Pending> = OnceLock::new();
@@ -68,23 +78,20 @@ pub fn caller() -> Value {
     CALLER.with(|c| c.borrow().clone())
 }
 
-/// Ask the frontend to do something and wait for its answer.
-///
-/// Long work does not get a longer wait: an action that reads a whole set
-/// (find_text, read_scale, list_annotations) answers inside this with what it
-/// has and where to carry on, while the reading continues in the window.
+/// Ask the frontend to do something and wait for its answer, for as long
+/// as the window keeps saying it is working on it.
 pub fn request(app: &AppHandle, action: &str, params: &Value) -> Result<Value, String> {
     request_within(app, action, params, UI_TIMEOUT)
 }
 
-/// [`request`] with its own deadline.
+/// [`request`] with its own silence allowance.
 ///
 /// Light answers its store reads from the window (methods.rs), and a start
 /// screen with no PDF open has nobody listening. A "cheap" read that sat out
 /// the full twenty seconds before saying so would read as a hung app.
-pub fn request_within(app: &AppHandle, action: &str, params: &Value, timeout: Duration) -> Result<Value, String> {
+pub fn request_within(app: &AppHandle, action: &str, params: &Value, silence: Duration) -> Result<Value, String> {
     let id = next_id();
-    let (tx, rx): (Sender<Value>, Receiver<Value>) = channel();
+    let (tx, rx): (Sender<Word>, Receiver<Word>) = channel();
 
     // Registered BEFORE the emit: a frontend fast enough to reply before we
     // finish registering would otherwise find no channel and drop the answer.
@@ -102,11 +109,11 @@ pub fn request_within(app: &AppHandle, action: &str, params: &Value, timeout: Du
         return Err(format!("could not reach a window: {e}"));
     }
 
-    let answer = rx.recv_timeout(timeout);
+    let answer = wait(&rx, silence);
     forget(id);
 
     match answer {
-        Ok(v) => {
+        Some(v) => {
             // The frontend reports its own failures in-band; a transport that
             // worked does not mean the action did.
             if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
@@ -114,10 +121,22 @@ pub fn request_within(app: &AppHandle, action: &str, params: &Value, timeout: Du
             }
             Ok(v)
         }
-        Err(_) => Err(format!(
-            "no window answered `{action}` within {}s — is a PDF open? Open one with redbeam_open_file.",
-            timeout.as_secs()
+        None => Err(format!(
+            "no window answered `{action}`, and none said it was working on it, for {}s — is a PDF open? Open one with redbeam_open_file.",
+            silence.as_secs()
         )),
+    }
+}
+
+/// The answer, waiting through any number of "still working" words; None
+/// once `silence` passes with neither.
+fn wait(rx: &Receiver<Word>, silence: Duration) -> Option<Value> {
+    loop {
+        match rx.recv_timeout(silence) {
+            Ok(Word::Answer(v)) => return Some(v),
+            Ok(Word::Alive) => continue,
+            Err(_) => return None,
+        }
     }
 }
 
@@ -140,7 +159,18 @@ pub async fn bridge_reply(id: u64, result: Value) -> Result<(), String> {
         .unwrap_or_else(|e| e.into_inner())
         .remove(&id);
     if let Some(tx) = tx {
-        let _ = tx.send(result);
+        let _ = tx.send(Word::Answer(result));
+    }
+    Ok(())
+}
+
+/// The window is still working on request `id`. Restarts that request's
+/// silence clock; a word for a request nobody waits on is dropped.
+#[tauri::command]
+pub async fn bridge_alive(id: u64) -> Result<(), String> {
+    let map = pending().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(tx) = map.get(&id) {
+        let _ = tx.send(Word::Alive);
     }
     Ok(())
 }
@@ -189,7 +219,28 @@ mod tests {
         let (tx, rx) = channel();
         pending().lock().unwrap().insert(id, tx);
         let sender = pending().lock().unwrap().remove(&id).unwrap();
-        sender.send(json!({ "ok": true })).unwrap();
-        assert_eq!(rx.recv().unwrap()["ok"], json!(true));
+        sender.send(Word::Answer(json!({ "ok": true }))).unwrap();
+        assert_eq!(wait(&rx, Duration::from_secs(1)).unwrap()["ok"], json!(true));
+    }
+
+    #[test]
+    fn a_working_window_is_waited_on_past_the_silence_allowance() {
+        // Six words 50 ms apart, then the answer: 300 ms of work against a
+        // 120 ms allowance. Only silence ends the wait, not the length of it.
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            for _ in 0..6 {
+                std::thread::sleep(Duration::from_millis(50));
+                tx.send(Word::Alive).unwrap();
+            }
+            tx.send(Word::Answer(json!({ "done": true }))).unwrap();
+        });
+        assert_eq!(wait(&rx, Duration::from_millis(120)).unwrap()["done"], json!(true));
+    }
+
+    #[test]
+    fn a_silent_window_still_times_out() {
+        let (_tx, rx) = channel::<Word>();
+        assert!(wait(&rx, Duration::from_millis(50)).is_none());
     }
 }
