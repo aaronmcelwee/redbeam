@@ -6,6 +6,7 @@ mod crash;
 mod docstream;
 pub mod mcp;
 mod open_with;
+mod portable;
 mod project;
 mod store;
 mod undo;
@@ -50,6 +51,11 @@ fn bridge_enabled() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // No WebView2 means no window at all. Say so (portable.rs) rather than
+    // exiting silently on a PC the installer never prepared.
+    if !portable::prepare_webview() {
+        return;
+    }
     // A PDF double-clicked in Explorer, or chosen in Open with, arrives as
     // the first argument (open_with.rs).
     let launched_with = std::env::current_dir()
@@ -133,6 +139,8 @@ pub fn run() {
             project::write_export_file,
             project::project_append_document,
             project::project_save_file,
+            portable::app_portable,
+            portable::portable_open_download,
             window::open_project_window,
             window::open_context_window,
             window::close_window,

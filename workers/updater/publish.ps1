@@ -93,6 +93,26 @@ $candidates = @(
   (Find-SignedInstaller 'aarch64-pc-windows-msvc' 'arm64' 'windows-aarch64')
 )
 $found = @($candidates | Where-Object { $_.Found })
+
+# The portable zips (release.yml writes them beside each installer). Each goes
+# up under a fixed name, REDBEAM_latest_<arch>_portable.zip, replaced every
+# release: that is the link to hand someone, and what the portable copy's
+# update button opens (src-tauri/src/portable.rs). Only the newest is kept in
+# R2; every version stays on its GitHub Release.
+$portables = @()
+foreach ($item in $found) {
+  $dir = Split-Path -Parent $item.Exe
+  $zip = Join-Path $dir "REDBEAM_${Version}_$($item.Arch)_portable.zip"
+  if (Test-Path -LiteralPath $zip) {
+    $portables += [pscustomobject]@{
+      Zip = $zip
+      Key = "REDBEAM_latest_$($item.Arch)_portable.zip"
+      Bytes = (Get-Item -LiteralPath $zip).Length
+    }
+  } elseif (-not $AllowSingleArch) {
+    throw "Missing the portable zip $zip. release.yml builds one beside each installer."
+  }
+}
 $missing = @($candidates | Where-Object { -not $_.Found })
 
 if ($found.Count -eq 0) {
@@ -110,6 +130,7 @@ The release workflow publishes every architecture it built.
 
 $total = 0
 foreach ($item in $found) { $total += $item.ExeBytes + $item.SigBytes }
+foreach ($item in $portables) { $total += $item.Bytes }
 $mb = [math]::Round($total / 1MB, 1)
 
 Write-Host "R2 free tier is 10 GB-month of Standard storage. This upload is $mb MB across $($found.Count) architecture(s)."
@@ -184,6 +205,9 @@ foreach ($item in $found) {
   Write-Host ("  npx wrangler r2 object put {0}/{1} --remote" -f $Bucket, $item.ExeName)
   Write-Host ("  npx wrangler r2 object put {0}/{1} --remote" -f $Bucket, $item.SigName)
 }
+foreach ($item in $portables) {
+  Write-Host ("  npx wrangler r2 object put {0}/{1} --remote" -f $Bucket, $item.Key)
+}
 Write-Host "  npx wrangler r2 object put $Bucket/manifest.json --remote"
 
 if ($DryRun) {
@@ -238,6 +262,9 @@ function Put-R2Object {
 foreach ($item in $found) {
   Put-R2Object -Key $item.ExeName -File $item.Exe -ContentType 'application/octet-stream'
   Put-R2Object -Key $item.SigName -File $item.Sig -ContentType 'text/plain; charset=utf-8'
+}
+foreach ($item in $portables) {
+  Put-R2Object -Key $item.Key -File $item.Zip -ContentType 'application/zip'
 }
 Put-R2Object -Key 'manifest.json' -File $manifestPath -ContentType 'application/json'
 
