@@ -1,0 +1,349 @@
+[
+  {
+    "k": "whatsNew.before",
+    "v": [
+      "ControlType.Window | What’s new"
+    ],
+    "t": "2026-11-25T15:31:28.142Z"
+  },
+  {
+    "k": "whatsNew.gotIt",
+    "v": "invoked: Got it",
+    "t": "2026-11-25T15:31:28.739Z"
+  },
+  {
+    "k": "whatsNew.after",
+    "v": [],
+    "t": "2026-11-25T15:31:30.089Z"
+  },
+  {
+    "k": "focusNotepad",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T15:31:31.142Z"
+  },
+  {
+    "k": "S1.opens",
+    "v": [
+      {
+        "opened": true,
+        "yours": true
+      },
+      {
+        "opened": true,
+        "yours": true
+      },
+      {
+        "opened": true,
+        "yours": true
+      }
+    ],
+    "t": "2026-11-25T15:31:32.067Z"
+  },
+  {
+    "k": "S1.work",
+    "v": [
+      [
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      [
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ],
+      [
+        "ok",
+        "ok",
+        "ok",
+        "ok"
+      ]
+    ],
+    "t": "2026-11-25T15:31:33.183Z"
+  },
+  {
+    "k": "S6.moveOther",
+    "v": {
+      "ok": true,
+      "data": {
+        "file": "Agent-Bravo-71t1.pdf",
+        "page": 2,
+        "sheet": "A1.01"
+      }
+    },
+    "t": "2026-11-25T15:31:33.214Z"
+  },
+  {
+    "k": "S6.drawOther",
+    "v": {
+      "ok": false,
+      "text": "Error: Agent-Bravo-71t1.pdf is ChatGPT · Nokia Canada North Campus takeoff 2's tab. One session does not move another session's view or draw away from the sheet it is showing. Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy. Reading it works as it is."
+    },
+    "t": "2026-11-25T15:31:33.240Z"
+  },
+  {
+    "k": "S6.closeOther",
+    "v": {
+      "ok": false,
+      "text": "Error: Agent-Bravo-71t1.pdf is another agent's tab; an agent closes only the tabs it opened"
+    },
+    "t": "2026-11-25T15:31:33.248Z"
+  },
+  {
+    "k": "S6.personAsked",
+    "v": 0,
+    "t": "2026-11-25T15:31:33.934Z"
+  },
+  {
+    "k": "S5.foregroundWatch",
+    "v": {
+      "changes": [
+        "0.1s Notepad"
+      ],
+      "byProcess": {
+        "Notepad": 86
+      },
+      "samples": 86
+    },
+    "t": "2026-11-25T15:32:17.241Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "SUP-S1-S6-three-own-sessions",
+      "w": 1456,
+      "locked": false,
+      "fg": "Notepad"
+    },
+    "t": "2026-11-25T15:32:17.972Z"
+  },
+  {
+    "k": "S4.cardButton",
+    "v": "ControlType.Button | Agent-Bravo-71t1 changed",
+    "t": "2026-11-25T15:32:18.499Z"
+  },
+  {
+    "k": "S4.lookIn",
+    "v": "invoked: Agent-Bravo-71t1 changed",
+    "t": "2026-11-25T15:32:21.062Z"
+  },
+  {
+    "k": "S4.tabStripAfterLookIn",
+    "v": [],
+    "t": "2026-11-25T15:32:23.138Z"
+  },
+  {
+    "k": "S4.workB",
+    "v": [
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok",
+      "ok"
+    ],
+    "t": "2026-11-25T15:32:37.868Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "SUP-S4-cursor-tooltip",
+      "w": 1456,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:32:39.036Z"
+  },
+  {
+    "k": "S9.showPerson",
+    "v": "ERR not found: Person-North-Campus Close*\r\n",
+    "t": "2026-11-25T15:32:39.581Z"
+  },
+  {
+    "k": "S9.guest",
+    "v": true,
+    "t": "2026-11-25T15:32:40.900Z"
+  },
+  {
+    "k": "S9.before",
+    "v": [],
+    "t": "2026-11-25T15:32:40.937Z"
+  },
+  {
+    "k": "S9.max",
+    "v": "maximized",
+    "t": "2026-11-25T15:32:41.513Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "SUP-S9-0-guest-dot-maximized",
+      "w": 2416,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:32:43.978Z"
+  },
+  {
+    "k": "S9.activate",
+    "v": "redbeam foreground: True",
+    "t": "2026-11-25T15:32:45.124Z"
+  },
+  {
+    "k": "S9.tool",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T15:32:46.126Z"
+  },
+  {
+    "k": "S9.c1",
+    "v": "clicked 717,996",
+    "t": "2026-11-25T15:32:47.990Z"
+  },
+  {
+    "k": "S9.c2",
+    "v": "clicked 1321,996",
+    "t": "2026-11-25T15:32:49.506Z"
+  },
+  {
+    "k": "S9.c3",
+    "v": "clicked 1321,1090",
+    "t": "2026-11-25T15:32:51.123Z"
+  },
+  {
+    "k": "S9.afterPerson",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area"
+    ],
+    "t": "2026-11-25T15:32:52.360Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "SUP-S9-1-person-markup-plus-guest",
+      "w": 2416,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:32:53.360Z"
+  },
+  {
+    "k": "S9.ctrlZ",
+    "v": "redbeam foreground before keys: True; sent ctrl+z",
+    "t": "2026-11-25T15:32:54.570Z"
+  },
+  {
+    "k": "S9.afterCtrlZ",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area"
+    ],
+    "t": "2026-11-25T15:32:56.112Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "SUP-S9-2-after-ctrlz",
+      "w": 2416,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:32:57.048Z"
+  },
+  {
+    "k": "S9.agentUndo",
+    "v": {
+      "ok": false,
+      "text": "Error: nothing of yours to undo; a session undoes only its own changes"
+    },
+    "t": "2026-11-25T15:32:57.088Z"
+  },
+  {
+    "k": "S9.afterAgentUndo",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area"
+    ],
+    "t": "2026-11-25T15:32:58.030Z"
+  },
+  {
+    "k": "S9.restore",
+    "v": "restored",
+    "t": "2026-11-25T15:33:01.553Z"
+  },
+  {
+    "k": "ask.first",
+    "v": {
+      "ms": 12077,
+      "r": {
+        "ok": false,
+        "text": "Error: Person-North-Campus.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the person has been asked whether Claude · Tower A ceilings takeoff 2 may work in it; they have not answered yet. Call again in a little while, or work in a copy now: redbeam_save_copy, the"
+      }
+    },
+    "t": "2026-11-25T15:33:13.630Z"
+  },
+  {
+    "k": "ask.notNow",
+    "v": "invoked: Not now",
+    "t": "2026-11-25T15:33:15.241Z"
+  },
+  {
+    "k": "ask.afterNotNow",
+    "v": {
+      "ok": false,
+      "text": "Error: Person-North-Campus.pdf is the person's own tab, and the person said not now to Claude · Tower A ceilings takeoff 2 working in it. REDBEAM does not move a view someone else is using. Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy."
+    },
+    "t": "2026-11-25T15:33:16.087Z"
+  },
+  {
+    "k": "kill.open",
+    "v": true,
+    "t": "2026-11-25T15:33:16.595Z"
+  },
+  {
+    "k": "kill",
+    "v": "SUCCESS: The process with PID 23048 has been terminated.",
+    "t": "2026-11-25T15:33:18.075Z"
+  },
+  {
+    "k": "kill.longResult",
+    "v": {
+      "ok": false,
+      "text": "process exited"
+    },
+    "t": "2026-11-25T15:33:18.076Z"
+  },
+  {
+    "k": "kill.result",
+    "v": {
+      "secondsUntilFinishedStoppedAnswering": 2.375,
+      "searchingLabelStillShownSamples": 1
+    },
+    "t": "2026-11-25T15:33:20.298Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "SUP-S4-after-kill",
+      "w": 1456,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:33:50.234Z"
+  },
+  {
+    "k": "end.B",
+    "v": true,
+    "t": "2026-11-25T15:33:50.256Z"
+  },
+  {
+    "k": "end.C",
+    "v": true,
+    "t": "2026-11-25T15:33:50.299Z"
+  }
+]

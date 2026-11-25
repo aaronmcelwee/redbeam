@@ -1,0 +1,2431 @@
+[
+  {
+    "k": "locked",
+    "v": false,
+    "t": "2026-11-25T15:17:13.270Z"
+  },
+  {
+    "k": "focusNotepad",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T15:17:14.144Z"
+  },
+  {
+    "k": "Race2x10",
+    "v": [
+      {
+        "apps": 1,
+        "ok": 1,
+        "fg": "Notepad",
+        "z": 16
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 1
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 16
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 1
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 16
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 1
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 16
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 1
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 16
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 1
+      }
+    ],
+    "t": "2026-11-25T15:22:06.370Z"
+  },
+  {
+    "k": "Race3x3",
+    "v": [
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 16
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 1
+      },
+      {
+        "apps": 1,
+        "ok": 0,
+        "fg": "Notepad",
+        "z": 16
+      }
+    ],
+    "t": "2026-11-25T15:23:33.349Z"
+  },
+  {
+    "k": "whatsNewSeenDuringRace",
+    "v": "see Launch.whatsNew below",
+    "t": "2026-11-25T15:23:34.469Z"
+  },
+  {
+    "k": "Launch.whatsNew",
+    "v": [
+      "ControlType.Window | What’s new"
+    ],
+    "t": "2026-11-25T15:23:56.211Z"
+  },
+  {
+    "k": "S5.focusNotepad",
+    "v": "foreground is notepad: True",
+    "t": "2026-11-25T15:23:57.056Z"
+  },
+  {
+    "k": "S1.sessions",
+    "v": [
+      "Tower A ceilings takeoff #7HL",
+      "Nokia Canada North Campus takeoff #YQJ",
+      "Clinic level 2 acoustic ceilings intake review #2Y8"
+    ],
+    "t": "2026-11-25T15:23:57.120Z"
+  },
+  {
+    "k": "S1.opens",
+    "v": [
+      {
+        "opened": true,
+        "yours": false,
+        "pages": 8
+      },
+      {
+        "opened": true,
+        "yours": false,
+        "pages": 8
+      },
+      {
+        "opened": true,
+        "yours": false,
+        "pages": 8
+      }
+    ],
+    "t": "2026-11-25T15:23:57.634Z"
+  },
+  {
+    "k": "S5.person0",
+    "v": {
+      "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat81\\Person-North-Campus.pdf",
+      "page": 0,
+      "zoom": 0.2814814814814815,
+      "tool": "pan",
+      "selection": "null"
+    },
+    "t": "2026-11-25T15:23:57.659Z"
+  },
+  {
+    "k": "S5.work",
+    "v": [
+      [
+        "Error: Tower-A.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+        "ok",
+        "ok",
+        "Error: Tower-A.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+        "ok",
+        "ok",
+        "Error: Tower-A.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+        "ok",
+        "ok"
+      ],
+      [
+        "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+        "ok",
+        "ok",
+        "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+        "ok",
+        "ok",
+        "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+        "ok",
+        "ok"
+      ],
+      [
+        "Error: Clinic.pdf is the person's own tab. REDBEAM does not move a view someone else is us",
+        "ok",
+        "ok",
+        "Error: Clinic.pdf is the person's own tab. REDBEAM does not move a view someone else is us",
+        "ok",
+        "ok",
+        "Error: Clinic.pdf is the person's own tab. REDBEAM does not move a view someone else is us",
+        "ok",
+        "ok"
+      ]
+    ],
+    "t": "2026-11-25T15:24:41.275Z"
+  },
+  {
+    "k": "S6.move",
+    "v": {
+      "ok": false,
+      "text": "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the person has been asked whether Claude · Tower A ceilings takeoff may work in it; they have not answered yet. Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. Reading, and drawing on the sheet that is showing (leave `page` out), work withou"
+    },
+    "t": "2026-11-25T15:24:53.312Z"
+  },
+  {
+    "k": "S6.draw",
+    "v": {
+      "ok": false,
+      "text": "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the person has been asked whether Claude · Tower A ceilings takeoff may work in it; they have not answered yet. Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. Reading, and drawing on the sheet that is showing (leave `page` out), work withou"
+    },
+    "t": "2026-11-25T15:25:05.345Z"
+  },
+  {
+    "k": "S6.close",
+    "v": {
+      "ok": false,
+      "text": "Error: Tower-B.pdf is the person's own tab; an agent closes only the tabs it opened"
+    },
+    "t": "2026-11-25T15:25:05.350Z"
+  },
+  {
+    "k": "S6.askedPerson",
+    "v": [
+      "ControlType.ListItem | Claude Code · Clinic level 2 acoustic ceilings intake review!Quiet since 10:24 a.m.Wants to turn pages and zoom in your PDF Clinic.Let it work thereNot nowClinicyour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Button | Let it work there",
+      "ControlType.Button | Not now",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Quiet since 10:24 a.m.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+      "ControlType.Button | Let it work there",
+      "ControlType.Button | Not now"
+    ],
+    "t": "2026-11-25T15:25:05.927Z"
+  },
+  {
+    "k": "S5.person1",
+    "v": {
+      "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat81\\Person-North-Campus.pdf",
+      "page": 0,
+      "zoom": 0.2814814814814815,
+      "tool": "pan",
+      "selection": "null"
+    },
+    "t": "2026-11-25T15:25:05.948Z"
+  },
+  {
+    "k": "S5.dialogs",
+    "v": [
+      "ControlType.Window | What’s new"
+    ],
+    "t": "2026-11-25T15:25:06.541Z"
+  },
+  {
+    "k": "S5.z",
+    "v": {
+      "above": [
+        "Notepad"
+      ],
+      "rank": 1,
+      "iconic": false,
+      "locked": false,
+      "foreground": false,
+      "title": "Person-North-Campus — REDBEAM"
+    },
+    "t": "2026-11-25T15:25:07.135Z"
+  },
+  {
+    "k": "S5.foregroundWatch",
+    "v": {
+      "changes": [
+        "0.1s Notepad"
+      ],
+      "byProcess": {
+        "Notepad": 143
+      },
+      "samples": 143
+    },
+    "t": "2026-11-25T15:25:12.942Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S5-person-view-after-agents",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "Notepad"
+    },
+    "t": "2026-11-25T15:25:13.739Z"
+  },
+  {
+    "k": "S1.appCount",
+    "v": 1,
+    "t": "2026-11-25T15:25:14.288Z"
+  },
+  {
+    "k": "S2.dockUia",
+    "v": [
+      "ControlType.Button | 3 AI sessions · 3 waiting for you",
+      "ControlType.Text | 8 sheets · 0 with takeoff",
+      "ControlType.Text | 1 scope · 0 counted",
+      "ControlType.Button | ACT-9 Baffle · no markups · needs Spacing OC, Stock, Conn. Max — No takeoff",
+      "ControlType.Group | AI sessions",
+      "ControlType.Separator | Resize Agents",
+      "ControlType.Button | Agents 3 AI sessions · 3 waiting for you",
+      "ControlType.List | AI sessions",
+      "ControlType.ListItem | Claude Code · Clinic level 2 acoustic ceilings intake review!Checking what is openWants to turn pages and zoom in your PDF Clinic.Let it work thereNot nowClinicyour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Button | Claude Code · Clinic level 2 acoustic ceilings intake review Needs you",
+      "ControlType.Group | Claude Code · Clinic level 2 acoustic ceilings intake review asks to work in Clinic",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Button | Clinic your PDF",
+      "ControlType.Button | Person-North-Campus your PDF",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Quiet since 10:24 a.m.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+      "ControlType.Button | ChatGPT · Nokia Canada North Campus takeoff Needs you",
+      "ControlType.Group | ChatGPT · Nokia Canada North Campus takeoff asks to work in Tower-B",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Button | Tower-B your PDF",
+      "ControlType.ListItem | Claude · Tower A ceilings takeoff!Drawing an areaWants to turn pages and zoom in your PDF Tower-A.Let it work thereNot nowWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFTower-Ayour PDFEnd this session",
+      "ControlType.Button | Claude · Tower A ceilings takeoff Needs you",
+      "ControlType.Group | Claude · Tower A ceilings takeoff asks to work in Tower-A",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Group | Claude · Tower A ceilings takeoff asks to work in Tower-B",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF"
+    ],
+    "t": "2026-11-25T15:25:14.896Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S2-S3-agents-dock-default",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "Notepad"
+    },
+    "t": "2026-11-25T15:25:15.602Z"
+  },
+  {
+    "k": "S3.fold",
+    "v": "collapsed: Agents 3 AI sessions · 3 waiting for you",
+    "t": "2026-11-25T15:25:18.252Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S3-agents-folded",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:25:19.665Z"
+  },
+  {
+    "k": "S3.unfold",
+    "v": "expanded: Agents 3 AI sessions · 3 waiting for you",
+    "t": "2026-11-25T15:25:20.216Z"
+  },
+  {
+    "k": "S3.max",
+    "v": "maximized",
+    "t": "2026-11-25T15:25:21.525Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S2-S3-agents-dock-maximized",
+      "w": 2416,
+      "h": 1568,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:25:24.076Z"
+  },
+  {
+    "k": "S3.tabStrip",
+    "v": [
+      "ControlType.TabItem | scratch-6 Close scratch-6",
+      "ControlType.TabItem | set-171 Close set-171",
+      "ControlType.TabItem | set-1000 Close set-1000",
+      "ControlType.TabItem | Hyundai working Close Hyundai working",
+      "ControlType.TabItem | Person-North-Campus Close Person-North-Campus",
+      "ControlType.TabItem | Tower-B Close Tower-B",
+      "ControlType.TabItem | Clinic Close Clinic",
+      "ControlType.TabItem | Handback-Write Close Handback-Write",
+      "ControlType.TabItem | Handback-Read Close Handback-Read",
+      "ControlType.TabItem | set1-470 Close set1-470"
+    ],
+    "t": "2026-11-25T15:25:24.629Z"
+  },
+  {
+    "k": "S4.cardRow",
+    "v": "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Quiet since 10:24 a.m.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+    "t": "2026-11-25T15:25:25.142Z"
+  },
+  {
+    "k": "S4.lookIn",
+    "v": "ERR no invoke pattern: ChatGPT · Nokia Canada North Campus takeoff!Quiet since 10:24 a.m.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session patterns=ScrollItemPatternIdentifiers.Pattern\r\n",
+    "t": "2026-11-25T15:25:25.664Z"
+  },
+  {
+    "k": "S4.workB",
+    "v": [
+      "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+      "ok",
+      "ok",
+      "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+      "ok",
+      "ok",
+      "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+      "ok",
+      "ok",
+      "Error: Tower-B.pdf is the person's own tab. REDBEAM does not move a view someone else is u",
+      "ok",
+      "ok"
+    ],
+    "t": "2026-11-25T15:26:25.035Z"
+  },
+  {
+    "k": "S2.cursorUia",
+    "v": [
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Drawing an areaWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+      "ControlType.Button | ChatGPT · Nokia Canada North Campus takeoff Needs you",
+      "ControlType.Group | ChatGPT · Nokia Canada North Campus takeoff asks to work in Tower-B",
+      "ControlType.ListItem | Several AI sessions at once, listed under Takeoff. Every Claude or ChatGPT chat that works in REDBEAM gets a session of its own, named for its app and the job it is doing, such as \"ChatGPT · Nokia Canada North Campus takeoff\". The title bar says only how many there are and whether one needs you. The right sidebar is split: Takeoff on top, and Agents in the bottom third, listing each session in its own colour with its whole name, what it is doing now, and its PDFs by name. Drag the divider to give it more or less room, or click its header to fold it to one line. Pick a PDF to look in on it as a tab of your own and work beside the agent."
+    ],
+    "t": "2026-11-25T15:26:25.667Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S4-cursor-tooltip",
+      "w": 2416,
+      "h": 1568,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:26:26.402Z"
+  },
+  {
+    "k": "S7",
+    "v": [
+      {
+        "s": "Tower A ceilings takeoff",
+        "n": 110,
+        "median": 31,
+        "p95": 43,
+        "worst": 53,
+        "fails": 0
+      },
+      {
+        "s": "Nokia Canada North Campus takeoff",
+        "n": 110,
+        "median": 31,
+        "p95": 43,
+        "worst": 57,
+        "fails": 0
+      },
+      {
+        "s": "Clinic level 2 acoustic ceilings intake review",
+        "n": 110,
+        "median": 31,
+        "p95": 41,
+        "worst": 55,
+        "fails": 0
+      }
+    ],
+    "t": "2026-11-25T15:26:29.975Z"
+  },
+  {
+    "k": "S9.showPerson",
+    "v": "ERR no invoke pattern: Person-North-Campus — REDBEAM patterns=ScrollItemPatternIdentifiers.Pattern,ItemContainerPatternIdentifiers.Pattern\r\n",
+    "t": "2026-11-25T15:26:30.638Z"
+  },
+  {
+    "k": "S9.before",
+    "v": [],
+    "t": "2026-11-25T15:26:31.869Z"
+  },
+  {
+    "k": "S9.guest",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0",
+      "mk-mwwa0pne-j5pfd5"
+    ],
+    "t": "2026-11-25T15:26:31.905Z"
+  },
+  {
+    "k": "S9.afterGuest",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area",
+      "mk-mwwa0pne-j5pfd5:area"
+    ],
+    "t": "2026-11-25T15:26:33.121Z"
+  },
+  {
+    "k": "S9.markupCountText",
+    "v": [
+      "ControlType.Text | G0.00 has no scale, so its 2 markups count nothing yet"
+    ],
+    "t": "2026-11-25T15:26:33.653Z"
+  },
+  {
+    "k": "S9.yourPdf",
+    "v": [
+      "ControlType.ListItem | Claude Code · Clinic level 2 acoustic ceilings intake review!Reading the markupsWants to turn pages and zoom in your PDF Clinic.Let it work thereNot nowClinicyour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Button | Clinic your PDF",
+      "ControlType.Button | Person-North-Campus your PDF",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Checking what is openWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Button | Tower-B your PDF",
+      "ControlType.ListItem | Claude · Tower A ceilings takeoff!Checking what is openWants to turn pages and zoom in your PDF Tower-A.Let it work thereNot nowWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFTower-Ayour PDFEnd this session",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.Button | Tower-B your PDF",
+      "ControlType.Button | Tower-A your PDF",
+      "ControlType.ListItem | Agents never take the keyboard or the window. An agent's action does not move your caret, open a panel over what you are typing, or bring REDBEAM to the front. If an agent wants to turn pages or zoom in your PDF, the question waits in the Agents list, with a \"!\" in the title bar, until you choose to answer; nothing opens over your drawing, and you are never asked to settle things between two agents. \"What's new\" no longer opens over a window an AI app started."
+    ],
+    "t": "2026-11-25T15:26:34.192Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S9-1-guest-markups-on-person-sheet",
+      "w": 2416,
+      "h": 1568,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:26:34.941Z"
+  },
+  {
+    "k": "S9.activate",
+    "v": "redbeam foreground: True",
+    "t": "2026-11-25T15:26:36.130Z"
+  },
+  {
+    "k": "S9.toolClick",
+    "v": "clicked 938,1515",
+    "t": "2026-11-25T15:26:37.282Z"
+  },
+  {
+    "k": "S9.c1",
+    "v": "clicked 717,996",
+    "t": "2026-11-25T15:26:39.118Z"
+  },
+  {
+    "k": "S9.c2",
+    "v": "clicked 1321,996",
+    "t": "2026-11-25T15:26:40.653Z"
+  },
+  {
+    "k": "S9.c3",
+    "v": "clicked 1321,1090",
+    "t": "2026-11-25T15:26:42.282Z"
+  },
+  {
+    "k": "S9.afterPerson",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area",
+      "mk-mwwa0pne-j5pfd5:area"
+    ],
+    "t": "2026-11-25T15:26:43.499Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S9-2-person-markup-plus-guest",
+      "w": 2416,
+      "h": 1568,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:26:44.591Z"
+  },
+  {
+    "k": "S9.ctrlZ",
+    "v": "redbeam foreground before keys: True; sent ctrl+z",
+    "t": "2026-11-25T15:26:45.780Z"
+  },
+  {
+    "k": "S9.afterCtrlZ",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area",
+      "mk-mwwa0pne-j5pfd5:area"
+    ],
+    "t": "2026-11-25T15:26:47.314Z"
+  },
+  {
+    "k": "S9.agentUndo",
+    "v": {
+      "ok": true,
+      "data": {
+        "file": "Person-North-Campus.pdf",
+        "op": "create_markup",
+        "undid": "create area",
+        "undo": {
+          "canRedo": true,
+          "canUndo": true,
+          "depth": 1,
+          "redoLabel": "create area",
+          "redoTarget": {
+            "documentId": "doc-1c33c342093b3d84",
+            "entityId": "mk-mwwa0pne-j5pfd5",
+            "entityType": "markup",
+            "pageId": "doc-1c33c342093b3d84-p0"
+          },
+          "undoLabel": "create area",
+          "undoTarget": {
+            "documentId": "doc-1c33c342093b3d84",
+            "entityId": "mk-mwwa0pmw-gzfqo0",
+            "entityType": "markup",
+            "pageId": "doc-1c33c342093b3d84-p0"
+          }
+        }
+      }
+    },
+    "t": "2026-11-25T15:26:47.337Z"
+  },
+  {
+    "k": "S9.afterAgentUndo",
+    "v": [
+      "mk-mwwa0pmw-gzfqo0:area"
+    ],
+    "t": "2026-11-25T15:26:48.370Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S9-3-after-both-undos",
+      "w": 2416,
+      "h": 1568,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:26:52.401Z"
+  },
+  {
+    "k": "S3.restore",
+    "v": "restored",
+    "t": "2026-11-25T15:26:52.925Z"
+  },
+  {
+    "k": "S8.wait",
+    "v": {
+      "ok": true,
+      "data": {
+        "for": "approve the scope definition",
+        "note": "REDBEAM shows the person that this session is waiting for them. Your tabs stay open. Your next call puts the session back to work; call redbeam_end_session when the job is done.",
+        "waiting": true
+      }
+    },
+    "t": "2026-11-25T15:26:53.834Z"
+  },
+  {
+    "k": "S8.waiting0",
+    "v": [
+      "ControlType.Button | 3 AI sessions · 3 waiting for you",
+      "ControlType.Button | Agents 3 AI sessions · 3 waiting for you",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Waiting for you: approve the scope definitionAnswer it in its chat. Its PDFs stay open.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+      "ControlType.Text | Waiting for you: approve the scope definition"
+    ],
+    "t": "2026-11-25T15:26:56.459Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S8-1-waiting-for-you",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "Notepad"
+    },
+    "t": "2026-11-25T15:26:57.298Z"
+  },
+  {
+    "k": "S8.waiting60",
+    "v": [
+      "ControlType.Button | 3 AI sessions · 3 waiting for you",
+      "ControlType.Button | Agents 3 AI sessions · 3 waiting for you",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Waiting for you: approve the scope definitionAnswer it in its chat. Its PDFs stay open.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session",
+      "ControlType.Text | Waiting for you: approve the scope definition"
+    ],
+    "t": "2026-11-25T15:27:57.863Z"
+  },
+  {
+    "k": "S8.titleCount",
+    "v": [
+      "ControlType.Button | 3 AI sessions · 3 waiting for you",
+      "ControlType.Group | AI sessions",
+      "ControlType.Button | Agents 3 AI sessions · 3 waiting for you"
+    ],
+    "t": "2026-11-25T15:27:58.391Z"
+  },
+  {
+    "k": "S8.resume",
+    "v": true,
+    "t": "2026-11-25T15:27:58.414Z"
+  },
+  {
+    "k": "ask60.answeredBeforeNotNow",
+    "v": {
+      "afterSec": 12.051,
+      "r": {
+        "ok": false,
+        "text": "Error: Person-North-Campus.pdf is the person's own tab. REDBEAM does not move a view someone else is using, so the person has been asked whether Claude · Tower A ceilings takeoff may work in it; they have not answered yet. Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. Reading, and drawing on the sheet that is showing (leave `page` out),"
+      }
+    },
+    "t": "2026-11-25T15:28:10.465Z"
+  },
+  {
+    "k": "ask60.inAgents",
+    "v": [
+      "ControlType.ListItem | Claude Code · Clinic level 2 acoustic ceilings intake review!Quiet since 10:26 a.m.Wants to turn pages and zoom in your PDF Clinic.Let it work thereNot nowClinicyour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Button | Not now",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Checking what is openWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session"
+    ],
+    "t": "2026-11-25T15:28:11.035Z"
+  },
+  {
+    "k": "ask60.overSheet",
+    "v": [
+      "ControlType.ListItem | Claude Code · Clinic level 2 acoustic ceilings intake review!Quiet since 10:26 a.m.Wants to turn pages and zoom in your PDF Clinic.Let it work thereNot nowClinicyour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Text | Wants to turn pages and zoom in your PDF",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoff!Quiet since 10:27 a.m.Wants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowTower-Byour PDFEnd this session"
+    ],
+    "t": "2026-11-25T15:28:11.587Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "ASK-unanswered-60s",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "Notepad"
+    },
+    "t": "2026-11-25T15:28:12.293Z"
+  },
+  {
+    "k": "ask60.notNow",
+    "v": "invoked: Not now",
+    "t": "2026-11-25T15:28:12.895Z"
+  },
+  {
+    "k": "S8.openRef",
+    "v": true,
+    "t": "2026-11-25T15:28:13.239Z"
+  },
+  {
+    "k": "S8.readRef",
+    "v": true,
+    "t": "2026-11-25T15:28:13.359Z"
+  },
+  {
+    "k": "S8.save",
+    "v": {
+      "ok": true,
+      "data": {
+        "file": "Tower-B.pdf",
+        "outcome": "unchanged",
+        "saved": true
+      }
+    },
+    "t": "2026-11-25T15:28:13.431Z"
+  },
+  {
+    "k": "S8.end",
+    "v": {
+      "ok": true,
+      "data": {
+        "closed": [
+          "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat81\\Ref-Spec.pdf"
+        ],
+        "ended": true,
+        "handedBack": [],
+        "note": "The session is finished. PDFs you changed are now the person's own tabs; PDFs you only read were closed. A new job starts with redbeam_start_session."
+      }
+    },
+    "t": "2026-11-25T15:28:14.562Z"
+  },
+  {
+    "k": "S8.finishedUia",
+    "v": [
+      "ControlType.Text | Finished",
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoffFinished 10:28 a.m.Takeoff saved in Tower-B.pdf: ACT-1, areas on 3 sheets.Only read, so closed. Pick one to reopen it.Ref-Specreopen",
+      "ControlType.Text | Finished 10:28 a.m.",
+      "ControlType.Text | Takeoff saved in Tower-B.pdf: ACT-1, areas on 3 sheets.",
+      "ControlType.Text | Only read, so closed. Pick one to reopen it.",
+      "ControlType.Button | Ref-Spec reopen",
+      "ControlType.ListItem | Several AI sessions at once, listed under Takeoff. Every Claude or ChatGPT chat that works in REDBEAM gets a session of its own, named for its app and the job it is doing, such as \"ChatGPT · Nokia Canada North Campus takeoff\". The title bar says only how many there are and whether one needs you. The right sidebar is split: Takeoff on top, and Agents in the bottom third, listing each session in its own colour with its whole name, what it is doing now, and its PDFs by name. Drag the divider to give it more or less room, or click its header to fold it to one line. Pick a PDF to look in on it as a tab of your own and work beside the agent.",
+      "ControlType.ListItem | Waiting for you, and Finished. A session that stops for your approval says what it is waiting for in the Agents list, and the title bar counts it. When it finishes, the PDFs it changed move to your own tabs with a dot until you open them, and the PDFs it only read are closed. The Agents list keeps each finished session with what it said, what it left you and what it closed, to reopen with a click.",
+      "ControlType.Text | Waiting for you, and Finished.",
+      "ControlType.ListItem | A session that dies cleans up after itself. If an AI app is closed or stops answering mid-job, its session is marked finished within seconds, its cursor goes away and its tabs are settled the same way. You can also end a session yourself from the Agents list.",
+      "ControlType.ListItem | Agents close only their own tabs, their tabs are not reopened next time you start REDBEAM, and an agent exporting a PDF has to say where the file goes, so no Save window appears on its behalf."
+    ],
+    "t": "2026-11-25T15:28:24.429Z"
+  },
+  {
+    "k": "S8.askedPerson",
+    "v": [
+      "ControlType.ListItem | Claude · Tower A ceilings takeoff!Turning to another sheetWants to turn pages and zoom in your PDF Tower-A.Let it work thereNot nowWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowWants to turn pages and zoom in your PDF Person-North-Campus.Let it work thereNot nowTower-Byour PDFTower-Ayour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Button | Let it work there",
+      "ControlType.Button | Let it work there",
+      "ControlType.Button | Let it work there"
+    ],
+    "t": "2026-11-25T15:28:24.991Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S8-2-finished-with-summary",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:28:25.720Z"
+  },
+  {
+    "k": "S8.reopen",
+    "v": "ERR no invoke pattern: ChatGPT · Nokia Canada North Campus takeoffFinished 10:28 a.m.Takeoff saved in Tower-B.pdf: ACT-1, areas on 3 sheets.Only read, so closed. Pick one to reopen it.Ref-Specreopen patterns=ScrollItemPatternIdentifiers.Pattern\r\n",
+    "t": "2026-11-25T15:28:26.851Z"
+  },
+  {
+    "k": "S8.ownersAfter",
+    "v": [
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat78\\Tower-B.pdf",
+        "owner": "person"
+      },
+      {
+        "file": "C:\\Users\\aaron\\AppData\\Local\\Temp\\redbeam-mat81\\Tower-B.pdf",
+        "owner": "person"
+      }
+    ],
+    "t": "2026-11-25T15:28:29.390Z"
+  },
+  {
+    "k": "S8.summaryAfterAppClosed",
+    "v": [
+      "ControlType.ListItem | ChatGPT · Nokia Canada North Campus takeoffFinished 10:28 a.m.Takeoff saved in Tower-B.pdf: ACT-1, areas on 3 sheets.Only read, so closed. Pick one to reopen it.Ref-Specreopen",
+      "ControlType.Text | Takeoff saved in Tower-B.pdf: ACT-1, areas on 3 sheets."
+    ],
+    "t": "2026-11-25T15:28:35.166Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S8-3-summary-after-app-closed",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:28:35.918Z"
+  },
+  {
+    "k": "long.open",
+    "v": true,
+    "t": "2026-11-25T15:28:36.264Z"
+  },
+  {
+    "k": "long.findText300",
+    "v": {
+      "ok": true,
+      "sec": 2.061,
+      "matches": 100,
+      "file": "Big-300.pdf",
+      "extraAnswers": 0
+    },
+    "t": "2026-11-25T15:28:41.331Z"
+  },
+  {
+    "k": "long.cardUia",
+    "v": [
+      "ControlType.ListItem | Claude · Tower A ceilings takeoff!Searching for “ACOUSTICAL”Wants to turn pages and zoom in your PDF Tower-A.Let it work thereNot nowWants to turn pages and zoom in your PDF Tower-B.Let it work thereNot nowWants to turn pages and zoom in your PDF Person-North-Campus.Let it work thereNot nowBig-300working hereTower-Byour PDFTower-Ayour PDFPerson-North-Campusyour PDFEnd this session",
+      "ControlType.Button | Claude · Tower A ceilings takeoff Needs you",
+      "ControlType.Group | Claude · Tower A ceilings takeoff asks to work in Tower-A",
+      "ControlType.Group | Claude · Tower A ceilings takeoff asks to work in Tower-B",
+      "ControlType.Group | Claude · Tower A ceilings takeoff asks to work in Person-North-Campus"
+    ],
+    "t": "2026-11-25T15:28:42.060Z"
+  },
+  {
+    "k": "S4.kill",
+    "v": "SUCCESS: The process with PID 560 has been terminated.",
+    "t": "2026-11-25T15:28:43.831Z"
+  },
+  {
+    "k": "S4.longResult",
+    "v": {
+      "ok": true,
+      "data": {
+        "done": true,
+        "file": "Big-300.pdf",
+        "matches": [
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 0,
+            "sheet": "G0.00",
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 3,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 6,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 9,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 12,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 15,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 18,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 21,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 24,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 27,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 30,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 33,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 36,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 39,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 42,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 45,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 48,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 51,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 54,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 57,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 60,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 63,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 66,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 69,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 72,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 75,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 78,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 81,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 84,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 87,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 90,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 93,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 96,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 99,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 102,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 105,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 108,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 111,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 114,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 117,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 120,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 123,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 126,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 129,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 132,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 135,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 138,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 141,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 144,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 147,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 150,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 153,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 156,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 159,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 162,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 165,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 168,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 171,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 174,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 177,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 180,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 183,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 186,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 189,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 192,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 195,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 198,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 201,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 204,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 207,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 210,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 213,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 216,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 219,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 222,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 225,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 228,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 231,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 234,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 237,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 240,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 243,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 246,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 249,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 252,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 255,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 258,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 261,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 264,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 267,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 270,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 273,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 276,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 279,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 282,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 285,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 288,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 291,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 294,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          },
+          {
+            "box": {
+              "x0": 0.08501,
+              "x1": 0.14387,
+              "y0": 0.12171,
+              "y1": 0.13219
+            },
+            "center": {
+              "x": 0.11444,
+              "y": 0.12695
+            },
+            "page": 297,
+            "sheet": null,
+            "text": "ACOUSTICAL"
+          }
+        ],
+        "query": "ACOUSTICAL",
+        "sheets": 300,
+        "sheetsRead": 300
+      }
+    },
+    "t": "2026-11-25T15:28:43.831Z"
+  },
+  {
+    "k": "S4.afterKill",
+    "v": {
+      "secondsUntilLiveGone": null,
+      "secondsUntilFinishedStoppedAnswering": 23.039
+    },
+    "t": "2026-11-25T15:30:00.618Z"
+  },
+  {
+    "k": "shot",
+    "v": {
+      "name": "S4-after-kill",
+      "w": 1456,
+      "h": 909,
+      "locked": false,
+      "fg": "redbeam"
+    },
+    "t": "2026-11-25T15:30:01.665Z"
+  },
+  {
+    "k": "appCountEnd",
+    "v": 1,
+    "t": "2026-11-25T15:30:02.107Z"
+  }
+]
