@@ -234,8 +234,13 @@ fn serve(stream: TcpStream, app: &AppHandle, token: &str) -> std::io::Result<()>
                 // The work runs beside this thread, which says "still
                 // running" to the client until the answer is in.
                 let (tx, rx) = std::sync::mpsc::channel();
-                let (app2, method, params) = (app.clone(), req.method.clone(), req.params.clone());
+                let (app2, method, params, agent) = (app.clone(), req.method.clone(), req.params.clone(), req.agent.clone());
                 std::thread::spawn(move || {
+                    // The caller is kept per thread (ui.rs), and this is the
+                    // thread the call runs on. Without it every keepalive call
+                    // reached the window as nobody: no session, and its work
+                    // landed outside the PDF it named (SLS, 2026-11-25).
+                    ui::set_caller(agent);
                     let _ = tx.send(methods::dispatch(&app2, &method, &params));
                 });
                 let answer = loop {
