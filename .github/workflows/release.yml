@@ -136,7 +136,7 @@ jobs:
           Copy-Item -LiteralPath $exe[0].FullName -Destination (Join-Path $stage 'REDBEAM.exe')
           $readme = 'apps/desktop/src-tauri/windows/portable-readme.txt'
           Copy-Item -LiteralPath $readme -Destination (Join-Path $stage 'Read me.txt')
-          Set-Content -LiteralPath (Join-Path $stage 'REDBEAM.portable') -Encoding utf8NoBOM -Value "REDBEAM $version portable. Keep this file beside REDBEAM.exe. See Read me.txt."
+          Set-Content -LiteralPath (Join-Path $stage 'REDBEAM.portable') -Encoding utf8NoBOM -Value "Portable copy, version $version. Keep this file beside REDBEAM.exe. See Read me.txt."
           $zip = "$release/bundle/nsis/REDBEAM_${version}_${{ matrix.arch }}_portable.zip"
           Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal -Force
           Write-Host "Portable zip: $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB)"
