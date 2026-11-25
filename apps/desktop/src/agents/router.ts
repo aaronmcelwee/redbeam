@@ -88,6 +88,15 @@ export class BridgeRouter {
     const params = req.params ?? {}
     const who = identityOf(req.agent)
     const agent = who === null ? null : this.deps.roster.see(who)
+    /*
+     * A server is on the clock from its first call, not from its first "still
+     * here". One that was killed in its first five seconds never said so, and
+     * its sessions stayed listed as Quiet until the app closed (SLS, 2026-11-25).
+     */
+    if (agent !== null) {
+      const server = agent.id.slice(0, Math.max(0, agent.id.lastIndexOf('/')))
+      if (server !== '' && !this.aliveAt.has(server)) this.aliveAt.set(server, this.now())
+    }
     switch (req.action) {
       case 'open_file': return this.openFile(agent, params)
       case 'agent_bye': return this.bye(who)
