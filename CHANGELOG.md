@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.92 — 2026-11-25
+## 0.3.93 — 2026-11-25
 
 ### A tidier start screen
 
