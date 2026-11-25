@@ -54,7 +54,7 @@ import { areaRegion } from '@redbeam/domain'
 import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
-  COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, regionAt, shapeForKind,
+  COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, pdfText, regionAt, shapeForKind,
   toPdfColor, toUserSpace,
   type PageBox, type WritableMarkup, type WritableScaleRegion,
 } from './pdfMarkup.js'
@@ -250,7 +250,7 @@ const FEET_PER_PAPER_POINT = 1 / 864
 function revuNumberFormat(ctx: PDFContext, unit: string, conversion: number, fd = false): PDFDict {
   return ctx.obj({
     Type: 'NumberFormat',
-    U: PDFString.of(unit),
+    U: pdfText(unit),
     C: conversion,
     D: 100,
     ...(fd ? { FD: true } : {}),
@@ -377,8 +377,38 @@ function cutoutsOf(a: PDFDict): number[][] {
  */
 const KEY = 'REDBEAM'
 
+/** The slice's bytes: UTF-8. A JS string handed to flateStream keeps only each character's low byte. */
+const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
+
+/**
+ * Reads a slice stream. Builds before 0.3.82 wrote each character's low byte
+ * only, so a non-ASCII name made the slice unreadable and the takeoff was
+ * rebuilt from the markups without its product details. An accent made the
+ * bytes invalid UTF-8, so those are read one byte per character. A dash or
+ * curly quote became a control byte; JSON.stringify never writes one raw, so
+ * each one found was a General Punctuation character (U+2000 to U+201F) and
+ * is put back. A slice this build wrote is plain UTF-8 and passes unchanged.
+ */
+export function sliceText(bytes: Uint8Array): string {
+  try {
+    return repairLowBytes(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+  } catch {
+    let text = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    return repairLowBytes(text)
+  }
+}
+
+/** Puts back the dashes and quotes that the old writer cut to control bytes. */
+export function repairLowBytes(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\x00-\x1f]/g, (c) => String.fromCharCode(0x2000 + c.charCodeAt(0)))
+}
+
 function privateStream(ctx: PDFContext, json: string): PDFRef {
-  return ctx.register(ctx.flateStream(json, { Type: 'REDBEAM#20Slice' }))
+  return ctx.register(ctx.flateStream(utf8(json), { Type: 'REDBEAM#20Slice' }))
 }
 
 function pieceInfo(ctx: PDFContext, when: string, sliceRef: PDFRef): PDFDict {
@@ -397,7 +427,7 @@ function streamText(stream: unknown): string | null {
   if (!(stream instanceof PDFStream)) return null
   try {
     const bytes = stream instanceof PDFRawStream ? decodePDFRawStream(stream).decode() : stream.getContents()
-    return new TextDecoder().decode(bytes)
+    return sliceText(bytes)
   } catch {
     return null
   }
@@ -889,11 +919,11 @@ function buildAnnot(
     BS: ctx.obj({ Type: 'Border', W: lineWidth, S: PDFName.of(isCutout ? 'D' : 'S') }),
     // Bluebeam's columns: Subject groups the Markups List and its summaries,
     // Label is what the caption prints beside the quantity, Author is who.
-    Subj: PDFString.of(label),
-    Label: PDFString.of(label),
+    Subj: pdfText(label),
+    Label: pdfText(label),
     T: PDFString.of('REDBEAM'),
-    Contents: PDFString.of(contents),
-    NM: PDFString.of(nm),
+    Contents: pdfText(contents),
+    NM: pdfText(nm),
     M: PDFString.of(when),
     CreationDate: PDFString.of(when),
     ...(intent === null ? {} : {
@@ -933,7 +963,7 @@ function writePageScale(
     ours.push(ctx.obj({
       Type: 'Viewport',
       BBox: [Math.min(c0.x, c1.x), Math.min(c0.y, c1.y), Math.max(c0.x, c1.x), Math.max(c0.y, c1.y)],
-      Name: PDFString.of(`REDBEAM ${region.label === '' ? 'scale region' : region.label}`),
+      Name: pdfText(`REDBEAM ${region.label === '' ? 'scale region' : region.label}`),
       Measure: revuMeasure(ctx, region.feetPerPoint),
     }) as PDFDict)
   }
@@ -1176,7 +1206,7 @@ function embedInto(
     const nm = redbeamNm(markup.id)
     const annot = buildAnnot(ctx, page, markup, fpp, alpha, nm, when)
     if (annot === null) continue
-    annot.set(PDFName.of(KEY), ctx.obj({ MarkupId: PDFString.of(markup.id) }))
+    annot.set(PDFName.of(KEY), ctx.obj({ MarkupId: pdfText(markup.id) }))
     annot.set(PDFName.of('P'), page.ref)
     annots[nm] = {
       markupId: markup.id, fp: annotFingerprint(annot),
@@ -1215,7 +1245,7 @@ function embedInto(
     if (ps === undefined && !had) return
     const next = ps === undefined
       ? ctx.obj({}) as PDFDict
-      : pieceInfo(ctx, when, ctx.register(ctx.flateStream(JSON.stringify(ps), { Type: 'REDBEAM#20PageSlice' })))
+      : pieceInfo(ctx, when, ctx.register(ctx.flateStream(utf8(JSON.stringify(ps)), { Type: 'REDBEAM#20PageSlice' })))
     if (pi instanceof PDFDict) {
       for (const [k, v] of pi.entries()) if (k.decodeText() !== KEY) next.set(k, v)
     }

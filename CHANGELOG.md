@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
+## 0.3.82 — 2026-11-25
+
+### Product details no longer lost over a dash
+
+- **Scope names with a dash, accent or curly quote now save correctly.** REDBEAM wrote characters like "—" or "é" into the takeoff it keeps in the PDF incorrectly. That made the takeoff unreadable on the next open, so REDBEAM rebuilt it from the markups and the scopes lost their product details (product, mark, finish, room, base or alternate, lengths).
+- **Files already affected open with their details again.** REDBEAM now reads takeoffs that the older versions mangled, as long as the latest save still holds the details. Markup labels in Bluebeam show the dash correctly too.
+
+
 ## 0.3.80 — 2026-11-24
 
 ### AI apps keep going on long work
