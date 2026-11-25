@@ -17,6 +17,13 @@ SmartScreen will ask once.
 - **Long sheet titles in full.** Sheet names were cut at 60 characters.
 
 
+## 0.3.79 — 2026-11-24
+
+### Big sets, everywhere
+
+- **Nothing reads a big set whole any more.** Save a copy, an AI app's working copy, the marked-up PDF export, printing sheets, area cutouts, sheet sizes, importing a takeoff from another PDF and the estimate's drawing snapshots now read only the parts they need. A copy of a 2 GB set is made by copying the file and adding the takeoff to the end, so REDBEAM's memory does not grow with the set.
+
+
 ## 0.3.77 — 2026-11-24
 
 ### No more hidden ceilings

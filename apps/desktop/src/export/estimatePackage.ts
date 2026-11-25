@@ -10,6 +10,7 @@
  * no worker can be started the same function runs on the window's thread.
  */
 import { PDFDocument, degrees } from 'pdf-lib'
+import { openRangedPdf } from './rangedSource.js'
 import type { EstimateExport } from './estimateExport.js'
 import { renderEstimatePdf } from './estimatePdf.js'
 import { displayedSize } from './sheetForms.js'
@@ -24,6 +25,8 @@ export interface EstimateDrawing {
   name: string
   /** The file, or null when it could not be read: its snapshots then show the takeoff alone. */
   bytes: Uint8Array | null
+  /** A drawing too big to read whole, read by range instead of `bytes` (rangedPdf.ts). */
+  ranged?: { url: string, size: number }
   /** Sheets turned in the window and not yet saved into the file: page index to degrees. */
   rotations: Array<[number, number]>
 }
@@ -61,9 +64,11 @@ export async function buildEstimatePdf(req: EstimatePdfRequest): Promise<Uint8Ar
   // The drawings, parsed, turned the way the window shows them.
   const drawings = new Map<string, PDFDocument>()
   for (const d of req.drawings) {
-    if (d.bytes === null) continue
+    if (d.bytes === null && d.ranged === undefined) continue
     try {
-      const doc = await PDFDocument.load(d.bytes, { updateMetadata: false, throwOnInvalidObject: false, ignoreEncryption: true })
+      const doc = d.ranged !== undefined
+        ? openRangedPdf(d.ranged.url, d.ranged.size).doc
+        : await PDFDocument.load(d.bytes!, { updateMetadata: false, throwOnInvalidObject: false, ignoreEncryption: true })
       const pages = doc.getPages()
       for (const [index, deg] of d.rotations) {
         const page = pages[index]

@@ -79,7 +79,7 @@ import {
 import { renderTakeoffReport } from './export/report.js'
 import { projectBridge, projectNameFromPath } from './project/bridge.js'
 import { createCoreDocumentUrlResolver } from './project/ingest.js'
-import { readEmbedRanged } from './export/rangedPdf.js'
+import { copyRanged, openRanged, readEmbedRanged, withRanged, type RangedDrawing } from './export/rangedPdf.js'
 import { openProjectDocuments, type ProjectScanner } from './project/openProject.js'
 import { SearchPanel, type SearchScope } from './search/SearchPanel.js'
 import { CommandPalette } from './palette/CommandPalette.js'
@@ -104,9 +104,9 @@ import { calculationFor, deltaBetween, type QuantityDelta } from './commit.js'
 import { projectCommands } from './palette/projects.js'
 import { copyBillTsv, saveReportFile } from './bom/exports.js'
 import { ScalePicker } from './scale/ScalePicker.js'
-import { exportMarkedPdf } from './export/markedPdf.js'
+import { exportMarkedPdf, type RangedMarkedPdf } from './export/markedPdf.js'
 import {
-  copyName, copyTarget, type CopyTarget, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice, rebuildFromAnnots, rebuiltStatus,
+  copyInput, copyName, copyTarget, type CopyTarget, embedCopy, embedDrawing, embedStatus, ensureFileRound, fileLoadVerdict, foreignEdits, foreignEditsStatus, importScopesFromSlice, importTakeoffFromSlice, takeoffImportStatus, importSlice, rebuildFromAnnots, rebuiltStatus,
   migrateProjectTakeoffs, migrationStatus, openingStatus, scopeImportStatus, takeNewerSlice, unsavedReason,
   type EmbedOutcome, type FileLoad,
 } from './export/drawingEmbed.js'
@@ -2611,6 +2611,29 @@ export default function Workspace({
    * The quantities and the report already leave the app; this is the half a
    * spreadsheet cannot carry — the sheet somebody argues about later.
    */
+  /**
+   * A big drawing's marked-up copy, made without reading the drawing whole
+   * (rangedPdf.ts): the markups are an update appended to a copy of the file.
+   * `dest` null asks where with a Save As. Null for a drawing small enough to
+   * read whole.
+   */
+  const rangedMarked = useCallback(async (
+    relativePath: string,
+    dest: { kind: 'path'; path: string; overwrite: boolean } | null,
+    onWritten?: (path: string | null) => void,
+  ): Promise<RangedMarkedPdf | null> => {
+    const big = await openRanged(projectBridge, projectPath, relativePath)
+    if (big === null) return null
+    return {
+      markedTail: (markups, options) => big.markedTail(markups, options),
+      async saveCopy(fileName, tail) {
+        const path = await big.copyTo(dest ?? { kind: 'dialog', defaultName: fileName, filter: { name: 'PDF drawing', extensions: ['pdf'] } }, tail)
+        onWritten?.(path)
+        if (dest === null) setStatus(saveOutcomeText({ path, downloaded: false }, 'marked-up PDF'))
+      },
+      release: () => big.release(),
+    }
+  }, [projectPath, setStatus])
   const exportMarkedDrawing = useCallback(async (
     /** An AI app's chosen path: written there instead of asking (round 3 #15). */
     target?: { path: string; overwrite: boolean },
@@ -2627,6 +2650,9 @@ export default function Workspace({
         calibrations: projectCalibrations,
         pageBoxes: projectPageBoxes,
         readBytes: () => projectBridge.readDocument(projectPath, doc.relativePath),
+        ranged: () => rangedMarked(doc.relativePath, { kind: 'path', path: target.path, overwrite: target.overwrite }, (path) => {
+          written = Promise.resolve(path ?? target.path)
+        }),
         save: (_fileName, bytes) => {
           written = projectBridge.writeExport === undefined
             ? Promise.reject(new Error('this build cannot write files'))
@@ -2646,6 +2672,7 @@ export default function Workspace({
       calibrations: projectCalibrations,
       pageBoxes: projectPageBoxes,
       readBytes: () => projectBridge.readDocument(projectPath, doc.relativePath),
+      ranged: () => rangedMarked(doc.relativePath, null),
       // A native Save As on the desktop; the downloader only in the browser.
       save: (fileName, bytes) => {
         void saveFile(bytes, {
@@ -2655,7 +2682,7 @@ export default function Workspace({
     })
   }, [
     documents, activeDocId, projectMarkups, scopes,
-    projectCalibrations, projectPageBoxes, projectPath,
+    projectCalibrations, projectPageBoxes, projectPath, rangedMarked,
   ])
 
   useEffect(() => { activeScopeRef.current = activeScope }, [activeScope])
@@ -4476,7 +4503,8 @@ export default function Workspace({
       const doc = documentsRef.current.find((d) => d.id === docId)
       try {
         if (doc === undefined) throw new Error('no document')
-        found = await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), pageIndexNow)
+        found = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.cutouts(pageIndexNow)))?.value
+          ?? await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), pageIndexNow)
       } catch {
         cutoutsUnread = true
       }
@@ -5239,13 +5267,23 @@ export default function Workspace({
     setCopying(true)
     try {
       setStatus(`saving a copy of ${name}…`)
-      const bytes = await embedCopy({
+      const copyOpts = {
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
+        allScopes: light,
+        ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+      }
+      // A big drawing is copied by the core, with the takeoff appended: never in memory.
+      const big = await withRanged(projectBridge, projectPath, doc.relativePath, (d) => copyRanged(d, copyOpts,
+        { kind: 'dialog', defaultName: copyName(doc.relativePath), filter: { name: 'PDF drawing', extensions: ['pdf'] } }))
+      if (big !== null) {
+        setStatus(saveOutcomeText({ path: big.value, downloaded: false }, 'copy with the takeoff'))
+        return big.value !== null
+      }
+      const bytes = await embedCopy({
+        ...copyOpts,
         read: () => projectBridge.readDocument(projectPath, doc.relativePath),
         // Built off the window's thread, so the window keeps answering.
         embed: embedInWorker,
-        allScopes: light,
-        ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
       })
       const out = await saveFile(bytes, {
         name: copyName(doc.relativePath), type: 'application/pdf', filter: { name: 'PDF drawing', extensions: ['pdf'] },
@@ -5547,7 +5585,7 @@ export default function Workspace({
     const folder = pick.path.slice(0, cut)
     const name = pick.path.slice(cut + 1)
     try {
-      const reading = await readSheetEmbed(await projectBridge.readDocument(folder, name))
+      const reading = await readEmbedRanged(projectBridge, folder, name) ?? await readSheetEmbed(await projectBridge.readDocument(folder, name))
       if (reading.slice === null) { const none = `${name} carries no REDBEAM scopes`; setStatus(none); return none }
       const result = await importScopesFromSlice(db, reading.slice)
       await linkFileRound()
@@ -5585,9 +5623,10 @@ export default function Workspace({
     const folder = pick.path.slice(0, cut)
     const name = pick.path.slice(cut + 1)
     try {
-      const reading = await readSheetEmbed(await projectBridge.readDocument(folder, name))
+      const reading = await readEmbedRanged(projectBridge, folder, name) ?? await readSheetEmbed(await projectBridge.readDocument(folder, name))
       if (reading.slice === null) { const none = `${name} carries no REDBEAM takeoff`; setStatus(none); return none }
-      const sizes = await sheetSizes(await projectBridge.readDocument(projectPath, doc.relativePath))
+      const sizes = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.sizes()))?.value
+        ?? await sheetSizes(await projectBridge.readDocument(projectPath, doc.relativePath))
       const result = await importTakeoffFromSlice(db, doc.id, reading.slice, sizes)
       await linkFileRound()
       await refreshScopes()
@@ -6293,50 +6332,61 @@ export default function Workspace({
           const doc = documents.find((d) => d.id === leftDocRef.current)
           if (!db || !doc) return { error: 'no document is open' }
           if (projectBridge.createDocument === undefined) return { error: 'this build cannot write files' }
-          const bytes = await embedCopy({
+          const copyOpts = {
             db, documentId: doc.id, relativePath: doc.relativePath, displayName: doc.displayName || doc.relativePath, appVersion: APP_VERSION,
-            read: () => projectBridge.readDocument(projectPath, doc.relativePath),
             allScopes: light,
             ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
             ...(params['withoutEmbeddedMarkups'] === true ? { withoutForeign: true } : {}),
-          })
-          const beside = doc.relativePath.includes('/') ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/') + 1) : ''
-          const sep = projectPath.includes('\\') ? '\\' : '/'
-          const root = projectPath.replace(/[\\/]+$/, '')
-          // `name` may carry folders, or be a full path (copyTarget).
-          let target: CopyTarget = typeof params['name'] === 'string' && params['name'].trim() !== ''
-            ? copyTarget(params['name'])
-            : { kind: 'relative', folder: '', name: '' }
-          if (target.kind === 'error') return { error: target.error }
-          // A full path inside the open file's folder is the same as a relative one.
-          if (target.kind === 'absolute' && target.folder.toLowerCase().startsWith(root.toLowerCase() + sep)) {
-            target = { kind: 'relative', folder: target.folder.slice(root.length + 1).split(sep).join('/'), name: target.name }
           }
-          const elsewhere = target.kind === 'absolute'
-          if (elsewhere && projectBridge.writeExport === undefined) return { error: 'this build cannot write files' }
-          const folder = elsewhere ? target.folder : (target.folder === '' ? beside : (target.folder.toLowerCase().startsWith(beside.toLowerCase()) ? target.folder : beside + target.folder))
-          const named = target.name !== '' ? target.name : copyName(doc.relativePath)
-          // "name 2.pdf", "name 3.pdf" and on, until a name is free (it gave up after 20).
-          for (let n = 1; ; n++) {
-            const name = n === 1 ? named : named.replace(/\.pdf$/i, ` ${n}.pdf`)
-            try {
-              let path: string
-              if (elsewhere) {
-                path = await projectBridge.writeExport!(folder + name, bytes, false)
-              } else {
-                await projectBridge.createDocument(projectPath, folder + name, bytes)
-                path = `${root}${sep}${(folder + name).split('/').join(sep)}`
-              }
-              setStatus(`saved a working copy: ${name}`)
-              return {
-                path, name,
-                ...(params['withoutEmbeddedMarkups'] === true ? { embeddedMarkups: 'left out' } : {}),
-                note: 'the original was not changed; open this copy with redbeam_open_file and take off there',
-              }
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
-              if (!/already there/.test(msg)) return { error: `could not save a copy: ${msg}` }
+          // A big drawing is copied by the core with the takeoff appended, never read whole.
+          const big = await openRanged(projectBridge, projectPath, doc.relativePath)
+          try {
+            const bigTail = big === null ? null : (await big.embed(await copyInput(copyOpts))).tail
+            const bytes = big === null ? await embedCopy({ ...copyOpts, read: () => projectBridge.readDocument(projectPath, doc.relativePath) }) : null
+            const beside = doc.relativePath.includes('/') ? doc.relativePath.slice(0, doc.relativePath.lastIndexOf('/') + 1) : ''
+            const sep = projectPath.includes('\\') ? '\\' : '/'
+            const root = projectPath.replace(/[\\/]+$/, '')
+            // `name` may carry folders, or be a full path (copyTarget).
+            let target: CopyTarget = typeof params['name'] === 'string' && params['name'].trim() !== ''
+              ? copyTarget(params['name'])
+              : { kind: 'relative', folder: '', name: '' }
+            if (target.kind === 'error') return { error: target.error }
+            // A full path inside the open file's folder is the same as a relative one.
+            if (target.kind === 'absolute' && target.folder.toLowerCase().startsWith(root.toLowerCase() + sep)) {
+              target = { kind: 'relative', folder: target.folder.slice(root.length + 1).split(sep).join('/'), name: target.name }
             }
+            const elsewhere = target.kind === 'absolute'
+            if (elsewhere && projectBridge.writeExport === undefined) return { error: 'this build cannot write files' }
+            const folder = elsewhere ? target.folder : (target.folder === '' ? beside : (target.folder.toLowerCase().startsWith(beside.toLowerCase()) ? target.folder : beside + target.folder))
+            const named = target.name !== '' ? target.name : copyName(doc.relativePath)
+            // "name 2.pdf", "name 3.pdf" and on, until a name is free (it gave up after 20).
+            for (let n = 1; ; n++) {
+              const name = n === 1 ? named : named.replace(/\.pdf$/i, ` ${n}.pdf`)
+              try {
+                let path: string
+                if (big !== null) {
+                  path = (await big.copyTo(elsewhere
+                    ? { kind: 'path', path: folder + name, overwrite: false }
+                    : { kind: 'project', projectPath, relativePath: folder + name }, bigTail))!
+                } else if (elsewhere) {
+                  path = await projectBridge.writeExport!(folder + name, bytes!, false)
+                } else {
+                  await projectBridge.createDocument(projectPath, folder + name, bytes!)
+                  path = `${root}${sep}${(folder + name).split('/').join(sep)}`
+                }
+                setStatus(`saved a working copy: ${name}`)
+                return {
+                  path, name,
+                  ...(params['withoutEmbeddedMarkups'] === true ? { embeddedMarkups: 'left out' } : {}),
+                  note: 'the original was not changed; open this copy with redbeam_open_file and take off there',
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err)
+                if (!/already there/.test(msg)) return { error: `could not save a copy: ${msg}` }
+              }
+            }
+          } finally {
+            big?.release()
           }
         }
         case 'set_layout_preview': {
@@ -8018,14 +8068,23 @@ export default function Workspace({
       const markups = takeoffFor(projectMarkups, inRound)
       const pageIds = [...new Set(markups.map((m) => m.pageId))]
       const used = new Set(markups.map((m) => m.documentId))
+      // Big drawings are read by range while the PDF is built, and closed after.
+      const streams: RangedDrawing[] = []
       const make = async () => {
         onProgress('Reading the drawings…')
         const drawings = []
         for (const d of documents) {
           if (!used.has(d.id)) continue
           let bytes: Uint8Array | null = null
+          let ranged: { url: string, size: number } | undefined
           try {
-            bytes = await projectBridge.readDocument(projectPath, d.relativePath)
+            const big = await openRanged(projectBridge, projectPath, d.relativePath)
+            if (big !== null) {
+              streams.push(big)
+              ranged = { url: big.url, size: big.size }
+            } else {
+              bytes = await projectBridge.readDocument(projectPath, d.relativePath)
+            }
           } catch (err) {
             console.warn(`[estimate] could not read ${d.relativePath}:`, err)
           }
@@ -8033,6 +8092,7 @@ export default function Workspace({
             documentId: d.id,
             name: d.displayName || d.relativePath,
             bytes,
+            ...(ranged === undefined ? {} : { ranged }),
             rotations: [...(pageRotationsRef.current.get(d.id) ?? new Map<number, number>())],
           })
         }
@@ -8072,7 +8132,12 @@ export default function Workspace({
           notes: [],
         }
       }
-      const bytes = await estimatePdfInWorker(make)
+      let bytes: Uint8Array
+      try {
+        bytes = await estimatePdfInWorker(make)
+      } finally {
+        for (const big of streams) big.release()
+      }
       if (target !== undefined) {
         if (projectBridge.writeExport === undefined) return { problem: 'this build cannot write files', said: '' }
         const path = await projectBridge.writeExport(target.path, bytes, target.overwrite)
@@ -8805,14 +8870,20 @@ export default function Workspace({
     const what = printedWhat(indices, pageCount, sheetLabelFor)
     setStatus(`getting ${what} ready to print…`)
     try {
-      const whole = await embedCopy({
+      const copyOpts = {
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: doc.displayName || doc.relativePath,
         appVersion: APP_VERSION,
-        read: () => projectBridge.readDocument(projectPath, doc.relativePath),
         allScopes: light,
         ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
-      })
-      await printPdf(await sheetsPdf(whole, indices))
+      }
+      // A big drawing: just these sheets, with the takeoff, read by range.
+      const big = await withRanged(projectBridge, projectPath, doc.relativePath, async (d) => d.sheets(await copyInput(copyOpts), [...indices]))
+      if (big !== null) {
+        await printPdf(big.value)
+      } else {
+        const whole = await embedCopy({ ...copyOpts, read: () => projectBridge.readDocument(projectPath, doc.relativePath) })
+        await printPdf(await sheetsPdf(whole, indices))
+      }
       setStatus(`printing ${what}`)
     } catch (err) {
       setStatus(`could not print: ${err instanceof Error ? err.message : String(err)} · Save a copy and print it from your PDF viewer`)

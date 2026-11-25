@@ -11,7 +11,7 @@
  */
 import { pageNumberFrom } from '@redbeam/store'
 import { areaRegion, polylineLength, regionArea, squarePointsToSquareFeet } from '@redbeam/domain'
-import { writeMarkupsToPdf, type WritableMarkup } from './pdfMarkup.js'
+import { writeMarkupsToPdf, type WritableMarkup, type WriteOptions } from './pdfMarkup.js'
 
 export interface ExportableMarkup {
   id: string
@@ -36,6 +36,20 @@ export interface MarkedPdfRequest {
   pageBoxes: ReadonlyMap<string, { width: number, height: number }>
   readBytes: () => Promise<Uint8Array>
   save: (fileName: string, bytes: Uint8Array) => void
+  /**
+   * A drawing too big to read whole (rangedPdf.ts): the markups are written
+   * as an update appended to a copy of the file, which is never in memory.
+   * Resolves null for a drawing small enough to read whole. Optional.
+   */
+  ranged?: () => Promise<RangedMarkedPdf | null>
+}
+
+/** See `MarkedPdfRequest.ranged`. */
+export interface RangedMarkedPdf {
+  markedTail(markups: WritableMarkup[], options: WriteOptions): Promise<Uint8Array>
+  /** Save a copy of the drawing with `tail` appended under this name. */
+  saveCopy(fileName: string, tail: Uint8Array): Promise<void>
+  release(): void
 }
 
 const fmt = (n: number): string => n.toLocaleString('en-US', { maximumFractionDigits: 1 })
@@ -117,6 +131,34 @@ export async function exportMarkedPdf(req: MarkedPdfRequest): Promise<string | n
 
   if (writable.length === 0) return 'This drawing has no markups to write.'
 
+  // The page scale, keyed the way the writer addresses pages. Built from the
+  // calibrations we actually hold, so a page nobody calibrated goes out
+  // unscaled rather than borrowing a neighbouring sheet's scale.
+  const pageScales = new Map<number, number>()
+  for (const [pageId, feetPerPoint] of req.calibrations) {
+    const index = pageNumberFrom(pageId, req.documentId)
+    if (index !== null) pageScales.set(index, feetPerPoint)
+  }
+  const options: WriteOptions = { producer: 'REDBEAM', pageScales }
+
+  let big: RangedMarkedPdf | null = null
+  try {
+    big = (await req.ranged?.()) ?? null
+  } catch {
+    big = null
+  }
+  if (big !== null) {
+    try {
+      const tail = await big.markedTail(writable, options)
+      await big.saveCopy(markedFileName(req.documentName), tail)
+      return null
+    } catch (err) {
+      return `${req.documentName} could not be written: ${err instanceof Error ? err.message : String(err)}`
+    } finally {
+      big.release()
+    }
+  }
+
   let source: Uint8Array
   try {
     source = await req.readBytes()
@@ -126,19 +168,7 @@ export async function exportMarkedPdf(req: MarkedPdfRequest): Promise<string | n
     return `${req.documentName} could not be read from the project folder.`
   }
 
-  // The page scale, keyed the way the writer addresses pages. Built from the
-  // calibrations we actually hold, so a page nobody calibrated goes out
-  // unscaled rather than borrowing a neighbouring sheet's scale.
-  const pageScales = new Map<number, number>()
-  for (const [pageId, feetPerPoint] of req.calibrations) {
-    const index = pageNumberFrom(pageId, req.documentId)
-    if (index !== null) pageScales.set(index, feetPerPoint)
-  }
-
-  const out = await writeMarkupsToPdf(source, writable, {
-    producer: 'REDBEAM',
-    pageScales,
-  })
+  const out = await writeMarkupsToPdf(source, writable, options)
   req.save(markedFileName(req.documentName), out)
   return null
 }
