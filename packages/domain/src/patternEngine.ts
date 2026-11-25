@@ -95,11 +95,11 @@ function ringSigns(region: Region): number[] {
 }
 
 /** Clip one ring against a convex window (Sutherland-Hodgman). */
-function clipRingConvex(subject: readonly Point[], window: readonly Point[]): Point[] {
-  const orient = signedPolygonArea(window as Point[]) >= 0 ? 1 : -1
+function clipRingConvex(subject: readonly Point[], clipWindow: readonly Point[]): Point[] {
+  const orient = signedPolygonArea(clipWindow as Point[]) >= 0 ? 1 : -1
   let output: Point[] = [...subject]
-  for (let i = 0; i < window.length && output.length > 0; i++) {
-    const a = window[i]!, b = window[(i + 1) % window.length]!
+  for (let i = 0; i < clipWindow.length && output.length > 0; i++) {
+    const a = clipWindow[i]!, b = clipWindow[(i + 1) % clipWindow.length]!
     const inside = (p: Point) => orient * ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) >= -EPS
     const cross = (p: Point, q: Point): Point => {
       const dx = q.x - p.x, dy = q.y - p.y
@@ -126,12 +126,12 @@ function clipRingConvex(subject: readonly Point[], window: readonly Point[]): Po
 }
 
 /** Region ∩ convex window: rings and net area. */
-function clipRegion(region: Region, signs: readonly number[], window: readonly Point[]): { rings: Region; area: number } {
+function clipRegion(region: Region, signs: readonly number[], clipWindow: readonly Point[]): { rings: Region; area: number } {
   const rings: Region = []
   let area = 0
   region.forEach((ring, i) => {
     if (ring.length < 3) return
-    const c = clipRingConvex(ring, window)
+    const c = clipRingConvex(ring, clipWindow)
     if (c.length < 3) return
     const a = Math.abs(signedPolygonArea(c))
     if (a < 1e-12) return
