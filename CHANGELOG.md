@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases. Both installers are unsigned;
 SmartScreen will ask once.
 
 
-## 0.3.86 — 2026-11-25
+## 0.3.88 — 2026-11-25
 
 ### Custom patterns (beta)
 
@@ -14,6 +14,13 @@ SmartScreen will ask once.
 - **You approve it.** A pattern an agent makes is a draft. It counts straight away, but its lines show as unverified in the estimate until you approve it in the scope's Setup. Choose "Approve, add to library" to keep it for other jobs, or "Use here only". When an agent later adds a layer, such as rails, only the new layer waits for you.
 - **One product system.** Every built-in product (panels, planks, baffles, cassettes, linear parts) is now part of the same system as a one-layer product. Its counts are unchanged. With the beta on, Setup offers "Add layers" on a built-in product, so you can put rails or hardware on top of it.
 - **Saved in the PDF.** A scope keeps its own copy of its pattern in the PDF, so it opens the same on another computer.
+
+
+## 0.3.87 — 2026-11-25
+
+### Markups stay on screen when you zoom in
+
+- **Areas no longer disappear at high zoom.** Zooming in close to the edge of a large area, a ceiling zone or a pattern panel made it vanish once its middle was off screen, from about 400% and worse up to 6400%. Every markup now stays drawn for as long as any part of it is in view.
 
 
 ## 0.3.85 — 2026-11-25
