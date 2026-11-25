@@ -1589,7 +1589,7 @@ pub async fn write_export_file(request: tauri::ipc::Request<'_>) -> Result<Strin
 
 const EXPORT_EXTENSIONS: [&str; 9] = ["pdf", "csv", "tsv", "html", "htm", "json", "txt", "md", "xml"];
 
-fn export_target_ok(path: &Path, overwrite: bool) -> Result<(), String> {
+pub(crate) fn export_target_ok(path: &Path, overwrite: bool) -> Result<(), String> {
     if !path.is_absolute() {
         return Err("give an absolute path, e.g. C:\\Users\\me\\Desktop\\takeoff.csv".to_string());
     }
@@ -1674,7 +1674,7 @@ fn create_document(target: &Path, bytes: &[u8]) -> Result<DocumentWrite, String>
 
 /// Undo `encodeURIComponent`: `%XX` escapes to bytes, then UTF-8. `None` for a
 /// broken escape or bytes that are not UTF-8.
-fn percent_decode(s: &str) -> Option<String> {
+pub(crate) fn percent_decode(s: &str) -> Option<String> {
     let src = s.as_bytes();
     let mut out = Vec::with_capacity(src.len());
     let mut i = 0;
