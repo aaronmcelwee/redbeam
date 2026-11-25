@@ -1,35 +1,26 @@
 /**
- * Agents in the tab strip.
+ * What the agent surfaces share: the roster as hooks, each session with its
+ * tabs (`agentGroups`), the lines that say how a session stands, and the
+ * dots on the person's own tabs.
  *
  * Aaron, 2026-11-24: "say 10 tabs open, human working in 2-3 tabs, then
  * collapsed 'tab groups' showing different agents with their own
  * 'environments' ... It should also name what session is operating that
  * group of files ... collapsed out of the way of the user until they want to
- * drill into it." And, of a first design that hid a session's files in a
- * flyout: "It takes up a lot of space and doesn't show a lot of content. I
- * also want to be able to expand the group and work alongside the agent."
+ * drill into it."
  *
- * So each AI session is a tab group, as a browser has them. Collapsed, it is
- * one pill in the session's colour: its app, the job its chat named, and how
- * many PDFs it has. Click the pill and its PDFs unfold beside it as real
- * tabs, underlined in its colour, to click into and work in beside the
- * agent. Click again and they fold away.
+ * The sessions were first pills in the tab strip. On a real title bar they
+ * truncated to nothing ("It's all very truncated and unusable"), so they are
+ * listed in the bottom of the right sidebar instead (AgentsPane.tsx). What
+ * stays here besides the shared pieces: the card on the start page, and the
+ * InfoBar over the sheet of an agent's PDF.
  *
  * A session that needs a PDF the person already has open does not get a
  * second tab of it: it works in theirs as a guest, and their tab carries a
  * dot in the session's colour (`tabMarks`).
- *
- * A finished session leaves no group. What it wrote is in the person's own
- * tabs; what it only read is closed and listed under one quiet "Finished"
- * pill, to reopen or dismiss.
- *
- * WinUI primitives, and nothing invented beside them: TabView tabs, a
- * MenuFlyout on the shell's own `.titlemenu`, InfoBadge (the count and the
- * attention mark), InfoBar (the bar over the sheet, AgentBar).
  */
-import { Fragment, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { useMemo, useSyncExternalStore, type CSSProperties } from 'react'
 import { FileText, Glyph, X } from '../shell/icons.js'
-import { useDismiss } from '../shell/dismiss.js'
 import { samePath } from '../lightTabs.js'
 import { handovers, type HandoverAsk } from './handover.js'
 import { roster, type Agent } from './roster.js'
@@ -57,7 +48,7 @@ export interface AgentGroup {
 /**
  * Each live session with the tabs it drives, in the order the sessions
  * arrived. One with no tab, nothing asked, no PDF of the person's it is a
- * guest in and nothing happening is left out: a pill is for something the
+ * guest in and nothing happening is left out: a card is for something the
  * person can look at or answer. Finished sessions are not groups
  * (`finishedSessions`).
  */
@@ -89,7 +80,6 @@ export function useAgentTabGroups(tabs: readonly AgentTabItem[]): AgentGroup[] {
 }
 
 const plainName = (name: string): string => name.replace(/\.pdf$/i, '')
-const baseName = (file: string): string => plainName(file.replace(/\\/g, '/').replace(/^.*\//, ''))
 
 /** A time of day the way the person's Windows writes it: "5:12 PM". */
 export function clock(at: number): string {
@@ -140,211 +130,6 @@ export function tabMarks(tab: AgentTabItem, agents: readonly Agent[]): { color: 
   }))
   if (tab.handed !== undefined) marks.push({ color: tab.handed.color, title: `New from ${tab.handed.by}, which has finished` })
   return marks
-}
-
-// ------------------------------------------------------------- the strip --
-
-type Flyout = { kind: 'session'; agentId: string; x: number; y: number } | { kind: 'finished'; x: number; y: number }
-
-/**
- * The agents' side of the tab strip. Renders nothing while no session is
- * about and none has finished, so a window nobody is driving looks exactly
- * as it always has.
- */
-export function AgentStrip({
-  tabs, activeFile, onSelect, onClose, onHandOver, onTakeOver, onEndSession, onDismissSession, onReopenFile,
-}: {
-  tabs: readonly AgentTabItem[]
-  /** The PDF showing, to mark its group and its tab. */
-  activeFile: string | null
-  onSelect: (file: string) => void
-  onClose: (file: string) => void
-  onHandOver?: (file: string, agentId: string, yes: boolean) => void
-  onTakeOver?: (file: string) => void
-  onEndSession?: (agentId: string) => void
-  onDismissSession?: (agentId: string) => void
-  onReopenFile?: (file: string) => void
-}) {
-  const agents = useAgents()
-  const groups = useAgentTabGroups(tabs)
-  const finished = useMemo(() => finishedSessions(agents), [agents])
-  const [open, setOpen] = useState<Flyout | null>(null)
-  const menuRef = useDismiss(open !== null, () => setOpen(null))
-  if (groups.length === 0 && finished.length === 0) return null
-  const shown = open?.kind === 'session' ? groups.find((g) => g.agent.id === open.agentId) ?? null : null
-  const place = (el: HTMLElement, width: number) => {
-    const r = el.getBoundingClientRect()
-    return { x: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), y: r.bottom }
-  }
-
-  return (
-    <div
-      className="agentstrip" role="group" aria-label="AI sessions" data-many={groups.length > 3 ? 'true' : 'false'}
-      style={{ '--person-tabs': tabs.filter((t) => t.owner === undefined).length } as CSSProperties}
-    >
-      {open?.kind === 'session' && shown !== null && (
-        <div
-          className="titlemenu tabctx agentflyout" role="menu" aria-label={shown.agent.name} ref={menuRef}
-          style={{ left: open.x, top: open.y, ...tint(shown.agent) }}
-        >
-          <div className="agentflyout-head">
-            <span className="agentdot" aria-hidden="true" data-state={shown.agent.state} />
-            <div className="grow">
-              <div className="agentflyout-name">{shown.agent.name}</div>
-              <div className="agentflyout-doing">{operating(shown)}</div>
-            </div>
-          </div>
-          {onHandOver !== undefined && shown.asks.map((t) => (
-            <div key={`ask:${t.file}`} className="agentflyout-ask" role="group" aria-label={`${shown.agent.name} asks to work in ${plainName(t.name)}`}>
-              <span className="grow">Wants to turn pages and zoom in your PDF <strong>{plainName(t.name)}</strong>.</span>
-              <button type="button" className="primarybtn small" onClick={() => { setOpen(null); onHandOver(t.file, shown.agent.id, true) }}>Let it work there</button>
-              <button type="button" className="ghostbtn small" onClick={() => { setOpen(null); onHandOver(t.file, shown.agent.id, false) }}>Not now</button>
-            </div>
-          ))}
-          <div className="menusep" role="separator" />
-          {shown.tabs.length > 0 && (
-            <button className="menuitem" role="menuitem" onClick={() => { setOpen(null); roster.setCollapsed(shown.agent.id, !shown.agent.collapsed) }}>
-              <span className="grow">{shown.agent.collapsed ? 'Show its tabs' : 'Fold its tabs away'}</span>
-            </button>
-          )}
-          {onTakeOver !== undefined && shown.tabs.filter((t) => activeFile !== null && samePath(t.file, activeFile)).map((t) => (
-            <button key={`take:${t.file}`} className="menuitem" role="menuitem" onClick={() => { setOpen(null); onTakeOver(t.file) }}>
-              <span className="grow">Make {plainName(t.name)} my tab</span>
-            </button>
-          ))}
-          {onEndSession !== undefined && (
-            <button className="menuitem" role="menuitem" onClick={() => { setOpen(null); onEndSession(shown.agent.id) }}>
-              <Glyph icon={X} role="row" />
-              <span className="grow">End this session</span>
-            </button>
-          )}
-        </div>
-      )}
-      {open?.kind === 'finished' && finished.length > 0 && (
-        <div className="titlemenu tabctx agentflyout agentfinished" role="menu" aria-label="Finished AI sessions" ref={menuRef} style={{ left: open.x, top: open.y }}>
-          {finished.map((a) => (
-            <section key={a.id} className="agentfinished-one" style={tint(a)}>
-              <div className="agentflyout-head">
-                <span className="agentdot" aria-hidden="true" data-state="gone" />
-                <div className="grow">
-                  <div className="agentflyout-name">{a.name}</div>
-                  <div className="agentflyout-doing">{endedLine(a)}</div>
-                  {a.ended!.summary !== null && <div className="agentfinished-summary">{a.ended!.summary}</div>}
-                </div>
-                {onDismissSession !== undefined && (
-                  <button className="tabclose" aria-label={`Dismiss ${a.name}`} onClick={() => onDismissSession(a.id)}>
-                    <Glyph icon={X} role="small" />
-                  </button>
-                )}
-              </div>
-              {a.ended!.handedBack.length > 0 && <div className="agentfinished-label">Now in your tabs</div>}
-              {a.ended!.handedBack.map((f) => (
-                <button key={`back:${f}`} className="menuitem" role="menuitem" title={f} onClick={() => { setOpen(null); onSelect(f) }}>
-                  <Glyph icon={FileText} role="row" />
-                  <span className="grow">{baseName(f)}</span>
-                </button>
-              ))}
-              {a.ended!.closed.length > 0 && <div className="agentfinished-label">Only read, so closed. Pick one to reopen it.</div>}
-              {a.ended!.closed.map((f) => (
-                <button key={`closed:${f}`} className="menuitem" role="menuitem" title={f} disabled={onReopenFile === undefined} onClick={() => { setOpen(null); onReopenFile?.(f) }}>
-                  <Glyph icon={FileText} role="row" />
-                  <span className="grow">{baseName(f)}</span>
-                </button>
-              ))}
-              {a.ended!.handedBack.length === 0 && a.ended!.closed.length === 0 && <div className="agentflyout-none">It had no PDFs of its own open.</div>}
-            </section>
-          ))}
-          {onDismissSession !== undefined && finished.length > 1 && (
-            <>
-              <div className="menusep" role="separator" />
-              <button className="menuitem" role="menuitem" onClick={() => { setOpen(null); for (const a of finished) onDismissSession(a.id) }}>
-                <span className="grow">Dismiss all</span>
-              </button>
-            </>
-          )}
-        </div>
-      )}
-      {groups.map((group) => {
-        const { agent, tabs: own, asks } = group
-        const showingOne = activeFile !== null && own.some((t) => samePath(t.file, activeFile))
-        // The group the person is inside is never folded shut around them.
-        const unfolded = own.length > 0 && (!agent.collapsed || showingOne)
-        const menuOpen = open?.kind === 'session' && open.agentId === agent.id
-        const openMenu = (el: HTMLElement) => setOpen({ kind: 'session', agentId: agent.id, ...place(el, 360) })
-        return (
-          <Fragment key={agent.id}>
-            <button
-              type="button"
-              className="agentpill"
-              data-agent={agent.name}
-              data-state={agent.state}
-              data-unfolded={unfolded ? 'true' : 'false'}
-              data-asking={asks.length > 0 ? 'true' : 'false'}
-              aria-expanded={unfolded}
-              aria-haspopup="menu"
-              title={`${agent.name} ${operating(group)}\nClick to ${unfolded ? 'fold its tabs away' : 'show its tabs'}. Right-click for more.`}
-              style={tint(agent)}
-              onClick={(e) => {
-                if (menuOpen) { setOpen(null); return }
-                // Nothing to unfold, or something to answer: the menu is what a click is for.
-                if (own.length === 0 || asks.length > 0) { openMenu(e.currentTarget); return }
-                roster.setCollapsed(agent.id, unfolded)
-              }}
-              onContextMenu={(e) => { e.preventDefault(); openMenu(e.currentTarget) }}
-            >
-              <span className="agentdot" aria-hidden="true" data-state={agent.state} />
-              <span className="agentpill-name"><strong>{agent.app}</strong>{agent.task !== null ? ` · ${agent.task}` : ''}</span>
-              {agent.state === 'waiting' && <span className="agentpill-state">Waiting for you</span>}
-              {asks.length > 0
-                ? <span className="agentcount attention" aria-label="Asking you something">!</span>
-                : !unfolded && own.length > 0 && <span className="agentcount" aria-label={`${own.length} PDF${own.length === 1 ? '' : 's'}`}>{own.length}</span>}
-            </button>
-            {unfolded && own.map((t) => {
-              const active = activeFile !== null && samePath(t.file, activeFile)
-              return (
-                <div
-                  key={t.file}
-                  role="tab"
-                  aria-selected={active}
-                  className={`tab agenttab${active ? ' active' : ''}`}
-                  data-agent={agent.name}
-                  title={`${t.file}\n${agent.name} is operating this PDF`}
-                  style={tint(agent)}
-                  onClick={() => onSelect(t.file)}
-                >
-                  <Glyph icon={FileText} role="inline" />
-                  <span className="tabname">{plainName(t.name)}</span>
-                  <button className="tabclose" aria-label={`Close ${plainName(t.name)}`} onClick={(e) => { e.stopPropagation(); onClose(t.file) }}>
-                    <Glyph icon={X} role="small" />
-                  </button>
-                </div>
-              )
-            })}
-          </Fragment>
-        )
-      })}
-      {finished.length > 0 && (
-        <button
-          type="button"
-          className="agentpill finished"
-          aria-haspopup="menu"
-          aria-expanded={open?.kind === 'finished'}
-          title="AI sessions that have finished: what they left you, and what they closed"
-          onClick={(e) => setOpen(open?.kind === 'finished' ? null : { kind: 'finished', ...place(e.currentTarget, 380) })}
-        >
-          <span className="agentpill-name">Finished</span>
-          <span className="agentcount">{finished.length}</span>
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** "is operating these 3 PDFs · Searching for “CL-105”": the line under a session's name. */
-export function operating(group: AgentGroup): string {
-  const n = group.tabs.length
-  const files = n === 0 ? 'has no PDFs of its own open' : `is operating ${n === 1 ? 'this PDF' : `these ${n} PDFs`}`
-  return `${files} · ${agentStatus(group.agent)}`
 }
 
 // ------------------------------------------------------- the start page --
@@ -403,8 +188,8 @@ export function AgentsOnStart({
  * What a session asks the person is NOT shown here. It was, on whichever tab
  * they were in, and on the SLS four such bars stacked over the drawing Aaron
  * was working on (2026-11-24). His rule is that nothing an agent does opens
- * over his work, so a question lives on the session's pill ("!") and is
- * answered from the pill's menu when he chooses to look.
+ * over his work, so a question lives on the session's card in the Agents
+ * list and is answered there when he chooses to look.
  */
 export function AgentBar({
   file, owner, onTakeOver,

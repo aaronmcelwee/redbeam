@@ -26,104 +26,7 @@
   pointer-events: none !important;
 }
 
-/* ---- the title bar ---- */
-/*
- * AI sessions as tab groups, to the right of the person's tabs. The strip
- * takes the width its groups need; the person's strip beside it keeps what
- * its own tabs need first (see max-width below). When an unfolded group runs out
- * of room its tabs narrow, and then its pill; neither leaves the strip.
- */
-.agentstrip {
-  position: relative;
-  flex: 0 1 auto;
-  min-width: 0;
-  /*
-   * The person's own tabs come first (SLS, 2026-11-24: three long pills left
-   * one of five tabs showing). The sessions take what the person's tabs do
-   * not need, and never less than two fifths of the strip; a group the
-   * person unfolded may take more, because they asked to see it.
-   */
-  max-width: max(40%, calc(100% - var(--person-tabs, 1) * 32ch - 12ch));
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 100%;
-  padding-inline: var(--ads-sp-2);
-  border-left: 1px solid var(--rb-line);
-  overflow: hidden;
-}
-/*
- * A group's pill, in Windows 11's own terms: a compact 24px control with a
- * 4px corner, a quiet wash of the session's colour over the title bar (so
- * Mica shows through), a hairline in that colour, the window's own ink, and
- * a presence dot. The saturated tone is kept for the dot, the count and the
- * cursor on the sheet. (Aaron, 2026-11-24: "design it to be closer" to
- * Windows 11; the first pills were solid blocks of colour in bold.)
- */
-.agentstrip:has(.agenttab) { max-width: max(45%, calc(100% - var(--person-tabs, 1) * 32ch - 12ch)); }
-.agentpill {
-  flex: 0 4 auto;
-  min-width: 7ch;
-  max-width: 30ch;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-inline: 8px 6px;
-  border: 1px solid color-mix(in srgb, var(--agent) 34%, transparent);
-  border-radius: var(--ads-radius-s);
-  background: color-mix(in srgb, var(--agent) 11%, transparent);
-  color: var(--rb-ink);
-  font: inherit;
-  font-size: var(--rb-caption);
-  font-weight: 400;
-  white-space: nowrap;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-.agentpill:hover { background: color-mix(in srgb, var(--agent) 18%, transparent); }
-.agentpill:active, .agentpill[aria-expanded="true"] { background: color-mix(in srgb, var(--agent) 24%, transparent); }
-.agentpill-name { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; color: var(--rb-ink-2); }
-.agentpill-name > strong { color: var(--rb-ink); font-weight: 600; }
-/* A crowd of sessions: each pill gives up length before any is lost. */
-.agentstrip[data-many="true"] .agentpill { max-width: 18ch; }
-/* A group is unfolded: the other pills fold down to their dot and badge (the name is in the tooltip) to make room for its tabs' names. */
-.agentstrip:has(.agenttab) .agentpill[aria-expanded="false"] { min-width: 0; flex-shrink: 0; }
-.agentstrip:has(.agenttab) .agentpill[aria-expanded="false"] > .agentpill-name { display: none; }
-.agentstrip:has(.agenttab) .agentpill[aria-expanded="false"] > .agentpill-state::before { content: none; }
-.agentpill-state { flex: none; color: var(--rb-ink); font-weight: 600; }
-.agentpill-state::before { content: '·'; margin-right: 6px; color: var(--rb-ink-3); font-weight: 400; }
-/* The count, a WinUI InfoBadge in the session's deep tone. */
-.agentpill > .agentcount { background: var(--agent); color: #fff; }
-.agentpill > .agentcount.attention { background: var(--rb-attention); color: var(--rb-accent-ink); }
-/* Waiting, or asking: what it needs from the person is never cut off. */
-.agentstrip .agentpill[data-state="waiting"] { flex-shrink: 2; max-width: none; }
-.agentstrip:not(:has(.agenttab)) .agentpill[data-state="waiting"] { min-width: 23ch; }
-.agentstrip .agentpill[data-asking="true"] { flex-shrink: 2; min-width: 9ch; }
-.agentpill[data-asking="true"] > .agentpill-name, .agentpill[data-state="waiting"] > .agentpill-name { flex-shrink: 1; }
-/* Finished sessions: one neutral pill, a standard quiet button. */
-.agentpill.finished {
-  border-color: var(--rb-surface-stroke);
-  background: transparent;
-  color: var(--rb-ink-2);
-}
-.agentpill.finished:hover { background: var(--rb-hover); }
-.agentpill.finished[aria-expanded="true"] { background: var(--rb-selected); }
-.agentpill.finished > .agentcount { background: var(--rb-ink-3); color: var(--rb-panel); }
-/* A group's tab: a tab like the person's, underlined in its session's colour. */
-.agenttab {
-  flex: 0 3 auto;
-  /* Keeps enough of its name to tell it from its neighbours; the pills give way first. */
-  min-width: min(10ch, 100%);
-  overflow: hidden;
-  height: 100%;
-  border-right: 0;
-  box-shadow: inset 0 -2px 0 var(--agent);
-}
-.agenttab:first-child { border-left: 0; }
-/* The one the person is in keeps its name; the pills and the other tabs give way first. */
-.agenttab.active { flex-shrink: 1; min-width: min(16ch, 100%); background: var(--rb-panel); box-shadow: inset 0 -2px 0 var(--agent); }
-.agenttab.active > svg { color: var(--agent); }
+/* ---- the person's tabs ---- */
 /* A dot on one of the person's own tabs: a session is in it, or left it there. */
 .tabmark {
   flex: none;
@@ -132,11 +35,6 @@
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--rb-panel);
 }
-.agentfinished { width: 380px; max-height: min(70vh, 560px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: none; }
-.agentfinished-one + .agentfinished-one { margin-top: var(--ads-sp-2); padding-top: var(--ads-sp-2); border-top: 1px solid var(--rb-line); }
-.agentfinished-summary { margin-top: 4px; color: var(--rb-ink-2); font-size: var(--rb-caption); overflow-wrap: anywhere; }
-.agentfinished-label { padding: 6px var(--ads-sp-3) 2px; color: var(--rb-ink-3); font-size: var(--rb-caption); }
-.agentfinished .tabclose { opacity: 1; }
 
 .agentdot {
   flex: none;
@@ -179,49 +77,16 @@
   color: var(--rb-ink-3);
 }
 
-/* WinUI MenuFlyout, on the shell's own `.titlemenu`: the session, then its PDFs. */
-.agentflyout { width: 360px; max-width: calc(100vw - 16px); }
-.agentflyout-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--ads-sp-2);
-  padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3);
-  border-bottom: 1px solid var(--rb-line);
-  margin-bottom: var(--ads-sp-1);
-}
-.agentflyout-head > .agentdot { margin-top: 6px; }
-.agentflyout-head > .grow { flex: 1 1 auto; min-width: 0; }
-.agentflyout-name { color: var(--rb-ink); font-size: var(--rb-body); font-weight: 600; overflow-wrap: anywhere; }
-.agentflyout-doing { margin-top: 2px; color: var(--rb-ink-3); font-size: var(--rb-caption); overflow-wrap: anywhere; }
-.agentflyout-none { padding: var(--ads-sp-2) var(--ads-sp-3); color: var(--rb-ink-3); font-size: var(--rb-caption); }
-.agentflyout-ask {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ads-sp-2);
-  margin: var(--ads-sp-1);
-  padding: var(--ads-sp-2);
-  border: 1px solid var(--rb-surface-stroke);
-  border-radius: var(--ads-radius-s);
-  color: var(--rb-ink-2);
-  font-size: var(--rb-caption);
-}
-.agentflyout-ask > .grow { flex: 1 1 100%; }
-.agentflyout-ask strong { color: var(--rb-ink); font-weight: 600; }
-.agentfile > .grow > svg { color: var(--agent); }
-.agentfile.active { background: var(--rb-selected); }
-.agentfile.active > .grow { color: var(--rb-ink); font-weight: 600; }
-.agentfile .tabclose { opacity: 1; flex: none; margin-right: var(--ads-sp-1); }
 /* The agent surfaces' small buttons are the shell's own; only their size is said here. */
-.agentflyout-ask .primarybtn.small, .agentinfobar .primarybtn.small,
-.agentflyout-ask .ghostbtn.small, .agentinfobar .ghostbtn.small {
+.agentcard-ask .primarybtn.small, .agentcard-foot .ghostbtn.small, .agentinfobar .primarybtn.small,
+.agentcard-ask .ghostbtn.small, .agentinfobar .ghostbtn.small {
   flex: none;
   height: 24px;
   padding: 0 var(--ads-sp-3);
   font-size: var(--rb-caption);
   white-space: nowrap;
 }
-.agentflyout-ask .ghostbtn.small, .agentinfobar .ghostbtn.small { border: 1px solid var(--rb-surface-stroke); }
+.agentcard-ask .ghostbtn.small, .agentcard-foot .ghostbtn.small, .agentinfobar .ghostbtn.small { border: 1px solid var(--rb-surface-stroke); }
 
 /* ---- the start page ---- */
 .agentsonstart {
