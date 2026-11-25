@@ -4,7 +4,6 @@ Releases are Windows installers for x64 and ARM64, published at
 https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
-
 ## 0.3.92 — 2026-11-25
 
 ### Sheet names show as Bluebeam bookmarks
@@ -12,6 +11,15 @@ All are unsigned; SmartScreen will ask once.
 - **Named sheets get bookmarks.** When sheets are named from the title block (or renamed by an agent), REDBEAM now also writes one bookmark per sheet, in page order, so Bluebeam's Bookmarks panel lists the set. Before, the names went only into the page labels.
 - **Your own bookmarks are kept.** If the file already has bookmarks, they stay as they are and the sheets go in one "Sheets" folder above them. Renaming sheets again updates REDBEAM's bookmarks instead of adding a second set.
 - **Files you named earlier catch up.** A file named with 0.3.84 to 0.3.89 gets its bookmarks the next time you open it in REDBEAM.
+
+## 0.3.91 — 2026-11-25
+
+### Agents trace hatched ceilings
+
+- **Agents find the edge of a hatched or slatted ceiling.** On drawings where every slat or wood-grain line is drawn, an agent could not find the boundary of the area: tracing landed on the hatching and the lines around it were lost in the clutter. A new agent tool, trace field, finds the direction of the hatch, follows it to where it stops, and checks the result against the sheet as you see it. One call returns the whole area with its outline, in about 2 to 4 seconds a sheet.
+- **Columns come out as cutouts.** Round and square columns the hatch stops around are returned as cutouts with their sizes, and small specks are filled. The agent can also ask for every other area of the same ceiling on the sheet, while walls drawn with the same hatch are left out.
+- **Get lines stays inside the box it was given.** Lines that run on past the box are now cut at its edge and marked, so an agent no longer picks up a corner from far away. An agent can also ask for lines in one direction only.
+- **Outlines are checked before they are trusted.** When an agent draws an area, REDBEAM now warns it if the outline crosses itself, a cutout crosses the outline or sits outside it, or a corner lands off the drawing or in the title block.
 
 ## 0.3.90 — 2026-11-25
 
@@ -40,13 +48,11 @@ All are unsigned; SmartScreen will ask once.
 - **One product system.** Every built-in product (panels, planks, baffles, cassettes, linear parts) is now part of the same system as a one-layer product. Its counts are unchanged. With the beta on, Setup offers "Add layers" on a built-in product, so you can put rails or hardware on top of it.
 - **Saved in the PDF.** A scope keeps its own copy of its pattern in the PDF, so it opens the same on another computer.
 
-
 ## 0.3.87 — 2026-11-25
 
 ### Markups stay on screen when you zoom in
 
 - **Areas no longer disappear at high zoom.** Zooming in close to the edge of a large area, a ceiling zone or a pattern panel made it vanish once its middle was off screen, from about 400% and worse up to 6400%. Every markup now stays drawn for as long as any part of it is in view.
-
 
 ## 0.3.85 — 2026-11-25
 
@@ -62,7 +68,6 @@ All are unsigned; SmartScreen will ask once.
 - **Point at the title block and every sheet is named.** If the sheet list shows the wrong names, such as a contract number on every sheet or "Page 14", click Read from title block under the list. Drag a box around the drawing number, then one around the drawing title. REDBEAM shows what each box reads, then reads the same two spots on every sheet and names them all.
 - **The names are saved in the PDF.** They are written as the PDF's page labels, such as "A3001 - OVERALL SITE PLAN", so Bluebeam and other PDF viewers show the same names.
 - **AI agents can fix sheet names.** Claude and ChatGPT can set the two boxes themselves, rename any single sheet, and see where each sheet's name came from, so they can spot a set that is named wrongly and fix it.
-
 
 ## 0.3.83 — 2026-11-25
 
@@ -85,7 +90,6 @@ All are unsigned; SmartScreen will ask once.
 - **Scope names with a dash, accent or curly quote now save correctly.** REDBEAM wrote characters like "—" or "é" into the takeoff it keeps in the PDF incorrectly. That made the takeoff unreadable on the next open, so REDBEAM rebuilt it from the markups and the scopes lost their product details (product, mark, finish, room, base or alternate, lengths).
 - **Files already affected open with their details again.** REDBEAM now reads takeoffs that the older versions mangled, as long as the latest save still holds the details. Markup labels in Bluebeam show the dash correctly too.
 
-
 ## 0.3.80 — 2026-11-24
 
 ### AI apps keep going on long work
@@ -97,13 +101,11 @@ All are unsigned; SmartScreen will ask once.
 - **Search fixes.** The zoom readout keeps up while you zoom, the match count no longer shows early while a big set is still being read, and pressing Enter after changing the words runs the new search instead of stepping through the old matches.
 - **Long sheet titles in full.** Sheet names were cut at 60 characters.
 
-
 ## 0.3.79 — 2026-11-24
 
 ### Big sets, everywhere
 
 - **Nothing reads a big set whole any more.** Save a copy, an AI app's working copy, the marked-up PDF export, printing sheets, area cutouts, sheet sizes, importing a takeoff from another PDF and the estimate's drawing snapshots now read only the parts they need. A copy of a 2 GB set is made by copying the file and adding the takeoff to the end, so REDBEAM's memory does not grow with the set.
-
 
 ## 0.3.77 — 2026-11-24
 
@@ -116,14 +118,12 @@ All are unsigned; SmartScreen will ask once.
 - **Zoom in to 6400%.** The deepest zoom was 1000%.
 - **Bigger requests from AI apps.** A request from Claude or ChatGPT could be at most 4 MB, so a big batch of markups failed. The limit is now 1 GB.
 
-
 ## 0.3.76 — 2026-11-24
 
 ### Takeoffs in big sets
 
 - **Takeoffs in big sets load and save without reading the whole PDF.** In a set over 128 MB, REDBEAM now reads only the parts of the PDF that hold your takeoff when it opens, and a save adds just the new part to the end of the file. Drawing an area on a 2.5 GB, 1,800-sheet set and saving it wrote about 6 KB.
 - **A save never lands on a changed file.** If the PDF was changed on disk while it was open, the save stops instead of writing over the other change.
-
 
 ## 0.3.75 — 2026-11-24
 
@@ -134,14 +134,12 @@ All are unsigned; SmartScreen will ask once.
 - **Nothing is cut off.** Reading scales and the PDF's own markups across a whole set, and long lists of words, lines, markups and bookmarks, used to stop at a fixed count or time. They now hand back everything, a part at a time.
 - **No empty answer while a PDF is still opening.** A search sent too early said it found nothing; it now says the document is still opening.
 
-
 ## 0.3.74 — 2026-11-24
 
 ### PDFs of any size
 
 - **No size limit.** REDBEAM had a limit on how big a PDF could be. It's gone: a 2.5 GB, 1,800-sheet set opens, for you and for AI apps.
 - **Big sets open without being loaded whole.** REDBEAM now reads only the parts of the PDF it needs from disk, so a large set shows its first sheet in seconds and uses far less memory. The search index reads sets the same way.
-
 
 ## 0.3.71 — 2026-11-24
 
@@ -150,14 +148,12 @@ All are unsigned; SmartScreen will ask once.
 - **No more 256 MB limit.** REDBEAM refused any PDF over 256 MB, so large tender sets and specification books would not open, for you or for an AI app. PDFs up to 2 GB now open, and a 500 MB, 360-sheet set opens in a few seconds.
 - **Less memory for big files.** The PDF is now read straight into the viewer instead of being held twice while it opens.
 
-
 ## 0.3.69 — 2026-11-24
 
 ### REDBEAM stays where you put it
 
 - **No jumping to the front.** When an AI app connected while REDBEAM was busy, REDBEAM came forward over what you were working in, and out of the taskbar if it was minimized. It now stays put.
 - **Closing tabs one after another.** An AI app closing several tabs quickly was told each had closed when only the first had. It's now told to wait while a tab finishes saving.
-
 
 ## 0.3.68 — 2026-11-24
 
@@ -179,7 +175,6 @@ All are unsigned; SmartScreen will ask once.
 - **The X closes, or says why it can't yet.** Closing a window could do nothing at all, with no message, while its takeoff was being saved into the PDF. Now the window closes once the save lands, and if the save takes more than a few seconds REDBEAM asks: save a copy, leave without saving, or keep working.
 - **Alt+F4 and the taskbar's Close too.** Every way of closing the window saves the takeoff first, then closes for certain.
 
-
 ## 0.3.65 — 2026-11-24
 
 ### Copy and paste markups between PDFs
@@ -189,13 +184,11 @@ All are unsigned; SmartScreen will ask once.
 - **Copies don't stack.** Pasting again onto the same sheet places each copy a little further down and to the right.
 - **Copy from the right-click menu.** Right-click a markup and choose Copy markup. Dimensions and callouts keep their text when pasted.
 
-
 ## 0.3.64 — 2026-11-24
 
 ### AI apps stay in one window
 
 - **No extra windows.** When an AI app opened a PDF just as REDBEAM was starting, or opened two PDFs one after the other, each could land in a new window. They now open as tabs in the window that's already there.
-
 
 ## 0.3.63 — 2026-11-24
 
@@ -209,7 +202,6 @@ All are unsigned; SmartScreen will ask once.
 - **Drawing the takeoff.** Outlines can have true arcs and circles, many markups can go in at once as a single undo step, and a working copy can leave out other apps' markups. Cutouts are taken out of baffle, plank and panel patterns.
 - **Output.** A piece list gives every run's pieces with their cut lengths (including pieces cut to fit), stock use and parts, and can be exported as a spreadsheet. Exports can be written to a chosen file. The PDF now keeps a history of who changed each markup and scope (a person or an AI app) and when.
 
-
 ### AI apps work more surely
 
 - **A change is confirmed once it has happened.** When an AI app draws, deletes, rescopes or sets a scale, it is told the result after the change has landed, with the measure and any warning, such as no scope or no scale on the sheet.
@@ -218,7 +210,6 @@ All are unsigned; SmartScreen will ask once.
 - **More it can do.** Reshape or move a markup, copy markups to another sheet, draw a dimension, rotate sheets, bring scopes in from another PDF, accept imported markups, read the PDF's notes, links and bookmarks, close a tab, and read or change settings.
 - **No stolen focus.** When an AI app opens a PDF, REDBEAM stays where it is instead of jumping in front of what you're working in.
 - **Clearer tools.** Each action has its own tool with its own inputs, lists of markups and scopes come back with quantities and names, and errors say what would have worked.
-
 
 ## 0.3.62 — 2026-11-24
 
@@ -236,7 +227,6 @@ All are unsigned; SmartScreen will ask once.
 - **Each area is counted at its own sheet's scale.** A scope spread over sheets drawn at different scales could count a room's trim at twice or half its real length, depending on which sheet was open.
 - **A curved wall is one run.** A bend of less than 20° keeps a length going, and a corner starts a new one, so round and curved rooms drawn with many short sides count fewer lengths.
 
-
 ## 0.3.60 — 2026-11-24
 
 ### Takeoff survives merging and rearranging pages in Bluebeam
@@ -246,7 +236,6 @@ All are unsigned; SmartScreen will ask once.
 - **Two marked-up PDFs become one takeoff.** Scopes with the same name are joined. Markups on sheets that were deleted are left out, and REDBEAM tells you how many.
 - **Files from before this update recover too.** REDBEAM finds each of its markups on the page where it is now. The next save puts the file back in order.
 
-
 ## 0.3.58 — 2026-11-24
 
 ### AI apps can measure, and keep a client's file clean
@@ -254,7 +243,6 @@ All are unsigned; SmartScreen will ask once.
 - **Measure without drawing.** Claude or ChatGPT can measure a distance or an area between points at the sheet's scale, and read the drawing's own lines in a box with their lengths. Nothing is drawn or saved, so there's no more guessing sizes from screenshots.
 - **Takeoff on a copy.** REDBEAM keeps takeoff inside the PDF. For a client's tender file, an AI app can now save a working copy beside it and do the takeoff there, leaving the original as it came.
 - **Lighter close-ups.** Close-ups from AI apps are 1200 pixels wide by default instead of 2000, and the app can ask for more or less.
-
 
 ## 0.3.57 — 2026-11-24
 
@@ -264,7 +252,6 @@ All are unsigned; SmartScreen will ask once.
 - **Accept by giving one a scope,** or with **Accept imported markups…** in the command palette, for the selected markups, the whole sheet or the whole PDF.
 - A pending markup you leave alone stays exactly as Bluebeam saved it.
 
-
 ## 0.3.56 — 2026-11-24
 
 ### Bluebeam markups you can work with
@@ -272,7 +259,6 @@ All are unsigned; SmartScreen will ask once.
 - **Bluebeam areas and lengths are REDBEAM markups now.** When a PDF opens, its Bluebeam (or Acrobat) areas, rectangles, polylines and measured lines, cutouts included, become ordinary markups with no scope. Select, move, reshape or delete them like anything you drew, and give an area a scope to make it part of that takeoff.
 - **Nothing is doubled or lost in Bluebeam.** A markup you leave alone stays exactly as Bluebeam saved it. One you change or give a scope is saved as REDBEAM's, in place of the original. One you delete is deleted from the PDF too.
 - Clouds, arrows, text boxes and stamps stay Bluebeam's, drawn on the sheet as before.
-
 
 ## 0.3.55 — 2026-11-24
 
@@ -284,14 +270,12 @@ All are unsigned; SmartScreen will ask once.
 - **AI apps know your sheet names.** They see each page as its sheet number and title, A4.0 FLOOR PLAN rather than "page 5", and can go to a sheet by its number.
 - **AI apps can hide markups too**, for a clean look at the drawing, and the bar tells you when they have.
 
-
 ## 0.3.54 — 2026-11-24
 
 ### Pro mode is retired, and AI agents work in Light
 
 - **Claude and ChatGPT stay in the PDF you have open.** When an AI app drives REDBEAM, it now reads and changes the takeoff of the PDF showing in the window, the same one you see, saved into that PDF. Before, it went looking for a project and switched the window back to the old Pro screens.
 - **Pro is gone.** REDBEAM is a PDF viewer that does takeoffs, and nothing else: the Mode setting and the Light/Pro switch on the start screen are removed, and nothing (a click, a link or an AI app) can open a project any more. An old project folder still works the same way as before: open a PDF from it and its takeoff moves into that PDF.
-
 
 ## 0.3.53 — 2026-11-24
 
@@ -302,7 +286,6 @@ All are unsigned; SmartScreen will ask once.
 - **An Origin tool for the pattern's 0,0.** In takeoff, beside Direction: click an area's corner, an edge or a point inside it, and its panels or baffles start from there. It snaps to the corner or edge, and to the drawing's own lines. The right-click "Start the pattern here" still works.
 - **Every tool shows its shortcut** when you hover over it. New keys: D for Dimension and O for Origin.
 - **Darker text and icons in Light.** Body text, captions and icons are near-black now instead of grey.
-
 
 ## 0.3.52 — 2026-11-23
 
@@ -318,7 +301,6 @@ All are unsigned; SmartScreen will ask once.
 - **No more database talk.** Opening a file no longer flashes "browser store · in memory", and searching no longer shows a "Limited search… page_text_fts" note.
 - **Smaller things:** the scope menu no longer heads itself "Estimate" for a single PDF, long scope details end in "…" instead of being cut, the new scope field's hint fits, and a few faint captions are easier to read.
 
-
 ## 0.3.51 — 2026-11-23
 
 ### Light theme
@@ -327,13 +309,11 @@ All are unsigned; SmartScreen will ask once.
 - **Choose it in Settings › General › Theme:** *Match Windows* (the default, so it follows Light or Dark in Windows Settings), *Light* or *Dark*. It changes straight away, and the glass behind the panels follows it.
 - **Buttons and highlights use your Windows accent colour** in both themes, in the darker shade Windows itself uses on a light background.
 
-
 ## 0.3.50 — 2026-11-23
 
 ### Readable on a PC set to Light
 
 - **Fixed text you could barely read** in the sheet list, the tab strip and the Takeoff panel when Windows is set to Light. REDBEAM's window now stays dark whatever Windows' app mode is, so the see-through glass behind the panels is dark too and the text sits on the ground it was designed for.
-
 
 ## 0.3.49 — 2026-11-23
 
@@ -344,7 +324,6 @@ All are unsigned; SmartScreen will ask once.
 - **Keys:** *Ctrl+Tab* and *Ctrl+Shift+Tab* switch tabs, *Ctrl+W* closes one and *Ctrl+Shift+T* reopens the one you closed.
 - **REDBEAM reopens your tabs** the next time it starts. A file that has moved since is left out.
 
-
 ## 0.3.48 — 2026-11-23
 
 ### Bookmarks
@@ -353,14 +332,12 @@ All are unsigned; SmartScreen will ask once.
 - **Act on bookmarks too.** *Ctrl+click* or *Shift+click* several, or right-click a folder, to rotate, print or set the scale of every sheet under them.
 - REDBEAM remembers which view you last used.
 
-
 ## 0.3.47 — 2026-11-23
 
 ### Work on several sheets at once
 
 - **Rotate, print or set the scale of a selection.** In the Contents list or the Thumbnails panel, *Ctrl+click* or *Shift+click* to pick several sheets, then right-click. Rotate them clockwise, counterclockwise or 180°, print them, or set one scale for all of them. Turns save into the PDF and the takeoff on each sheet turns with it.
 - **Thumbnails can be selected.** Picked pages are highlighted, and a plain click still goes to that page.
-
 
 ## 0.3.46 — 2026-11-21
 
@@ -369,7 +346,6 @@ All are unsigned; SmartScreen will ask once.
 - **Print this sheet with *Ctrl+P*.** It opens the Windows print dialog, where you pick the printer, paper size and fit.
 - **Print every sheet, or a range.** In the command prompt (*Ctrl+K*), "Print all sheets" prints the whole set and "Print sheets…" takes sheet numbers like *1-5, 8*, numbered as in the sheet list.
 - **What prints is the PDF with your takeoff on it,** the same file "Save a copy" makes. Linework stays sharp at any paper size, and a sheet you turned prints turned.
-
 
 ## 0.3.45 — 2026-11-21
 
@@ -380,7 +356,6 @@ All are unsigned; SmartScreen will ask once.
 - **Undo starts again from the turn.** Shapes from before it cannot be undone across it, and REDBEAM says so.
 - **Sheets that were already turned in the PDF now line up.** Text selection, links, snapping and imported Bluebeam markups were all placed as if those sheets were upright.
 
-
 ## 0.3.44 — 2026-11-21
 
 ### Getting around a drawing set like any PDF viewer
@@ -389,7 +364,6 @@ All are unsigned; SmartScreen will ask once.
 - **Back and Forward.** After jumping to another sheet, *Alt+Left* takes you back to where you were, at the same zoom and spot, and *Alt+Right* goes forward again. The Back and Forward buttons on a mouse do the same, and both are in the command prompt.
 - **Zoom to a box.** Press *Z* and drag a box around the part of the sheet you want to see; it fills the window. Click instead of dragging to zoom in on that spot. It is also in the zoom menu, and *Esc* cancels it.
 - **Select and copy text.** The new *Text* tool (*T*) selects the words inside a box you drag. *Ctrl+C* copies them line by line, ready to paste into an email or an RFI. A scanned sheet has no text to select, and REDBEAM says so.
-
 
 ## 0.3.43 — 2026-11-20
 

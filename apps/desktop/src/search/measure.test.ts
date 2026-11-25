@@ -63,6 +63,38 @@ describe('get_lines filters', () => {
     const byY = linesFromSegments(flat, pg, { sort: 'y', dedupe: true }).lines.map((l) => l.y1)
     expect(byY).toEqual([...byY].sort((a, b) => a - b))
   })
+  /*
+   * The takeoff benchmark (2026-11-25, Brock's bad corner): get_lines handed
+   * back lines whose ends lay far outside the box asked about. The geometry
+   * read keeps any segment that might touch the box, and a diagonal passing
+   * near a corner, or a wall running the length of the sheet, came back whole.
+   */
+  it('cuts lines to the box and leaves out the ones that only pass near it', () => {
+    const box = { x0: 0.4, y0: 0.4, x1: 0.6, y1: 0.6 }
+    const flat = [
+      0, 0.5, 1, 0.5, // a wall right across the sheet
+      0.45, 0.45, 0.55, 0.55, // wholly inside
+      0.3, 0.65, 0.65, 0.3, // a diagonal that clips the corner
+      0.2, 0.75, 0.75, 0.2, // a diagonal that passes outside the corner: both ends on different sides
+    ]
+    const r = linesFromSegments(flat, pg, { clipTo: box })
+    expect(r.lines).toHaveLength(3)
+    for (const l of r.lines) {
+      for (const [x, y] of [[l.x1, l.y1], [l.x2, l.y2]] as const) {
+        expect(x).toBeGreaterThanOrEqual(0.4 - 1e-6); expect(x).toBeLessThanOrEqual(0.6 + 1e-6)
+        expect(y).toBeGreaterThanOrEqual(0.4 - 1e-6); expect(y).toBeLessThanOrEqual(0.6 + 1e-6)
+      }
+    }
+    const wall = r.lines.find((l) => l.angle === 0)!
+    expect(wall).toMatchObject({ x1: 0.4, x2: 0.6, lengthPoints: 200, cut: true })
+    expect(r.lines.find((l) => l.angle === 45)!.cut).toBeUndefined()
+  })
+
+  it('keeps only lines at an angle', () => {
+    const flat = [0, 0, 0.1, 0.1, 0, 0, 0.1, 0, 0.2, 0.2, 0.3, 0.31]
+    expect(linesFromSegments(flat, pg, { angle: 45, angleTolerance: 1 }).lines).toHaveLength(1)
+    expect(linesFromSegments(flat, pg, { angle: 225, angleTolerance: 3 }).lines).toHaveLength(2)
+  })
 })
 
 describe('detectPattern', () => {

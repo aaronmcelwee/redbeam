@@ -17,6 +17,7 @@ import {
   canonicalProductType, scopeDefaultDirectionFrom as scopeDirectionOf, formatFeetInches,
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
+  checkOutline, type OutlineIssue,
   PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, readPatternRecipe, builtInAsRecipe,
   approvePatternRecipe, approvePatternLayer, removePatternLayer,
   type PatternRecipe,
@@ -147,6 +148,7 @@ import type { PageText } from '@redbeam/viewer'
 import { detectPattern, linesFromSegments, measurePoints } from './search/measure.js'
 import { describeAllProducts, describeProduct, measuresAsText, missingKeys, unknownSpecKeys } from './agent/products.js'
 import { ringsAreaPoints, snapToLinework } from './agent/snapTrace.js'
+import { traceFieldInWorker } from './agent/fieldTraceInWorker.js'
 import { expandRing } from './agent/arcs.js'
 import { checkScale, statedScales } from './agent/statedScale.js'
 import { pieceList } from './agent/pieceList.js'
@@ -6302,6 +6304,15 @@ export default function Workspace({
     const r = bridgePages(params, pageCount)
     return typeof r === 'string' ? { error: r } : { pages: r }
   }
+  /**
+   * What is wrong with an outline an agent drew: crossed, off the sheet, or
+   * in the title block. The markup is still made; the answer says so.
+   */
+  const outlineWarnings = (rings: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>): OutlineIssue[] => {
+    const info = viewerRef.current?.pageInfo
+    const notDrawing = titleRegions === null ? [] : [titleRegions.number, ...(titleRegions.title !== null ? [titleRegions.title] : [])]
+    return checkOutline(rings, { page: { width: info?.width || 1, height: info?.height || 1 }, notDrawing })
+  }
   /** One markup from an agent's description, checked; curves laid out (round 3 #10). */
   const agentMarkup = (spec: Record<string, unknown>, docId: string, pageId: string): { markup: Markup } | { error: string } => {
     const kind = String(spec['kind'] ?? '') as MarkupKind
@@ -6933,7 +6944,13 @@ export default function Workspace({
           const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
           const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 300) || 300))
           const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
-          const fpp = calRef.current?.feetPerPoint ?? null
+          // The scale where the box is: a scale region's, else the sheet's.
+          const centre = { x: (clip.x0 + clip.x1) / 2, y: (clip.y0 + clip.y1) / 2 }
+          const scaleRegion = (projectRegions.get(pageIdFor(docIdRef.current, pageIndexRef.current)) ?? []).find((r) => pointInRegion(centre, [[
+            { x: Math.min(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) }, { x: Math.max(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) },
+            { x: Math.max(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) }, { x: Math.min(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) },
+          ]]))
+          const fpp = scaleRegion?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
           const feetToPts = (k: string): number | undefined => {
             const f = Number(params[k])
             return Number.isFinite(f) && f >= 0 && fpp !== null && fpp > 0 ? f / fpp : undefined
@@ -6946,8 +6963,11 @@ export default function Workspace({
             feetPerPoint: fpp,
             minLengthPoints: minFromFeet ?? Math.max(0, Number(params['minLengthPoints'] ?? 2) || 0),
             ...(maxPts !== undefined ? { maxLengthPoints: maxPts } : {}),
-            ...(params['inside'] === true ? { inside: clip } : {}),
+            // Lines are cut to the box (the part inside it) unless `whole` asks for
+            // the drawn line; the geometry read keeps anything that touches it.
+            ...(params['inside'] === true ? { inside: clip } : params['whole'] === true ? {} : { clipTo: clip }),
             ...(orientation === 'horizontal' || orientation === 'vertical' ? { orientation } : {}),
+            ...(Number.isFinite(Number(params['angle'])) && params['angle'] !== null && params['angle'] !== undefined ? { angle: Number(params['angle']) } : {}),
             ...(Number.isFinite(Number(params['angleTolerance'])) ? { angleTolerance: Number(params['angleTolerance']) } : {}),
             dedupe: params['dedupe'] !== false,
             ...(sort === 'x' || sort === 'y' || sort === 'length' ? { sort } : {}),
@@ -7286,6 +7306,8 @@ export default function Workspace({
             origin: 'agent', reviewState: 'accepted',
           }))
           const notes: string[] = []
+          // A crossed or stray outline still gives a number; say it is not to be trusted.
+          if (kind === 'area' || kind === 'shape') notes.push(...outlineWarnings(built.markup.rings).map((i) => i.message))
           if (scopeId === null && kind !== 'shape') notes.push('it has no scope, so it counts toward nothing; reassign_markup gives it one')
           if (cal === null && !(projectRegions.get(pageId) ?? []).length) notes.push(`${sheetLabelFor(pageIndexRef.current)} has no scale, so this measures nothing yet; set_page_scale or read_scale`)
           // What it measures at the sheet's scale, holes taken out.
@@ -8256,7 +8278,7 @@ export default function Workspace({
           if (!result.ok) {
             return {
               // In the sentence, not beside it: an error reaches the app as its text alone.
-              error: `no closed boundary there: ${result.message}. For a small field give sizeFeet (roughly how wide it is): gaps up to 3.5 ft are closed by default, which closes a field narrower than that`,
+              error: `no closed boundary there: ${result.message}. For a small field give sizeFeet (roughly how wide it is): gaps up to 3.5 ft are closed by default, which closes a field narrower than that. For a hatched or slatted field with no line around it, use trace_field`,
               reason: result.reason,
             }
           }
@@ -8277,6 +8299,134 @@ export default function Workspace({
             return { id, rings, areaSquareFeet: areaSqFt, holes: rings.length - 1 }
           }
           return { rings, areaSquareFeet: areaSqFt, holes: rings.length - 1, note: 'pass these rings to create_markup, or call again with create:true' }
+        }
+        /*
+         * A hatched or patterned field (a slat, baffle or wood ceiling)
+         * traced from the pattern itself, where trace_area finds no line
+         * around it: the pattern's strokes on a grid turned to them, checked
+         * against the sheet as rendered. packages/domain fieldTrace.ts says
+         * how. The whole sheet is read unless `rect` narrows it; a sheet with
+         * more geometry than one read holds is read in quarters, to the end.
+         */
+        case 'trace_field': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || page.width === 0) return { error: 'no page is showing' }
+          const pt = bridgePoint(params['point'])
+          if (pt === null) return { error: 'trace_field needs `point` {x,y}, normalized, inside the hatched field' }
+          const rect = bridgeRect(params['rect'])
+          if (rect === null) return { error: '`rect` must be {x0,y0,x1,y1}, normalized [0,1]' }
+          const frame = rect === undefined ? { x0: 0, y0: 0, x1: 1, y1: 1 } : {
+            x0: Math.max(0, Math.min(rect.x0, rect.x1)), y0: Math.max(0, Math.min(rect.y0, rect.y1)),
+            x1: Math.min(1, Math.max(rect.x0, rect.x1)), y1: Math.min(1, Math.max(rect.y0, rect.y1)),
+          }
+          if (!(pt.x >= frame.x0 && pt.x <= frame.x1 && pt.y >= frame.y0 && pt.y <= frame.y1)) return { error: '`point` is outside `rect`' }
+          const pageIdx = pageIndexRef.current
+          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const region = (projectRegions.get(here) ?? []).find((r) => pointInRegion(pt, [[
+            { x: Math.min(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) }, { x: Math.max(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) },
+            { x: Math.max(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) }, { x: Math.min(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) },
+          ]]))
+          const fpp = region?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
+          const pageSize = { width: page.width, height: page.height }
+          // Every segment in the box: a read that fills up is split in four, to the end.
+          let readsCut = false
+          const readAll = async (clip: typeof frame, depth: number): Promise<Float32Array[]> => {
+            const g = await v.requestGeometry(pageIdx, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 1_000_000 })
+            if (!g.truncated) return [g.segments]
+            if (depth >= 6) { readsCut = true; return [g.segments] }
+            const mx = (clip.x0 + clip.x1) / 2, my = (clip.y0 + clip.y1) / 2
+            const parts = await Promise.all([
+              { x0: clip.x0, y0: clip.y0, x1: mx, y1: my }, { x0: mx, y0: clip.y0, x1: clip.x1, y1: my },
+              { x0: clip.x0, y0: my, x1: mx, y1: clip.y1 }, { x0: mx, y0: my, x1: clip.x1, y1: clip.y1 },
+            ].map((q) => readAll(q, depth + 1)))
+            return parts.flat()
+          }
+          const chunks = await readAll(frame, 0)
+          const segments = new Float32Array(chunks.reduce((n, c) => n + c.length, 0))
+          let at = 0
+          for (const c of chunks) { segments.set(c, at); at += c.length }
+          // The sheet as PDFium draws it, without anyone's markups, about a pixel a grid cell.
+          const fwPts = (frame.x1 - frame.x0) * page.width, fhPts = (frame.y1 - frame.y0) * page.height
+          const cellGuess = Math.max(0.75, Math.sqrt((fwPts * fhPts * 1.5) / 8_000_000))
+          let image: { data: Uint8Array; width: number; height: number; channels: 1 } | undefined
+          if (params['visual'] !== false) {
+            try {
+              const out = await v.renderRegion(frame, Math.max(64, Math.min(12_000, Math.round(fwPts / cellGuess))), { annots: false, overlay: false })
+              const px = out.canvas.getContext('2d')?.getImageData(0, 0, out.width, out.height)
+              if (px !== undefined) {
+                const grey = new Uint8Array(out.width * out.height)
+                for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = (px.data[j]! * 299 + px.data[j + 1]! * 587 + px.data[j + 2]! * 114) / 1000
+                image = { data: grey, width: out.width, height: out.height, channels: 1 }
+              }
+            } catch { image = undefined }
+          }
+          const num = (k: string): number | undefined => {
+            const n = Number(params[k])
+            return params[k] !== undefined && Number.isFinite(n) && n >= 0 ? n : undefined
+          }
+          const ptsOf = (feet: number | undefined): number | undefined => (feet === undefined || fpp === null || fpp <= 0 ? undefined : feet / fpp)
+          const bridge = ptsOf(num('bridgeGapFeet'))
+          const minWidth = ptsOf(num('minWidthFeet') ?? 1.25)
+          const minCut = num('minCutoutSqFt') ?? 1.5
+          const minField = num('minFieldSqFt')
+          const result = await traceFieldInWorker({
+            segments, page: pageSize, seed: pt, frame,
+            options: {
+              ...(num('angle') !== undefined ? { angleDeg: num('angle')! } : {}),
+              ...(bridge !== undefined ? { bridgePoints: bridge } : {}),
+              ...(minWidth !== undefined ? { minWidthPoints: minWidth } : {}),
+              ...(fpp !== null && fpp > 0 ? { minCutoutPoints2: minCut / (fpp * fpp) } : {}),
+              ...(fpp !== null && fpp > 0 && minField !== undefined ? { minFieldPoints2: minField / (fpp * fpp) } : {}),
+              all: params['all'] === true,
+              ...(image !== undefined ? { image } : {}),
+            },
+          })
+          if (!result.ok) return { error: `no hatched field there: ${result.message}`, reason: result.reason }
+          const r5 = (n: number) => Math.round(n * 1e5) / 1e5
+          const sqft = (pts2: number) => (fpp !== null && fpp > 0 ? Math.round(pts2 * fpp * fpp * 100) / 100 : null)
+          const fields = result.fields.map((f) => {
+            const rings = f.rings.map((ring) => ring.map((q) => ({ x: r5(q.x), y: r5(q.y) })))
+            const xs = rings[0]!.map((q) => q.x), ys = rings[0]!.map((q) => q.y)
+            const mx = 0.1 * (Math.max(...xs) - Math.min(...xs)) + 0.005, my = 0.1 * (Math.max(...ys) - Math.min(...ys)) + 0.005
+            const warnings = outlineWarnings(rings).map((i) => i.message)
+            const hidden = f.cutouts.filter((c) => c.hidden === true)
+            if (hidden.length > 0) warnings.push(`${hidden.length} patch${hidden.length === 1 ? ' is' : 'es are'} drawn over in white on the sheet (the strokes are there, the sheet shows something else) and cut out; look before you trust them`)
+            if (rect !== undefined && rings[0]!.some((q) => Math.abs(q.x - frame.x0) < 1e-3 || Math.abs(q.x - frame.x1) < 1e-3 || Math.abs(q.y - frame.y0) < 1e-3 || Math.abs(q.y - frame.y1) < 1e-3)) {
+              warnings.push('the field runs to the edge of `rect`: it may go on past it; search a bigger box')
+            }
+            return {
+              seed: f.seed, rings, areaSquareFeet: sqft(f.areaPoints2), holes: rings.length - 1,
+              cutouts: f.cutouts.map((c) => ({ areaSquareFeet: sqft(c.areaPoints2), center: { x: r5(c.center.x), y: r5(c.center.y) }, ...(c.hidden === true ? { paintedOver: true } : {}) })),
+              smallHolesFilled: f.filledHoles,
+              lookAt: { x0: r5(Math.max(0, Math.min(...xs) - mx)), y0: r5(Math.max(0, Math.min(...ys) - my)), x1: r5(Math.min(1, Math.max(...xs) + mx)), y1: r5(Math.min(1, Math.max(...ys) + my)) },
+              ...(f.visual !== undefined ? { onTheSheet: f.visual } : {}),
+              ...(warnings.length > 0 ? { warnings } : {}),
+            }
+          })
+          const d = result.diagnostics
+          const summary = {
+            page: pageIdx, sheet: sheetLabelFor(pageIdx),
+            pattern: {
+              angle: d.angleDeg, from: d.source, strokes: d.patternSegments, segmentsRead: d.segments,
+              strokeGapFeet: fpp !== null && fpp > 0 ? Math.round(d.strokeGapPoints * fpp * 1000) / 1000 : null,
+              strokeGapPoints: d.strokeGapPoints,
+            },
+            totalSquareFeet: fpp !== null && fpp > 0 ? Math.round(fields.reduce((n, f) => n + (f.areaSquareFeet ?? 0), 0) * 100) / 100 : null,
+            ...(readsCut ? { note: 'the sheet holds more geometry than could be read; trace with a smaller `rect`' } : {}),
+            ...(fpp === null ? { scale: 'the sheet has no scale, so areas are null; set_page_scale first' } : {}),
+          }
+          if (params['create'] === true) {
+            const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : agentScope()
+            const ids = fields.map(() => uid())
+            const cmds = fields.map((f, i) => cmdCreate({
+              id: ids[i]!, documentId: docIdRef.current, pageId: here,
+              scopeId, kind: 'area', rings: f.rings, origin: 'agent', reviewState: 'accepted', content: { source: 'trace-field' },
+            }))
+            await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`trace ${cmds.length} fields`, cmds))
+            return { ...summary, fields: fields.map((f, i) => ({ id: ids[i], ...f })), note: 'placed as areas; look at each `lookAt` with redbeam_screenshot (overlay on) to check the edges' }
+          }
+          return { ...summary, fields, note: 'pass a field’s rings to create_markup, or call again with create:true. Look at `lookAt` with redbeam_screenshot to check the edges' }
         }
         case 'detect_pattern': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
@@ -8444,7 +8594,11 @@ export default function Workspace({
               continue
             }
             pending.push(built.markup)
-            results.push({ index: i, id: built.markup.id, kind: built.markup.kind, scopeId: built.markup.scopeId, page: pg })
+            const issues = built.markup.kind === 'area' || built.markup.kind === 'shape' ? outlineWarnings(built.markup.rings) : []
+            results.push({
+              index: i, id: built.markup.id, kind: built.markup.kind, scopeId: built.markup.scopeId, page: pg,
+              ...(issues.length > 0 ? { warnings: issues.map((x) => x.message) } : {}),
+            })
           }
           const cmds = pending.map((m) => cmdCreate({ ...m, origin: 'agent', reviewState: 'accepted' }))
           const editCmd = edits.length > 0 ? editsCommand(edits, 'cut area') : null

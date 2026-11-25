@@ -77,6 +77,8 @@ export interface Line {
   lengthFeet: number | null
   /** Degrees from the page's horizontal, 0 to 180, y down. */
   angle: number
+  /** The drawn line goes on past the box; these are the ends at the box's edge. */
+  cut?: true
 }
 
 export interface LineFilter {
@@ -85,6 +87,14 @@ export interface LineFilter {
   maxLengthPoints?: number
   /** Only segments with both ends inside this box (normalized). */
   inside?: { x0: number; y0: number; x1: number; y1: number }
+  /**
+   * Cut every segment to this box (normalized) and leave out the ones that
+   * do not reach into it. A long wall crossing the box comes back as the
+   * part inside it, so no end lies outside the box asked about.
+   */
+  clipTo?: { x0: number; y0: number; x1: number; y1: number }
+  /** Only lines at this angle (degrees, 0..180, y down), within `angleTolerance`. */
+  angle?: number
   /** horizontal, vertical, or any. Within `angleTolerance` degrees. */
   orientation?: 'horizontal' | 'vertical' | 'any'
   angleTolerance?: number
@@ -118,9 +128,32 @@ export function linesFromSegments(
     y0: Math.min(opts.inside.y0, opts.inside.y1), y1: Math.max(opts.inside.y0, opts.inside.y1),
   }
   const inBox = (x: number, y: number) => box === null || (x >= box.x0 - 1e-9 && x <= box.x1 + 1e-9 && y >= box.y0 - 1e-9 && y <= box.y1 + 1e-9)
+  const cb = opts.clipTo === undefined ? null : {
+    x0: Math.min(opts.clipTo.x0, opts.clipTo.x1), x1: Math.max(opts.clipTo.x0, opts.clipTo.x1),
+    y0: Math.min(opts.clipTo.y0, opts.clipTo.y1), y1: Math.max(opts.clipTo.y0, opts.clipTo.y1),
+  }
   const all: Line[] = []
   for (let i = 0; i + 3 < flat.length; i += 4) {
     let x1 = flat[i]!, y1 = flat[i + 1]!, x2 = flat[i + 2]!, y2 = flat[i + 3]!
+    let cut = false
+    if (cb !== null) {
+      // Liang-Barsky: the part of the segment inside the box, or nothing.
+      const ex = x2 - x1, ey = y2 - y1
+      let t0 = 0, t1 = 1
+      const edge = (p: number, q: number): boolean => {
+        if (p === 0) return q >= -1e-12
+        const t = q / p
+        if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t } else { if (t < t0) return false; if (t < t1) t1 = t }
+        return true
+      }
+      if (!(edge(-ex, x1 - cb.x0) && edge(ex, cb.x1 - x1) && edge(-ey, y1 - cb.y0) && edge(ey, cb.y1 - y1))) continue
+      if (t0 > 1e-9 || t1 < 1 - 1e-9) {
+        cut = true
+        const ax = x1 + t0 * ex, ay = y1 + t0 * ey
+        x2 = x1 + t1 * ex; y2 = y1 + t1 * ey
+        x1 = ax; y1 = ay
+      }
+    }
     const dx = (x2 - x1) * page.width, dy = (y2 - y1) * page.height
     const len = Math.hypot(dx, dy)
     if (len < min || len > max) continue
@@ -130,10 +163,14 @@ export function linesFromSegments(
     if (angle >= 180) angle -= 180
     if (opts.orientation === 'horizontal' && !(angle <= tol || angle >= 180 - tol)) continue
     if (opts.orientation === 'vertical' && Math.abs(angle - 90) > tol) continue
+    if (opts.angle !== undefined) {
+      const d = Math.abs((((angle - opts.angle) % 180) + 180) % 180)
+      if (Math.min(d, 180 - d) > tol) continue
+    }
     // Reading order: left end first; for a near-vertical line, top end first.
     const vertical = Math.abs(angle - 90) <= 45
     if (vertical ? y2 < y1 : x2 < x1) { [x1, x2] = [x2, x1]; [y1, y2] = [y2, y1] }
-    all.push({ x1, y1, x2, y2, lengthPoints: len, lengthFeet: null, angle })
+    all.push({ x1, y1, x2, y2, lengthPoints: len, lengthFeet: null, angle, ...(cut ? { cut: true as const } : {}) })
   }
   let duplicatesRemoved = 0
   let kept = all
@@ -169,6 +206,7 @@ export function linesFromSegments(
     lengthPoints: r3(l.lengthPoints),
     lengthFeet: fpp === null ? null : r3(l.lengthPoints * fpp),
     angle: Math.round(l.angle * 100) / 100,
+    ...(l.cut === true ? { cut: true as const } : {}),
   }))
   return { lines, total: kept.length, duplicatesRemoved }
 }
