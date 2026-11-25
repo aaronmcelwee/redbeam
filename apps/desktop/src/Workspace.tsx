@@ -2060,7 +2060,7 @@ export default function Workspace({
       const read = names.filter((n) => n !== null).length
       setStatus(read === pageCount
         ? `named all ${pageCount} sheets from the title block`
-        : `named ${read} of ${pageCount} sheets from the title block; ${pageCount - read} had nothing in the number box and keep their old names`)
+        : `named ${read} of ${pageCount} sheets from the title block; ${pageCount - read === 1 ? '1 sheet had nothing in the number box and kept its old name' : `${pageCount - read} had nothing in the number box and kept their old names`}`)
     })()
     return () => { cancelled = true }
   }, [pageCount, activeDocId, titleRegions, setStatus])
