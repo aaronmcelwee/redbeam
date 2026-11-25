@@ -398,6 +398,15 @@ describe('how a session ends', () => {
     expect(w.roster.agent('b')!.state).not.toBe('gone')
   })
 
+  it('finishes the sessions of an AI app killed before it ever said it was alive', async () => {
+    const { w, router, call, tick } = world()
+    await call({ id: 'srv2/AAA', client: 'claude', label: 'Quick look' }, 'open_file', { path: SPEC, wait: true })
+    tick(LOST_AFTER_MS + 1)
+    router.sweep()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.roster.agent('srv2/AAA')).toMatchObject({ state: 'gone', ended: { by: 'lost' } })
+  })
+
   it('keeps what a session said when it finished, if it only looks around before its app closes', async () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })

@@ -24,13 +24,21 @@
   const listeners = new Map()
   const waiting = new Map()
   let request = 0
-  window.__sweepAgent = (agent, action, params = {}, withinMs = 25000) => new Promise((resolve) => {
-    const id = ++request
-    waiting.set(id, resolve)
-    setTimeout(() => { if (waiting.delete(id)) resolve({ error: `sweep: no answer to ${action} in ${withinMs} ms` }) }, withinMs)
+  const send = (id, action, params, agent) => {
     for (const handler of listeners.get('redbeam://bridge/request') ?? []) {
       window[`_${handler}`]?.({ event: 'redbeam://bridge/request', id: handler, payload: { id, action, params, agent } })
     }
+  }
+  /** Each AI app's server says it is still there every five seconds, as the real ones do (apps/mcp, mcp.rs). */
+  const servers = new Set()
+  setInterval(() => { for (const server of servers) send(++request, 'agent_alive', { server }, null) }, 5000)
+  window.__sweepAgent = (agent, action, params = {}, withinMs = 25000) => new Promise((resolve) => {
+    const id = ++request
+    const cut = typeof agent?.id === 'string' ? agent.id.lastIndexOf('/') : -1
+    if (cut > 0) servers.add(agent.id.slice(0, cut))
+    waiting.set(id, resolve)
+    setTimeout(() => { if (waiting.delete(id)) resolve({ error: `sweep: no answer to ${action} in ${withinMs} ms` }) }, withinMs)
+    send(id, action, params, agent)
   })
   const handlers = {
     bridge_reply: (a) => { const go = waiting.get(a.id); waiting.delete(a.id); go?.(a.result); return null },
