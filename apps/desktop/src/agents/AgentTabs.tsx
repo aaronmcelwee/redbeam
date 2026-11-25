@@ -292,7 +292,8 @@ export function AgentStrip({
               }}
               onContextMenu={(e) => { e.preventDefault(); openMenu(e.currentTarget) }}
             >
-              <span className="agentpill-name">{agent.app}{agent.task !== null ? ` · ${agent.task}` : ''}</span>
+              <span className="agentdot" aria-hidden="true" data-state={agent.state} />
+              <span className="agentpill-name"><strong>{agent.app}</strong>{agent.task !== null ? ` · ${agent.task}` : ''}</span>
               {agent.state === 'waiting' && <span className="agentpill-state">Waiting for you</span>}
               {asks.length > 0
                 ? <span className="agentcount attention" aria-label="Asking you something">!</span>

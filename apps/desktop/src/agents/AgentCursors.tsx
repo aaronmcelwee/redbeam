@@ -40,6 +40,10 @@ export function cursorsFor(agents: readonly Agent[], file: string, page: number,
   })
 }
 
+/** Docked labels start below the bar that says whose PDF this is, and stack by their own height. */
+export const DOCK_TOP = 64
+export const DOCK_STEP = 50
+
 /**
  * Where a cursor goes, in the layer's own pixels. On the point when it is in
  * view; held at the nearest edge when the person has panned away from it, so
@@ -49,7 +53,7 @@ export function cursorsFor(agents: readonly Agent[], file: string, page: number,
 export function cursorSpot(
   at: { x: number; y: number } | null, size: { width: number; height: number }, slot: number,
 ): { x: number; y: number; mode: 'on' | 'edge' | 'docked' } {
-  if (at === null || size.width <= 0 || size.height <= 0) return { x: 14, y: 14 + slot * 30, mode: 'docked' }
+  if (at === null || size.width <= 0 || size.height <= 0) return { x: 14, y: DOCK_TOP + slot * DOCK_STEP, mode: 'docked' }
   const pad = 10
   const inside = at.x >= 0 && at.y >= 0 && at.x <= size.width && at.y <= size.height
   if (inside) return { x: at.x, y: at.y, mode: 'on' }
