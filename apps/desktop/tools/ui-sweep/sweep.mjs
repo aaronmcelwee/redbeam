@@ -248,6 +248,45 @@ const STEPS = [
     if (await page.getByRole('button', { name: 'Apply', exact: true }).count() > 0) problems.push('Escape left the scale picker open')
     return problems
   }],
+  /*
+   * Name sheets from the title block: drag a box round the number, then the
+   * title, then read every sheet. Boxes are dragged where the sweep set
+   * prints them (bottom right), through the dev hook's view.
+   */
+  ['title-block', async (page) => {
+    await page.getByRole('button', { name: 'Read from title block…' }).click()
+    await page.getByRole('dialog', { name: 'Name sheets from the title block' }).waitFor()
+    const drag = async (nx0, ny0, nx1, ny1) => {
+      const at = await page.evaluate(([a, b, c, d]) => {
+        const rb = window.__redbeam
+        const v = rb.view(), w = rb.page.width, h = rb.page.height
+        const r = document.querySelector('.stage').getBoundingClientRect()
+        const s = (nx, ny) => ({ x: r.left + nx * w * v.zoom - v.ox, y: r.top + ny * h * v.zoom - v.oy })
+        return [s(a, b), s(c, d)]
+      }, [nx0, ny0, nx1, ny1])
+      await page.mouse.move(at[0].x, at[0].y)
+      await page.mouse.down()
+      await page.mouse.move(at[1].x, at[1].y, { steps: 6 })
+      await page.mouse.up()
+      await page.waitForTimeout(500)
+    }
+    const problems = []
+    await drag(0.82, 0.89, 0.91, 0.94)
+    const number = await page.locator('.tbpick-fields dd').first().innerText()
+    if (!/^G\d\.\d\d$/.test(number)) problems.push(`title-block: the number box read "${number}"`)
+    await page.screenshot({ path: join(out, `${shotPrefix}title-block-1-number.png`) })
+    await page.getByRole('button', { name: 'Next', exact: true }).click()
+    await drag(0.82, 0.845, 0.95, 0.87)
+    const title = await page.locator('.tbpick-fields dd').nth(1).innerText()
+    if (title.trim() === '' || /Not drawn|No text/.test(title)) problems.push(`title-block: the title box read "${title}"`)
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}title-block-2-title.png`) })
+    await page.getByRole('button', { name: /^Name \d+ sheets$/ }).click()
+    await page.waitForTimeout(1500)
+    if (await page.locator('.tbpick').count() > 0) problems.push('title-block: the card stayed open after naming')
+    if (await page.getByText('Names read from the title block').count() === 0) problems.push('title-block: Contents does not say the names came from the title block')
+    return problems
+  }],
   ['bookmarks', async (page) => {
     await page.getByRole('tab', { name: 'Bookmarks', exact: true }).click()
     await page.waitForTimeout(300)

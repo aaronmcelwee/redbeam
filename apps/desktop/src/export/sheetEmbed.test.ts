@@ -284,3 +284,49 @@ describe('a working copy without the other markups (round 3 #13)', () => {
     expect((await pageAnnots(plain.bytes!)).map((a) => str(a, 'NM'))).toContain('DAVE1')
   })
 })
+
+describe('sheet names read off the title block', () => {
+  const withLabels = (labels: Array<string | null>): EmbedInput => {
+    const base = input()
+    return { ...base, tables: { ...base.tables, redbeam_meta: [{ key: 'sheet_labels', value: JSON.stringify(labels) }] } }
+  }
+  const labelsIn = async (bytes: Uint8Array): Promise<unknown[]> => {
+    const doc = await PDFDocument.load(bytes)
+    const tree = doc.catalog.lookup(PDFName.of('PageLabels'), PDFDict)
+    const nums = tree.lookup(PDFName.of('Nums'), PDFArray)
+    return Array.from({ length: nums.size() }, (_, i) => {
+      const v = nums.lookup(i)
+      if (v instanceof PDFNumber) return v.asNumber()
+      const d = v as PDFDict
+      const p = d.lookup(PDFName.of('P'))
+      if (p !== undefined) return { P: (p as PDFString).decodeText() }
+      return { S: (d.lookup(PDFName.of('S')) as PDFName).decodeText(), St: (d.lookup(PDFName.of('St')) as PDFNumber).asNumber() }
+    })
+  }
+
+  it('go into the PDF as page labels, so Bluebeam names the pages too', async () => {
+    const out = await embedSheet(await blank(false), withLabels(['IX0510 - INDEX OF DRAWINGS', 'A3001 - OVERALL SITE PLAN']))
+    expect(await labelsIn(out.bytes!)).toEqual([0, { P: 'IX0510 - INDEX OF DRAWINGS' }, 1, { P: 'A3001 - OVERALL SITE PLAN' }])
+    // And they survive another app's full rewrite.
+    expect(await labelsIn(await resaveElsewhere(out.bytes!))).toEqual([0, { P: 'IX0510 - INDEX OF DRAWINGS' }, 1, { P: 'A3001 - OVERALL SITE PLAN' }])
+  })
+
+  it('number a page the boxes could not read by its position', async () => {
+    const out = await embedSheet(await blank(true), withLabels([null, 'A3001 - OVERALL SITE PLAN']))
+    expect(await labelsIn(out.bytes!)).toEqual([0, { S: 'D', St: 1 }, 1, { P: 'A3001 - OVERALL SITE PLAN' }])
+  })
+
+  it('keep a name with an en dash or accent intact', async () => {
+    const out = await embedSheet(await blank(false), withLabels(['A–101 – CAFÉ PLAN', null]))
+    const doc = await PDFDocument.load(out.bytes!)
+    const nums = doc.catalog.lookup(PDFName.of('PageLabels'), PDFDict).lookup(PDFName.of('Nums'), PDFArray)
+    const p = (nums.lookup(1) as PDFDict).lookup(PDFName.of('P')) as unknown as { decodeText(): string }
+    expect(p.decodeText()).toBe('A–101 – CAFÉ PLAN')
+  })
+
+  it('leave the file’s labels alone when nothing was read', async () => {
+    const out = await embedSheet(await blank(false), input())
+    const doc = await PDFDocument.load(out.bytes!)
+    expect(doc.catalog.lookup(PDFName.of('PageLabels'))).toBeUndefined()
+  })
+})
