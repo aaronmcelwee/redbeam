@@ -130,10 +130,14 @@ fn claim_launch(path: &std::path::Path, now: std::time::SystemTime) -> bool {
         match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
             Ok(_) => return true,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A claim written a hair AFTER `now` is as fresh as a claim gets
+                // (two servers in the same instant, and a file time that is
+                // coarser than the clock). Reading that as "no age" took the
+                // claim over, and both servers started REDBEAM (SLS, 2026-11-25).
                 let age = std::fs::metadata(path)
                     .and_then(|m| m.modified())
                     .ok()
-                    .and_then(|t| now.duration_since(t).ok());
+                    .map(|t| now.duration_since(t).unwrap_or(Duration::ZERO));
                 match age {
                     // Fresh: someone else is starting it.
                     Some(a) if a < LAUNCH_CLAIM => return false,
@@ -533,6 +537,8 @@ mod tests {
         let now = std::time::SystemTime::now();
         assert!(claim_launch(&path, now), "the first server starts it");
         assert!(!claim_launch(&path, now), "the second waits for the first");
+        // A server whose clock reading is a little BEFORE the claim's file time waits too.
+        assert!(!claim_launch(&path, now - Duration::from_secs(2)), "a claim dated after now is fresh, not stale");
         // The first server died mid-launch: later, the claim is stale.
         assert!(claim_launch(&path, now + LAUNCH_CLAIM + Duration::from_secs(1)));
         let _ = std::fs::remove_file(&path);
