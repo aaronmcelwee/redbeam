@@ -1990,8 +1990,11 @@ export default function Workspace({
    *    instead of staying at whatever fraction happened to be visited.
    */
   const [derivedLabels, setDerivedLabels] = useState<Array<string | null>>([])
+  /** How far the sheet sweep has read, for list_sheets: a stall shows instead of hiding. */
+  const [sweepRead, setSweepRead] = useState<{ read: number; of: number; restarts: number }>({ read: 0, of: 0, restarts: 0 })
   useEffect(() => {
     setDerivedLabels([])
+    setSweepRead((s) => ({ read: 0, of: pageCount, restarts: s.restarts + 1 }))
     const v = viewerRef.current
     const db = dbRef.current
     if (!v || !db || pageCount === 0) return
@@ -2050,6 +2053,7 @@ export default function Workspace({
         if (performance.now() - shown > 250 || sweepPage === pageCount - 1) {
           shown = performance.now()
           setDerivedLabels(namer.names())
+          setSweepRead((s) => ({ ...s, read: sweepPage + 1, of: pageCount }))
           const block = namer.titleBlock()
           if (block !== blockShown) { blockShown = block; setFoundTitleBlock(block) }
         }
@@ -2286,19 +2290,29 @@ export default function Workspace({
   // range (or, failing that, hands back the bytes for a blob URL). Browser mode has no filesystem, so it falls
   // back to the bundled sample — the app stays usable for iteration rather than
   // showing an empty stage.
+  //
+  // Keyed by the file's path, not the catalog: the catalog is a new array
+  // whenever any document's record changes (another tab opened, an index
+  // finished, a save), and each new array used to issue a new stream token,
+  // release the old one and restart the viewer and the set's readers. On a
+  // 4,400-page spec the sheet list then never got past its first sheet
+  // (0.3.98 test build, SLS 2026-11-26).
+  const activeDocRow = documents.find((d) => d.id === activeDocId)
+  const activeRelPath = activeDocRow?.relativePath ?? null
+  // A changed file on disk is still a reason to read it again.
+  const activeFileStamp = activeDocRow === undefined ? '' : `${activeDocRow.sizeBytes}|${activeDocRow.modifiedAtObserved ?? ''}`
   useEffect(() => {
-    const doc = documents.find((d) => d.id === activeDocId)
-    if (!doc) { setDocUrl(isTauri() ? null : '/sample.pdf'); return }
+    if (activeRelPath === null) { setDocUrl(isTauri() ? null : '/sample.pdf'); return }
     if (!isTauri()) { setDocUrl('/sample.pdf'); return }
 
     let cancelled = false
     const resolver = createCoreDocumentUrlResolver(projectPath)
-    void resolver.resolveUrl({ relativePath: doc.relativePath }).then((url) => {
+    void resolver.resolveUrl({ relativePath: activeRelPath }).then((url) => {
       if (cancelled || !url) { if (url) resolver.releaseUrl(url); return }
       setDocUrl(url)
     })
     return () => { cancelled = true; resolver.release() }
-  }, [documents, activeDocId, projectPath])
+  }, [activeRelPath, activeFileStamp, activeDocId, projectPath])
 
   /*
    * Index the whole project's text, starting the moment the folder is known.
@@ -6807,6 +6821,7 @@ export default function Workspace({
               },
             } : {}),
             ...(titleReading !== null ? { reading: { ...titleReading, note: 'the title block boxes are still being read; names fill in as they are' } } : {}),
+            ...(sweepRead.read < sweepRead.of ? { sheetsRead: { read: sweepRead.read, of: sweepRead.of, note: 'sheets are still being read for their names; ask again shortly' } } : {}),
             sheets,
             ...(sheets.some((x) => x.sheet === null) ? { note: 'sheet: null means no sheet number has been read off that page yet (they are read as the file is indexed after opening, so ask again shortly), or the page has none; `page` always works' } : {}),
           }
