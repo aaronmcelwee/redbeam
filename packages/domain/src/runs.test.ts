@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Region } from './geometry.js'
 import { buildRunLayout } from './pieces.js'
 import {
-  layoutRuns, regionPerimeterPoints, resolveRunInputs, runQuantities, summarizeRuns,
+  layoutRuns, mixedMemberPieces, readMixedMembers, regionPerimeterPoints, resolveRunInputs, runQuantities, summarizeRuns,
   type RunGroup, type RunInputs, type RunLayoutEntry,
 } from './runs.js'
 
@@ -242,5 +242,42 @@ describe('buildRunLayout guards, reached through the roll-up', () => {
         maxConnectorSpacingPoints: 2,
       }),
     ).toThrow(RangeError)
+  })
+})
+
+describe('mixed members (Beam every Nth, Slab between)', () => {
+  it('reads the spec keys, baffles only', () => {
+    const specs = { spacing: '2', spacingUnit: 'ft', stockLength: '5', stockLengthUnit: 'ft', maxConnectorSpacing: '2.5', maxConnectorSpacingUnit: 'ft', mixedEvery: '3', mixedLabel: 'Beam', memberLabel: 'Slab' }
+    expect(resolveRunInputs('baffle', specs)?.mixed).toEqual({ every: 3, start: 0, label: 'Beam', memberLabel: 'Slab' })
+    expect(resolveRunInputs('baffle', { ...specs, mixedEvery: '1' })?.mixed).toBeUndefined()
+    expect(readMixedMembers({ mixedEvery: '4', mixedStart: '5' })).toEqual({ every: 4, start: 1, label: 'Beam', memberLabel: null })
+  })
+
+  it('orders every Nth line on its own and the lines between as the main stock', () => {
+    // 10 ft room, 2 ft spacing: five 10 ft lines, each two 5 ft sticks.
+    const inputs: RunInputs = { ...BAFFLE_INPUTS, mixed: { every: 2, start: 0, label: 'Beam', memberLabel: 'Slab' } }
+    const entries = layoutRuns([ACROSS], inputs)
+    const plain = summarizeRuns(entries, BAFFLE_INPUTS)
+    const s = summarizeRuns(entries, inputs)
+    const lines = new Set(entries[0]!.layout.pieces.map((p) => Math.round(p.insideSegment.a.y * 1000))).size
+    const beams = Math.ceil(lines / 2)
+    expect(s.mixed!.lines).toBe(beams)
+    expect(s.mixed!.linearFeet).toBeCloseTo(beams * 10, 6)
+    expect(s.mixed!.stock + s.primaryStockCount).toBe(plain.primaryStockCount)
+    expect(s.placedPieceCount).toBe(plain.placedPieceCount)
+    const q = runQuantities('baffle', s)
+    expect(q.find((x) => x.itemKey === 'primary_stock')!.label).toBe('Slab stock')
+    expect(q.find((x) => x.itemKey === 'mixed_stock')).toMatchObject({ label: 'Beam stock', quantity: s.mixed!.stock })
+  })
+
+  it('counts lines from the first line of the area, past a hole', () => {
+    const holed: Region = [ROOM[0]!, [{ x: 3, y: 3 }, { x: 7, y: 3 }, { x: 7, y: 7 }, { x: 3, y: 7 }]]
+    const inputs: RunInputs = { ...BAFFLE_INPUTS, mixed: { every: 2, start: 1, label: 'Beam', memberLabel: null } }
+    const entries = layoutRuns([{ ...ACROSS, region: holed }], inputs)
+    const entry = entries[0]!
+    const { pieces } = mixedMemberPieces(entry, 2, inputs.mixed!)
+    const ys = [...new Set(entry.layout.pieces.map((p) => p.insideSegment.a.y))].sort((a, b) => a - b)
+    const picked = [...new Set([...pieces].map((p) => p.insideSegment.a.y))].sort((a, b) => a - b)
+    expect(picked).toEqual(ys.filter((_, i) => i % 2 === 1))
   })
 })

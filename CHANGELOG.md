@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.106 — 2026-11-26
+
+### Agents count baffles that mix two members
+
+- **"Beam every Nth member, Slab between."** An agent can set a baffle scope so every Nth line is a different member, such as a beam with slabs between. Those lines are counted and ordered as their own stock, with their own installed length, and the members between keep the main stock line under their own name. Lines are counted from the first line of each area, so a hole or notch never shifts which ones are beams.
+
 ## 0.3.105 — 2026-11-26
 
 ### Agents check and count layouts more reliably
