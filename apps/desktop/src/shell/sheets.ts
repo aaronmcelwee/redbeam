@@ -105,6 +105,10 @@ const SHEET_CODE = /^([A-Z0-9][A-Z0-9.\-/]*)(?:\s+[-–—]?\s*(.*))?$/
 export function splitSheetTitle(raw: string): { number: string; title: string } {
   const text = raw.replace(/\s+/g, ' ').trim()
   if (text === '') return { number: '', title: '' }
+  // A spec section ("09 51 13 ACOUSTICAL PANEL CEILINGS") is one code of three
+  // pairs; read as a sheet code it came out as sheet "09" (SLS, 2026-11-26).
+  const section = /^(\d{2} \d{2} \d{2}(?:\.\d{1,2})?)(?:\s*[-–—:]\s*|\s+|$)(.*)$/.exec(text)
+  if (section !== null) return { number: section[1]!, title: section[2]!.trim() }
   const m = SHEET_CODE.exec(text)
   const code = m?.[1]
   if (code === undefined || code.length < 2 || !/[\d\-]/.test(code)) {

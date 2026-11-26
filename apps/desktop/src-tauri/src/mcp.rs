@@ -216,8 +216,75 @@ static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
 const SESSION_ARG: &str = "session";
 const SESSION_TOOL: &str = "redbeam_start_session";
 
-/// The sessions this server has started: each one's code and the task its chat named.
-static SESSIONS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+/// A session this server answers for: its code, the task its chat named,
+/// and the server that first issued it (this one, or one before a restart).
+#[derive(Clone)]
+struct Issued {
+    code: String,
+    task: String,
+    server: String,
+}
+
+/// The sessions this server answers for.
+static SESSIONS: Mutex<Vec<Issued>> = Mutex::new(Vec::new());
+
+/// Where issued sessions are kept between server processes.
+///
+/// NOIC intake, 2026-11-26: the AI app restarted REDBEAM's connector after
+/// two calls went unanswered, and every call after that was refused with
+/// "Start a session first": the sessions lived only in the old process. A
+/// chat keeps passing the session it was given, so a new server that finds
+/// the code here carries on as the same agent, with the same tabs.
+fn sessions_file() -> std::path::PathBuf {
+    let name = if cfg!(test) { "redbeam-mcp-sessions-test.json" } else { "redbeam-mcp-sessions.json" };
+    std::env::temp_dir().join(name)
+}
+
+/// How long an issued session can be picked up again by a later server.
+const SESSION_KEEP_SECS: u64 = 7 * 24 * 3600;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Every session kept on disk and still fresh: (code, task, server, issued at).
+fn kept_sessions() -> Vec<(String, String, String, u64)> {
+    let Ok(text) = std::fs::read_to_string(sessions_file()) else { return Vec::new() };
+    let Ok(v) = serde_json::from_str::<Value>(&text) else { return Vec::new() };
+    let now = now_secs();
+    v.as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|e| {
+                    let at = e["at"].as_u64()?;
+                    if now.saturating_sub(at) > SESSION_KEEP_SECS {
+                        return None;
+                    }
+                    Some((e["code"].as_str()?.to_string(), e["task"].as_str()?.to_string(), e["server"].as_str()?.to_string(), at))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Add one session to the file. Best effort: a session that cannot be kept still works in this process.
+fn keep_session(issued: &Issued) {
+    let mut list = kept_sessions();
+    list.retain(|(c, ..)| *c != issued.code);
+    list.push((issued.code.clone(), issued.task.clone(), issued.server.clone(), now_secs()));
+    let json: Vec<Value> = list
+        .iter()
+        .map(|(code, task, server, at)| json!({ "code": code, "task": task, "server": server, "at": at }))
+        .collect();
+    let path = sessions_file();
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, serde_json::to_string(&json).unwrap_or_default()).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
 
 const CODE_LETTERS: &[u8] = b"23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
@@ -250,11 +317,13 @@ fn start_session(task: &str) -> Result<String, String> {
             seed ^= seed << 17;
             code.push(CODE_LETTERS[(seed % CODE_LETTERS.len() as u64) as usize] as char);
         }
-        if !sessions.iter().any(|(c, _)| *c == code) {
+        if !sessions.iter().any(|i| i.code == code) && !kept_sessions().iter().any(|(c, ..)| *c == code) {
             break code;
         }
     };
-    sessions.push((code.clone(), task.clone()));
+    let issued = Issued { code: code.clone(), task: task.clone(), server: session().to_string() };
+    keep_session(&issued);
+    sessions.push(issued);
     Ok(format!("{task} #{code}"))
 }
 
@@ -263,13 +332,26 @@ fn start_session(task: &str) -> Result<String, String> {
 fn session_of(value: Option<&str>) -> Option<(String, String)> {
     let (_, code) = value?.rsplit_once('#')?;
     let code = code.trim().to_uppercase();
-    let sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
-    sessions.iter().find(|(c, _)| *c == code).cloned()
+    let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = sessions.iter().find(|i| i.code == code) {
+        return Some((i.code.clone(), i.task.clone()));
+    }
+    // Issued by an earlier server of this app that was restarted: carry on as that session.
+    let (code, task, server, _) = kept_sessions().into_iter().find(|(c, ..)| *c == code)?;
+    sessions.push(Issued { code: code.clone(), task: task.clone(), server });
+    Some((code, task))
 }
 
-/// Who a call is from: one chat's session inside this server.
+/// Who a call is from: one chat's session, under the server that first issued it.
 fn identity(code: &str, task: &str) -> Value {
-    let id = format!("{}/{code}", session());
+    let server = SESSIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|i| i.code == code)
+        .map(|i| i.server.clone())
+        .unwrap_or_else(|| session().to_string());
+    let id = format!("{server}/{code}");
     {
         let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
         if !seen.contains(&id) {
@@ -346,7 +428,21 @@ fn say_alive() {
     let Some((port, token)) = discovery() else { return };
     let Ok(mut stream) = connect(port) else { return };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-    let line = json!({ "id": 1, "method": "agent_alive", "token": token, "params": { "server": session() } });
+    // Earlier servers whose sessions this one carries on (see `sessions_file`).
+    let servers: Vec<String> = {
+        let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out: Vec<String> = Vec::new();
+        for id in seen.iter() {
+            if let Some((server, _)) = id.rsplit_once('/') {
+                if server != session() && !out.iter().any(|s| s == server) {
+                    out.push(server.to_string());
+                }
+            }
+        }
+        out
+    };
+    let line = json!({ "id": 1, "method": "agent_alive", "token": token,
+        "params": { "server": session(), "servers": servers } });
     if stream.write_all(format!("{line}\n").as_bytes()).is_ok() {
         let mut reply = String::new();
         let _ = BufReader::new(stream).read_line(&mut reply);
@@ -653,6 +749,17 @@ mod tests {
         assert!(session_of(Some("Nokia Canada North Campus takeoff")).is_none());
         assert!(session_of(Some("x #000")).is_none());
         assert!(start_session("  # ").is_err());
+    }
+
+    #[test]
+    fn a_restarted_server_carries_on_a_session_it_did_not_issue() {
+        // As if an earlier server of this app had issued it, then been restarted.
+        let earlier = Issued { code: "Q7Z".into(), task: "NOIC spec read".into(), server: "1234-abcd".into() };
+        keep_session(&earlier);
+        let (code, task) = session_of(Some("NOIC spec read #Q7Z")).unwrap();
+        assert_eq!((code.as_str(), task.as_str()), ("Q7Z", "NOIC spec read"));
+        // Same agent as before the restart, so REDBEAM gives it its tabs back.
+        assert_eq!(identity(&code, &task)["id"], "1234-abcd/Q7Z");
     }
 
     #[test]

@@ -373,9 +373,14 @@ export default function App() {
         const tab = tabFor(mine, file)
         const rest = mine.filter((x) => !samePath(x.file, file))
         const moved = tab === undefined ? mine : [...rest, tab]
-        return showing ? moved : withHanded(moved, file, { by: agent.name, color: agent.color.bright })
+        return showing ? moved : withHanded(moved, file, { by: agent.name, color: agent.color.bright, agentId: agent.id })
       })
       handovers.dropFile(file)
+    },
+    reclaim: (file, agentId) => {
+      setTabs((t) => withHanded(withOwner(t, file, agentId), file, null))
+      handovers.dropFile(file)
+      wake(file)
     },
     roster,
     handovers,

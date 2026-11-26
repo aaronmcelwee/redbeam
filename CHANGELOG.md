@@ -12,6 +12,16 @@ All are unsigned; SmartScreen will ask once.
 - **The view lands on the markup.** In a scope's Markups list, clicking a markup while zoomed in used to show the top-left corner of its sheet. It now centres the markup on screen, on another sheet or the one you are on.
 - **Your zoom is kept when the markup fits.** If it would not fit at your zoom (zoomed all the way in on a large area), the view zooms out just enough to show all of it. It never zooms in on you.
 
+## 0.3.98 — 2026-11-26
+
+### Agents work better on big sets
+
+- **Agents name the PDF they mean.** With several PDFs open, an agent's screenshot and reads now go to the PDF it names, not whichever one it opened last. A screenshot of any sheet is drawn on its own, without turning your view or the agent's tab to it, so several can be taken at once.
+- **Sheet names from the title block, found automatically.** REDBEAM now finds where the sheet number and title sit on a set's title block by comparing sheets, and names every sheet from there with its full printed title. Tags on the drawing (like a ceiling type "CL201") are no longer mistaken for sheet numbers, sheet numbers like IB4.LL1 or IC8.0L1B are read, and portrait sheets in a landscape set get their own title block. Agents are shown the boxes it found, so they can check them and keep them in the file.
+- **Searching a big set is faster.** Text is read by several readers at once, in the background, so an agent searching a 4,000-page spec gets through it in far fewer steps. A page that can't be read is listed with the reason, and the search carries on past it.
+- **No more hanging deep in a spec book.** Reading thousands of pages in one go used to fill the PDF reader's memory until it gave up, a few thousand pages in. Readers are now swapped for fresh ones as they go. If a reader stops anyway, REDBEAM starts a fresh one and the agent is told what happened, instead of waiting forever, and other calls on that PDF no longer queue behind a stuck one.
+- **Agents pick up where they left off.** If the AI app restarts REDBEAM's connector, the agent keeps its session and gets its tabs back, instead of being asked to start over and finding its own PDF marked as someone else's.
+
 ## 0.3.97 — 2026-11-26
 
 ### REDBEAM learns where it gets in the way

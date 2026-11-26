@@ -15,6 +15,10 @@ const base = (over: Partial<SheetIndexInput>): SheetIndexInput => ({
 const allPages = (groups: ReturnType<typeof buildSheetIndex>) => groups.flatMap((g) => g.rows.map((r) => r.page))
 
 describe('splitSheetTitle', () => {
+  it('keeps a spec section number whole', () => {
+    expect(splitSheetTitle('09 51 13 ACOUSTICAL PANEL CEILINGS')).toEqual({ number: '09 51 13', title: 'ACOUSTICAL PANEL CEILINGS' })
+    expect(splitSheetTitle('09 51 13')).toEqual({ number: '09 51 13', title: '' })
+  })
   it('splits a real drawing-set bookmark', () => {
     expect(splitSheetTitle('AE6-01-02 ARCHITECTURAL CEILING PLAN')).toEqual({
       number: 'AE6-01-02', title: 'ARCHITECTURAL CEILING PLAN',
