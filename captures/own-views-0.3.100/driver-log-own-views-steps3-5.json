@@ -1,0 +1,301 @@
+[
+  {
+    "k": "open",
+    "v": false,
+    "t": "2026-11-26T18:31:32.567Z"
+  },
+  {
+    "k": "page5.before",
+    "v": 21,
+    "t": "2026-11-26T18:31:32.583Z"
+  },
+  {
+    "k": "3.clickSheet3",
+    "v": "ERR not found: Architectural 3\r\n",
+    "t": "2026-11-26T18:32:40.366Z"
+  },
+  {
+    "k": "3.start",
+    "v": {
+      "dialogs": [],
+      "zoom": {},
+      "needsYou": [],
+      "letItWork": 0,
+      "page": {},
+      "title": "OwnViews — REDBEAM"
+    },
+    "t": "2026-11-26T18:32:57.225Z"
+  },
+  {
+    "k": "3.zoom",
+    "v": "ctrl+wheel x3 at 1320,839",
+    "t": "2026-11-26T18:33:14.528Z"
+  },
+  {
+    "k": "3.pan",
+    "v": "dragged from 1320,839 by -120,-80",
+    "t": "2026-11-26T18:33:31.519Z"
+  },
+  {
+    "k": "3.middle",
+    "v": {
+      "dialogs": [],
+      "zoom": "ControlType.Button|60%",
+      "needsYou": [],
+      "letItWork": 0,
+      "page": "ControlType.Text|1 / 12",
+      "title": "OwnViews — REDBEAM"
+    },
+    "t": "2026-11-26T18:33:33.933Z"
+  },
+  {
+    "k": "3.end",
+    "v": {
+      "dialogs": [],
+      "zoom": "ControlType.Button|60%",
+      "needsYou": [],
+      "letItWork": 0,
+      "page": "ControlType.Text|1 / 12",
+      "title": "OwnViews — REDBEAM"
+    },
+    "t": "2026-11-26T18:33:44.346Z"
+  },
+  {
+    "k": "3.calls",
+    "v": [
+      {
+        "k": 0,
+        "start": 22,
+        "ms": 66559,
+        "page": null,
+        "error": "Error: no window answered `invoke_ui_action`, and none said it was working on it, for 20s — is a PDF open? Open one with redbeam_open_file."
+      },
+      {
+        "k": 1,
+        "start": 67089,
+        "ms": 33653,
+        "page": null,
+        "error": "Error: no window answered `invoke_ui_action`, and none said it was working on it, for 20s — is a PDF open? Open one with redbeam_open_file."
+      },
+      {
+        "k": 2,
+        "start": 101243,
+        "ms": 16490,
+        "page": 5
+      },
+      {
+        "k": 3,
+        "start": 118246,
+        "ms": 24,
+        "page": 5
+      },
+      {
+        "k": 4,
+        "start": 121166,
+        "ms": 9,
+        "page": 5
+      },
+      {
+        "k": 5,
+        "start": 121676,
+        "ms": 23,
+        "page": 5
+      },
+      {
+        "k": 6,
+        "start": 122207,
+        "ms": 23,
+        "page": 5
+      },
+      {
+        "k": 7,
+        "start": 122738,
+        "ms": 22,
+        "page": 5
+      },
+      {
+        "k": 8,
+        "start": 123268,
+        "ms": 22,
+        "page": 5
+      },
+      {
+        "k": 9,
+        "start": 123798,
+        "ms": 22,
+        "page": 5
+      },
+      {
+        "k": 10,
+        "start": 124327,
+        "ms": 22,
+        "page": 5
+      },
+      {
+        "k": 11,
+        "start": 124857,
+        "ms": 18,
+        "page": 5
+      },
+      {
+        "k": 12,
+        "start": 125386,
+        "ms": 23,
+        "page": 5
+      },
+      {
+        "k": 13,
+        "start": 125916,
+        "ms": 21,
+        "page": 5
+      },
+      {
+        "k": 14,
+        "start": 126446,
+        "ms": 22,
+        "page": 5
+      },
+      {
+        "k": 15,
+        "start": 126978,
+        "ms": 25,
+        "page": 5
+      },
+      {
+        "k": 16,
+        "start": 127509,
+        "ms": 23,
+        "page": 5
+      },
+      {
+        "k": 17,
+        "start": 128046,
+        "ms": 21,
+        "page": 5
+      },
+      {
+        "k": 18,
+        "start": 128578,
+        "ms": 23,
+        "page": 5
+      },
+      {
+        "k": 19,
+        "start": 129106,
+        "ms": 22,
+        "page": 5
+      }
+    ],
+    "t": "2026-11-26T18:33:45.116Z"
+  },
+  {
+    "k": "3.walks",
+    "v": [
+      {
+        "what": "person.ps1 -Do activate",
+        "start": -1203,
+        "ms": 1203
+      },
+      {
+        "what": "uiclick.ps1 -Do click -Name Architectural 3",
+        "start": 22,
+        "ms": 66558
+      },
+      {
+        "what": "uiclick.ps1 -Do state",
+        "start": 67494,
+        "ms": 15945
+      },
+      {
+        "what": "fg.ps1 -Shot C:\\temp\\rb-100\\captures\\03a-start.png",
+        "start": 83439,
+        "ms": 829
+      },
+      {
+        "what": "uiclick.ps1 -Do zoom -Wheel 3",
+        "start": 84268,
+        "ms": 16474
+      },
+      {
+        "what": "uiclick.ps1 -Do pan",
+        "start": 101445,
+        "ms": 16288
+      },
+      {
+        "what": "uiclick.ps1 -Do state",
+        "start": 118447,
+        "ms": 1700
+      },
+      {
+        "what": "fg.ps1 -Shot C:\\temp\\rb-100\\captures\\03b-middle.png",
+        "start": 120148,
+        "ms": 1018
+      },
+      {
+        "what": "uiclick.ps1 -Do state",
+        "start": 129638,
+        "ms": 922
+      },
+      {
+        "what": "fg.ps1 -Shot C:\\temp\\rb-100\\captures\\03c-end.png",
+        "start": 130560,
+        "ms": 770
+      }
+    ],
+    "t": "2026-11-26T18:33:45.117Z"
+  },
+  {
+    "k": "3.page5",
+    "v": {
+      "before": 21,
+      "after": 41,
+      "added": 20,
+      "okCalls": 18
+    },
+    "t": "2026-11-26T18:33:45.128Z"
+  },
+  {
+    "k": "4.click",
+    "v": "clicked 'OwnViews your PDF' at 2054,1018",
+    "t": "2026-11-26T18:33:46.270Z"
+  },
+  {
+    "k": "4.state",
+    "v": {
+      "dialogs": [],
+      "zoom": "ControlType.Button|60%",
+      "needsYou": [],
+      "letItWork": 0,
+      "page": "ControlType.Text|1 / 12",
+      "title": "OwnViews — REDBEAM"
+    },
+    "t": "2026-11-26T18:33:48.670Z"
+  },
+  {
+    "k": "5.end",
+    "v": {
+      "ok": true,
+      "data": {
+        "closed": [],
+        "ended": true,
+        "handedBack": [],
+        "note": "The session is finished. PDFs you changed are now the person's own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). A new job starts with redbeam_start_session.",
+        "why": {}
+      },
+      "text": "{\n  \"closed\": [],\n  \"ended\": true,\n  \"handedBack\": [],\n  \"note\": \"The session is finished. PDFs you changed are now the person's own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). A new job starts with redbeam_start_session.\",\n  \"why\": {}\n}"
+    },
+    "t": "2026-11-26T18:33:49.452Z"
+  },
+  {
+    "k": "5.state",
+    "v": {
+      "dialogs": [],
+      "zoom": "ControlType.Button|60%",
+      "needsYou": [],
+      "letItWork": 0,
+      "page": "ControlType.Text|1 / 12",
+      "title": "OwnViews — REDBEAM"
+    },
+    "t": "2026-11-26T18:33:51.387Z"
+  }
+]
