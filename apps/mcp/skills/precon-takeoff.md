@@ -14,7 +14,7 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
 
 ## Hard rules
 
-- **Always work on a copy** unless Aaron says to work in the open file — his instruction wins. Never write takeoff into a file another estimator has worked on. If the file is Aaron's own open tab and REDBEAM refuses (agent mode declined), ask him to allow it rather than making a copy.
+- **Always work on a copy** unless Aaron says to work in the open file — his instruction wins. Never write takeoff into a file another estimator has worked on. When he says to work in his open file, work in it directly: your session has its own view there, so nothing on his screen moves and REDBEAM never asks him to allow it.
   - Make a working copy, e.g. `<Project>\1 Data\MAXXiT\Blind Takeoff - Claude\<set> - BLIND TAKEOFF.pdf`.
   - On a blind run, strip or hide the embedded markups in that copy first.
   - The PDF is the only record. There is no sidecar file.
@@ -82,7 +82,7 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
    - Work out what quarter would save without applying it. If it helps, ask Aaron.
 7. **Save:** run `redbeam_save`.
    - If it refuses because another app wrote to the file, run `redbeam_save_copy`, reopen the copy, and confirm the scopes still carry their product type, specifications, directions and origins. Re-enter anything that was lost.
-   - Turn on `redbeam_set_layout_preview {on:true}`, frame the sheet with `redbeam_zoom_to_region`, and leave it showing for Aaron.
+   - Tell Aaron which sheets carry the takeoff. His screen is his: you cannot turn his page or switch on his layout preview. He can click your session in the Agents list to go to your sheet.
 
 ## Hand back
 

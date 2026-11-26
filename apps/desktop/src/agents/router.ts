@@ -8,9 +8,9 @@
  *  - WHERE it goes. The file the call names; else the agent's own current
  *    PDF (the one it opened or addressed last); else, for an agent with no
  *    PDF yet, the one the person is looking at.
- *  - WHAT it may do there. In a tab the agent drives, anything. In the
- *    person's tab it reads and writes, but a call that would move the view
- *    asks the person first (handover.ts).
+ *  - WHAT it may do there. Read and write, in its own tab or the person's,
+ *    through a view of its own (Workspace.tsx `agentViewsRef`). Nothing is
+ *    asked of the person and nothing on screen moves.
  *  - That NOTHING the person is doing moves. An agent's open_file adds a tab
  *    to its own group behind the tab showing; its close_tab closes only its
  *    own tabs.
@@ -23,7 +23,6 @@
  */
 import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
 import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
-import { type HandoverStore } from './handover.js'
 import { signal } from '../signals/install.js'
 import { type Agent, type AgentIdentity, callPage, callPoint, callWrites, describeCall, type EndedBy, identityOf, type RosterStore } from './roster.js'
 
@@ -54,7 +53,6 @@ export interface RouterDeps {
   /** Give a tab handed back from `agentId` (and not yet opened by the person) back to it. */
   reclaim?: (file: string, agentId: string) => void
   roster: RosterStore
-  handovers: HandoverStore
   appVersion: string
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -64,8 +62,6 @@ export interface RouterDeps {
 export const CALL_BUDGET_MS = 17_500
 /** How long open_file with `wait` waits for the PDF, under the bridge's 22 s for it. */
 export const OPEN_WAIT_MS = 20_000
-/** How long a call waits for the person to answer a handover question. */
-export const HANDOVER_WAIT_MS = 12_000
 /**
  * An AI app's server says it is alive every few seconds (mcp.rs `ALIVE_EVERY`).
  * One that has said so before and then says nothing for this long was killed
@@ -234,24 +230,7 @@ export class BridgeRouter {
         if (host === undefined) {
           return { error: `${nameOf(tab.file)} is still opening in the background. Try again in a few seconds.`, opening: true }
         }
-        let ctx = this.context(agent, tab.file)
-        let out = await runOnHost(host, action, params, ctx)
-        const now = tabFor(this.deps.tabs(), tab.file)
-        if (out['handover'] === true && agent !== null && !ctx.drives && now?.owner !== undefined) {
-          // Another session's PDF: refused there and then. The person is
-          // never asked to referee between two agents (Aaron, 2026-11-24).
-          out = this.notYours(now, agent, true)
-        } else if (out['handover'] === true && agent !== null && !ctx.drives) {
-          const answer = await this.deps.handovers.ask(tab.file, agent.id, Math.min(HANDOVER_WAIT_MS, left() - 1500))
-          if (answer === 'yes') {
-            ctx = this.context(agent, tab.file)
-            const again = this.deps.host(tab.file)
-            if (ctx.drives && again !== undefined) out = await runOnHost(again, action, params, ctx)
-          } else {
-            out = this.notYours(tab, agent, answer === 'no')
-          }
-        }
-        return out
+        return await runOnHost(host, action, params, this.context(agent, tab.file))
       })
     } catch (e) {
       result = { error: e instanceof Error ? e.message : String(e) }
@@ -318,29 +297,6 @@ export class BridgeRouter {
     this.queues.set(k, tail)
     void tail.then(() => { if (this.queues.get(k) === tail) this.queues.delete(k) })
     return mine
-  }
-
-  private notYours(tab: LightFile, agent: Agent, refused: boolean): Record<string, unknown> {
-    const whose = tab.owner === undefined ? 'the person\'s own tab' : `${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab`
-    const name = nameOf(tab.file)
-    if (tab.owner !== undefined) {
-      return {
-        error: `${name} is ${whose}. One session does not move another session's view or draw away from the sheet it is showing. `
-          + 'Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy. Reading it works as it is.',
-        handover: 'refused',
-        file: tab.file,
-      }
-    }
-    return {
-      error: refused
-        ? `${name} is ${whose}, and the person said not now to ${agent.name} working in it. `
-          + 'REDBEAM does not move a view someone else is using. Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy.'
-        : `${name} is ${whose}. REDBEAM does not move a view someone else is using, so the person has been asked whether ${agent.name} may work in it; they have not answered yet. `
-          + 'Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. '
-          + 'Reading works without asking, and so does adding markups on any sheet: redbeam_create_markup or redbeam_create_markups with `page` writes there in the background.',
-      handover: refused ? 'refused' : 'asked',
-      file: tab.file,
-    }
   }
 
   // ---------------------------------------------------------- open_file --
@@ -413,8 +369,8 @@ export class BridgeRouter {
     return {
       yours: false,
       tab: tab.owner === undefined
-        ? 'This PDF is open in the person\'s own tab. You can read it and add markups on any of its sheets (name the sheet with `page`; it is written in the background). A call that would turn its pages or zoom it asks them first; for free rein, redbeam_save_copy and open the copy.'
-        : `This PDF is ${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab. You can read it; to change its view, work in a copy (redbeam_save_copy, then open the copy).`,
+        ? 'This PDF was already open in the person\'s own tab, so it stays theirs. That changes nothing for you: you have your own view of it, and every read, screenshot, page turn, zoom and write works there without asking them or moving their screen.'
+        : `This PDF was already open as ${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab. You have your own view of it and can read and write there; you are both changing one PDF, so do not undo or delete what you did not make.`,
     }
   }
 
@@ -484,9 +440,10 @@ export class BridgeRouter {
     const wrote = (file: string) => agent.wrote.some((f) => samePath(f, file))
     const handedBack: string[] = []
     const closed: string[] = []
+    // Why each PDF that stayed open did: an agent told "handed back" about a set it only read took that for a mistake (Aaron's agent report, 2026-11-26).
+    const why: Record<string, string> = {}
     // Finished first: from here it has no cursor, no call in flight, and asks nothing.
     this.deps.roster.finish(agentId, { by, summary, handedBack: [], closed: [] })
-    this.deps.handovers.dropAgent(agentId)
     for (const tab of own) {
       const showing = this.deps.showing()
       const watched = showing !== null && samePath(showing, tab.file)
@@ -495,6 +452,7 @@ export class BridgeRouter {
         this.deps.handBack(tab.file, agent)
         this.lingering.set(tab.file, { agentId, at: this.now() })
         handedBack.push(tab.file)
+        why[tab.file] = 'only read; kept open for a while in case its app is restarting'
         continue
       }
       if (!wrote(tab.file) && !kept(tab.file) && !watched) {
@@ -506,11 +464,12 @@ export class BridgeRouter {
       }
       this.deps.handBack(tab.file, agent)
       handedBack.push(tab.file)
+      why[tab.file] = wrote(tab.file) ? 'you changed it' : kept(tab.file) ? 'you asked to keep it' : watched ? 'only read, but the person is looking at it, so it was not closed under them' : 'only read, but it could not be closed just now'
     }
     this.deps.roster.settle(agentId, handedBack, closed)
     return {
-      ended: true, handedBack, closed,
-      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed. A new job starts with redbeam_start_session.',
+      ended: true, handedBack, closed, why,
+      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). A new job starts with redbeam_start_session.',
     }
   }
 

@@ -167,13 +167,13 @@ import { drawPanelLayout, drawPatternShapes, drawRunLayout, layoutSummary } from
 import { libraryEntry, readLibrary, saveToLibrary, newerInLibrary } from './patterns/library.js'
 import type { PatternControls } from './shell/PatternCard.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
-import { HandoverNeeded, UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
+import { UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
 import { bomScopeFilter, perAreaCounts } from './bom/agentBom.js'
 import { detectGrid, nearestCrossing } from './search/grid.js'
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
-import { AgentsDock, AgentSummary, peekMarks, showAgentsDock } from './agents/AgentsPane.js'
+import { AgentsDock, AgentSummary, askLookIn, peekMarks, showAgentsDock, takeLookIn } from './agents/AgentsPane.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -274,8 +274,6 @@ export interface WorkspaceProps {
       onClose: (file: string) => void
       onStep: (step: 1 | -1) => void
       onReopen: () => void
-      /** The person's answer to an agent asking to work in a tab of theirs (agents/handover.ts). */
-      onHandOver?: (file: string, agentId: string, yes: boolean) => void
       /** Take an agent's tab back as the person's own. */
       onTakeOver?: (file: string) => void
       /** End an AI session from its group, dismiss a finished one, reopen a PDF it closed. */
@@ -553,6 +551,9 @@ export default function Workspace({
    */
   const showingRef = useRef(showing)
   showingRef.current = showing
+  /** Set once the views exist; run when this PDF comes on screen (see `askLookIn`). */
+  const lookInRef = useRef<() => void>(() => {})
+  useEffect(() => { if (showing) lookInRef.current() }, [showing])
   const stageRef = useRef<HTMLDivElement>(null)
   const rasterRef = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -2983,22 +2984,26 @@ export default function Workspace({
   /** Save the region the picker was just answered for. */
   const commitRegion = useCallback(async (
     feetPerPoint: number, source: string, label: string,
+    // An AI session's own half-made region; the one on screen is left alone.
+    own?: NonNullable<typeof pendingRegion>,
   ) => {
     const db = dbRef.current
-    if (db === null || pendingRegion === null) return
+    const region = own ?? pendingRegion
+    if (db === null || region === null) return
     await saveScaleRegion(db, {
       id: `sr-${Math.random().toString(36).slice(2, 10)}`,
       documentId: docIdRef.current,
-      pageId: pendingRegion.pageId,
+      pageId: region.pageId,
       label,
-      x0: pendingRegion.rect.x0,
-      y0: pendingRegion.rect.y0,
-      x1: pendingRegion.rect.x1,
-      y1: pendingRegion.rect.y1,
+      x0: region.rect.x0,
+      y0: region.rect.y0,
+      x1: region.rect.x1,
+      y1: region.rect.y1,
       feetPerPdfPoint: feetPerPoint,
       source,
     })
     await reloadRegions(db)
+    if (own !== undefined) { requestPaint(); return }
     setPendingRegion(null)
     draftRef.current = emptyDraft('scale-region')
     setStatus(`scale region: ${scaleLabel(feetPerPoint)}`)
@@ -3558,16 +3563,20 @@ export default function Workspace({
     // An agent calibration logged as `user` would make the estimator's next
     // undo revert something they never did.
     origin: string = 'user',
+    // A session's own sheet, which may not be the one showing.
+    targetPage: number = pageIndexRef.current,
   ) => {
+    const showing = targetPage === pageIndexRef.current
+    const pageId = pageIdFor(docIdRef.current, targetPage)
     await runCommand(cmdCalibrate(
       docIdRef.current,
-      pageIdFor(docIdRef.current, pageIndexRef.current),
-      cal?.feetPerPoint ?? null,
+      pageId,
+      showing ? (cal?.feetPerPoint ?? null) : (projectCalibrationsLatest.current.get(pageId) ?? null),
       built.feetPerPoint,
       source,
       origin,
     ))
-    setCal(built)
+    if (showing) setCal(built)
     setStatus(`calibrated: 1 pt = ${built.feetPerPoint.toFixed(6)} ft`)
     saveRef.current()
     requestPaint()
@@ -3774,7 +3783,8 @@ export default function Workspace({
   }, [runCommand, markupsFor, requestPaint])
 
   const removeMarkup = useCallback(async (id: string, by: 'user' | 'agent' = 'user') => {
-    const m = markupsRef.current.find((x) => x.id === id)
+    // Any sheet's markup: an agent deletes on sheets that are not showing.
+    const m = docMarkupsRef.current.find((x) => x.id === id) ?? markupsRef.current.find((x) => x.id === id)
     if (!m) return
     if (isCutId(id)) {
       const cmd = editsCommand(uncutEdits(markupsRef.current, id), 'delete cutout')
@@ -6252,6 +6262,61 @@ export default function Workspace({
    */
   const agentCtxRef = useRef<CallContext>(UNNAMED_CALL)
   /**
+   * Each AI session's own view of this PDF: the sheet it is on, the box it
+   * framed, what it selected, the scale region it is half way through.
+   *
+   * Aaron, 2026-11-26: "I can be navigating around, and then the agent steals
+   * focus and jumps to where it's working ... the agent should also not need
+   * to request approval to work within a sheet. It should be able to just
+   * jump in and make changes." Until now a call worked through the sheet on
+   * screen, so an agent either moved the person's view or asked for the tab.
+   * Now the sheet, zoom, tool, selection and panels on screen are the
+   * person's, a session's calls read and write through its own view, and
+   * nothing is asked. A session starts on the sheet showing when it first
+   * calls. Calls with no session (the sweep, old scripts) drive the window as
+   * before.
+   */
+  const agentViewsRef = useRef(new Map<string, AgentView>())
+  const agentView = (): AgentView | null => {
+    const id = agentCtxRef.current.agent?.id
+    if (id == null) return null
+    let view = agentViewsRef.current.get(id)
+    if (view === undefined) {
+      view = { page: pageIndexRef.current, rect: null, selected: [], pendingRegion: null, embedded: true, redbeam: true, tool: 'pan', layoutOn: false }
+      agentViewsRef.current.set(id, view)
+    }
+    if (view.page >= pageCount && pageCount > 0) view.page = 0
+    return view
+  }
+  lookInRef.current = () => {
+    const who = quickView === undefined ? undefined : takeLookIn(quickView.file)
+    const view = who === undefined ? undefined : agentViewsRef.current.get(who)
+    if (view !== undefined && view.page !== pageIndexRef.current && view.page < pageCount) goToPage(view.page)
+  }
+  /** The sheet the call being answered is about: its session's, or the one showing. */
+  const ap = {
+    get index(): number { return agentView()?.page ?? pageIndexRef.current },
+    get id(): string {
+      const targetPage = this.index
+      return pageIdFor(docIdRef.current, targetPage)
+    },
+    get size(): { width: number; height: number } {
+      const at = this.index
+      if (at === pageIndexRef.current && page.width > 0) return { width: page.width, height: page.height }
+      const s = viewerRef.current?.getPageSize(at) ?? pageSizesRef.current[at]
+      return { width: s?.width ?? 0, height: s?.height ?? 0 }
+    },
+    get feetPerPoint(): number | null {
+      if (agentView() === null) return calRef.current?.feetPerPoint ?? null
+      return projectCalibrationsLatest.current.get(this.id) ?? null
+    },
+    get markups(): Markup[] {
+      if (agentView() === null) return markupsRef.current
+      const here = this.id
+      return docMarkupsRef.current.filter((m) => m.pageId === here)
+    },
+  }
+  /**
    * The scope each agent is working in while it is a guest in this PDF.
    *
    * Aaron, 2026-11-24: "I can be doing a manual takeoff while the agent
@@ -6264,8 +6329,9 @@ export default function Workspace({
   /** The scope a call means when it names none: the active one in a tab its caller drives, its own otherwise. */
   const agentScope = (): string | null => {
     const ctx = agentCtxRef.current
-    if (ctx.drives) return activeScopeRef.current
-    return guestScopeRef.current.get(ctx.agent?.id ?? '') ?? null
+    if (ctx.agent == null) return activeScopeRef.current
+    // In a tab of its own, with no scope of its own picked yet, the tab's active one.
+    return guestScopeRef.current.get(ctx.agent.id) ?? (ctx.drives ? activeScopeRef.current : null)
   }
   /*
    * A sheet's row in the store is written the first time the sheet is shown,
@@ -6288,16 +6354,13 @@ export default function Workspace({
   ensurePageRowsRef.current = ensurePageRows
   const showPageForAgent = async (n: number): Promise<void> => {
     if (!Number.isInteger(n) || n < 0 || n >= pageCount) throw new Error(`page ${n} out of range (0..${pageCount - 1})`)
-    if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
-    /*
-     * Turning the page of a PDF the caller does not drive: not done. Aaron,
-     * 2026-11-24: "agent actions should NEVER steal focus ... even within
-     * the app." The person is asked (agents/handover.ts), and the call is
-     * tried again if they hand the tab over.
-     */
-    if (!agentCtxRef.current.drives) {
-      throw new HandoverNeeded(`sheet ${sheetLabelFor(n)} is not the one showing, and turning to it would move the view of a PDF someone else is using`)
+    // A session turns ITS sheet. The one on screen is the person's and stays.
+    const view = agentView()
+    if (view !== null) {
+      if (view.page !== n) { view.page = n; view.rect = null; view.selected = [] }
+      return
     }
+    if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
     goToPage(n)
     const until = performance.now() + 10_000
     while (performance.now() < until) {
@@ -6441,17 +6504,17 @@ export default function Workspace({
     where: Markup | { x0: number; y0: number; x1: number; y1: number }, angle: unknown,
   ): Promise<{ grid: NonNullable<ReturnType<typeof detectGrid>>; modules: Record<string, unknown>; fpp: number | null } | { error: string }> => {
     const v = viewerRef.current
-    if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
-    const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+    if (!v || ap.size.width === 0) return { error: 'no page is showing' }
+    const here = ap.id
     const isArea = 'rings' in where
-    if (isArea && where.pageId !== here) return { error: `area ${where.id} is on another sheet; show it first (pass \`page\`)` }
+    if (isArea && where.pageId !== here) return { error: `area ${where.id} is on another sheet; turn to it first with redbeam_go_to_page` }
     const r = isArea ? normalizedBoundingRect(where.rings) : { left: Math.min(where.x0, where.x1), right: Math.max(where.x0, where.x1), top: Math.min(where.y0, where.y1), bottom: Math.max(where.y0, where.y1) }
     if (r === null) return { error: 'that area has no outline' }
     const pad = 0.002
     const clip = { x0: Math.max(0, r.left - pad), y0: Math.max(0, r.top - pad), x1: Math.min(1, r.right + pad), y1: Math.min(1, r.bottom + pad) }
-    const geo = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 400_000 })
+    const geo = await v.requestGeometry(ap.index, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 400_000 })
     const a = Number(angle)
-    const grid = detectGrid(geo.segments, v.pageInfo, {
+    const grid = detectGrid(geo.segments, ap.size, {
       ...(isArea ? { rings: where.rings } : { box: clip }),
       ...(angle !== undefined && angle !== null && Number.isFinite(a) ? { angle: a } : {}),
     })
@@ -6461,7 +6524,7 @@ export default function Workspace({
       { x: Math.min(s.rect.x0, s.rect.x1), y: Math.min(s.rect.y0, s.rect.y1) }, { x: Math.max(s.rect.x0, s.rect.x1), y: Math.min(s.rect.y0, s.rect.y1) },
       { x: Math.max(s.rect.x0, s.rect.x1), y: Math.max(s.rect.y0, s.rect.y1) }, { x: Math.min(s.rect.x0, s.rect.x1), y: Math.max(s.rect.y0, s.rect.y1) },
     ]]))
-    const fpp = region?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
+    const fpp = region?.feetPerPoint ?? ap.feetPerPoint
     const len = (pts: number | null) => pts === null ? null : {
       points: Math.round(pts * 100) / 100,
       ...(fpp === null ? {} : { feet: Math.round(pts * fpp * 1000) / 1000, inches: Math.round(pts * fpp * 12 * 100) / 100 }),
@@ -6492,14 +6555,14 @@ export default function Workspace({
     }
     const sc = scopesRef.current.find((x) => x.id === sid)
     if (!sc) return { error: `no such scope: ${sid || '(none active)'}` }
-    const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+    const here = ap.id
     let areas = docMarkupsRef.current.filter((m) => m.kind === 'area' && m.scopeId === sc.id && m.pageId === here)
     const pt = bridgePoint(params['point'])
     if (pt !== null) {
       const inside = areas.filter((m) => pointInRegion(pt, m.rings))
       if (inside.length > 0) areas = inside
       else {
-        const box = { width: page.width, height: page.height }
+        const box = ap.size
         const near = areas.map((m) => ({ m, p: nearestOnBoundary(m.rings, pt, box) }))
           .filter((x) => x.p !== null && Math.hypot((x.p.x - pt.x) * box.width, (x.p.y - pt.y) * box.height) <= 24)
           .sort((a, b) => Math.hypot(a.p!.x - pt.x, a.p!.y - pt.y) - Math.hypot(b.p!.x - pt.x, b.p!.y - pt.y))
@@ -6521,10 +6584,10 @@ export default function Workspace({
    * What is wrong with an outline an agent drew: crossed, off the sheet, or
    * in the title block. The markup is still made; the answer says so.
    */
-  const outlineWarnings = (rings: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>): OutlineIssue[] => {
-    const info = viewerRef.current?.pageInfo
+  const outlineWarnings = (rings: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>, at?: number): OutlineIssue[] => {
+    const info = at === undefined || at === ap.index ? ap.size : (viewerRef.current?.getPageSize(at) ?? ap.size)
     const notDrawing = titleRegions === null ? [] : [titleRegions.number, ...(titleRegions.title !== null ? [titleRegions.title] : [])]
-    return checkOutline(rings, { page: { width: info?.width || 1, height: info?.height || 1 }, notDrawing })
+    return checkOutline(rings, { page: { width: info.width || 1, height: info.height || 1 }, notDrawing })
   }
   /** One markup from an agent's description, checked; curves laid out (round 3 #10). */
   const agentMarkup = (spec: Record<string, unknown>, docId: string, pageId: string): { markup: Markup } | { error: string } => {
@@ -6538,7 +6601,8 @@ export default function Workspace({
     }
     const closed = kind === 'area' || kind === 'cutout' || kind === 'shape'
     const pb = projectPageBoxes.get(pageId)
-    const box = pb !== undefined && pb.width > 0 ? { width: pb.width, height: pb.height } : { width: page.width || 1, height: page.height || 1 }
+    const sized = pageId === ap.id ? ap.size : (viewerRef.current?.getPageSize(pageNumberFrom(pageId, docId) ?? -1) ?? ap.size)
+    const box = pb !== undefined && pb.width > 0 ? { width: pb.width, height: pb.height } : { width: sized.width || 1, height: sized.height || 1 }
     const rings: Array<Array<{ x: number; y: number }>> = []
     for (const r of kind === 'area' ? raw : [raw[0]]) {
       const ring = expandRing(r, box, closed)
@@ -6557,6 +6621,49 @@ export default function Workspace({
     return { markup: { id: uid(), documentId: docId, pageId, scopeId, kind, rings } }
   }
 
+  /**
+   * get_ui_state for a session: the sheet, scale, selection and half-made
+   * region are ITS OWN, and `person` says where the person is looking, so an
+   * agent can tell "my sheet" from "theirs" and never has to move theirs to
+   * find out.
+   */
+  const withSessionView = (ctx: CallContext | undefined, state: Record<string, unknown>): Record<string, unknown> => {
+    if (ctx === undefined || ctx.agent == null) return state
+    const before = agentCtxRef.current
+    agentCtxRef.current = ctx
+    try {
+      const view = agentView()!
+      const at = ap.index
+      const label = sheetLabelFor(at)
+      const fpp = ap.feetPerPoint
+      return {
+        ...state,
+        pageIndex: at,
+        pageWidth: ap.size.width,
+        pageHeight: ap.size.height,
+        sheet: label === `Page ${at + 1}` ? null : { number: label, title: sheetTitleFor(at) },
+        tool: view.tool,
+        activeScope: agentScope(),
+        markupCount: ap.markups.length,
+        selectedIds: view.selected,
+        calibrated: fpp !== null,
+        feetPerPoint: fpp,
+        pending: { calibration: false, scaleRegion: view.pendingRegion !== null },
+        scaleRegions: (projectRegions.get(ap.id) ?? []).map((r) => ({
+          id: r.id, label: r.label, feetPerPoint: r.feetPerPoint, scale: scaleLabel(r.feetPerPoint), rect: r.rect,
+        })),
+        markupVisibility: { embedded: view.embedded, redbeam: view.redbeam },
+        view: view.rect,
+        // Where the person is. Theirs to move; nothing a session calls changes it.
+        person: {
+          pageIndex: state['pageIndex'], sheet: state['sheet'], zoom: state['zoom'], viewport: state['viewport'],
+          tool: state['tool'], activeScope: state['activeScope'], selectedIds: state['selectedIds'],
+        },
+        yourView: 'pageIndex, sheet, tool, selection and scale here are your session\'s own. `person` is what is on screen; your calls never change it.',
+      }
+    } finally { agentCtxRef.current = before }
+  }
+
   useBridgeHost(quickView?.file ?? '', {
     saveFile: projectBridge.writeExport === undefined ? undefined : (path, bytes, overwrite) => projectBridge.writeExport!(path, bytes, overwrite),
     query: async (sql, params) => {
@@ -6564,7 +6671,7 @@ export default function Workspace({
       if (db === null) throw new Error('the PDF is still opening; poll redbeam_get_ui_state until pageCount > 0')
       return db.all<Record<string, unknown>>(sql, params)
     },
-    uiState: () => ({
+    uiState: (ctx) => withSessionView(ctx, {
       /*
        * Whether the PDF holds everything (round 3 P1-4): false while a change
        * has not been written into it yet. `lastSave` is the last attempt.
@@ -6654,20 +6761,22 @@ export default function Workspace({
 
     screenshot: async (params, ctx) => {
       agentCtxRef.current = ctx
+      try {
       /*
        * A close-up: one box of the sheet, rendered by PDFium at the size
        * asked for rather than cropped out of the window, which is only as
        * sharp as the screen (Aaron, 2026-11-24: "I worked around it by
        * cropping, which came out low-res").
        */
-      const region = bridgeRect(params['region'] ?? params['rect'])
+      let region = bridgeRect(params['region'] ?? params['rect'])
       if (region === null) throw new Error('region must be {x0,y0,x1,y1} in normalized [0,1] page coordinates')
       /*
        * A sheet named by `page` is rendered on its own, at any page, without
        * turning the window to it (NOIC intake, 2026-11-26). Turning first
        * meant four close-ups sent at once raced one another's page turns
-       * ("page did not show within 10s"), and a screenshot of a PDF someone
-       * else is looking at had to ask them to hand it over.
+       * ("page did not show within 10s"). It does not turn the session's own
+       * sheet either, for the same reason: close-ups asked for at once must
+       * not change what a call with no `page` means.
        */
       let page: number | undefined
       const given = params['page']
@@ -6679,20 +6788,26 @@ export default function Workspace({
         if (at < 0 || at >= pageCount) throw new Error(`page ${at} out of range (0..${pageCount - 1})`)
         page = at
       }
+      // A session's picture is of ITS sheet: the box it framed there, else the whole sheet.
+      const view = agentView()
+      if (region === undefined && view !== null) region = (page === undefined || page === view.page ? view.rect : null) ?? { x0: 0, y0: 0, x1: 1, y1: 1 }
       if (region !== undefined || (page !== undefined && page !== pageIndexRef.current)) {
         const v = viewerRef.current
         if (!v) return null
         const box = region ?? { x0: 0, y0: 0, x1: 1, y1: 1 }
-        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? (region === undefined ? 1600 : 1200)) || 1200))
-        const targetPage = page ?? v.currentPageIndex
-        const elsewhere = targetPage !== v.currentPageIndex
+        const framed = params['region'] !== undefined || params['rect'] !== undefined
+        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? (framed ? 1200 : 1600)) || 1200))
+        const targetPage = page ?? view?.page ?? v.currentPageIndex
+        const elsewhere = view !== null || targetPage !== v.currentPageIndex
+        const annots = typeof params['annotations'] === 'boolean' ? params['annotations'] : view !== null ? view.embedded : undefined
+        const overlay = typeof params['overlay'] === 'boolean' ? params['overlay'] : view !== null ? view.redbeam : undefined
         const out = await v.renderRegion(box, width, {
           page: targetPage,
           ...(elsewhere ? {
-            overlaySet: toOverlay(docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, targetPage) && !isCutId(m.id)), scopes, pendingIdsRef.current),
+            overlaySet: toOverlay(docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, targetPage) && !isCutId(m.id)), scopesRef.current, pendingIdsRef.current),
           } : {}),
-          ...(typeof params['annotations'] === 'boolean' ? { annots: params['annotations'] } : {}),
-          ...(typeof params['overlay'] === 'boolean' ? { overlay: params['overlay'] } : {}),
+          ...(annots !== undefined ? { annots } : {}),
+          ...(overlay !== undefined ? { overlay } : {}),
         })
         return out.canvas.toDataURL('image/png')
       }
@@ -6709,19 +6824,12 @@ export default function Workspace({
       g.drawImage(raster, 0, 0)
       if (overlay && params['overlay'] !== false) g.drawImage(overlay, 0, 0)
       return out.toDataURL('image/png')
+      } finally { agentCtxRef.current = UNNAMED_CALL }
     },
     invoke: async (action, params, ctx) => {
       actorRef.current = 'agent'
       agentCtxRef.current = ctx
       try {
-        /*
-         * A call that moves the view (the tool in hand, the zoom, the
-         * selection, a panel, the undo stack) in a PDF its caller does not
-         * drive: asked of the person first, like a page turn.
-         */
-        if (!ctx.drives && VIEW_ACTIONS.has(action)) {
-          throw new HandoverNeeded(`${action} would change the view of a PDF someone else is using`)
-        }
         const doc = documents.find((d) => d.id === activeDocId)
         const fileName = doc === undefined ? null : (doc.displayName || doc.relativePath)
         /*
@@ -6754,26 +6862,7 @@ export default function Workspace({
           params = { ...params, page: at }
         }
         await ensurePageRows(pagesNamed(params, pageCount))
-        /*
-         * A guest adding one markup to a sheet that is not showing. It used
-         * to ask the person to hand the tab over, because one markup is drawn
-         * on the sheet showing and so the sheet was shown first. Aaron,
-         * 2026-11-25: "it's almost like they have their own tools and can
-         * work independently of the user ... even on the same document." The
-         * batch tool already writes to any sheet without showing it, so one
-         * markup for another sheet goes the same way: nothing of the
-         * person's moves and nothing is asked.
-         */
-        if (action === 'create_markup' && !ctx.drives && typeof params['page'] === 'number' && params['page'] !== pageIndexRef.current) {
-          const { page: at, file: _file, ...one } = params
-          const out = showingRef.current
-            ? await keepingFocus(() => invokeAction('create_markups', { markups: [{ ...one, page: at }] }))
-            : await invokeAction('create_markups', { markups: [{ ...one, page: at }] })
-          if (typeof out['error'] === 'string') return { error: out['error'].replace(/^markup 0: /, '') }
-          const made = (out['markups'] as Array<Record<string, unknown>> | undefined)?.[0] ?? {}
-          return { ...made, page: at, note: 'written to that sheet in the background; the person\'s view did not move' }
-        }
-        // A write that names a page lands on that page, after it shows (P1-2).
+        // A write that names a page lands on that page: the session's own sheet turns to it (P1-2).
         if (PAGE_BOUND.has(action) && params['page'] !== undefined) {
           const n = Number(params['page'])
           if (!Number.isInteger(n) || n < 0 || n >= pageCount) return { error: `page ${String(params['page'])} out of range (0..${pageCount - 1})` }
@@ -6789,8 +6878,6 @@ export default function Workspace({
           : await invokeAction(action, params)
         return fileName !== null && out['file'] === undefined ? { ...out, file: fileName } : out
       } catch (err) {
-        // The router asks the person, and calls again if they say yes.
-        if (err instanceof HandoverNeeded) throw err
         return { error: err instanceof Error ? err.message : String(err) }
       } finally { actorRef.current = 'user'; agentCtxRef.current = UNNAMED_CALL }
     },
@@ -6833,6 +6920,12 @@ export default function Workspace({
             'calibrate', 'direction', 'scale-region', 'dimension', 'text', 'origin',
           ]
           if (!known.includes(next as Tool)) return { error: `unknown tool: ${next}` }
+          // The tool in hand on screen is the person's. A session draws with its calls, not with a tool.
+          const view = agentView()
+          if (view !== null) {
+            view.tool = next
+            return { tool: next, note: 'noted for your session; the tool on screen is the person\'s and did not change. create_markup, trace_area, measure and the rest need no tool selected' }
+          }
           setTool(next as Tool)
           return { tool: next }
         }
@@ -6840,8 +6933,8 @@ export default function Workspace({
           const id = String(params['scopeId'] ?? '')
           if (!scopes.some((sc) => sc.id === id)) return noScope(id)
           // A guest picks the scope ITS next markups go to; the person's active scope is theirs.
-          if (!agentCtxRef.current.drives) {
-            if (agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, id)
+          if (agentCtxRef.current.agent != null) {
+            guestScopeRef.current.set(agentCtxRef.current.agent.id, id)
             return { activeScope: id, note: 'yours for this PDF; the person keeps their own active scope' }
           }
           setActiveScope(id)
@@ -6936,7 +7029,7 @@ export default function Workspace({
           }
           if (titleBox === 'bad') return { error: 'titleBox must be {x0,y0,x1,y1} in normalized [0,1] page coordinates, y down, or left out' }
           const regions: TitleBlockRegions = { number: numberBox, title: titleBox }
-          const at = params['page'] === undefined ? pageIndexRef.current : Number(params['page'])
+          const at = params['page'] === undefined ? ap.index : Number(params['page'])
           if (!Number.isInteger(at) || at < 0 || at >= pageCount) return { error: `page ${String(params['page'])} out of range (0..${pageCount - 1})` }
           // A sample across the set, so a box that only fits one sheet shows up now.
           const samplePages = [...new Set([at, 0, Math.floor(pageCount / 4), Math.floor(pageCount / 2), Math.floor((3 * pageCount) / 4), pageCount - 1])]
@@ -7102,7 +7195,7 @@ export default function Workspace({
         case 'get_words': {
           const v = viewerRef.current
           if (!v || activeDocId === null) return { error: 'no document is open' }
-          const p = params['page'] === undefined ? pageIndex : Number(params['page'])
+          const p = params['page'] === undefined ? ap.index : Number(params['page'])
           if (!Number.isInteger(p) || p < 0 || p >= pageCount) return { error: `page ${params['page']} out of range (0..${pageCount - 1})` }
           const within = bridgeRect(params['rect'])
           if (within === null) return { error: 'rect must be {x0,y0,x1,y1} in normalized [0,1] page coordinates' }
@@ -7132,24 +7225,33 @@ export default function Workspace({
           if (rect === undefined || rect === null) return { error: 'zoom_to_region needs `rect` {x0,y0,x1,y1}, normalized [0,1]' }
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
-          const { width: pw, height: ph } = v.pageInfo
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
+          const { width: pw, height: ph } = ap.size
           const x0 = Math.min(rect.x0, rect.x1) * pw, x1 = Math.max(rect.x0, rect.x1) * pw
           const y0 = Math.min(rect.y0, rect.y1) * ph, y1 = Math.max(rect.y0, rect.y1) * ph
           // A little room around it, so a tag is seen with what it points at.
           const margin = Math.max(0, Number(params['margin'] ?? 0.15) || 0)
           const bw = Math.max(1, (x1 - x0) * (1 + 2 * margin)), bh = Math.max(1, (y1 - y0) * (1 + 2 * margin))
+          const view = agentView()
+          if (view !== null) {
+            // Framed in the session's own view: its next screenshot shows this box.
+            view.rect = {
+              x0: Math.max(0, ((x0 + x1) / 2 - bw / 2) / pw), y0: Math.max(0, ((y0 + y1) / 2 - bh / 2) / ph),
+              x1: Math.min(1, ((x0 + x1) / 2 + bw / 2) / pw), y1: Math.min(1, ((y0 + y1) / 2 + bh / 2) / ph),
+            }
+            return { page: ap.index, sheet: sheetLabelFor(ap.index), view: view.rect, note: 'framed in your own view; redbeam_screenshot shows it. The person\'s view did not move' }
+          }
           const zoom = Math.min(MAX_ZOOM, stage.width / bw, stage.height / bh)
           const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
           showView({ ...viewRef.current, zoom, ox: cx * zoom - stage.width / 2, oy: cy * zoom - stage.height / 2 })
           if (params['highlight'] !== false) {
             hitHighlightRef.current = {
-              pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+              pageId: ap.id,
               boxes: [{ x0: rect.x0, y0: rect.y0, x1: rect.x1, y1: rect.y1 }],
             }
             requestPaint()
           }
-          return { page: pageIndexRef.current, zoom: viewRef.current.zoom }
+          return { page: ap.index, zoom: viewRef.current.zoom }
         }
         /*
          * Markups off for a clean look at the drawing, the palette's "Hide
@@ -7163,6 +7265,13 @@ export default function Workspace({
           if (next.embedded === undefined && next.redbeam === undefined) {
             return { error: 'set_markup_visibility needs `embedded` and/or `redbeam` (true shows, false hides)' }
           }
+          const view = agentView()
+          if (view !== null) {
+            // What ITS screenshots draw. The person's layers stay as they set them.
+            if (next.embedded !== undefined) view.embedded = next.embedded
+            if (next.redbeam !== undefined) view.redbeam = next.redbeam
+            return { markupVisibility: { embedded: view.embedded, redbeam: view.redbeam }, note: 'for your screenshots; what the person sees did not change' }
+          }
           return { markupVisibility: setMarkupVisibility(next) }
         }
         /*
@@ -7173,7 +7282,7 @@ export default function Workspace({
         case 'measure': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
           const raw = typeof params['points'] === 'string'
             ? ((): unknown => { try { return JSON.parse(params['points'] as string) } catch { return null } })()
             : params['points']
@@ -7183,13 +7292,13 @@ export default function Workspace({
           if (pts.length < 2 || !pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= -0.001 && p.x <= 1.001 && p.y >= -0.001 && p.y <= 1.001)) {
             return { error: 'measure needs `points`: two or more {x,y} in NORMALIZED [0,1] page coordinates' }
           }
-          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const here = ap.id
           return {
-            page: pageIndexRef.current,
-            ...measurePoints(pts, v.pageInfo, {
+            page: ap.index,
+            ...measurePoints(pts, ap.size, {
               closed: params['closed'] === true,
               regions: projectRegions.get(here) ?? [],
-              pageFeetPerPoint: calRef.current?.feetPerPoint ?? null,
+              pageFeetPerPoint: ap.feetPerPoint,
             }),
           }
         }
@@ -7201,23 +7310,23 @@ export default function Workspace({
         case 'get_lines': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
           const rect = bridgeRect(params['rect'])
           if (rect === undefined || rect === null) return { error: 'get_lines needs `rect` {x0,y0,x1,y1}, normalized [0,1]; keep it small, a whole sheet is hundreds of thousands of lines' }
           const clip = {
             x0: Math.min(rect.x0, rect.x1), y0: Math.min(rect.y0, rect.y1),
             x1: Math.max(rect.x0, rect.x1), y1: Math.max(rect.y0, rect.y1),
           }
-          const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
+          const g = await v.requestGeometry(ap.index, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
           const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 300) || 300))
           const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           // The scale where the box is: a scale region's, else the sheet's.
           const centre = { x: (clip.x0 + clip.x1) / 2, y: (clip.y0 + clip.y1) / 2 }
-          const scaleRegion = (projectRegions.get(pageIdFor(docIdRef.current, pageIndexRef.current)) ?? []).find((r) => pointInRegion(centre, [[
+          const scaleRegion = (projectRegions.get(ap.id) ?? []).find((r) => pointInRegion(centre, [[
             { x: Math.min(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) }, { x: Math.max(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) },
             { x: Math.max(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) }, { x: Math.min(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) },
           ]]))
-          const fpp = scaleRegion?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
+          const fpp = scaleRegion?.feetPerPoint ?? ap.feetPerPoint
           const feetToPts = (k: string): number | undefined => {
             const f = Number(params[k])
             return Number.isFinite(f) && f >= 0 && fpp !== null && fpp > 0 ? f / fpp : undefined
@@ -7226,7 +7335,7 @@ export default function Workspace({
           const minFromFeet = feetToPts('minLengthFeet')
           const orientation = params['orientation']
           const sort = params['sort']
-          const { lines, total, duplicatesRemoved } = linesFromSegments(g.segments, v.pageInfo, {
+          const { lines, total, duplicatesRemoved } = linesFromSegments(g.segments, ap.size, {
             feetPerPoint: fpp,
             minLengthPoints: minFromFeet ?? Math.max(0, Number(params['minLengthPoints'] ?? 2) || 0),
             ...(maxPts !== undefined ? { maxLengthPoints: maxPts } : {}),
@@ -7241,7 +7350,7 @@ export default function Workspace({
             limit: offset + limit,
           })
           return {
-            page: pageIndexRef.current,
+            page: ap.index,
             lines: lines.slice(offset),
             total,
             ...(duplicatesRemoved > 0 ? { duplicatesRemoved } : {}),
@@ -7321,6 +7430,11 @@ export default function Workspace({
         }
         case 'set_layout_preview': {
           const on = params['on'] !== false
+          const view = agentView()
+          if (view !== null) {
+            view.layoutOn = on
+            return { layoutPreview: on, note: 'the layout preview on screen is the person\'s to turn on; redbeam_get_piece_list and redbeam_get_bom give you the layout\'s pieces either way' }
+          }
           setLayoutOn(on)
           return { layoutPreview: on }
         }
@@ -7339,6 +7453,9 @@ export default function Workspace({
          */
         case 'open_panel': {
           const which = String(params['panel'] ?? '')
+          if (agentView() !== null) {
+            return { panel: 'none', note: 'panels are the person\'s and none was opened. Everything a panel shows has a tool: redbeam_get_bom, redbeam_get_piece_list, redbeam_list_scopes, redbeam_update_scope, redbeam_get_settings, redbeam_export' }
+          }
           switch (which) {
             case 'bom':
               if (light) return { error: 'there is no parts panel to open now; redbeam_get_bom and redbeam_get_piece_list give the parts, and redbeam_export writes them to a file' }
@@ -7567,7 +7684,7 @@ export default function Workspace({
           const allowed: MarkupKind[] = ['area', 'cutout', 'polyline', 'count', 'shape']
           if (!allowed.includes(kind as MarkupKind)) return { error: `cannot create kind: ${kind}` }
 
-          const built = agentMarkup(params, docIdRef.current, pageIdFor(docIdRef.current, pageIndexRef.current))
+          const built = agentMarkup(params, docIdRef.current, ap.id)
           if ('error' in built) return built
           const ring = built.markup.rings[0]!
           // Page points would be in the hundreds and would still "work",
@@ -7582,19 +7699,16 @@ export default function Workspace({
           const min = kind === 'area' || kind === 'cutout' ? 3 : kind === 'count' ? 1 : 2
           if (ring.length < min) return { error: `${kind} needs at least ${min} vertices` }
 
-          const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : activeScope
-          if (scopeId !== null && !scopes.some((sc) => sc.id === scopeId)) {
-            return noScope(scopeId)
-          }
+          const scopeId = built.markup.scopeId
           const docId = docIdRef.current
-          const pageId = pageIdFor(docId, pageIndexRef.current)
+          const pageId = ap.id
           // A cutout cuts the areas under it, as the canvas's cutter does.
           if (kind === 'cutout') {
             // With a scope named, only that scope's areas are cut: an opening
             // drawn for one product is not an opening in the one beside it.
             const named = typeof params['scopeId'] === 'string' ? params['scopeId'] : null
-            const edits = cutEdits(markupsRef.current, pageId, ring as Array<{ x: number; y: number }>)
-              .filter((e) => named === null || markupsRef.current.find((m) => m.id === e.id)?.scopeId === named)
+            const edits = cutEdits(ap.markups, pageId, ring as Array<{ x: number; y: number }>)
+              .filter((e) => named === null || ap.markups.find((m) => m.id === e.id)?.scopeId === named)
             if (edits.length === 0) return { error: named === null ? 'the cutout crosses no area on this sheet' : 'the cutout crosses no area of that scope on this sheet' }
             await runCommand(editsCommand(edits, 'cut area', 'agent')!)
             // Each hole's id, which delete_markup takes to remove that one hole.
@@ -7614,18 +7728,18 @@ export default function Workspace({
           // A crossed or stray outline still gives a number; say it is not to be trusted.
           if (kind === 'area' || kind === 'shape') notes.push(...outlineWarnings(built.markup.rings).map((i) => i.message))
           if (scopeId === null && kind !== 'shape') notes.push('it has no scope, so it counts toward nothing; reassign_markup gives it one')
-          if (cal === null && !(projectRegions.get(pageId) ?? []).length) notes.push(`${sheetLabelFor(pageIndexRef.current)} has no scale, so this measures nothing yet; set_page_scale or read_scale`)
+          if (ap.feetPerPoint === null && !(projectRegions.get(pageId) ?? []).length) notes.push(`${sheetLabelFor(ap.index)} has no scale, so this measures nothing yet; set_page_scale or read_scale`)
           // What it measures at the sheet's scale, holes taken out.
           const made = kind === 'area' ? built.markup.rings : [ring as Array<{ x: number; y: number }>]
           const isClosed = kind === 'area' || kind === 'shape'
-          const mOpts = { closed: isClosed, regions: projectRegions.get(pageId) ?? [], pageFeetPerPoint: calRef.current?.feetPerPoint ?? null }
-          const outer = measurePoints(made[0]!, { width: page.width, height: page.height }, mOpts)
+          const mOpts = { closed: isClosed, regions: projectRegions.get(pageId) ?? [], pageFeetPerPoint: ap.feetPerPoint }
+          const outer = measurePoints(made[0]!, { width: ap.size.width, height: ap.size.height }, mOpts)
           let net = outer.areaSquareFeet ?? null
-          if (net !== null) for (const hole of made.slice(1)) net -= measurePoints(hole, { width: page.width, height: page.height }, mOpts).areaSquareFeet ?? 0
+          if (net !== null) for (const hole of made.slice(1)) net -= measurePoints(hole, { width: ap.size.width, height: ap.size.height }, mOpts).areaSquareFeet ?? 0
           const measure = kind === 'count' ? { count: made[0]!.length }
             : isClosed ? { areaSquareFeet: net === null ? null : Math.round(Math.max(0, net) * 1000) / 1000, perimeterFeet: outer.lengthFeet, perimeter: outer.length }
               : { lengthFeet: outer.lengthFeet, length: outer.length }
-          return { id, kind, scopeId, pageId, page: pageIndexRef.current, sheet: sheetLabelFor(pageIndexRef.current), measure, ...(notes.length > 0 ? { warnings: notes } : {}) }
+          return { id, kind, scopeId, pageId, page: ap.index, sheet: sheetLabelFor(ap.index), measure, ...(notes.length > 0 ? { warnings: notes } : {}) }
         }
 
         case 'delete_markup': {
@@ -7639,7 +7753,7 @@ export default function Workspace({
           }
           const m = docMarkupsRef.current.find((x) => x.id === id)
           if (!m) return { error: `no such markup: ${id}` }
-          if (!markupsRef.current.some((x) => x.id === id)) {
+          if (agentView() === null && !ap.markups.some((x) => x.id === id)) {
             const pg = pageNumberFrom(m.pageId, docIdRef.current)
             if (pg !== null) await showPageForAgent(pg)
           }
@@ -7653,23 +7767,23 @@ export default function Workspace({
           // Two normalized points along the known length, or its length in PDF points.
           const ends = Array.isArray(params['points']) ? (params['points'] as unknown[]).map(bridgePoint) : []
           const lengthPoints = ends.length === 2 && ends[0] !== null && ends[1] !== null
-            ? Math.hypot((ends[1]!.x - ends[0]!.x) * page.width, (ends[1]!.y - ends[0]!.y) * page.height)
+            ? Math.hypot((ends[1]!.x - ends[0]!.x) * ap.size.width, (ends[1]!.y - ends[0]!.y) * ap.size.height)
             : Number(params['lengthPdfPoints'])
           if (!Number.isFinite(lengthPoints) || lengthPoints <= 0) {
             return { error: 'set_calibration needs `points` (the two ends of the known length, normalized) or a positive lengthPdfPoints' }
           }
-          const c = calibrationFromReference(lengthPoints, Number(parseNumberOrFraction(value) ?? NaN), unit, page.width, page.height)
+          const c = calibrationFromReference(lengthPoints, Number(parseNumberOrFraction(value) ?? NaN), unit, ap.size.width, ap.size.height)
           if (!c) return { error: `could not read "${value}" ${unit} over ${lengthPoints}pt` }
-          const previous = cal?.feetPerPoint ?? null
-          await commitCalibration(c, 'agent', 'agent')
-          return { feetPerPoint: c.feetPerPoint, scale: scaleLabel(c.feetPerPoint), previousFeetPerPoint: previous, page: pageIndexRef.current }
+          const previous = ap.feetPerPoint
+          await commitCalibration(c, 'agent', 'agent', ap.index)
+          return { feetPerPoint: c.feetPerPoint, scale: scaleLabel(c.feetPerPoint), previousFeetPerPoint: previous, page: ap.index }
         }
 
         case 'set_scope_direction': {
           // The same write the direction tool makes. Exposed because the
           // layout engine refuses to guess an axis, so without this an agent
           // can draw takeoff it can never turn into a piece count.
-          const id = String(params['scopeId'] ?? activeScope ?? '')
+          const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
           const n = (k: string) => Number(params[k])
@@ -7682,7 +7796,7 @@ export default function Workspace({
             ...sc,
             specifications: {
               ...sc.specifications,
-              scopeDefaultDirection: { sourcePage: pageIndexRef.current, x1, y1, x2, y2 },
+              scopeDefaultDirection: { sourcePage: ap.index, x1, y1, x2, y2 },
             },
           })
           return { scopeId: id, direction: { x1, y1, x2, y2 } }
@@ -7747,7 +7861,7 @@ export default function Workspace({
           // In the person's PDF the new scope is the agent's to draw in, not the person's active one.
           const guest = !agentCtxRef.current.drives
           await createScope(scope, { activate: !guest })
-          if (guest && agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, scope.id)
+          if (agentCtxRef.current.agent != null) guestScopeRef.current.set(agentCtxRef.current.agent.id, scope.id)
           /*
            * A scope belongs to a bidding round, never to the project. Created
            * with no round open it exists, accepts markups, shows a quantity on
@@ -7922,7 +8036,7 @@ export default function Workspace({
             }
             pages = Array.from({ length: to - from + 1 }, (_, i) => from + i)
           } else {
-            pages = [pageIndexRef.current]
+            pages = [ap.index]
           }
           // Checked before the write, not during: a partly-applied range is
           // the exact state the transaction exists to prevent.
@@ -7965,7 +8079,7 @@ export default function Workspace({
          * what a part of their sheet measures.
          */
         case 'begin_scale_region': {
-          if (pendingRegion !== null) {
+          if ((agentView()?.pendingRegion ?? (agentView() === null ? pendingRegion : null)) !== null) {
             return { error: 'a region is already waiting for a scale — set_region_scale or cancel_scale_region' }
           }
           /*
@@ -7988,17 +8102,22 @@ export default function Workspace({
             return { error: 'scale region corners are outside the page: expected NORMALIZED [0,1]' }
           }
           if (x0 === x1 || y0 === y1) return { error: 'a region with no area governs nothing' }
-          setPendingRegion({
+          const begun = {
             rect: { x0, y0, x1, y1 },
             // The sheet it was drawn on, not the sheet that is open when the
             // scale is chosen — those are two calls apart.
-            pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
-          })
+            pageId: ap.id,
+          }
+          // A session's half-made region waits in its own view: no picker opens over the person's sheet.
+          const view = agentView()
+          if (view !== null) view.pendingRegion = begun
+          else setPendingRegion(begun)
           return { pending: true, next: 'set_region_scale' }
         }
 
         case 'set_region_scale': {
-          if (pendingRegion === null) {
+          const mine = agentView()
+          if ((mine !== null ? mine.pendingRegion : pendingRegion) === null) {
             return { error: 'no region is waiting for a scale — call begin_scale_region first' }
           }
           const presetId = typeof params['presetId'] === 'string' ? params['presetId'] : null
@@ -8022,11 +8141,20 @@ export default function Workspace({
             return { error: 'set_region_scale needs presetId or feetPerPoint' }
           }
           const label = typeof params['label'] === 'string' ? params['label'] : ''
-          await commitRegion(feetPerPoint, source, label)
+          if (mine !== null) {
+            await commitRegion(feetPerPoint, source, label, mine.pendingRegion!)
+            mine.pendingRegion = null
+          } else await commitRegion(feetPerPoint, source, label)
           return { feetPerPoint, scale: scaleLabel(feetPerPoint), label, source }
         }
 
         case 'cancel_scale_region': {
+          const mine = agentView()
+          if (mine !== null) {
+            if (mine.pendingRegion === null) return { error: 'no region is waiting for a scale' }
+            mine.pendingRegion = null
+            return { cancelled: true }
+          }
           if (pendingRegion === null) return { error: 'no region is waiting for a scale' }
           setPendingRegion(null)
           draftRef.current = emptyDraft('scale-region')
@@ -8036,7 +8164,7 @@ export default function Workspace({
 
         case 'delete_scale_region': {
           const id = String(params['id'] ?? '')
-          if (!regionsOnThisSheet.some((r) => r.id === id)) {
+          if (!(projectRegions.get(ap.id) ?? []).some((r) => r.id === id)) {
             return { error: `no scale region ${id} on this sheet — see scaleRegions in get_ui_state` }
           }
           // The markups inside it fall back to the PAGE scale, or to nothing.
@@ -8147,7 +8275,7 @@ export default function Workspace({
         case 'list_annotations': {
           const v = viewerRef.current
           if (!v || activeDocId === null) return { error: 'no document is open' }
-          const pages = agentPageList(params, pageIndexRef.current)
+          const pages = agentPageList(params, ap.index)
           if ('error' in pages) return pages
           const out: Array<Record<string, unknown>> = []
           const r5 = (n: number) => Math.round(n * 1e5) / 1e5
@@ -8185,7 +8313,7 @@ export default function Workspace({
         case 'accept_imported': {
           const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String)
             : params['all'] === true ? [...pendingIdsRef.current]
-              : docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current)).map((m) => m.id)
+              : docMarkupsRef.current.filter((m) => m.pageId === ap.id).map((m) => m.id)
           const n = await acceptImported(ids)
           return { accepted: n, stillPending: pendingIdsRef.current.size }
         }
@@ -8194,10 +8322,10 @@ export default function Workspace({
           const v = viewerRef.current
           if (!v) return { error: 'no document is open' }
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
-          try { await v.requestAnnotations(pageIndexRef.current) } catch { /* links ride with the annotations */ }
+          try { await v.requestAnnotations(ap.index) } catch { /* links ride with the annotations */ }
           return {
-            page: pageIndexRef.current,
-            links: v.getLinks(pageIndexRef.current).map((l) => ({ rect: l.rect, ...(l.page !== undefined ? { toPage: l.page, toSheet: sheetLabelFor(l.page) } : {}), ...(l.uri !== undefined ? { uri: l.uri } : {}) })),
+            page: ap.index,
+            links: v.getLinks(ap.index).map((l) => ({ rect: l.rect, ...(l.page !== undefined ? { toPage: l.page, toSheet: sheetLabelFor(l.page) } : {}), ...(l.uri !== undefined ? { uri: l.uri } : {}) })),
           }
         }
         case 'list_bookmarks': {
@@ -8247,7 +8375,7 @@ export default function Workspace({
           return { closed: tab.file, ...(tab.file === quickView.file ? { note: 'closing now; get_ui_state shows the next file once it has' } : {}) }
         }
         case 'rotate_pages': {
-          const pages = agentPageList(params, pageIndexRef.current)
+          const pages = agentPageList(params, ap.index)
           if ('error' in pages) return pages
           const deg = Number(params['degrees'] ?? 90)
           const turns = (((Math.round(deg / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3
@@ -8259,16 +8387,16 @@ export default function Workspace({
         case 'create_dimension': {
           const pts = Array.isArray(params['points']) ? (params['points'] as unknown[]).map(bridgePoint) : []
           if (pts.length !== 2 || pts[0] === null || pts[1] === null) return { error: 'create_dimension needs `points`: two {x,y}, normalized' }
-          const frozen = commitDimension({ ...emptyDimensionDraft('none'), a: pts[0]!, b: pts[1]!, cursor: pts[1]! }, page.width, page.height)
+          const frozen = commitDimension({ ...emptyDimensionDraft('none'), a: pts[0]!, b: pts[1]!, cursor: pts[1]! }, ap.size.width, ap.size.height)
           if (frozen === null) return { error: 'the two points are the same point' }
           const id = uid()
           await runCommand(cmdCreate({
-            id, scopeId: null, documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+            id, scopeId: null, documentId: docIdRef.current, pageId: ap.id,
             kind: 'dimension', rings: frozen.rings, origin: 'agent', reviewState: 'accepted',
             content: frozen.content as unknown as Record<string, unknown>,
           }))
-          const fpp = calRef.current?.feetPerPoint ?? null
-          const lenPts = Math.hypot((pts[1]!.x - pts[0]!.x) * page.width, (pts[1]!.y - pts[0]!.y) * page.height)
+          const fpp = ap.feetPerPoint
+          const lenPts = Math.hypot((pts[1]!.x - pts[0]!.x) * ap.size.width, (pts[1]!.y - pts[0]!.y) * ap.size.height)
           return { id, lengthFeet: fpp === null ? null : Math.round(lenPts * fpp * 1000) / 1000, length: fpp === null ? null : formatFeetInches(lenPts * fpp) }
         }
         /* Copies of markups, on their own sheet or another one. */
@@ -8300,7 +8428,13 @@ export default function Workspace({
         }
         case 'select_markups': {
           const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String) : []
-          const here = ids.filter((i) => markupsRef.current.some((m) => m.id === i))
+          const here = ids.filter((i) => ap.markups.some((m) => m.id === i))
+          const view = agentView()
+          if (view !== null) {
+            // Its own selection. What the person has selected stays selected.
+            view.selected = here
+            return { selected: here, ...(here.length < ids.length ? { notOnThisSheet: ids.filter((i) => !here.includes(i)) } : {}), note: 'selected in your own view; the person\'s selection did not change' }
+          }
           setSelectedIds(here); selectedRef.current = here
           requestPaint()
           return { selected: here, ...(here.length < ids.length ? { notOnThisSheet: ids.filter((i) => !here.includes(i)) } : {}) }
@@ -8430,7 +8564,7 @@ export default function Workspace({
           const mode = String(params['mode'] ?? (params['point'] !== undefined ? 'point' : 'center'))
           const pt = bridgePoint(params['point'])
           const corner = params['corner']
-          const pageBox = { width: page.width, height: page.height }
+          const pageBox = { width: ap.size.width, height: ap.size.height }
           const origins = { ...(sc.specifications[AREA_ORIGINS_KEY] as Record<string, unknown> ?? {}) }
           const placed: Array<{ markupId: string; origin: { x: number; y: number } | null; grid?: Record<string, unknown> }> = []
           for (const m of areas) {
@@ -8473,7 +8607,7 @@ export default function Workspace({
               p = nearestOnBoundary(m.rings, pt, pageBox)
             } else if (mode === 'point') {
               if (pt === null) return { error: 'point mode needs `point` {x,y}, normalized' }
-              p = patternStartPoint(pt, m.rings, { scaleX: page.width, scaleY: page.height, radius: 3 })
+              p = patternStartPoint(pt, m.rings, { scaleX: ap.size.width, scaleY: ap.size.height, radius: 3 })
               if (p === null) return { error: `that point is outside area ${m.id}` }
             } else {
               return { error: 'mode must be point, corner, edge, center, grid or auto' }
@@ -8501,22 +8635,22 @@ export default function Workspace({
             // Degrees on the sheet, counter-clockwise from the page's horizontal as the drawing reads.
             const a = (Number(angle) * Math.PI) / 180
             if (!Number.isFinite(a)) return { error: 'angle must be a number of degrees' }
-            const L = 0.05 * Math.min(page.width, page.height)
+            const L = 0.05 * Math.min(ap.size.width, ap.size.height)
             x1 = 0.5; y1 = 0.5
-            x2 = 0.5 + (Math.cos(a) * L) / page.width
-            y2 = 0.5 - (Math.sin(a) * L) / page.height
+            x2 = 0.5 + (Math.cos(a) * L) / ap.size.width
+            y2 = 0.5 - (Math.sin(a) * L) / ap.size.height
           }
           if ([x1, y1, x2, y2].some((v) => !Number.isFinite(v))) {
             return { error: 'give x1,y1,x2,y2 (normalized) along a member, or `angle` in degrees (0 = across the sheet, 90 = up it)' }
           }
           if (x1 === x2 && y1 === y2) return { error: 'a zero-length vector is not a direction' }
           const applyTo = String(params['applyTo'] ?? 'scope')
-          const vector = { sourcePage: pageIndexRef.current, x1, y1, x2, y2 }
+          const vector = { sourcePage: ap.index, x1, y1, x2, y2 }
           const specs = { ...sc.specifications }
           if (applyTo === 'scope') specs['scopeDefaultDirection'] = vector
           else if (applyTo === 'page') {
             const pages = { ...(specs[PAGE_DIRECTIONS_KEY] as Record<string, unknown> ?? {}) }
-            pages[pageIdFor(docIdRef.current, pageIndexRef.current)] = vector
+            pages[ap.id] = vector
             specs[PAGE_DIRECTIONS_KEY] = pages
           } else if (applyTo === 'area') {
             const target = agentAreas({ ...params, scopeId: sc.id })
@@ -8571,10 +8705,10 @@ export default function Workspace({
         case 'trace_area': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || page.width === 0) return { error: 'no page is showing' }
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
           const pt = bridgePoint(params['point'])
           if (pt === null) return { error: 'trace_area needs `point` {x,y}, normalized, inside the field to trace' }
-          const fpp = calRef.current?.feetPerPoint
+          const fpp = (ap.feetPerPoint ?? undefined)
           /*
            * `sizeFeet` is roughly how wide the field is. The tracer reads a
            * square frame as a 512-cell raster, so a smaller frame is a finer
@@ -8586,16 +8720,16 @@ export default function Workspace({
             ? Math.max(60, Math.min(1200, (sizeFeet / fpp) * 3)) : 1200
           const half = frame / 2
           const clip = {
-            x0: Math.max(0, pt.x - half / page.width), y0: Math.max(0, pt.y - half / page.height),
-            x1: Math.min(1, pt.x + half / page.width), y1: Math.min(1, pt.y + half / page.height),
+            x0: Math.max(0, pt.x - half / ap.size.width), y0: Math.max(0, pt.y - half / ap.size.height),
+            x1: Math.min(1, pt.x + half / ap.size.width), y1: Math.min(1, pt.y + half / ap.size.height),
           }
-          const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL })
+          const g = await v.requestGeometry(ap.index, { clip, priority: PRIORITY_THUMBNAIL })
           const gap = Number(params['bridgeGapFeet'])
           // A gap wider than a third of the field would close the field itself.
           const gapFeet = Number.isFinite(gap) && gap > 0 ? gap
             : Number.isFinite(sizeFeet) && sizeFeet > 0 ? Math.min(3.5, sizeFeet / 6) : null
           const result = traceRegion({
-            segments: g.segments, seed: pt, page: { width: page.width, height: page.height },
+            segments: g.segments, seed: pt, page: { width: ap.size.width, height: ap.size.height },
             options: {
               frameSizePoints: frame,
               ...(fpp !== undefined && fpp > 0 ? { feetPerPoint: fpp } : {}),
@@ -8612,15 +8746,15 @@ export default function Workspace({
           const r5 = (n: number) => Math.round(n * 1e5) / 1e5
           // Back onto the drawing's own lines: the raster's edge is a cell or two off them.
           const onLines = params['snap'] === false ? { rings: result.region, moved: 0 }
-            : snapToLinework(result.region, g.segments, { width: page.width, height: page.height }, Math.max(3, (frame / 512) * 2.5))
+            : snapToLinework(result.region, g.segments, { width: ap.size.width, height: ap.size.height }, Math.max(3, (frame / 512) * 2.5))
           const rings = onLines.rings.map((ring) => ring.map((p) => ({ x: r5(p.x), y: r5(p.y) })))
-          const areaPts = onLines.moved > 0 ? ringsAreaPoints(onLines.rings, { width: page.width, height: page.height }) : result.areaPoints2
+          const areaPts = onLines.moved > 0 ? ringsAreaPoints(onLines.rings, { width: ap.size.width, height: ap.size.height }) : result.areaPoints2
           const areaSqFt = fpp !== undefined && fpp > 0 ? Math.round(areaPts * fpp * fpp * 100) / 100 : null
           if (params['create'] === true) {
             const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : agentScope()
             const id = uid()
             await runCommand(cmdCreate({
-              id, documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+              id, documentId: docIdRef.current, pageId: ap.id,
               scopeId, kind: 'area', rings, origin: 'agent', reviewState: 'accepted', content: { source: 'trace' },
             }))
             return { id, rings, areaSquareFeet: areaSqFt, holes: rings.length - 1 }
@@ -8638,7 +8772,7 @@ export default function Workspace({
         case 'trace_field': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || page.width === 0) return { error: 'no page is showing' }
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
           const pt = bridgePoint(params['point'])
           if (pt === null) return { error: 'trace_field needs `point` {x,y}, normalized, inside the hatched field' }
           const rect = bridgeRect(params['rect'])
@@ -8648,14 +8782,14 @@ export default function Workspace({
             x1: Math.min(1, Math.max(rect.x0, rect.x1)), y1: Math.min(1, Math.max(rect.y0, rect.y1)),
           }
           if (!(pt.x >= frame.x0 && pt.x <= frame.x1 && pt.y >= frame.y0 && pt.y <= frame.y1)) return { error: '`point` is outside `rect`' }
-          const pageIdx = pageIndexRef.current
-          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const pageIdx = ap.index
+          const here = ap.id
           const region = (projectRegions.get(here) ?? []).find((r) => pointInRegion(pt, [[
             { x: Math.min(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) }, { x: Math.max(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) },
             { x: Math.max(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) }, { x: Math.min(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) },
           ]]))
-          const fpp = region?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
-          const pageSize = { width: page.width, height: page.height }
+          const fpp = region?.feetPerPoint ?? ap.feetPerPoint
+          const pageSize = { width: ap.size.width, height: ap.size.height }
           // Every segment in the box: a read that fills up is split in four, to the end.
           let readsCut = false
           const readAll = async (clip: typeof frame, depth: number): Promise<Float32Array[]> => {
@@ -8674,7 +8808,7 @@ export default function Workspace({
           let at = 0
           for (const c of chunks) { segments.set(c, at); at += c.length }
           // The sheet as PDFium draws it, without anyone's markups, about a pixel a grid cell.
-          const fwPts = (frame.x1 - frame.x0) * page.width, fhPts = (frame.y1 - frame.y0) * page.height
+          const fwPts = (frame.x1 - frame.x0) * ap.size.width, fhPts = (frame.y1 - frame.y0) * ap.size.height
           const cellGuess = Math.max(0.75, Math.sqrt((fwPts * fhPts * 1.5) / 8_000_000))
           let image: { data: Uint8Array; width: number; height: number; channels: 1 } | undefined
           if (params['visual'] !== false) {
@@ -8763,7 +8897,7 @@ export default function Workspace({
         case 'detect_grid': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
           let area: Markup | undefined
           if (typeof params['markupId'] === 'string') {
             area = docMarkupsRef.current.find((m) => m.id === params['markupId'])
@@ -8777,7 +8911,7 @@ export default function Workspace({
           const limit = Math.max(0, Math.min(5000, Number(params['limit'] ?? 0) || 0))
           const first = [...g.crossings].sort((a, b) => a.y - b.y || a.x - b.x)[0]
           return {
-            page: pageIndexRef.current,
+            page: ap.index,
             angle: g.angle,
             ...read.modules,
             // Lines of the first family run at `angle`; so there are as many rows across them as lines less one.
@@ -8794,23 +8928,23 @@ export default function Workspace({
         case 'detect_pattern': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
           const v = viewerRef.current
-          if (!v || v.pageInfo.width === 0) return { error: 'no page is showing' }
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
           const rect = bridgeRect(params['rect'])
           if (rect === undefined || rect === null) return { error: 'detect_pattern needs `rect` {x0,y0,x1,y1} around several members' }
           const clip = { x0: Math.min(rect.x0, rect.x1), y0: Math.min(rect.y0, rect.y1), x1: Math.max(rect.x0, rect.x1), y1: Math.max(rect.y0, rect.y1) }
-          const g = await v.requestGeometry(pageIndexRef.current, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
-          const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const g = await v.requestGeometry(ap.index, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 200_000 })
+          const here = ap.id
           const centre = [[{ x: (clip.x0 + clip.x1) / 2, y: (clip.y0 + clip.y1) / 2 }]]
           const region = (projectRegions.get(here) ?? []).find((r) => pointInRegion(centre[0]![0]!, [[
             { x: Math.min(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) }, { x: Math.max(r.rect.x0, r.rect.x1), y: Math.min(r.rect.y0, r.rect.y1) },
             { x: Math.max(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) }, { x: Math.min(r.rect.x0, r.rect.x1), y: Math.max(r.rect.y0, r.rect.y1) },
           ]]))
-          const r = detectPattern(g.segments, v.pageInfo, {
-            feetPerPoint: region?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null,
+          const r = detectPattern(g.segments, ap.size, {
+            feetPerPoint: region?.feetPerPoint ?? ap.feetPerPoint,
             inside: clip,
             ...(Number.isFinite(Number(params['minLengthPoints'])) ? { minLengthPoints: Number(params['minLengthPoints']) } : {}),
           })
-          return { page: pageIndexRef.current, ...r }
+          return { page: ap.index, ...r }
         }
         /*
          * The scales the sheet states, with where each is printed, and the
@@ -8820,7 +8954,7 @@ export default function Workspace({
         case 'read_scale': {
           const v = viewerRef.current
           if (!v || activeDocId === null) return { error: 'no document is open' }
-          const pages = agentPageList(params, pageIndexRef.current)
+          const pages = agentPageList(params, ap.index)
           if ('error' in pages) return pages
           const out: Array<Record<string, unknown>> = []
           // Every sheet is read, to the end, in the background; this answer
@@ -8857,12 +8991,12 @@ export default function Workspace({
           const dim = typeof params['dimension'] === 'string' ? params['dimension'] : null
           if (dim !== null) {
             if (pts.length !== 2 || pts.some((p) => p === null)) return { error: 'a dimension check needs `points`: the two ends the written dimension spans, normalized', sheets: out }
-            const here = pageIdFor(docIdRef.current, pageIndexRef.current)
+            const here = ap.id
             const regs = projectRegions.get(here) ?? []
             const mid = { x: (pts[0]!.x + pts[1]!.x) / 2, y: (pts[0]!.y + pts[1]!.y) / 2 }
             const reg = regs.find((r) => mid.x >= Math.min(r.rect.x0, r.rect.x1) && mid.x <= Math.max(r.rect.x0, r.rect.x1) && mid.y >= Math.min(r.rect.y0, r.rect.y1) && mid.y <= Math.max(r.rect.y0, r.rect.y1))
-            const checked = reg?.feetPerPoint ?? calRef.current?.feetPerPoint ?? null
-            return { sheets: out, check: { page: pageIndexRef.current, ...(reg !== undefined ? { region: reg.id } : {}), ...checkScale(pts[0]!, pts[1]!, dim, { width: page.width, height: page.height }, checked) } }
+            const checked = reg?.feetPerPoint ?? ap.feetPerPoint
+            return { sheets: out, check: { page: ap.index, ...(reg !== undefined ? { region: reg.id } : {}), ...checkScale(pts[0]!, pts[1]!, dim, { width: ap.size.width, height: ap.size.height }, checked) } }
           }
           return {
             sheets: out,
@@ -8937,7 +9071,7 @@ export default function Workspace({
           for (let i = 0; i < list.length; i++) {
             // Each entry may name its own ZERO-based page; otherwise the sheet showing.
             // An agent-named page is a target, like a scale gesture's, never a stale read.
-            const targetPage = list[i]!['page'] === undefined ? pageIndexRef.current : Number(list[i]!['page'])
+            const targetPage = list[i]!['page'] === undefined ? ap.index : Number(list[i]!['page'])
             const pg = targetPage
             if (!Number.isInteger(pg) || pg < 0 || pg >= pageCount) return { error: `markup ${i}: page ${String(list[i]!['page'])} out of range (0..${pageCount - 1})`, created: 0 }
             const pageId = pageIdFor(docId, targetPage)
@@ -8957,7 +9091,7 @@ export default function Workspace({
               continue
             }
             pending.push(built.markup)
-            const issues = built.markup.kind === 'area' || built.markup.kind === 'shape' ? outlineWarnings(built.markup.rings) : []
+            const issues = built.markup.kind === 'area' || built.markup.kind === 'shape' ? outlineWarnings(built.markup.rings, pg) : []
             results.push({
               index: i, id: built.markup.id, kind: built.markup.kind, scopeId: built.markup.scopeId, page: pg,
               ...(issues.length > 0 ? { warnings: issues.map((x) => x.message) } : {}),
@@ -9051,7 +9185,7 @@ export default function Workspace({
             `SELECT p.id AS id, p.page_number AS n, p.width_pdf_points AS w, p.height_pdf_points AS h, c.feet_per_pdf_point AS f
                FROM pages p LEFT JOIN calibrations c ON c.page_id = p.id WHERE p.document_id = ?1`, [activeDocId])
           for (const r of rows) dims.set(r.id, { n: r.n, w: r.w, h: r.h, f: r.f })
-          const showing = pageIdFor(docIdRef.current, pageIndexRef.current)
+          const showing = ap.id
           const targetPage = Number(params['page'])
           const onlyPage = params['page'] === undefined ? null : pageIdFor(docIdRef.current, targetPage)
           const onlyScope = typeof params['scopeId'] === 'string' ? params['scopeId'] : null
@@ -9066,7 +9200,7 @@ export default function Workspace({
           const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           const markups = all.slice(offset, offset + limit).map((m) => {
             const d = dims.get(m.pageId)
-            const size = m.pageId === showing ? { width: page.width, height: page.height }
+            const size = m.pageId === showing ? { width: ap.size.width, height: ap.size.height }
               : d !== undefined && d.w !== null && d.h !== null ? { width: d.w, height: d.h } : null
             const sc = m.scopeId === null ? null : scopesRef.current.find((x) => x.id === m.scopeId) ?? null
             const closed = m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape'
@@ -9074,7 +9208,7 @@ export default function Workspace({
             let unit: string | null = null
             if (m.kind === 'count') { quantity = m.rings[0]?.length ?? 0; unit = 'ea' }
             else if (size !== null && (m.rings[0]?.length ?? 0) >= 2) {
-              const opts = { closed, regions: projectRegions.get(m.pageId) ?? [], pageFeetPerPoint: d?.f ?? (m.pageId === showing ? calRef.current?.feetPerPoint ?? null : null) }
+              const opts = { closed, regions: projectRegions.get(m.pageId) ?? [], pageFeetPerPoint: d?.f ?? (m.pageId === showing ? ap.feetPerPoint : null) }
               const outer = measurePoints(m.rings[0]!, size, opts)
               if (closed) {
                 let a = outer.areaSquareFeet ?? null
@@ -11688,8 +11822,20 @@ export default function Workspace({
     <AgentsDock
       tabs={lightTabs.list}
       activeFile={quickView!.file}
-      onSelect={lightTabs.onSelect}
-      onHandOver={lightTabs.onHandOver}
+      onSelect={(file, agentId) => {
+        /*
+         * The one way the person's view goes to where a session is: they
+         * click its row for the PDF they are already looking at. A session's
+         * own calls never do this.
+         */
+        const view = agentId === undefined ? undefined : agentViewsRef.current.get(agentId)
+        if (file === quickView!.file) {
+          if (view !== undefined && view.page !== pageIndexRef.current && view.page < pageCount) goToPage(view.page)
+          return
+        }
+        if (agentId !== undefined) askLookIn(file, agentId)
+        lightTabs.onSelect(file)
+      }}
       onEndSession={lightTabs.onEndSession}
       onDismissSession={lightTabs.onDismissSession}
       onReopenFile={lightTabs.onReopenFile}
@@ -12740,17 +12886,6 @@ function bridgeRect(v: unknown): { x0: number; y0: number; x1: number; y1: numbe
   return box
 }
 
-/**
- * Calls that change how a PDF is being looked at rather than what is in it:
- * the tool in hand, the zoom, the selection, the panels, and undo (which
- * takes back the latest change, whoever made it). An agent makes them freely
- * in a tab it drives; in someone else's, the person is asked first.
- */
-const VIEW_ACTIONS = new Set([
-  'set_tool', 'zoom_to_region', 'set_layout_preview', 'open_panel',
-  'begin_scale_region', 'cancel_scale_region', 'select_markups', 'set_markup_visibility',
-])
-
 /** Writes that act on the sheet showing: a `page` input shows that sheet first. */
 const PAGE_BOUND = new Set([
   'create_markup', 'set_calibration', 'set_scope_direction', 'set_pattern_origin', 'set_pattern_direction',
@@ -12787,6 +12922,19 @@ function nearestOnBoundary(
 
 /** Addendum links recorded in the open file (round 3 #9). They travel in the PDF. */
 const ADDENDA_KEY = 'addenda_links'
+/** One AI session's own view of a PDF; see `agentViewsRef`. */
+type AgentView = {
+  page: number
+  /** The box it last framed with zoom_to_region; a screenshot with no region shows it. */
+  rect: { x0: number; y0: number; x1: number; y1: number } | null
+  selected: string[]
+  pendingRegion: { rect: { x0: number; y0: number; x1: number; y1: number }; pageId: string } | null
+  /** Which markup layers ITS screenshots draw. */
+  embedded: boolean
+  redbeam: boolean
+  tool: string
+  layoutOn: boolean
+}
 type AddendumLink = { replaced: number; by: number; source: string }
 async function readAddendaLinks(db: SqlDriver): Promise<AddendumLink[]> {
   try {

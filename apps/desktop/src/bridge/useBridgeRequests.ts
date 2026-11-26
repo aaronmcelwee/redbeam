@@ -30,10 +30,10 @@ export interface CallContext {
   /** The agent, or null for a caller with no name (a script, an old server). */
   agent: Agent | null
   /**
-   * Whether this caller may move the PDF's view: turn its pages, zoom it,
-   * change its tool, selection or panels. True in a tab the agent opened or
-   * was handed; false in the person's own tab, where a call that would move
-   * the view is answered `{error, handover: true}` instead of being done.
+   * Whether the PDF is this caller's own tab (one it opened), as against a
+   * guest in the person's. Neither moves what is on screen: a session works
+   * through its own view of the PDF (Workspace.tsx `agentViewsRef`). Only a
+   * caller with no name drives the window.
    */
   drives: boolean
 }
@@ -43,7 +43,8 @@ export const UNNAMED_CALL: CallContext = { agent: null, drives: true }
 
 export interface BridgeActions {
   /** Whatever the driving agent should be able to see about this window. */
-  uiState: () => Record<string, unknown>
+  /** With a session's context, what that session's own view is on; see Workspace.tsx `agentViewsRef`. */
+  uiState: (ctx?: CallContext) => Record<string, unknown>
   /**
    * PNG data URL of the current canvas, or of a box of the sheet rendered at
    * a chosen size; null when nothing is mounted.
@@ -223,7 +224,7 @@ export async function runOnHost(
   try {
     switch (action) {
       case 'get_ui_state':
-        return host.uiState()
+        return host.uiState(ctx)
       case 'screenshot': {
         const dataUrl = await host.screenshot(params, ctx)
         if (dataUrl === null) return { error: 'no canvas is mounted yet; the PDF is still opening. Poll redbeam_get_ui_state until pageCount > 0.' }
@@ -260,20 +261,6 @@ export async function runOnHost(
         return { error: `unknown ui action: ${action}` }
     }
   } catch (e) {
-    const handover = typeof e === 'object' && e !== null && (e as { handover?: unknown }).handover === true
-    return { error: e instanceof Error ? e.message : String(e), ...(handover ? { handover: true } : {}) }
-  }
-}
-
-/**
- * Thrown inside a workspace when a call would move the view of a PDF its
- * caller does not drive. The router asks the person, and tries again if
- * they hand the tab over.
- */
-export class HandoverNeeded extends Error {
-  readonly handover = true
-  constructor(what: string) {
-    super(what)
-    this.name = 'HandoverNeeded'
+    return { error: e instanceof Error ? e.message : String(e) }
   }
 }
