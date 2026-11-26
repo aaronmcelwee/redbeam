@@ -122,7 +122,7 @@ pub fn request_within(app: &AppHandle, action: &str, params: &Value, silence: Du
             Ok(v)
         }
         None => Err(format!(
-            "no window answered `{action}`, and none said it was working on it, for {}s — is a PDF open? Open one with redbeam_open_file.",
+            "no window answered `{action}` within {}s. The call was delivered and may still finish: if it changes the PDF, check (redbeam_list_markups, redbeam_get_ui_state) before sending it again, or you may do it twice. If no PDF is open, open one with redbeam_open_file.",
             silence.as_secs()
         )),
     }

@@ -929,12 +929,29 @@ const STEPS = [
     await page.keyboard.press('PageDown')
     await page.waitForTimeout(700)
     const moved = await person(page)
+    const movedTo = (await agentCall(page, null, 'get_ui_state', {})).pageIndex
     const again = ok('create_markup', await agentAct(page, A, 'create_markup', { kind: 'shape', rings: ring(0.5, 0.5), file: FILE }))
     if (again.page !== 5) problems.push(`agent-own-view: after the person turned the page, the session's markup should still land on its sheet 5, landed on ${again.page}`)
     await page.waitForTimeout(300)
     if (JSON.stringify(await person(page)) !== JSON.stringify(moved)) problems.push('agent-own-view: the session\'s call moved the person after they turned the page')
     problems.push(...await inspect(page))
     await page.screenshot({ path: join(out, `${shotPrefix}agent-own-view.png`) })
+    /*
+     * Looking in, the one way the person's view goes to a session's sheet:
+     * they click the session's row for the PDF they are already in. On the
+     * SLS (0.3.100, 2026-11-26) that click left the window where it was.
+     */
+    const row = shown(page).locator('.agentcard', { hasText: A.label }).locator('.agentfile', { hasText: 'your PDF' }).first()
+    if (await row.count() === 0) problems.push('agent-own-view: the session has no row for the person\'s PDF it is working in')
+    else {
+      await row.scrollIntoViewIfNeeded().catch(() => {})
+      await row.click()
+      await page.waitForTimeout(900)
+      const at = await agentCall(page, null, 'get_ui_state', {})
+      if (at.pageIndex !== 5) problems.push(`agent-own-view: clicking the session's row for the PDF on screen should take the person to its sheet 5, they are on ${at.pageIndex}`)
+      await agentCall(page, null, 'invoke_ui_action', { action: 'go_to_page', page: movedTo ?? 1 })
+      await page.waitForTimeout(500)
+    }
     // Tidy: its markups and region away, the person back where they were.
     for (const id of [made.id, again.id]) ok('delete_markup', await agentAct(page, A, 'delete_markup', { id, file: FILE }))
     const gone = await agentAct(page, A, 'list_markups', { file: FILE })
