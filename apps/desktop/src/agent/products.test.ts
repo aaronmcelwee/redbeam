@@ -45,8 +45,9 @@ describe('measuresAsText', () => {
 describe('mixed members', () => {
   it('are offered on baffles only, and known keys', async () => {
     const { describeProduct, unknownSpecKeys } = await import('./products.js')
-    expect(describeProduct('baffle').options?.map((o) => o.key)).toEqual(['mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel'])
-    expect(describeProduct('panels').options).toBeUndefined()
+    expect(describeProduct('baffle').options?.map((o) => o.key)).toEqual(['mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'cloudSlope', 'cloudUpturn', 'cloudUpturnUnit'])
+    expect(describeProduct('panels').options?.map((o) => o.key)).toEqual(['cloudSlope', 'cloudUpturn', 'cloudUpturnUnit'])
+    expect(describeProduct('linear_parts').options).toBeUndefined()
     expect(unknownSpecKeys('baffle', { mixedEvery: '3', mixedLabel: 'Beam' })).toEqual([])
   })
 })
