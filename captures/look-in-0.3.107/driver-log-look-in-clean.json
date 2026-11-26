@@ -1,0 +1,196 @@
+[
+  {
+    "k": "window.original",
+    "v": "120,89,2302,1452,False"
+  },
+  {
+    "k": "window.move",
+    "v": "now 0,0,1500,950"
+  },
+  {
+    "k": "webview.origin",
+    "v": [
+      11,
+      2
+    ]
+  },
+  {
+    "k": "activate",
+    "v": "redbeam fg=False"
+  },
+  {
+    "k": "row1",
+    "v": "clicked 225,200"
+  },
+  {
+    "k": "agent.open",
+    "v": false
+  },
+  {
+    "k": "agent.goto5",
+    "v": 5
+  },
+  {
+    "k": "agent.markup",
+    "v": 5
+  },
+  {
+    "k": "row10",
+    "v": "clicked 225,524"
+  },
+  {
+    "k": "agentUi",
+    "v": {
+      "pageIndex": 5,
+      "personPageIndex": 9
+    }
+  },
+  {
+    "k": "row",
+    "v": {
+      "text": "LookIn2your PDF",
+      "cls": "agentfile active",
+      "title": "C:\\temp\\rb-108\\LookIn2.pdf\nYour PDF. Claude Code · look-in clean pass is working in it with you. Click to go to the sheet it is on.",
+      "rect": {
+        "x": 684.6666870117188,
+        "y": 454.25,
+        "w": 287.3333435058594,
+        "h": 24
+      },
+      "cx": 828.3333587646484,
+      "cy": 466.25,
+      "hit": {
+        "tag": "SPAN",
+        "cls": "agentfile-name",
+        "inRow": true
+      }
+    }
+  },
+  {
+    "k": "row.physical",
+    "v": {
+      "x": 1254,
+      "y": 701,
+      "fromRightEdge": 1146,
+      "fromBottomEdge": 899
+    }
+  },
+  {
+    "k": "row.coveredBy",
+    "v": "redbeam | Tauri Window | LookIn2 — REDBEAM | isRedbeam=True"
+  },
+  {
+    "k": "foreground.before",
+    "v": "redbeam"
+  },
+  {
+    "k": "before",
+    "v": {
+      "page": "10 / 12",
+      "zoom": null,
+      "focus": "BUTTON.sheetrow \"E2.01LIGHTING PLAN10\"",
+      "dialogs": [],
+      "ask": 0,
+      "tab": "LookIn2",
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "986x625",
+      "hasFocus": true
+    }
+  },
+  {
+    "k": "listen",
+    "v": "installed"
+  },
+  {
+    "k": "realClick",
+    "v": "clicked 1254,701"
+  },
+  {
+    "k": "after",
+    "v": {
+      "page": "6 / 12",
+      "zoom": null,
+      "hasFocus": true,
+      "focus": "BUTTON.agentfile \"LookIn2your PDF\"",
+      "foreground": "redbeam",
+      "clicks": [
+        {
+          "type": "pointerdown",
+          "tag": "SPAN",
+          "cls": "agentfile-name",
+          "x": 829,
+          "y": 466,
+          "time": 23375
+        },
+        {
+          "type": "mousedown",
+          "tag": "SPAN",
+          "cls": "agentfile-name",
+          "x": 828,
+          "y": 466,
+          "time": 23375
+        },
+        {
+          "type": "window-blur",
+          "time": 23376
+        },
+        {
+          "type": "pointerup",
+          "tag": "SPAN",
+          "cls": "agentfile-name",
+          "x": 829,
+          "y": 466,
+          "time": 23451
+        },
+        {
+          "type": "mouseup",
+          "tag": "SPAN",
+          "cls": "agentfile-name",
+          "x": 828,
+          "y": 466,
+          "time": 23451
+        },
+        {
+          "type": "click",
+          "tag": "SPAN",
+          "cls": "agentfile-name",
+          "x": 828,
+          "y": 466,
+          "time": 23452
+        }
+      ]
+    }
+  },
+  {
+    "k": "row1.back",
+    "v": "clicked 225,200"
+  },
+  {
+    "k": "onSheet1",
+    "v": {
+      "page": "1 / 12",
+      "zoom": null,
+      "hasFocus": true
+    }
+  },
+  {
+    "k": "afterAgentMarkup",
+    "v": {
+      "answer": 5,
+      "ms": 30,
+      "page": "1 / 12",
+      "zoom": null,
+      "focus": "BUTTON.sheetrow \"General1\"",
+      "hasFocus": true
+    }
+  },
+  {
+    "k": "end",
+    "v": true
+  },
+  {
+    "k": "window.restore",
+    "v": "now 120,89,2302,1452"
+  }
+]
