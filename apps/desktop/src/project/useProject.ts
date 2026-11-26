@@ -77,8 +77,8 @@ export interface UseProjectState {
   removeData: (project: RecentProject) => Promise<void>
   /** Show a project's folder in Explorer. Desktop only. */
   reveal: (path: string) => Promise<void>
-  /** Pick a drawing to view without making a project: the pick, or null when cancelled. */
-  viewDrawing: () => Promise<FilePickOutcome | null>
+  /** Pick drawings to view without making a project: their paths, empty when cancelled. */
+  viewDrawing: () => Promise<string[]>
   /** Where a dropped drawing would belong; null when the path is not a file. */
   locateFile: (path: string) => Promise<FilePickOutcome | null>
   clearRecents: () => Promise<void>
@@ -248,18 +248,18 @@ export function useProject(opts: UseProjectOptions = {}): UseProjectState {
   )
 
   /**
-   * Pick a drawing to VIEW: the file's path, or null when cancelled. No
-   * project is resolved or made; that is the caller's decision, later, when
-   * a markup action asks for one.
+   * Pick drawings to VIEW: their paths, empty when cancelled. Several may be
+   * picked at once (Kenneth, 2026-11-26). No project is resolved or made;
+   * that is the caller's decision, later, when a markup action asks for one.
    */
-  const viewDrawing = useCallback(async (): Promise<FilePickOutcome | null> => {
+  const viewDrawing = useCallback(async (): Promise<string[]> => {
     try {
-      const outcome = await bridge.pickFile()
+      const outcome = await bridge.pickFiles()
       if (!outcome.supported && outcome.reason !== null && aliveRef.current) setError(outcome.reason)
-      return outcome.path === null ? null : outcome
+      return outcome.paths
     } catch (err) {
       if (aliveRef.current) setError(message(err))
-      return null
+      return []
     }
   }, [bridge])
 

@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.113 — 2026-11-26
+
+### Opening several sets, counts and lengths, sharper thumbnails
+
+- **Open several PDFs at once.** The Open dialog takes more than one file: hold Ctrl or Shift as you pick. Each one opens in its own tab, and the first is shown. Dropping several PDFs on the window does the same.
+- **Count and Length are products.** The Product menu now lists Count and Length beside Panels, Planks and the rest, for things you tally (light fixtures, felt clouds) or measure by the foot (wall, individual baffles). Their totals show in the scope's summary and in the estimate. If you pick Count or Linear while an area scope is active, the warning offers to draw in a count or length scope instead, so nothing drawn is left out of the numbers.
+- **Sharper, faster thumbnails.** Thumbnails fill their column and are drawn at your screen's own sharpness, so sheet titles can be read. Hold Ctrl and turn the mouse wheel over the thumbnails to make them bigger or smaller. More of them are kept ready, and the ones just below the pane load before you scroll to them.
+
 ## 0.3.112 — 2026-11-26
 
 ### Bluebeam markups can be moved, recoloured and deleted

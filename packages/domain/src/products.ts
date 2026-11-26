@@ -106,6 +106,23 @@ export function productLabelFor(specs: Specifications): string {
   return productDefinitionFor(specs).label
 }
 
+/**
+ * What to call a scope's product, the scope's measure included.
+ *
+ * Kenneth, 2026-11-26: a count, or a length, should be a kind of scope in its
+ * own right, "for example, number of light fixture integrations or number of
+ * felt clouds", "linear feet of wall or individual linear feet of baffle".
+ * Both are a custom assembly measured as counts or lengths underneath; this
+ * is the name they go by everywhere a person reads it.
+ */
+export function scopeProductLabel(scope: { scopeType: 'area' | 'linear' | 'count'; specifications: Specifications }): string {
+  const label = productLabelFor(scope.specifications)
+  if (readProductType(scope.specifications) !== 'custom_assembly') return label
+  if (scope.scopeType === 'count') return 'Count'
+  if (scope.scopeType === 'linear') return 'Length'
+  return label
+}
+
 /** Keys of a built-in scope's specification that describe the PRODUCT (not where it is laid). */
 function productKeys(product: BuiltInLayerKind): string[] {
   const keys: string[] = []

@@ -1264,7 +1264,8 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* Ctrl+wheel over the pane sets the columns (pages/thumbSize.ts). */
+  grid-template-columns: repeat(var(--thumb-cols, 3), minmax(0, 1fr));
   /* Rows hug their thumbnails: a short set stretched each cell to a quarter of the pane. */
   align-content: start;
   gap: var(--ads-sp-1);

@@ -449,3 +449,26 @@ describe('scan to ingest input', () => {
     expect(describeScan({ ...scan, unreadable: ['x'] })).toContain('unreadable')
   })
 })
+
+describe('picking several drawings', () => {
+  it('asks the desktop for several files and keeps only real paths', async () => {
+    const calls: string[] = []
+    const b = createProjectBridge({
+      desktop: true,
+      storage: null,
+      invoke: (async (cmd: string) => {
+        calls.push(cmd)
+        return { supported: true, paths: ['C:\\Jobs\\A.pdf', '', 7, 'C:\\Jobs\\B.pdf'], reason: null }
+      }) as never,
+    })
+    const out = await b.pickFiles()
+    expect(calls).toEqual(['project_pick_files'])
+    expect(out).toEqual({ supported: true, paths: ['C:\\Jobs\\A.pdf', 'C:\\Jobs\\B.pdf'], reason: null })
+  })
+
+  it('says why in a browser tab, with no paths', async () => {
+    const out = await createProjectBridge({ desktop: false, storage: null }).pickFiles()
+    expect(out.supported).toBe(false)
+    expect(out.paths).toEqual([])
+  })
+})

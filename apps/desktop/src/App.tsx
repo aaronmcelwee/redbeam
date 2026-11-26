@@ -222,39 +222,60 @@ export default function App() {
     saveThen(now.file, () => setQuick(f))
   }, [isLive, saveThen, setQuick, agentsUse, setLive, setTabs])
 
-  /** A drawing, picked or dropped: it opens as a tab, or comes forward if it is one. */
-  const showDrawing = useCallback((pick: { path: string | null }) => {
-    if (pick.path === null) return
+  /**
+   * Drawings, picked or dropped: each opens as a tab, or comes forward if it
+   * is one. The first is the one shown; the rest wait as tabs, holding
+   * nothing until they are shown (Kenneth, 2026-11-26: several picked at once).
+   */
+  const showDrawings = useCallback((paths: readonly string[]) => {
+    if (paths.length === 0) return
     /*
      * The PDF is the record, so it opens on its own even when it sits in an
      * old project folder: an old project's takeoff moves into its PDFs as
      * they open (export/oldProject.ts).
      */
-    rememberFile(pick.path)
+    for (const p of [...paths].reverse()) rememberFile(p)
     setFiles(recentFiles())
     setQuickNote(null)
-    const path = pick.path
+    const [path, ...rest] = paths as [string, ...string[]]
+    const behind = rest.filter((p) => tabFor(tabsRef.current, p) === undefined).map(lightFileOf)
+    const addBehind = (t: LightFile[]) => behind.reduce((acc, f) => withTab(acc, f), t)
     const open = tabFor(tabsRef.current, path)
     // Already a tab, the person's or an agent's: it comes forward as it is.
-    if (open !== undefined) { showTab(open); return }
+    if (open !== undefined) {
+      if (behind.length > 0) setTabs(addBehind)
+      showTab(open)
+      return
+    }
     const f = lightFileOf(path)
     const now = quickRef.current
-    const add = () => { setTabs((t) => withTab(t, f)); setQuick(f) }
+    const add = () => { setTabs((t) => addBehind(withTab(t, f))); setQuick(f) }
     if (now !== null && !isLive(now.file) && agentsUse(now.file)) setLive((l) => [...l, now.file])
     if (now === null || isLive(now.file)) { add(); return }
     // Another PDF opens beside this one: save this one first, as leaving does.
     saveThen(now.file, add)
   }, [showTab, isLive, saveThen, setTabs, setQuick, agentsUse, setLive])
+  const showDrawing = useCallback((pick: { path: string | null }) => {
+    if (pick.path !== null) showDrawings([pick.path])
+  }, [showDrawings])
 
   const viewDrawing = useCallback(() => {
-    void project.viewDrawing().then((pick) => { if (pick !== null) showDrawing(pick) })
-  }, [project, showDrawing])
+    void project.viewDrawing().then(showDrawings)
+  }, [project, showDrawings])
 
   /** A dropped path: a PDF opens; anything else is told what REDBEAM opens. */
   const dropPath = useCallback((path: string) => {
     if (/\.pdf$/i.test(path)) { void project.locateFile(path).then((pick) => { if (pick !== null) showDrawing(pick) }); return }
     setQuickNote('REDBEAM opens PDFs. Open a drawing from that folder instead; if the folder was a REDBEAM project, its takeoff moves into the PDFs as they are opened.')
   }, [project, showDrawing])
+  /** Several dropped at once: every PDF among them opens as a tab, the first one shown. */
+  const dropPaths = useCallback((paths: readonly string[]) => {
+    const pdfs = paths.filter((p) => /\.pdf$/i.test(p))
+    if (pdfs.length === 0) { if (paths[0] !== undefined) dropPath(paths[0]); return }
+    void Promise.all(pdfs.map((p) => project.locateFile(p))).then((picks) => {
+      showDrawings(picks.flatMap((pick) => (pick?.path ?? null) === null ? [] : [pick!.path!]))
+    })
+  }, [project, dropPath, showDrawings])
 
   /** Light: show another open tab, saving the one left first. */
   const selectTab = useCallback((file: string) => {
@@ -603,7 +624,7 @@ export default function App() {
               else setQuickNote(`${p.path} could not be opened. It may have moved; right-click it to take it off the list.`)
             })}
             onForgetRecent={(p) => { forgetFile(p.path); setFiles(recentFiles()) }}
-            {...(project.desktop ? { onViewDrawing: viewDrawing, onDropPath: dropPath } : {})}
+            {...(project.desktop ? { onViewDrawing: viewDrawing, onDropPath: dropPath, onDropPaths: dropPaths } : {})}
             // exactOptionalPropertyTypes: an optional prop must be absent, not
             // explicitly undefined — so this is spread in rather than passed as null.
             {...(project.desktop ? { onBrowse: project.browse } : {})}
