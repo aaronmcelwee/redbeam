@@ -140,3 +140,19 @@ export function cutAreas(areas: ReadonlyArray<readonly Polygon[]>, openings: rea
   if (clips.length > 0) material = clipper.difference(material, clips)
   return fromMulti(material)
 }
+
+/**
+ * The union of `pieces` that lies inside one area (`[outline, ...cuts]`), as
+ * rings. Kept as polygons throughout, so a cut inside a piece stays a hole.
+ */
+export function piecesInArea(pieces: readonly Polygon[], area: readonly Polygon[]): Region {
+  const subject = toMulti(pieces)
+  const outline = area[0]
+  if (subject.length === 0 || outline === undefined || outline.length < 3) return []
+  const cuts = toMulti(area.slice(1))
+  const material: ClipMulti = cuts.length > 0
+    ? clipper.difference([[toClipRing(outline)]], cuts)
+    : [[toClipRing(outline)]]
+  if (material.length === 0) return []
+  return fromMulti(clipper.intersection(clipper.union(subject), material))
+}
