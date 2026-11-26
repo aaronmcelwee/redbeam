@@ -1813,7 +1813,7 @@
     },
     {
       "name": "redbeam_update_scope",
-      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. productType changes the product (a custom pattern can become a baffle and back; the recipe is kept), and a new laid-out product makes the scope an area scope unless scopeType says otherwise; `needs` lists what the new product still needs. `recipe` (or specifications.patternRecipe) saves a custom pattern in the same call, through redbeam_save_pattern's checks, as a draft.",
+      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. productType changes the product (a custom pattern can become a baffle and back; the recipe is kept), and a new laid-out product makes the scope an area scope unless scopeType says otherwise; `needs` lists what the new product still needs. `recipe` (or specifications.patternRecipe) saves a custom pattern in the same call, through redbeam_save_pattern's checks, as a draft. A baffle can mix two members (\"Beam every Nth, Slab between\"): mixedEvery N, mixedLabel, memberLabel, mixedStart; the Nth lines are ordered on their own (describe_product lists them).",
       "inputSchema": {
         "type": "object",
         "properties": {

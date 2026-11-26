@@ -38,6 +38,8 @@ export interface ProductDescription {
   /** Specifications that would satisfy every required field, for illustration. */
   example: Record<string, string>
   note: string
+  /** Optional settings that are not measures (mixed members on a baffle). */
+  options?: Array<{ key: string; help: string; default: string }>
 }
 
 /** A plausible value for an example, in inches. Illustration only. */
@@ -77,10 +79,19 @@ export function describeProduct(type: string): ProductDescription {
     measuredAs: scopeTypeForProduct(product),
     fields,
     example,
+    ...(product === 'baffle' || product === 'baffle_cassette' ? { options: MIXED_OPTIONS } : {}),
     note: 'Values are text ("6", "7 1/2"). Each measure is two keys: the number under `key`, the unit under `unitKey`. '
       + 'Set them with update_scope {specifications}, which merges. Laid-out products also need a pattern direction (set_pattern_direction).',
   }
 }
+
+/** "Beam every Nth member, Slab between" (NOIC report, 2026-11-26). Read by runs.ts readMixedMembers. */
+const MIXED_OPTIONS = [
+  { key: 'mixedEvery', help: 'every Nth line is a different member (2 or more), ordered on its own as "<mixedLabel> stock"; leave out for one member', default: '' },
+  { key: 'mixedStart', help: 'which line is the first of them, 0 = the first line of each area', default: '0' },
+  { key: 'mixedLabel', help: 'the Nth member\'s name', default: 'Beam' },
+  { key: 'memberLabel', help: 'the members between (e.g. "Slab"); the stock line is named after it', default: 'Baffle' },
+]
 
 export function describeAllProducts(): ProductDescription[] {
   return PRODUCT_TYPES.map((p) => describeProduct(p))
@@ -98,7 +109,7 @@ const OTHER_KNOWN = [
   PRODUCT_TYPE_KEY, 'alignSeams', 'profileWidthInches', 'scopeColor', 'scopeDefaultDirection',
   'pageDirections', 'areaDirections', 'areaOrigins', 'panelGranularity', 'yieldGranularity',
   'layoutPreviewActive', 'showConnectors', 'showEndCaps', 'showJoiners', 'showOverflowPreview', 'dimPageContent',
-  'patternRecipe',
+  'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel',
 ]
 
 /**

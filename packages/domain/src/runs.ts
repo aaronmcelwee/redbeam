@@ -57,6 +57,38 @@ export interface RunInputs {
   railSpacingFeet: number
   yieldGranularity: string
   alignSeams: boolean
+  /**
+   * Mixed members (NOIC report, 2026-11-26: "Beam every Nth member, Slab
+   * between"): every `every`th line is a different member, counted and
+   * ordered on its own. Baffles only. Absent when the scope is one member.
+   */
+  mixed?: MixedMembers
+}
+
+export interface MixedMembers {
+  /** Every Nth line, 2 or more. */
+  every: number
+  /** Which line is the first of them, counted from 0 at the first line of each area. */
+  start: number
+  /** The Nth member's name ("Beam"). */
+  label: string
+  /** The members between ("Slab"), or null to keep the product's own name. */
+  memberLabel: string | null
+}
+
+/** `mixedEvery` (N >= 2), `mixedStart`, `mixedLabel`, `memberLabel` from a baffle scope. */
+export function readMixedMembers(specs: Specifications): MixedMembers | null {
+  const every = Math.floor(Number((readString(specs, 'mixedEvery') ?? '').trim()))
+  if (!Number.isFinite(every) || every < 2) return null
+  const start = Math.floor(Number((readString(specs, 'mixedStart') ?? '0').trim()))
+  const label = (readString(specs, 'mixedLabel') ?? '').trim()
+  const member = (readString(specs, 'memberLabel') ?? '').trim()
+  return {
+    every,
+    start: Number.isFinite(start) ? ((start % every) + every) % every : 0,
+    label: label === '' ? 'Beam' : label,
+    memberLabel: member === '' ? null : member,
+  }
 }
 
 /** An optional measure: the value in feet, or 0 when absent or unusable. */
@@ -158,6 +190,7 @@ export function resolveRunInputs(
 
   if (!(spacingFeet > 0) || !(stockLengthFeet > 0)) return null
   if (!(maxConnectorSpacingFeet > 0)) maxConnectorSpacingFeet = stockLengthFeet
+  const mixed = product === 'baffle' || product === 'baffle_cassette' ? readMixedMembers(specs) : null
 
   return {
     spacingFeet,
@@ -169,6 +202,7 @@ export function resolveRunInputs(
     railSpacingFeet,
     yieldGranularity: readString(specs, 'yieldGranularity') ?? 'full',
     alignSeams: readBool(specs, 'alignSeams'),
+    ...(mixed !== null ? { mixed } : {}),
   }
 }
 
@@ -265,6 +299,12 @@ export interface RunSummary {
   primaryStockCount: number
   suspensionRailCount: number
   suspensionRailLinearFeet: number
+  /**
+   * The every-Nth members when the scope mixes two (inputs.mixed). Their
+   * pieces are inside the totals above except `primaryStockCount`, which is
+   * then the members between only: an offcut of one is not stock for the other.
+   */
+  mixed?: { label: string; memberLabel: string | null; lines: number; pieces: number; stock: number; linearFeet: number }
 }
 
 const EMPTY_SUMMARY: RunSummary = {
@@ -289,6 +329,37 @@ function bumpFamily(summary: RunSummary, fraction: number): void {
 }
 
 /**
+ * The pieces on every Nth line of one laid-out region. Lines are numbered
+ * from 0 at the first line across the region (least offset along the run's
+ * left normal), so a hole or a notch never renumbers the lines past it.
+ */
+export function mixedMemberPieces(
+  entry: RunLayoutEntry, spacingPoints: number, mixed: MixedMembers,
+): { pieces: Set<Piece>; lines: number } {
+  const pieces = new Set<Piece>()
+  const all = entry.layout.pieces
+  const first = all[0]
+  if (first === undefined || !(spacingPoints > 0)) return { pieces, lines: 0 }
+  const s = first.insideSegment
+  const len = Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y)
+  if (!(len > 0)) return { pieces, lines: 0 }
+  const nx = -(s.b.y - s.a.y) / len, ny = (s.b.x - s.a.x) / len
+  const offsetOf = (p: Piece) => {
+    const m = { x: (p.insideSegment.a.x + p.insideSegment.b.x) / 2, y: (p.insideSegment.a.y + p.insideSegment.b.y) / 2 }
+    return m.x * nx + m.y * ny
+  }
+  const offsets = all.map(offsetOf)
+  let low = Infinity
+  for (const o of offsets) if (o < low) low = o
+  const lines = new Set<number>()
+  all.forEach((p, i) => {
+    const k = Math.round((offsets[i]! - low) / spacingPoints)
+    if (k % mixed.every === mixed.start) { pieces.add(p); lines.add(k) }
+  })
+  return { pieces, lines: lines.size }
+}
+
+/**
  * Roll laid-out groups up to what has to be ordered.
  *
  * @param feetPerPoint the page calibration; every length here is converted with
@@ -302,6 +373,8 @@ export function summarizeRuns(
   if (entries.length === 0) return summary
 
   const stockFractions: number[] = []
+  const mixedFractions: number[] = []
+  let mixedLines = 0, mixedLinear = 0
   const uniqueConnectors = new Set<string>()
   let hasExplicitRailPieces = false
 
@@ -319,9 +392,16 @@ export function summarizeRuns(
       )
     }
 
+    const nth = inputs.mixed !== undefined ? mixedMemberPieces(entry, inputs.spacingFeet / feetPerPoint, inputs.mixed) : null
+    if (nth !== null) mixedLines += nth.lines
     for (const piece of entry.layout.pieces) {
       summary.placedPieceCount++
-      stockFractions.push(piece.stockFraction)
+      if (nth !== null && nth.pieces.has(piece)) {
+        mixedFractions.push(piece.stockFraction)
+        mixedLinear += segLength(piece.insideSegment) * feetPerPoint
+      } else {
+        stockFractions.push(piece.stockFraction)
+      }
       summary.netLinearFeet += segLength(piece.insideSegment) * feetPerPoint
       bumpFamily(summary, piece.stockFraction)
       summary.connectorCount += piece.connectorPoints.length
@@ -363,6 +443,13 @@ export function summarizeRuns(
    * panels all use it. There is no product-by-product split.
    */
   summary.primaryStockCount = orderStockPieceCount(stockFractions)
+  if (inputs.mixed !== undefined) {
+    summary.mixed = {
+      label: inputs.mixed.label, memberLabel: inputs.mixed.memberLabel,
+      lines: mixedLines, pieces: mixedFractions.length,
+      stock: orderStockPieceCount(mixedFractions), linearFeet: mixedLinear,
+    }
+  }
 
   /*
    * No whole-length formulas. Trim was once the perimeter over the trim
@@ -438,12 +525,17 @@ export function runQuantities(product: ProductType, summary: RunSummary): PieceQ
   }
 
   add('net_linear', 'Installed length', round1(summary.netLinearFeet), 'LF')
+  const m = summary.mixed
   add(
     'primary_stock',
-    product === 'planks' ? 'Planks' : 'Baffle stock',
+    product === 'planks' ? 'Planks' : m?.memberLabel != null ? `${m.memberLabel} stock` : 'Baffle stock',
     summary.primaryStockCount,
     'EA',
   )
+  if (m !== undefined) {
+    add('mixed_stock', `${m.label} stock`, m.stock, 'EA')
+    add('mixed_linear', `${m.label} installed length`, round1(m.linearFeet), 'LF')
+  }
   /*
    * What is ORDERED per product — Aaron, 2026-09-18:
    *   planks    planks, carrier rails and trim

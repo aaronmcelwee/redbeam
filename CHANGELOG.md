@@ -13,6 +13,12 @@ All are unsigned; SmartScreen will ask once.
 - **A slow answer no longer invites a double.** When the window is too busy to answer an agent in time, the agent is now told its request was delivered and may still finish, and to check before sending it again. Before, it was told no PDF was open, and a retry could draw the same markup twice.
 
 
+## 0.3.106 — 2026-11-26
+
+### Agents count baffles that mix two members
+
+- **"Beam every Nth member, Slab between."** An agent can set a baffle scope so every Nth line is a different member, such as a beam with slabs between. Those lines are counted and ordered as their own stock, with their own installed length, and the members between keep the main stock line under their own name. Lines are counted from the first line of each area, so a hole or notch never shifts which ones are beams.
+
 ## 0.3.105 — 2026-11-26
 
 ### Agents check and count layouts more reliably
