@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.102 — 2026-11-26
+## 0.3.104 — 2026-11-26
 
 ### Agents check and count layouts more reliably
 
@@ -16,6 +16,13 @@ All are unsigned; SmartScreen will ask once.
 - **Scopes change product in one step.** An agent can turn a custom pattern scope into a baffle (and back), and can create a scope with its custom pattern in the same step.
 - **Beams told from slabs.** When an agent reads a drawn pattern where some members are drawn differently (beams as double lines, slabs as single ones), it is told which is which and how often each repeats, instead of a wrong spacing.
 - **Hatched fields traced from the right lines.** Tracing a hatched ceiling follows the hatch under the point the agent gave, not a denser hatch next to it, and tells the agent what else it saw so it can try again.
+
+## 0.3.103 — 2026-11-26
+
+### Sheet names with brackets no longer stop the save
+
+- **Saving works when a sheet name has a bracket in it.** A sheet name read off the title block with a stray ")" or "(" (or a backslash) was written into the PDF in a way that broke the file's page names. The next save then failed with "Failed to parse PDF document … Expected next byte to be 47 but it was actually 41". Names are now written safely, and they show exactly as read in REDBEAM, Bluebeam and every PDF viewer.
+- **Files already affected save again.** When REDBEAM finds page names an earlier version broke, it reads past them and the next save writes them correctly, along with your takeoff.
 
 ## 0.3.101 — 2026-11-26
 
