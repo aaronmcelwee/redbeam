@@ -157,7 +157,12 @@
       "description": "What REDBEAM has open: `file` is the PDF showing (`fileOpen` false on the start screen), `tabs` the PDFs open beside it, `appVersion` the running version, and `note` says what to do next.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -198,6 +203,10 @@
           },
           "limit": {
             "type": "integer"
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
           }
         }
       },
@@ -272,6 +281,10 @@
         "properties": {
           "pageId": {
             "type": "string"
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
           }
         }
       },
@@ -307,7 +320,12 @@
       "description": "What the window is showing: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open. ABOUT THE SHEET SHOWING: pageIndex, pageWidth, pageHeight, zoom, viewport, calibration, scaleRegions, selection, tool. ABOUT THE WHOLE FILE: file, tabs, pageCount, scopes, quantities and piece counts, `saved` (false while a change is not yet in the PDF), `lastSave` (how the last save went), `warnings` (the warning bar, word for word), appVersion. Sheets with markups but no scale are listed by redbeam_list_markups as unscaledSheets. ABOUT THE WINDOW: `tabs` (every open PDF), `tabOwners` (whose each is: person, you, or another agent's name), `personShowing` (the PDF the person is looking at, which may not be yours), and `agent` (your name and colour in REDBEAM, your tabs, and `drives`: whether you may move the view of the PDF this call was about).",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        }
       },
       "annotations": {
         "readOnlyHint": true
@@ -315,7 +333,7 @@
     },
     {
       "name": "redbeam_screenshot",
-      "description": "PNG of the sheet. With no `region`: the window's canvas as it is, raster and markup overlay composited. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. Needs a window with a document open.",
+      "description": "PNG of a sheet. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning the window to it, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. With neither `page` nor `region`: the window's canvas as it is, raster and markup overlay composited. Needs a window with a document open.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -329,15 +347,22 @@
           },
           "width": {
             "type": "integer",
-            "description": "For a region: the resolution, as output width in pixels (height follows the box). Default 1200; 600-800 is plenty to read a tag, 2000+ for fine print. At most 6000."
+            "description": "Output width in pixels (height follows the box). Default 1200 for a region, 1600 for a whole sheet; 600-800 is plenty to read a tag, 2000+ for fine print. At most 6000."
           },
           "page": {
-            "type": "integer",
-            "description": "For a region: ZERO-based page to show first. Defaults to the open sheet."
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The sheet: a ZERO-based page number, or its sheet code as the set prints it (\"A4.0\"). Rendered on its own without turning the window. Defaults to the sheet showing."
           },
           "annotations": {
             "type": "boolean",
-            "description": "For a region: draw the PDF's own markups. Defaults to what the window shows."
+            "description": "Draw the PDF's own markups. Defaults to what the window shows."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
           }
         }
       },
@@ -413,7 +438,7 @@
           },
           "file": {
             "type": "string",
-            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
           }
         }
       },
@@ -457,7 +482,7 @@
           },
           "file": {
             "type": "string",
-            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. If the window is showing a different file the call is refused, naming both, rather than written into the wrong one. Every result names the file it acted on."
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
           }
         },
         "required": [
