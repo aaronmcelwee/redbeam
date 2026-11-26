@@ -14,6 +14,13 @@ All are unsigned; SmartScreen will ask once.
 - **Your tool, selection, panels and layout preview are yours.** An agent picking a tool, selecting markups, hiding markups for a clean screenshot or asking for a panel changes only its own view.
 - **Go to where an agent is working when you want to.** Click its PDF in the Agents list and you land on the sheet it is on, with its cursor and what it is doing. Nothing takes you there unless you click.
 
+## 0.3.99 — 2026-11-26
+
+### Clicking a markup takes you to it
+
+- **The view lands on the markup.** In a scope's Markups list, clicking a markup while zoomed in used to show the top-left corner of its sheet. It now centres the markup on screen, on another sheet or the one you are on.
+- **Your zoom is kept when the markup fits.** If it would not fit at your zoom (zoomed all the way in on a large area), the view zooms out just enough to show all of it. It never zooms in on you.
+
 ## 0.3.98 — 2026-11-26
 
 ### Agents work better on big sets
