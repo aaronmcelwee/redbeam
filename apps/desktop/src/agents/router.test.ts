@@ -13,7 +13,7 @@ import { type BridgeActions, type CallContext, HandoverNeeded } from '../bridge/
 import { agentTabs, lightFileOf, samePath, tabFor, withHanded, withOwner, type LightFile } from '../lightTabs.js'
 import { HandoverStore } from './handover.js'
 import { RosterStore } from './roster.js'
-import { BridgeRouter, LOST_AFTER_MS } from './router.js'
+import { BridgeRouter, LOST_AFTER_MS, LOST_GRACE_MS } from './router.js'
 
 const MINE = 'C:\\Jobs\\Mine.pdf'
 const A = { id: 'a', client: 'claude-ai' }
@@ -403,8 +403,13 @@ describe('how a session ends', () => {
     tick(2)
     router.sweep()
     await new Promise((r) => setTimeout(r, 0))
-    expect(w.roster.agent('srv1/AAA')).toMatchObject({ state: 'gone', activity: { busy: false }, ended: { by: 'lost', closed: [SPEC] } })
+    expect(w.roster.agent('srv1/AAA')).toMatchObject({ state: 'gone', activity: { busy: false }, ended: { by: 'lost', handedBack: [SPEC] } })
+    // Its app may only be restarting its connector: the PDF it read waits for it a while, marked as its.
+    expect(tabFor(w.tabs, SPEC)).toMatchObject({ handed: { agentId: 'srv1/AAA' } })
+    for (let t = 0; t <= LOST_GRACE_MS; t += 5000) { tick(5000); router.sweep() }
+    await new Promise((r) => setTimeout(r, 0))
     expect(w.tabs.map((t) => t.file)).toEqual([MINE])
+    expect(w.roster.agent('srv1/AAA')!.ended).toMatchObject({ closed: [SPEC] })
     // An app that never said it was alive (an older server) is never judged lost.
     await act(B, 'list_scopes')
     tick(10 * LOST_AFTER_MS)
@@ -450,6 +455,19 @@ describe('how a session ends', () => {
     expect(out).toMatchObject({ yours: true })
     expect(tabFor(w.tabs, SPEC)).toMatchObject({ owner: 'srv4/AAA' })
     expect(tabFor(w.tabs, SPEC)!.handed).toBeUndefined()
+  })
+
+  it('keeps a PDF the session only read for it, when its app comes back a minute later', async () => {
+    // SLS, 2026-11-26: read-only tabs closed 25 s after the connector went.
+    const { w, router, call, tick } = world()
+    const who = { id: 'srv5/AAA', client: 'claude', label: 'Spec read' }
+    await call(who, 'open_file', { path: SPEC, wait: true })
+    await call(null, 'agent_alive', { server: 'srv5' })
+    for (let t = 0; t <= LOST_AFTER_MS + 60_000; t += 5000) { router.sweep(); tick(5000) }
+    await new Promise((r) => setTimeout(r, 0))
+    expect(w.roster.agent('srv5/AAA')!.state).toBe('gone')
+    expect(await call(who, 'get_ui_state', { file: SPEC })).toMatchObject({ agent: { drives: true } })
+    expect(tabFor(w.tabs, SPEC)).toMatchObject({ owner: 'srv5/AAA' })
   })
 
   it('keeps what a session said when it finished, if it only looks around before its app closes', async () => {

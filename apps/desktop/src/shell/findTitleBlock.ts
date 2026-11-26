@@ -142,15 +142,17 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
   const near = (w: Word) => w.cx >= number.x0 - 0.3 && w.cx <= number.x1 + 0.12
     && w.cy >= number.y0 - 0.2 && w.cy <= number.y1 + 0.06
     && !(w.cx >= number.x0 && w.cx <= number.x1 && w.cy >= number.y0 && w.cy <= number.y1)
+  // Furniture is the same words in the same place: "PLAN" ends half the titles of a set, each time somewhere else.
+  const spot = (w: Word) => `${w.t.toUpperCase()}@${key(w.cx, w.cy)}`
   const seenOn = new Map<string, number>()
   for (const ws of pageWords) {
-    for (const t of new Set(ws.filter(near).map((w) => w.t.toUpperCase()))) seenOn.set(t, (seenOn.get(t) ?? 0) + 1)
+    for (const t of new Set(ws.filter(near).map(spot))) seenOn.set(t, (seenOn.get(t) ?? 0) + 1)
   }
-  const furniture = (t: string) => (seenOn.get(t.toUpperCase()) ?? 0) > Math.max(1, P * 0.4)
+  const furniture = (w: Word) => (seenOn.get(spot(w)) ?? 0) > Math.max(1, P * 0.7)
   const titleCells = new Map<string, { pages: Set<number>; box: NormBox | null }>()
   pageWords.forEach((ws, p) => {
     for (const w of ws) {
-      if (!near(w) || furniture(w.t) || !nameLike(w.t)) continue
+      if (!near(w) || furniture(w) || !nameLike(w.t)) continue
       const k = key(w.cx, w.cy)
       let c = titleCells.get(k)
       if (c === undefined) { c = { pages: new Set(), box: null }; titleCells.set(k, c) }
@@ -161,6 +163,28 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
   let title: NormBox | null = null
   for (const c of titleCells.values()) {
     if (c.pages.size >= Math.max(2, Math.ceil(P * 0.3)) && c.box !== null) title = union(title, c.box)
+  }
+  /*
+   * Then out along its lines: a long title's last word sits in a cell few
+   * sheets reach ("REFLECTED CEILING PLAN" lost "PLAN", SLS 2026-11-26), so
+   * any changing word on the box's lines, just past either end, widens it.
+   */
+  if (title !== null) {
+    for (let grew = true; grew;) {
+      grew = false
+      const t: NormBox = title
+      for (const ws of pageWords) {
+        for (const w of ws) {
+          if (!near(w) || furniture(w) || w.cy < t.y0 || w.cy > t.y1) continue
+          if (w.box.x0 >= t.x0 && w.box.x1 <= t.x1) continue
+          if (w.box.x0 > t.x1 + 0.03 || w.box.x1 < t.x0 - 0.03) continue
+          // Never into the number box.
+          if (w.cx >= number.x0 && w.cx <= number.x1 && w.cy >= number.y0 && w.cy <= number.y1) continue
+          title = union(title, w.box)
+          grew = true
+        }
+      }
+    }
   }
   return {
     regions: { number, title: title === null ? null : pad(title, 0.003) },

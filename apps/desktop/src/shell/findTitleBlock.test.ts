@@ -33,7 +33,8 @@ function set(n: number) {
       ['NORTH ONTARIO INNOVATION CENTRE', 0.86, 0.80],
       ['ACME ARCHITECTS INC', 0.86, 0.83],
       ['DRAWING TITLE', 0.86, 0.87],
-      [TITLES[i % TITLES.length]!, 0.86, 0.89],
+      // Each word its own run, as many title blocks write them; the long ones reach cells the short ones never do.
+      ...TITLES[i % TITLES.length]!.split(' ').map((word, k, all): W => [word, 0.86 + all.slice(0, k).join(' ').length * 0.006 + (k > 0 ? 0.006 : 0), 0.89]),
       ['PROJECT NO', 0.86, 0.93], ['24-118', 0.86, 0.945],
       ['SHEET', 0.93, 0.93], [`ID-${100 + i}`, 0.93 + (i % 3) * 0.001, 0.95],
     ])
@@ -48,9 +49,20 @@ describe('finding the title block from where words sit across sheets', () => {
     expect(found.sheets).toBe(24)
     const names = pages.map((p) => readSheetName(p, found.regions))
     expect(names.map((n) => n?.number)).toEqual(pages.map((_, i) => `ID-${100 + i}`))
-    expect(names[0]!.title).toContain('REFLECTED CEILING PLAN')
+    expect(names[0]!.title).toBe('REFLECTED CEILING PLAN')
+    expect(names[6]!.title).toBe('INTERIOR ELEVATIONS')
     // The block's furniture is not the title.
     expect(names[0]!.title).not.toContain('ACME')
+  })
+  it('keeps a title that most sheets share', () => {
+    const pages = Array.from({ length: 20 }, (_, i) => sheet([
+      ['ACME ARCHITECTS INC', 0.86, 0.83],
+      ...(i < 12 ? ['REFLECTED', 'CEILING', 'PLAN'] : ['DETAILS']).map((w, k): W => [w, 0.86 + k * 0.06, 0.89]),
+      [`A-${200 + i}`, 0.93, 0.95],
+    ]))
+    const found = findTitleBlock(pages)!
+    expect(readSheetName(pages[3]!, found.regions)).toEqual({ number: 'A-203', title: 'REFLECTED CEILING PLAN' })
+    expect(readSheetName(pages[15]!, found.regions)!.title).toBe('DETAILS')
   })
   it('works from a sample of a few sheets', () => {
     expect(findTitleBlock(set(4))?.sheets).toBe(4)

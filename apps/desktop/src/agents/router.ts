@@ -107,10 +107,19 @@ const READS_ANY_SHEET = new Set(['find_text', 'get_words', 'list_sheets', 'list_
  * reach it meanwhile, so silence over that stretch says nothing about them.
  */
 export const STALL_MS = 10_000
+/**
+ * How long the PDFs of a session whose app stopped answering wait for it to
+ * come back before the ones it only read are closed. Its app may only be
+ * restarting its connector: SLS, 2026-11-26, read-only tabs closed 25 s
+ * after the connector went, and the session came back to find them gone.
+ */
+export const LOST_GRACE_MS = 10 * 60_000
 
 export class BridgeRouter {
   private readonly queues = new Map<string, Promise<unknown>>()
   private lastSweep: number | null = null
+  /** Read-only tabs of lost sessions, waiting out LOST_GRACE_MS before they close. */
+  private readonly lingering = new Map<string, { agentId: string; at: number }>()
   /** When each AI app's server last said it was alive, by the part of an agent's id before the last "/". */
   private readonly aliveAt = new Map<string, number>()
   private readonly now: () => number
@@ -469,6 +478,13 @@ export class BridgeRouter {
     for (const tab of own) {
       const showing = this.deps.showing()
       const watched = showing !== null && samePath(showing, tab.file)
+      if (by === 'lost' && !wrote(tab.file) && !kept(tab.file) && !watched) {
+        // Kept for a while, marked as its, in case its app is only restarting.
+        this.deps.handBack(tab.file, agent)
+        this.lingering.set(tab.file, { agentId, at: this.now() })
+        handedBack.push(tab.file)
+        continue
+      }
       if (!wrote(tab.file) && !kept(tab.file) && !watched) {
         // A session whose app is gone has no calls of its own to wait for, and
         // one stuck call must not keep its tab owned by nobody for ever.
@@ -518,6 +534,20 @@ export class BridgeRouter {
       for (const server of this.aliveAt.keys()) this.aliveAt.set(server, now)
     }
     this.lastSweep = now
+    for (const [file, l] of [...this.lingering]) {
+      const tab = tabFor(this.deps.tabs(), file)
+      const agent = this.deps.roster.agent(l.agentId)
+      // Taken back by its session, or opened by the person: theirs now, not ours to close.
+      if (tab === undefined || tab.owner !== undefined || tab.handed?.agentId !== l.agentId || agent?.state !== 'gone') {
+        this.lingering.delete(file)
+        continue
+      }
+      if (now - l.at < LOST_GRACE_MS) continue
+      const showing = this.deps.showing()
+      if (showing !== null && samePath(showing, file)) { this.lingering.delete(file); continue }
+      this.lingering.delete(file)
+      void this.deps.closeTab(file).then((shut) => { if (shut) this.deps.roster.settle(l.agentId, [], [file]) }, () => undefined)
+    }
     for (const [server, at] of [...this.aliveAt]) {
       if (now - at < LOST_AFTER_MS) continue
       this.aliveAt.delete(server)
