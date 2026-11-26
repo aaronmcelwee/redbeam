@@ -193,6 +193,12 @@ import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
  * no arbitrary caps); the tiles render only what is on screen, so a deeper
  * zoom costs no more than a shallow one.
  */
+/** JSON with object keys sorted, so two values that differ only in key order compare equal. */
+const stableJson = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => (
+  x !== null && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : x))
+
 const MAX_ZOOM = 64
 const VW = 1180
 const VH = 780
@@ -6325,6 +6331,22 @@ export default function Workspace({
     }
     return { ...base, status: 'draft', layers: base.layers.map((l) => { const { status: _s, ...rest } = l; void _s; return rest as typeof l }) }
   }
+  /*
+   * The scope as the window holds it once a write has come back from the
+   * store. scopesRef follows React state, a render behind the write, so a
+   * call that writes and then reads (create_scope then saving its recipe,
+   * update_scope then answering) waited for nothing and read the scope as it
+   * was (SLS, 0.3.102: "no such scope" for the id just made, and a stale
+   * productType in update_scope's answer).
+   */
+  const scopeWhen = async (id: string, ready: (sc: Scope) => boolean): Promise<Scope | undefined> => {
+    for (let waited = 0; waited < 10_000; waited += 25) {
+      const sc = scopesRef.current.find((x) => x.id === id)
+      if (sc !== undefined && ready(sc)) return sc
+      await new Promise((res) => setTimeout(res, 25))
+    }
+    return scopesRef.current.find((x) => x.id === id)
+  }
   /**
    * The scope's counts once the layout has caught up with THIS recipe.
    *
@@ -6338,10 +6360,7 @@ export default function Workspace({
    */
   const settledPieces = async (scopeId: string, recipe: unknown): Promise<PieceResult | 'pending' | undefined> => {
     // Key order is not part of a recipe: the store may hand it back reordered.
-    const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => (
-      x !== null && typeof x === 'object' && !Array.isArray(x)
-        ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-        : x))
+    const stable = stableJson
     const want = stable(recipe)
     const current = () => {
       const e = piecesRef.current.find((p) => p.scope.id === scopeId)
@@ -7712,7 +7731,9 @@ export default function Workspace({
             label,
             scopeType,
             color: typeof params['color'] === 'string' ? params['color'] : '#39a2ff',
-            specifications: product === null ? (specs ?? {}) : writeProductType(specs ?? {}, product),
+            specifications: product === null
+              ? (recipeSent !== undefined && recipeSent !== null ? writeProductType(specs ?? {}, 'custom_pattern') : (specs ?? {}))
+              : writeProductType(specs ?? {}, product),
           }
           // In the person's PDF the new scope is the agent's to draw in, not the person's active one.
           const guest = !agentCtxRef.current.drives
@@ -7724,9 +7745,12 @@ export default function Workspace({
            * the sheet — and is in no total anywhere. Reported rather than
            * refused, because the same is true of the button.
            */
+          await scopeWhen(scope.id, () => true)
           const pattern = recipeSent === undefined || recipeSent === null ? null
             : await invokeAction('save_pattern', { scopeId: scope.id, recipe: recipeSent })
-          const made = scopesRef.current.find((x) => x.id === scope.id) ?? scope
+          const made = (pattern !== null && pattern['saved'] === true
+            ? await scopeWhen(scope.id, (x) => x.specifications[PATTERN_RECIPE_KEY] !== undefined)
+            : undefined) ?? scopesRef.current.find((x) => x.id === scope.id) ?? scope
           const madeProduct = readProductType(made.specifications)
           const stillNeeds = madeProduct === 'custom_pattern' ? [] : missingKeys(madeProduct, made.specifications)
           return {
@@ -7819,8 +7843,12 @@ export default function Workspace({
             specifications: merged,
           }
           await saveScope(next)
+          const wanted = (x: Scope) => x.label === next.label && x.scopeType === next.scopeType && x.color === next.color
+            && stableJson(x.specifications) === stableJson(next.specifications)
+          await scopeWhen(id, wanted)
           const pattern = recipeSent === undefined || recipeSent === null ? null
             : await invokeAction('save_pattern', { scopeId: id, recipe: recipeSent })
+          if (pattern !== null && pattern['saved'] === true) await scopeWhen(id, (x) => readProductType(x.specifications) === 'custom_pattern' && x.specifications[PATTERN_RECIPE_KEY] !== undefined)
           if (pattern !== null && typeof pattern['error'] === 'string') {
             return { scopeId: id, updated: 'everything but the pattern', patternError: pattern['error'], ...(pattern['errors'] !== undefined ? { errors: pattern['errors'] } : {}) }
           }
@@ -7836,6 +7864,7 @@ export default function Workspace({
             label: next.label,
             scopeType: next.scopeType,
             typeChanged: next.scopeType !== sc.scopeType,
+            productChanged: readProductType(after.specifications) !== readProductType(sc.specifications),
             productType: readProductType(after.specifications),
             specifications: after.specifications,
             ...(((u) => u.length > 0 ? { ignoredKeys: u, warning: `nothing reads ${u.join(', ')} for a ${readProductType(after.specifications)}; see describe_product for the keys that count` } : {})(unknownSpecKeys(readProductType(after.specifications), after.specifications))),
