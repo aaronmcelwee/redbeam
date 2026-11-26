@@ -15,6 +15,7 @@
  * what a file contains and why it says so in its own header.
  */
 import { isTauri } from './tauri/window.js'
+import { signalError } from './signals/install.js'
 
 /**
  * What failed, constrained to the three that mean something different.
@@ -81,6 +82,7 @@ export function installCrashHandlers(): void {
     // Logged as well as written: the console copy is what a `tauri dev`
     // terminal shows, and is there before anybody thinks to look in a folder.
     console.error('[redbeam] unhandled rejection', reason)
+    signalError('rejection', reason)
     void reportCrash('rejection', message, detail)
   })
 
@@ -89,6 +91,7 @@ export function installCrashHandlers(): void {
     // crashes. Only an ErrorEvent carrying a real Error is.
     if (!(event.error instanceof Error)) return
     console.error('[redbeam] uncaught error', event.error)
+    signalError('uncaught', event.error)
     void reportCrash('rejection', event.error.message, event.error.stack ?? '')
   })
 }

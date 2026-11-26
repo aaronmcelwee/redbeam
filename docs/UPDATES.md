@@ -266,6 +266,41 @@ A report is a few kilobytes and its picture a few hundred; the free tier
 below does not notice them. Delete `reports/` objects in the dashboard if the
 bucket ever nears the cap.
 
+## Anonymous signals
+
+The app also counts things nobody stops to report (`apps/desktop/src/signals`):
+uncaught errors and Rust panics, every save into a PDF and how it ended,
+every agent tool call and how long it took, commands the core refused, tiles
+and frames far over budget, and friction: a control clicked four times in a
+moment, a dialog closed unused, an undo within five seconds of the same
+action, a shape or calibration abandoned with Escape. Identical events fold
+into one row with a count. Every five minutes, when the window hides and as
+it closes, the rows go to `POST /signals` as `text/plain` JSON (no preflight).
+Offline, they wait in localStorage for the next try.
+
+What a batch holds: the app version, Windows 10 or 11, a random id for the
+install and one for the launch, and rows of `{kind, name, detail, count,
+ms_sum, ms_max, first_at, last_at}`. `name` comes from a fixed vocabulary in
+the code. `detail` is scrubbed in the app (`signals/scrub.ts`): the names of
+open files, scopes and the project, paths, anything ending in `.pdf`, quoted
+text, e-mail addresses, ids and every number are taken out before it is sent.
+The Worker checks the shape again and keeps the batch at
+`signals/<day>/<uuid>.json`. Settings › General › Privacy › **Send anonymous
+error and usage signals** (on by default) turns it off, and off discards
+whatever was not sent. Development builds and the UI sweep send nothing.
+
+Nightly, `.github/workflows/signals.yml` reads the last seven days through
+`GET /signals/day/<day>` (the same `SYNC_KEY` as the report inbox) and runs
+`workers/updater/file-signals.mjs`: one issue labelled **app signal** per
+failure (an error, a failed save, a failed command), rewritten each night with
+the week's numbers and reopened if a closed one comes back on a newer
+version, plus one digest issue, "App signals: last 7 days", ranking agent
+tool failures, slow steps and friction by how many installs hit them. The
+evening bug sweep reads both.
+
+A batch is a few KB and one Class A put; an install sends at most one every
+five minutes while something happened, which the free tier does not notice.
+
 ## Free tier
 
 One R2 bucket, Standard storage only, on the Workers free plan. The numbers

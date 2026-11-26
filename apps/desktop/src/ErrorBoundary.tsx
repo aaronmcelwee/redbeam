@@ -19,6 +19,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { reportCrash } from './crash.js'
+import { signalError } from './signals/install.js'
 
 interface Props {
   children: ReactNode
@@ -45,6 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Reload, and is what a `tauri dev` session shows in the terminal.
     console.error('[redbeam] render failed', error, info.componentStack)
     this.setState({ componentStack: info.componentStack ?? null })
+    signalError('render', error)
     /*
      * And onto disk (TH.8). Everything on this screen dies the moment somebody
      * presses Reload, which is the first thing anybody presses — so the copy

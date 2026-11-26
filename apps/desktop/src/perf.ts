@@ -145,15 +145,34 @@ export function percentile(sortedAsc: number[], q: number): number {
 }
 
 /** Every meter, keyed by budget. */
+/**
+ * A sample this many times over its budget is not jitter: it is a step the
+ * person waited on. Those are counted as signals (src/signals) so the slow
+ * sheets and searches show up without anyone filing "it is slow".
+ */
+export const SLOW_FACTOR = 4
+/** A frame is held to an absolute, not a multiple: 67ms is a hitch, 250ms is a freeze. */
+export const SLOW_FRAME_MS = 250
+
+export function isSlow(budget: Budget, ms: number): boolean {
+  return budget.key === 'frame' ? ms >= SLOW_FRAME_MS : ms >= budget.ms * SLOW_FACTOR
+}
+
 export class PerfRegistry {
   private readonly meters = new Map<string, Meter>()
 
-  constructor(budgets: Record<string, Budget> = BUDGETS) {
+  constructor(
+    budgets: Record<string, Budget> = BUDGETS,
+    private readonly onSlow: ((key: string, ms: number) => void) | null = null,
+  ) {
     for (const b of Object.values(budgets)) this.meters.set(b.key, new Meter(b))
   }
 
   record(key: string, ms: number): void {
-    this.meters.get(key)?.record(ms)
+    const m = this.meters.get(key)
+    if (m === undefined) return
+    m.record(ms)
+    if (this.onSlow !== null && isSlow(m.budget, ms)) this.onSlow(key, ms)
   }
 
   /** Time a synchronous block and record it. Returns whatever it returned. */

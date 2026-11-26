@@ -185,6 +185,7 @@ import { UpdateChip } from './update/UpdateChip.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
+import { provideNames, signal } from './signals/install.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
 /**
@@ -216,6 +217,8 @@ const FALLBACK_DOC = { id: 'doc-sample', relativePath: 'sample.pdf', displayName
 
 /** How long after the last change a scope's numbers are saved. */
 const AUTO_SAVE_MS = 1500
+/** An undo this soon after the same action means the action surprised the person. */
+const UNDO_SOON_MS = 5000
 /** Local midnight, as the ISO time runs are stamped in: where "today's save" begins. */
 function startOfToday(now = new Date()): string {
   const d = new Date(now)
@@ -707,6 +710,17 @@ export default function Workspace({
   const dimensionDraftRef = useRef<DimensionDraft>(emptyDimensionDraft())
   const [tool, setTool] = useState<Tool>('pan')
   const [scopes, setScopes] = useState<Scope[]>([])
+  /*
+   * What is open, by name, so a signal's message never carries it
+   * (src/signals/scrub.ts). Read when a signal is recorded, not copied.
+   */
+  const namesRef = useRef<{ docs: DocumentRow[], scopes: Scope[], project: string }>({ docs: [], scopes: [], project: '' })
+  useEffect(() => provideNames(() => {
+    const n = namesRef.current
+    return [n.project, ...n.docs.flatMap((d) => [d.displayName, d.relativePath]), ...n.scopes.map((sc) => sc.label)]
+      .filter((x): x is string => typeof x === 'string' && x !== '')
+  }), [])
+  namesRef.current = { docs: documents, scopes, project: projectName }
   const [archivedScopes, setArchivedScopes] = useState<Scope[]>([])
   const archivedScopesRef = useRef<Scope[]>([])
   const [activeScope, setActiveScope] = useState<string | null>(null)
@@ -744,7 +758,8 @@ export default function Workspace({
    * timer. Pushing the frame time into React state every paint made the
    * measurement part of what it measured.
    */
-  const perfRef = useRef(new PerfRegistry())
+  // A step many times over its budget is counted as a slow signal (src/signals).
+  const perfRef = useRef(new PerfRegistry(undefined, (key, ms) => signal('slow', key, '', ms)))
   const [, forceRender] = useState(0)
   const [pendingCal, setPendingCal] = useState<number | null>(null)
   // Read by the palette and the find drawer, which are opened from stable
@@ -3177,6 +3192,11 @@ export default function Workspace({
     by === 'agent' ? (agentCtxRef.current.agent?.id ?? 'agent') : UNDO_PERSON
   ), [])
 
+  /**
+   * The person's last command, to notice an undo straight after it: the
+   * action did not do what they expected (an "undo-soon" signal).
+   */
+  const lastPersonCmdRef = useRef<{ op: string, at: number } | null>(null)
   /** Run an undoable command, then resync and persist. */
   const runCommand = useCallback(async (cmd: Parameters<UndoStack['run']>[0], by?: 'user' | 'agent'): Promise<boolean> => {
     const u = undoRef.current
@@ -3191,10 +3211,12 @@ export default function Workspace({
     try {
       await u.run(cmd, actor)
     } catch (err) {
+      signal('command', `failed:${cmd.record.op}`, err instanceof Error ? err.message : String(err))
       setStatus(`could not ${cmd.label}: ${err instanceof Error ? err.message : String(err)}`)
       await syncMarkups()
       return false
     }
+    if (actor === UNDO_PERSON) lastPersonCmdRef.current = { op: cmd.record.op, at: performance.now() }
     // WITH the resync, not before it: set first, the undo state was a whole
     // render of its own ahead of the markups it describes.
     let undoShown = false
@@ -3231,6 +3253,11 @@ export default function Workspace({
       })
       saveRef.current()
       return { label: cmd.label, op: cmd.op }
+    }
+    const last = lastPersonCmdRef.current
+    lastPersonCmdRef.current = null
+    if (last !== null && last.op === cmd.op && performance.now() - last.at < UNDO_SOON_MS) {
+      signal('friction', 'undo-soon', cmd.op, performance.now() - last.at)
     }
     selectedRef.current = []
     // Read first, then set with the markups: one render for the undo, not three.
@@ -3514,6 +3541,7 @@ export default function Workspace({
   }, [pendingCal, page.width, page.height, commitCalibration])
 
   const cancelCalibration = useCallback(() => {
+    signal('friction', 'abandon:calibration')
     setPendingCal(null)
     setCalError(null)
     draftRef.current = emptyDraft('calibrate')
@@ -3527,6 +3555,7 @@ export default function Workspace({
    * it in the effect's dependency array before its own initializer ran.
    */
   const cancelRegion = useCallback(() => {
+    signal('friction', 'abandon:scale-region')
     setPendingRegion(null)
     draftRef.current = emptyDraft('scale-region')
     requestPaint()
@@ -3800,6 +3829,7 @@ export default function Workspace({
          * does the same (see onContextMenu). Aaron asked for both.
          */
         const drawing = draftRef.current.points.length > 0 || dimensionDraftRef.current.a !== null
+        if (drawing) signal('friction', `abandon:draw-${toolRef.current}`, draftRef.current.points.length >= 3 ? 'three or more points' : 'under three points')
         cancelDraft()
         if (!drawing && toolRef.current !== 'pan') setTool('pan')
       }
@@ -5552,8 +5582,20 @@ export default function Workspace({
       if (text !== null) setStatus(text)
       return out
     }
-    const guarded = (): Promise<EmbedOutcome> => run().catch((err: unknown): EmbedOutcome => (
-      { kind: 'failed', message: err instanceof Error ? err.message : String(err) }))
+    const guarded = (): Promise<EmbedOutcome> => {
+      const t0 = performance.now()
+      return run().catch((err: unknown): EmbedOutcome => (
+        { kind: 'failed', message: err instanceof Error ? err.message : String(err) }))
+        .then((out) => {
+          // Every save is counted with how it ended and how long it took, so a
+          // failure rate and a slow save are both visible (src/signals).
+          if (out.kind !== 'nothing-to-embed') {
+            signal('save', `${opts.quiet === true ? 'auto' : 'manual'}:${out.kind}`,
+              out.kind === 'failed' ? out.message : out.kind === 'held' ? (out.reason ?? '') : '', performance.now() - t0)
+          }
+          return out
+        })
+    }
     const next = (embedChainRef.current.get(docId) ?? Promise.resolve()).then(guarded, guarded)
     embedChainRef.current.set(docId, next.then(() => undefined))
     return next

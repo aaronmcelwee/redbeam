@@ -9,6 +9,8 @@
  * GET /shots/:uuid.:ext                     — a report's screenshot, by its random name
  * GET /reports/inbox                        — reports with no issue yet (SYNC_KEY only)
  * DELETE /reports/inbox/:uuid               — an issue now exists for it (SYNC_KEY only)
+ * POST /signals                             — anonymous error and UX counts (see signals.ts)
+ * GET /signals/day/:YYYY-MM-DD[?after=key]  — one day's signal batches (SYNC_KEY only)
  *
  * R2 holds `manifest.json` plus the installers named in it. The manifest is
  * public, and the signing key never comes near this worker. The one secret
@@ -22,6 +24,7 @@ import { manifestStatus, parseManifest, safeAssetName, type UpdateManifest } fro
 import {
   INBOX_PAGE, MAX_BODY_BYTES, REPORT_ID, SHOT_NAME, inboxKey, parseReport, reportKey, shotKey, storedReport,
 } from './reports.js'
+import { MAX_SIGNAL_BYTES, SIGNAL_DAY, SIGNAL_PAGE, parseBatch, signalKey, storedBatch } from './signals.js'
 
 export interface R2ObjectBody {
   text(): Promise<string>
@@ -32,7 +35,7 @@ export interface R2ObjectBody {
 export interface R2Bucket {
   get(key: string): Promise<R2ObjectBody | null>
   put(key: string, value: string | Uint8Array, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>
-  list(options: { prefix: string; limit: number }): Promise<{ objects: Array<{ key: string }> }>
+  list(options: { prefix: string; limit: number; startAfter?: string }): Promise<{ objects: Array<{ key: string }>; truncated?: boolean }>
   delete(key: string): Promise<void>
 }
 
@@ -95,6 +98,60 @@ async function receiveReport(request: Request, env: Env, url: URL): Promise<Resp
   }
 
   return reportJson(200, { ok: true, id, filed: 'kept' })
+}
+
+/**
+ * POST /signals. The app sends these in the background and never waits on
+ * the answer, so a failure costs it nothing but a retry on its next flush.
+ * The body is sent as text/plain so the request needs no preflight.
+ */
+async function receiveSignals(request: Request, env: Env): Promise<Response> {
+  const declared = Number(request.headers.get('content-length') ?? '0')
+  if (declared > MAX_SIGNAL_BYTES) return reportJson(413, { ok: false, error: 'batch is larger than 256 KB' })
+  const raw = await request.text()
+  if (raw.length > MAX_SIGNAL_BYTES) return reportJson(413, { ok: false, error: 'batch is larger than 256 KB' })
+  let body: unknown
+  try {
+    body = JSON.parse(raw)
+  } catch {
+    return reportJson(400, { ok: false, error: 'body is not JSON' })
+  }
+  const at = new Date()
+  const batch = parseBatch(body, at)
+  if (typeof batch === 'string') return reportJson(400, { ok: false, error: batch })
+  const id = crypto.randomUUID()
+  try {
+    await env.UPDATES.put(signalKey(id, at), JSON.stringify(storedBatch(batch, id, at)), {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+    })
+  } catch {
+    return reportJson(503, { ok: false, error: 'signals could not be stored' })
+  }
+  return reportJson(200, { ok: true, rows: batch.rows.length })
+}
+
+/** GET /signals/day/:day for the Signals workflow. `after` is the last key of the previous page. */
+async function signalDay(request: Request, env: Env, url: URL, day: string): Promise<Response> {
+  if (!syncAllowed(request, env)) return new Response('not found', { status: 404 })
+  if (!SIGNAL_DAY.test(day)) return new Response('not found', { status: 404 })
+  const prefix = `signals/${day}/`
+  const after = url.searchParams.get('after')
+  try {
+    const listed = await env.UPDATES.list({
+      prefix, limit: SIGNAL_PAGE, ...(after !== null && after.startsWith(prefix) ? { startAfter: after } : {}),
+    })
+    const batches: unknown[] = []
+    for (const { key } of listed.objects) {
+      const object = await env.UPDATES.get(key)
+      if (object === null) continue
+      try { batches.push(JSON.parse(await object.text())) } catch { /* unreadable; skipped */ }
+    }
+    const last = listed.objects[listed.objects.length - 1]?.key ?? null
+    const more = listed.truncated ?? listed.objects.length === SIGNAL_PAGE
+    return json(200, JSON.stringify({ batches, after: more ? last : null }))
+  } catch {
+    return json(503, unavailable('unreachable'))
+  }
 }
 
 function syncAllowed(request: Request, env: Env): boolean {
@@ -183,6 +240,16 @@ export default {
       if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
       if (method === 'POST') return receiveReport(request, env, url)
       return new Response('method not allowed', { status: 405, headers: { allow: 'POST, OPTIONS', ...CORS_HEADERS } })
+    }
+
+    if (parts.length === 1 && parts[0] === 'signals') {
+      if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
+      if (method === 'POST') return receiveSignals(request, env)
+      return new Response('method not allowed', { status: 405, headers: { allow: 'POST, OPTIONS', ...CORS_HEADERS } })
+    }
+
+    if (parts.length === 3 && parts[0] === 'signals' && parts[1] === 'day' && method === 'GET') {
+      return signalDay(request, env, url, parts[2] ?? '')
     }
 
     if (parts[0] === 'reports' && parts[1] === 'inbox' && parts.length <= 3) {
