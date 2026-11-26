@@ -171,6 +171,7 @@ import { UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridg
 import { bomScopeFilter, fieldPerimeters, perAreaCounts } from './bom/agentBom.js'
 import { detectGrid, nearestCrossing } from './search/grid.js'
 import { directionRegions } from './search/directions.js'
+import { compareHatches, hatchSignature, legendRows } from './search/hatch.js'
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
@@ -9195,6 +9196,72 @@ export default function Workspace({
             cellPoints: found.cellPoints,
             ...(geo.truncated ? { warning: 'more geometry than was read; use a smaller area' } : {}),
             note: 'draw each polygon with create_markup {kind:"area", rings} in the scope, then set_pattern_direction {applyTo:"area", markupId, angle}. Region edges follow cells of `cellPoints`; pass a smaller cellPoints for a finer edge',
+          }
+        }
+        /*
+         * Hatch-to-legend (NOIC report, 2026-11-26): which legend mark a
+         * hatch belongs to. The hatch is read in an area or a box on the
+         * sheet showing; the legend is a box (rows read from its words) or
+         * swatches the agent names, on this sheet or another.
+         */
+        case 'match_hatch': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
+          let area: Markup | undefined
+          if (typeof params['markupId'] === 'string') {
+            area = docMarkupsRef.current.find((m) => m.id === params['markupId'])
+            if (area === undefined || area.kind !== 'area') return { error: `no area ${String(params['markupId'])}` }
+            if (area.pageId !== ap.id) return { error: `area ${area.id} is on another sheet; pass its page` }
+          }
+          const rect = bridgeRect(params['rect'])
+          if (area === undefined && (rect === undefined || rect === null)) return { error: 'match_hatch needs the hatch: `markupId` (an area) or `rect` around a patch of it' }
+          const bb = area !== undefined ? normalizedBoundingRect(area.rings) : { left: Math.min(rect!.x0, rect!.x1), right: Math.max(rect!.x0, rect!.x1), top: Math.min(rect!.y0, rect!.y1), bottom: Math.max(rect!.y0, rect!.y1) }
+          if (bb === null) return { error: 'that area has no outline' }
+          const hatchGeo = await v.requestGeometry(ap.index, { clip: { x0: bb.left, y0: bb.top, x1: bb.right, y1: bb.bottom }, priority: PRIORITY_THUMBNAIL, maxSegments: 400_000 })
+          const sample = hatchSignature(hatchGeo.segments, ap.size, area !== undefined ? { rings: area.rings } : { box: { x0: bb.left, y0: bb.top, x1: bb.right, y1: bb.bottom } })
+          if (sample === null) return { error: 'no hatch is drawn there' }
+          // The legend's sheet: legendPage (a page number or sheet code), else this one.
+          let lp = ap.index
+          const lg = params['legendPage']
+          if (lg !== undefined && lg !== null && lg !== '') {
+            const at = typeof lg === 'string' && !/^\d+$/.test(lg.trim()) ? pageForSheet(sheetGroups.flatMap((g) => g.rows), lg) : Number(lg)
+            if (at === null || !Number.isInteger(at) || at < 0 || at >= pageCount) return { error: `no sheet ${String(lg)}; redbeam_list_sheets has every sheet` }
+            lp = at
+          }
+          const lsize = lp === ap.index ? ap.size : (v.getPageSize(lp) ?? pageSizesRef.current[lp] ?? null)
+          if (lsize === null || lsize.width === 0) return { error: `sheet ${lp} has no size yet; show it once with redbeam_go_to_page` }
+          let rows: Array<{ label: string; swatch: { x0: number; y0: number; x1: number; y1: number } }> = []
+          if (Array.isArray(params['swatches'])) {
+            for (const sw of params['swatches'] as unknown[]) {
+              const o = sw as { rect?: unknown; label?: unknown }
+              const r = bridgeRect(o?.rect)
+              if (r === undefined || r === null) return { error: 'each swatch needs `rect` {x0,y0,x1,y1} and a `label`' }
+              rows.push({ label: String(o.label ?? ''), swatch: r })
+            }
+          } else {
+            const legend = bridgeRect(params['legendRect'])
+            if (legend === undefined || legend === null) return { error: 'give the legend: `legendRect` around it (rows are read from its words), or `swatches` [{rect,label}]' }
+            const pool = textPoolRef.current
+            const pt = v.getText(lp) ?? (pool !== null ? await pool.text(lp) : null) ?? await v.requestText(lp, { priority: PRIORITY_THUMBNAIL })
+            rows = legendRows(wordsOnPage(pt, legend), legend)
+            if (rows.length === 0) return { error: 'no legend text in legendRect; pass `swatches` [{rect,label}] instead' }
+          }
+          const all = rows.reduce((u, r) => ({ x0: Math.min(u.x0, r.swatch.x0, r.swatch.x1), y0: Math.min(u.y0, r.swatch.y0, r.swatch.y1), x1: Math.max(u.x1, r.swatch.x0, r.swatch.x1), y1: Math.max(u.y1, r.swatch.y0, r.swatch.y1) }), { x0: 1, y0: 1, x1: 0, y1: 0 })
+          const legendGeo = await v.requestGeometry(lp, { clip: all, priority: PRIORITY_THUMBNAIL, maxSegments: 400_000 })
+          const ranked = rows.map((r) => {
+            const sig = hatchSignature(legendGeo.segments, lsize, { box: r.swatch })
+            if (sig === null) return { label: r.label, swatch: r.swatch, score: 0, why: ['nothing drawn in the swatch'] }
+            const c = compareHatches(sample, sig)
+            return { label: r.label, swatch: r.swatch, score: c.score, why: c.why, signature: sig }
+          }).sort((a, b) => b.score - a.score)
+          const best = ranked[0]
+          return {
+            page: ap.index,
+            hatch: sample,
+            match: best !== undefined && best.score >= 0.6 ? { label: best.label, score: best.score } : null,
+            candidates: ranked.slice(0, 8),
+            note: 'score 1 is the same hatch; under 0.6 is no match. A swatch read from legendRect runs from the box\'s left edge to its text; pass `swatches` when the legend is laid out differently',
           }
         }
         case 'detect_pattern': {

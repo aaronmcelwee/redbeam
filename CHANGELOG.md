@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.109 — 2026-11-26
+
+### Agents match a hatch to the legend
+
+- **Which legend mark is this hatch?** An agent can read a hatch on a plan and compare it with every swatch in the legend: the way its lines run, how far apart they are, and how dense it is. It gets back the best match and the near misses, so a hatched ceiling can be tied to its product without guessing.
+
 ## 0.3.108 — 2026-11-26
 
 ### Agents split a field by the way its members run
