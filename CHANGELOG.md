@@ -14,6 +14,20 @@ All are unsigned; SmartScreen will ask once.
 - **Searching a big set is faster.** Text is read by several readers at once, in the background, so an agent searching a 4,000-page spec gets through it in far fewer steps. A page that can't be read is listed with the reason, and the search carries on past it.
 - **No more hanging on a bad page.** If the PDF reader stops on a page, REDBEAM starts a fresh one and the agent is told what happened, instead of waiting forever. Other calls on that PDF no longer queue behind a stuck one.
 - **Agents pick up where they left off.** If the AI app restarts REDBEAM's connector, the agent keeps its session and gets its tabs back, instead of being asked to start over and finding its own PDF marked as someone else's.
+## 0.3.95 — 2026-11-26
+
+### Saving a big spec book works again
+
+- **Takeoffs save into very large PDFs.** On a big set or spec book (over 128 MB, read in pieces rather than whole), saving stopped with "Maximum call stack size exceeded", and Save a copy failed the same way. REDBEAM was counting every object in the file in one step, and a spec book can hold hundreds of thousands of them. It now counts them one at a time, with no limit on the size of the file.
+- **The same fix covers estimate exports** from those PDFs, and writing sheet bookmarks into a set with a very large number of sheets.
+
+## 0.3.94 — 2026-11-26
+
+### Updates wait beside Settings
+
+- **No more update card over the drawing.** When a new version is ready, a blue **Ready to update** chip appears next to Settings at the bottom of the sidebar (and next to the version number on the start screen), instead of a card at the top that covered the agent banner and the sheet.
+- **One click does the rest.** Click the chip to download and install. It shows **Updating** with the progress, then **Restart to update**. Clicking it never takes the keyboard away from what you are doing.
+- **A failed download says so.** If the download fails, the chip turns red and says **Update failed**; click it to check again. Settings › About still has the full update details.
 
 ## 0.3.93 — 2026-11-25
 

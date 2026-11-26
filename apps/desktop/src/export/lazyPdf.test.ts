@@ -86,3 +86,23 @@ describe('openLazyPdf', () => {
     })
   }
 })
+
+describe('a set with hundreds of thousands of objects', () => {
+  // A spec book: few pages, a huge object count. Spreading every object
+  // number into Math.max overflowed the call stack and the save failed
+  // with "Maximum call stack size exceeded" (0.3.90).
+  it('opens by range and saves a takeoff into it', async () => {
+    const doc = await PDFDocument.create()
+    for (let i = 0; i < 3; i++) doc.addPage([612, 792])
+    for (let i = 0; i < 250_000; i++) doc.context.register(doc.context.obj({ N: i }))
+    const bytes = await doc.save({ useObjectStreams: true })
+    const lazy = openLazyPdf(source(bytes))
+    expect(lazy.doc.getPageCount()).toBe(3)
+    expect(lazy.doc.context.largestObjectNumber).toBeGreaterThan(250_000)
+    const { tail } = embedSheetTail(lazy.doc, updateBaseOf(bytes), input([area('m1')]))
+    const joined = new Uint8Array(bytes.length + tail!.length)
+    joined.set(bytes, 0)
+    joined.set(tail!, bytes.length)
+    expect(readSheetEmbedFrom(openLazyPdf(source(joined)).doc).slice?.tables.markups?.map((m) => m.id)).toEqual(['m1'])
+  }, 120_000)
+})

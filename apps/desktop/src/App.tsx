@@ -14,7 +14,7 @@ import Workspace from './Workspace.js'
 import { WindowControls } from './shell/Shell.js'
 import { ShellHarness } from './shell/ShellHarness.js'
 import { ErrorBoundary } from './ErrorBoundary.js'
-import { UpdateOffer } from './update/UpdateOffer.js'
+import { UpdateChip } from './update/UpdateChip.js'
 import { WhatsNewHost } from './whatsnew/WhatsNew.js'
 import { setBeforeQuit } from './update/session.js'
 import { forgetFile, recentFiles, rememberFile } from './project/recentFiles.js'
@@ -619,6 +619,7 @@ export default function App() {
             {...(project.desktop ? { onBrowse: project.browse } : {})}
             busy={project.busy}
             busyPath={project.busyPath}
+            footerExtra={<UpdateChip desktop={isTauri()} />}
             error={quickNote ?? project.error}
             notice={
               project.desktop
@@ -631,7 +632,6 @@ export default function App() {
           <AgentsOnStart tabs={tabList} onSelect={stable.onSelect} onClose={stable.onClose} />
         </>
       )}
-      <UpdateOffer desktop={isTauri()} />
       <WhatsNewHost auto={identity.role !== 'context'} />
     </>
   )

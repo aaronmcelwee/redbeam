@@ -20,7 +20,7 @@
  * is a drop target. The version sits in the footer, where a start window
  * keeps it.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ProjectPicker } from './ProjectPicker.js'
 import { filterRecents, formatLastOpened } from './recents.js'
 import type { PickOutcome, RecentProject } from './types.js'
@@ -54,6 +54,8 @@ export interface ProjectStartScreenProps {
   onDropPath?: (path: string) => void
   /** Path currently being opened, if any. */
   busyPath?: string | null
+  /** Beside the version line in the footer: the update chip, when there is one. */
+  footerExtra?: ReactNode
   busy?: boolean
   error?: string | null
   /** Shown above everything — e.g. "browser mode: data lives in IndexedDB". */
@@ -147,6 +149,7 @@ export function ProjectStartScreen({
   onViewDrawing,
   onDropPath,
   busyPath = null,
+  footerExtra,
   busy = false,
   error = null,
   notice = null,
@@ -469,6 +472,7 @@ export function ProjectStartScreen({
         </div>
         <footer className="st-foot">
           <span>REDBEAM {APP_VERSION}</span>
+          {footerExtra}
         </footer>
       </div>
 

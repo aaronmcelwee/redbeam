@@ -180,6 +180,7 @@ import {
   type ReportDraft, type ReportKind,
 } from './report/report.js'
 import { APP_VERSION } from './update/updates.js'
+import { UpdateChip } from './update/UpdateChip.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
 import { SettingsStore, browserStorage } from './settings/store.js'
@@ -11587,6 +11588,7 @@ export default function Workspace({
         indexing={indexing}
         onSelect={(p) => setRailPanel((cur) => (cur === p ? null : p))}
         onSettings={() => (settingsOpen ? setSettingsOpen(false) : openSettings())}
+        beside={<UpdateChip desktop={isTauri()} />}
         title={railPanel === null
           ? undefined
           : railPanel === 'contents' && scaleTarget !== null ? 'Set scale' : PANE_TITLE[railPanel]}
