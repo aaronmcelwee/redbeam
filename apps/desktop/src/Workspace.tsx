@@ -103,6 +103,13 @@ import {
 } from './hit.js'
 import { buildAnchorGrid, nearestAnchor, type AnchorGrid } from './snapAnchors.js'
 import { normalizedToScreen } from './draw.js'
+import { CURVE_TOOLS, backCurvePoint, curveModeForKey, finishCurve, placeCurvePoint, type SegmentMode } from './tools/curves.js'
+import { LinkBar, SegmentBar, segmentCaption } from './shell/SegmentBar.js'
+import { LinkPicker } from './shell/LinkPicker.js'
+import { CalloutReview, type ReviewState } from './shell/CalloutReview.js'
+import { findCallouts } from './tools/callouts.js'
+import { boxRing, pageLinksFrom, ringBox, suggestTargets } from './tools/links.js'
+import { LINK_COLOR } from './overlay.js'
 import { useStageSize, sizeCanvas } from './useStageSize.js'
 import { embedWhenQuiet } from './autoEmbed.js'
 import { parsePageRange, printPdf, printedWhat, sheetsPdf } from './print.js'
@@ -1557,6 +1564,23 @@ export default function Workspace({
           const b = normalizedToScreen(w.x1, w.y1, viewRef.current, page.width, page.height)
           oc.fillRect(a.x, a.y, b.x - a.x, b.y - a.y)
         }
+        oc.restore()
+      }
+      // The callout review's finds on this sheet: ticked in link blue, the rest grey.
+      const review = reviewRef.current
+      if (review !== null) {
+        oc.save()
+        review.candidates.forEach((c, i) => {
+          if (c.page !== pageIndexRef.current) return
+          const a = normalizedToScreen(c.rect.x0, c.rect.y0, viewRef.current, page.width, page.height)
+          const b = normalizedToScreen(c.rect.x1, c.rect.y1, viewRef.current, page.width, page.height)
+          oc.strokeStyle = c.checked ? LINK_COLOR : '#8a929c'
+          oc.fillStyle = c.checked ? 'rgba(26, 115, 232, 0.12)' : 'rgba(138, 146, 156, 0.10)'
+          oc.lineWidth = review.focus === i ? 3 : 1.5
+          oc.setLineDash(c.checked ? [] : [4, 3])
+          oc.fillRect(a.x, a.y, b.x - a.x, b.y - a.y)
+          oc.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y)
+        })
         oc.restore()
       }
       drawDraft(oc, draftRef.current, viewRef.current, page.width, page.height)
@@ -3419,7 +3443,10 @@ export default function Workspace({
     // get rid of."
     snapRef.current = null
     hoverRef.current = null
-    draftRef.current = emptyDraft(draftRef.current.tool)
+    // A circle stays armed through Escape: it is the tool's mode, not the draft.
+    draftRef.current = draftRef.current.mode === 'circle' ? { ...emptyDraft(draftRef.current.tool), mode: 'circle' } : emptyDraft(draftRef.current.tool)
+    if (draftRef.current.mode !== 'circle') setSegMode('line')
+    setSegTick((n) => n + 1)
     // The dimension keeps its own draft, and Escape left its first point
     // standing: the next click closed a dimension nobody was drawing.
     dimensionDraftRef.current = emptyDimensionDraft(dimensionDraftRef.current.ortho)
@@ -3431,8 +3458,22 @@ export default function Workspace({
   // ------------------------------------------------------------ committing --
   const commitDraft = useCallback(async () => {
     const db = dbRef.current
-    const d = draftRef.current
+    // An arc half placed on Enter closes the area with it (tools/curves.ts).
+    const d = CURVE_TOOLS.has(draftRef.current.tool)
+      ? finishCurve(draftRef.current, { width: page.width, height: page.height })
+      : draftRef.current
     if (!db || !isCommittable(d) || page.width === 0) return
+    // A circle stays armed for the next one; an arc was one segment.
+    const next = (): DraftState => (d.mode === 'circle' ? { ...emptyDraft(d.tool), mode: 'circle' } : emptyDraft(d.tool))
+    if (d.mode !== 'circle') setSegMode('line')
+
+    // A link's box is drawn; where it goes is asked next (LinkPicker).
+    if (d.tool === 'link') {
+      draftRef.current = { ...d, cursor: null }
+      openLinkPickerRef.current(d.points)
+      requestPaint()
+      return
+    }
 
     if (d.tool === 'direction') {
       // Not a markup: the orientation belongs to the SCOPE, not the page. Two
@@ -3529,7 +3570,7 @@ export default function Workspace({
     if (kind === 'cutout') {
       const pageId = pageIdFor(docIdRef.current, pageIndexRef.current)
       const edits = cutEdits(markupsRef.current, pageId, d.points)
-      draftRef.current = emptyDraft(d.tool)
+      draftRef.current = next()
       if (edits.length === 0) {
         setStatus('the cutout crosses no area on this sheet, so nothing was cut')
         requestPaint()
@@ -3563,7 +3604,8 @@ export default function Workspace({
       kind, rings: [ring], origin: 'user', reviewState: 'accepted',
     }))
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`create ${cmds.length} ${kind}`, cmds))
-    draftRef.current = emptyDraft(d.tool)
+    draftRef.current = next()
+    setSegTick((n) => n + 1)
     requestPaint()
   }, [activeScope, page.width, page.height, requestPaint])
 
@@ -3897,6 +3939,7 @@ export default function Workspace({
          */
         if (pendingCalRef.current !== null) { cancelCalibration(); return }
         if (pendingRegionRef.current !== null) { cancelRegion(); return }
+        if (pendingLinkRef.current !== null) { cancelLinkRef.current(); return }
         if (zoomBoxArmedRef.current) { disarmZoomBoxRef.current(); zoomBoxRef.current = null; requestPaint(); return }
         if (titlePickRef.current !== null) { titleBoxRef.current = null; setTitlePick(null); requestPaint(); return }
         if (textPickRef.current !== null) { textPickRef.current = null; requestPaint(); return }
@@ -3911,7 +3954,7 @@ export default function Workspace({
          * with no way out is how a stray click draws something. Right-click
          * does the same (see onContextMenu). Aaron asked for both.
          */
-        const drawing = draftRef.current.points.length > 0 || dimensionDraftRef.current.a !== null
+        const drawing = draftRef.current.points.length > 0 || draftRef.current.pivot !== undefined || dimensionDraftRef.current.a !== null
         if (drawing) signal('friction', `abandon:draw-${toolRef.current}`, draftRef.current.points.length >= 3 ? 'three or more points' : 'under three points')
         cancelDraft()
         if (!drawing && toolRef.current !== 'pan') setTool('pan')
@@ -3922,8 +3965,10 @@ export default function Workspace({
         void removeMarkups(ids)
       }
       else if (e.key === 'Enter') { void commitDraft() }
-      else if (e.key === 'Backspace' && d.points.length > 0) {
-        draftRef.current = { ...d, points: d.points.slice(0, -1) }; requestPaint()
+      else if (e.key === 'Backspace' && (d.points.length > 0 || d.pivot !== undefined)) {
+        draftRef.current = CURVE_TOOLS.has(d.tool) ? backCurvePoint(d) : { ...d, points: d.points.slice(0, -1) }
+        setSegTick((n) => n + 1)
+        requestPaint()
       }
       /*
        * Tool shortcuts belong to the DRAWING, and a dialog is not it.
@@ -3934,7 +3979,7 @@ export default function Workspace({
        * by the next click drawing something. Escape and the modified
        * shortcuts above are unaffected: those are still about the application.
        */
-      else if (tool === 'dimension' && e.key === 'Backspace') {
+      else if (toolRef.current === 'dimension' && e.key === 'Backspace') {
         dimensionDraftRef.current = dimensionDraftBack(dimensionDraftRef.current)
         requestPaint()
       }
@@ -3960,6 +4005,11 @@ export default function Workspace({
         }
         // Bare letters only: see toolForKey (#29). Shift-K is the scale
         // region — the other way to set a scale, for a page with several.
+        // Mid-trace, A makes the next segment an arc rather than arming Area;
+        // Shift+C draws circles in Area, Cutout and Linear (Kenneth #8).
+        // toolRef: this listener is made once, and `tool` here would be the one it was made with.
+        const curveKey = CURVE_TOOLS.has(toolRef.current) ? curveModeForKey(e.key, e, d) : null
+        if (curveKey !== null) { e.preventDefault(); setSegmentModeRef.current(curveKey); return }
         const next = toolForKey(e.key, e)
         if (next !== null) setTool(next)
       }
@@ -4079,8 +4129,31 @@ export default function Workspace({
   }, [markups, cal, scopes, selectedIds, page, undoState, pageIndex, pageCount, goToPage, activeDocId, documents, ingestNote, selectedAnnots, selectAnnots])
   useEffect(() => { selectedRef.current = selectedIds }, [selectedIds])
 
+  /*
+   * How the next click joins a trace in Area, Cutout and Linear (Kenneth #8).
+   * The draft carries it (draftRef.current.mode); this copy is for the bar
+   * under the sheet, which has to re-render when it changes.
+   */
+  const [segMode, setSegMode] = useState<SegmentMode>('line')
+  // The bar's caption reads the draft; a click in a curve tool re-renders it.
+  const [, setSegTick] = useState(0)
+  const setSegmentMode = useCallback((mode: SegmentMode) => {
+    const d = draftRef.current
+    if (mode === 'circle' && d.points.length > 0) {
+      setStatus('finish or clear this outline first; a circle is drawn on its own')
+      return
+    }
+    const { pivot: _drop, ...rest } = d
+    draftRef.current = mode === 'line' ? { ...rest, mode } : { ...(mode === d.mode ? d : rest), mode }
+    setSegMode(mode)
+    requestPaint()
+  }, [requestPaint])
+  const setSegmentModeRef = useRef(setSegmentMode)
+  setSegmentModeRef.current = setSegmentMode
+
   useEffect(() => {
     draftRef.current = emptyDraft(tool)
+    setSegMode('line')
     snapRef.current = null
     // leaving the pan tool drops the selection; editing only happens with Pan
     if (tool !== 'pan' && tool !== 'select') { setSelectedIds([]); selectedRef.current = []; hoverRef.current = null }
@@ -4346,7 +4419,8 @@ export default function Workspace({
     if (tool === 'pan' || tool === 'select') {
       const r0 = e.currentTarget.getBoundingClientRect()
       const hx = e.clientX - r0.left, hy = e.clientY - r0.top
-      const hit = hitTest(hx, hy, markupsRef.current, viewRef.current, page.width, page.height)
+      // In Pan a link is clicked to follow it; Select (or a right-click) picks it to move or delete.
+      const hit = hitTest(hx, hy, tool === 'pan' ? markupsRef.current.filter((m) => m.kind !== 'link') : markupsRef.current, viewRef.current, page.width, page.height)
         ?? hitDimensionAt(hx, hy)
       // Capture keeps a drag alive past the stage's edge. A pointer the
       // browser does not consider active — a synthetic one, in a test —
@@ -4451,7 +4525,7 @@ export default function Workspace({
       // (see onPointerUp); a drag from it still pans or draws a marquee.
       {
         const lk = !(e.shiftKey || e.ctrlKey || e.metaKey) && viewerRef.current !== null
-          ? linkAt(viewerRef.current.getLinks(pageIndexRef.current), screenToNormalized(hx, hy, viewRef.current, page.width, page.height))
+          ? linkAt(linksHere(), screenToNormalized(hx, hy, viewRef.current, page.width, page.height))
           : null
         linkDownRef.current = lk !== null ? { x: hx, y: hy, link: lk } : null
       }
@@ -4530,9 +4604,15 @@ export default function Workspace({
      * look broken, because nothing appeared until a gesture nobody makes
      * with a highlighter had been completed.
      */
-    if ((tool === 'area' || tool === 'cutout' || tool === 'shape') && d.points.length === 0) {
+    if ((tool === 'area' || tool === 'cutout' || tool === 'shape' || tool === 'link') && d.points.length === 0 && d.mode !== 'circle') {
       rectRef.current = { anchor: p, x1: s0.x, y1: s0.y, moved: false }
       try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* as in the pan branch */ }
+    }
+    // A link is a dragged box and nothing else; a box waiting for its sheet takes no second one.
+    if (tool === 'link') {
+      if (pendingLinkRef.current !== null) rectRef.current = null
+      requestPaint()
+      return
     }
 
     // A two-point gesture is complete at two. Its commit hands off to a
@@ -4543,6 +4623,17 @@ export default function Workspace({
     // Nothing the window renders reads the draft: the canvas paints it, so a
     // vertex asks for a paint, not a render of the whole workspace (that cost
     // 40-60 ms a click on a laptop with a takeoff open).
+    // Area, Cutout and Linear place through tools/curves.ts: a line, an arc's
+    // through point or end, or a circle's centre or edge (Kenneth #8).
+    if (CURVE_TOOLS.has(tool)) {
+      const placed = placeCurvePoint(d, p, { width: page.width, height: page.height })
+      draftRef.current = placed.draft
+      setSegMode(placed.draft.mode ?? 'line')
+      setSegTick((n) => n + 1)
+      if (placed.complete) void commitDraft()
+      requestPaint()
+      return
+    }
     draftRef.current = { ...d, points: [...d.points, p] }
     if (tool === 'count'
         || ((tool === 'calibrate' || tool === 'direction' || tool === 'scale-region')
@@ -4735,7 +4826,7 @@ export default function Workspace({
         ?? (tool === 'select' && annotsRef.current.length > 0
           && annotationAt(screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height), annotsRef.current) !== null
           ? 'pointer' : null)
-        ?? (linkAt(v.getLinks(pageIndexRef.current), screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height)) !== null
+        ?? (linkAt(linksHere(), screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height)) !== null
           ? 'pointer' : null)
       if (cursor !== hoverCursorRef.current) { hoverCursorRef.current = cursor; setHoverCursor(cursor) }
       const d = dragRef.current
@@ -4754,7 +4845,7 @@ export default function Workspace({
     if (pendingCalRef.current !== null || pendingRegionRef.current !== null) { snapRef.current = null; return }
     const s0 = applySnap(e.clientX - rect.left, e.clientY - rect.top)
     snapRef.current = s0.snap
-    if (draftRef.current.points.length > 0) {
+    if (draftRef.current.points.length > 0 || draftRef.current.pivot !== undefined) {
       draftRef.current = {
         ...draftRef.current,
         cursor: screenToNormalized(s0.x, s0.y, viewRef.current, page.width, page.height),
@@ -7015,7 +7106,7 @@ export default function Workspace({
            */
           const known: Tool[] = [
             'pan', 'select', 'area', 'cutout', 'polyline', 'count', 'shape',
-            'calibrate', 'direction', 'scale-region', 'dimension', 'text', 'origin',
+            'calibrate', 'direction', 'scale-region', 'dimension', 'text', 'origin', 'link',
           ]
           if (!known.includes(next as Tool)) return { error: `unknown tool: ${next}` }
           // The tool in hand on screen is the person's. A session draws with its calls, not with a tool.
@@ -9727,6 +9818,8 @@ export default function Workspace({
   const takeoffPages = useMemo(() => {
     const out = new Set<number>()
     for (const m of docMarkups) {
+      // A link is how the set is read, not takeoff: it makes no sheet "taken off" or "unscaled".
+      if (m.kind === 'link') continue
       const i = pageIndexOf(m.pageId)
       if (i !== null) out.add(i)
     }
@@ -10369,7 +10462,7 @@ export default function Workspace({
      */
     if (activeDocId !== null && cal === null) {
       const here = pageIdFor(docIdRef.current, pageIndexRef.current)
-      const drawn = projectMarkups.filter((m) => m.pageId === here && m.kind !== 'dimension').length
+      const drawn = projectMarkups.filter((m) => m.pageId === here && m.kind !== 'dimension' && m.kind !== 'link').length
       if (drawn > 0) {
         out.push({
           text: `${sheetLabelFor(pageIndex)} has no scale, so its ${drawn} markup${drawn === 1 ? ' counts' : 's count'} nothing yet`,
@@ -10615,6 +10708,172 @@ export default function Workspace({
       void openWebLink(uri).then((ok) => setStatus(ok ? `opened ${uri}` : `could not open ${uri}`))
     }
   }, [goToPage, setStatus, sheetLabelFor])
+
+  /** Every link on the showing sheet: the PDF's own, and the ones made here (tools/links.ts). */
+  const linksHere = (): PageLink[] => {
+    const own = pageLinksFrom(markupsRef.current, pageIdFor(docIdRef.current, pageIndexRef.current))
+    return [...own, ...(viewerRef.current?.getLinks(pageIndexRef.current) ?? [])]
+  }
+
+  // ---------------------------------------------------- the Link tool ----
+  /** A drawn box waiting for its sheet: where it is on the sheet and on screen. */
+  const [pendingLink, setPendingLink] = useState<{ ring: Array<{ x: number; y: number }>; page: number; x: number; y: number; suggested: number[] } | null>(null)
+  const pendingLinkRef = useRef(pendingLink)
+  pendingLinkRef.current = pendingLink
+  const pickerSheets = useMemo(() => sheetGroups.flatMap((g) => g.rows.map((r) => ({ page: r.page, number: r.number, title: r.title }))), [sheetGroups])
+  const openLinkPickerRef = useRef<(points: Array<{ x: number; y: number }>) => void>(() => {})
+  openLinkPickerRef.current = (points) => {
+    const box = ringBox(points)
+    const at = pageIndexRef.current
+    const pt = viewerRef.current?.getText(at)
+    const words = pt === undefined ? [] : wordsOnPage(pt, box).map((w) => ({ text: w.text }))
+    const corner = normalizedToScreen(box.x1, box.y1, viewRef.current, page.width, page.height)
+    setPendingLink({ ring: boxRing(box), page: at, x: corner.x + 8, y: corner.y + 8, suggested: suggestTargets(words, pickerSheets, at) })
+  }
+  const cancelLinkRef = useRef<() => void>(() => {})
+  cancelLinkRef.current = () => {
+    setPendingLink(null)
+    draftRef.current = emptyDraft('link')
+    requestPaint()
+  }
+  const pickLinkTarget = useCallback(async (toPage: number) => {
+    const pl = pendingLinkRef.current
+    if (pl === null) return
+    setPendingLink(null)
+    draftRef.current = emptyDraft('link')
+    // The sheet the box was drawn on, carried with it: no current page to be stale about.
+    const targetPage = pl.page
+    const ok = await runCommand(cmdCreate({
+      id: uid(), documentId: docIdRef.current, pageId: pageIdFor(docIdRef.current, targetPage), scopeId: null,
+      kind: 'link', rings: [pl.ring], origin: 'user', reviewState: 'accepted',
+      content: { toPage, source: 'drawn' },
+    }))
+    if (ok) setStatus(`linked to ${sheetLabelFor(toPage)} · it goes into the PDF on the next save`)
+    requestPaint()
+  }, [runCommand, setStatus, sheetLabelFor, requestPaint])
+
+  // ------------------------------------------- link detail callouts ----
+  /*
+   * Every sheet is read for references to other sheets (tools/callouts.ts),
+   * in the background with a count, on readers of its own when the set is big
+   * (Aaron, 2026-11-24: no caps, show progress). Nothing is written until the
+   * list is approved; then the ticked ones become links in one undo step.
+   */
+  const [review, setReview] = useState<ReviewState | null>(null)
+  const reviewRef = useRef(review)
+  reviewRef.current = review
+  const reviewRunRef = useRef(0)
+  const findCalloutLinks = useCallback(async () => {
+    const v = viewerRef.current
+    if (!v || activeDocId === null || pageCount === 0) return
+    const numbered = pickerSheets.filter((s) => !/^Page \d+$/.test(s.number))
+    if (numbered.length < 2) {
+      setStatus('this set has no sheet numbers to match yet; name its sheets from the title block first')
+      return
+    }
+    const run = ++reviewRunRef.current
+    const docId = docIdRef.current
+    setReview({ phase: 'reading', read: 0, total: pageCount, candidates: [], focus: null })
+    const pool = textPool()
+    const pages = Array.from({ length: pageCount }, (_, i) => i)
+    if (pool !== null) pool.want(pages.filter((p) => v.getText(p) === undefined))
+    const found: ReviewState['candidates'] = []
+    let breath = performance.now()
+    for (const sweepPage of pages) {
+      const p = sweepPage
+      if (reviewRunRef.current !== run || docIdRef.current !== docId) return
+      let pt: PageText | null = v.getText(p) ?? null
+      if (pt === null) {
+        try { pt = pool !== null ? await pool.text(p) : await v.requestText(p, { priority: PRIORITY_THUMBNAIL }) } catch { pt = null }
+      }
+      if (pt !== null) {
+        const words = wordsOnPage(pt).map((w) => ({ text: w.text, ...w.box }))
+        const pageId = pageIdFor(docId, sweepPage)
+        const existing = [
+          ...(v.getLinks(p) ?? []).map((l) => l.rect),
+          ...pageLinksFrom(markupsRef.current.filter((m) => m.pageId === pageId), pageId).map((l) => l.rect),
+          ...projectMarkupsRef.current.filter((m) => m.kind === 'link' && m.pageId === pageId).map((m) => ringBox(m.rings[0] ?? [])),
+        ]
+        found.push(...findCallouts(p, words, numbered, existing))
+      }
+      if (performance.now() - breath > 120 || p === pageCount - 1) {
+        if (reviewRunRef.current !== run) return
+        setReview((r) => r === null ? r : { ...r, read: p + 1, candidates: [...found] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        breath = performance.now()
+      }
+    }
+    if (reviewRunRef.current !== run) return
+    setReview((r) => r === null ? r : { ...r, phase: 'ready', read: pageCount, candidates: [...found] })
+    requestPaint()
+  }, [activeDocId, pageCount, pickerSheets, setStatus, requestPaint])
+
+  const closeReview = useCallback(() => {
+    reviewRunRef.current++
+    setReview(null)
+    requestPaint()
+  }, [requestPaint])
+
+  const focusCandidate = useCallback((i: number) => {
+    const c = reviewRef.current?.candidates[i]
+    if (c === undefined) return
+    setReview((r) => r === null ? r : { ...r, focus: i })
+    const v = viewerRef.current
+    if (c.page !== pageIndexRef.current || !v || v.pageInfo.width === 0) {
+      reviewFocusRef.current = { page: c.page, rect: c.rect }
+      goToPage(c.page)
+      return
+    }
+    showView(reviewViewFor(c.rect, v.pageInfo))
+  }, [goToPage, showView])
+
+  /*
+   * The view that shows a callout: zoomed so the tag reads, with room around
+   * it, centred in the part of the drawing the review panel does not cover.
+   */
+  const reviewFocusRef = useRef<{ page: number; rect: { x0: number; y0: number; x1: number; y1: number } } | null>(null)
+  const reviewViewFor = (rect: { x0: number; y0: number; x1: number; y1: number }, pg: { width: number; height: number }): Viewport => {
+    const st = stageSizeRef.current
+    const panel = Math.min(st.width * 0.5, 384)
+    const room = Math.max(120, st.width - panel)
+    const cx = ((rect.x0 + rect.x1) / 2) * pg.width, cy = ((rect.y0 + rect.y1) / 2) * pg.height
+    // About twelve tags across: the callout and the drawing it points out of.
+    const span = Math.max((rect.x1 - rect.x0) * pg.width * 12, (rect.y1 - rect.y0) * pg.height * 8, 1)
+    const zoom = Math.min(MAX_ZOOM, room / span, st.height / span)
+    return { ...viewRef.current, zoom, ox: cx * zoom - room / 2, oy: cy * zoom - st.height / 2 }
+  }
+  useEffect(() => {
+    const f = reviewFocusRef.current
+    const v = viewerRef.current
+    if (f === null || f.page !== pageIndex || !v || v.pageInfo.width === 0 || page.width === 0) return
+    reviewFocusRef.current = null
+    showView(reviewViewFor(f.rect, v.pageInfo))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageIndex, page.width, page.height, showView])
+
+  const applyReview = useCallback(async () => {
+    const r = reviewRef.current
+    if (r === null) return
+    const picked = r.candidates.filter((c) => c.checked)
+    if (picked.length === 0) return
+    const docId = docIdRef.current
+    // Each link goes on the sheet it was found on, which the candidate carries.
+    const cmds = picked.map(({ page: targetPage, ...c }) => cmdCreate({
+      id: uid(), documentId: docId, pageId: pageIdFor(docId, targetPage), scopeId: null,
+      kind: 'link', rings: [boxRing(c.rect)], origin: 'user', reviewState: 'accepted',
+      content: { toPage: c.toPage, source: 'callout', text: c.text },
+    }))
+    const ok = await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`link ${cmds.length} callouts`, cmds))
+    if (ok) {
+      setReview(null)
+      setStatus(`added ${picked.length} link${picked.length === 1 ? '' : 's'} · they go into the PDF on the next save, and Ctrl+Z takes them back`)
+    }
+    requestPaint()
+  }, [runCommand, setStatus, requestPaint])
+  const findCalloutLinksRef = useRef(findCalloutLinks)
+  findCalloutLinksRef.current = findCalloutLinks
+  // The review's boxes are painted from its ref, which is current after the render.
+  useEffect(() => { requestPaint() }, [review, requestPaint])
 
   /**
    * Turn sheets by clockwise quarter turns: 1, 2 (180°) or 3 (counterclockwise).
@@ -10928,7 +11187,7 @@ export default function Workspace({
     const noScale = cal === null ? 'sheet has no scale' : undefined
     const markupsOnThisPage = activeDoc === undefined
       ? 0
-      : projectMarkups.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current) && m.kind !== 'dimension').length
+      : projectMarkups.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current) && m.kind !== 'dimension' && m.kind !== 'link').length
     const allPages = Array.from({ length: pageCount }, (_, i) => i)
     const scaledPages = allPages.filter((i) => scaleOfPage(i) !== null).length
     const stuck = (why: string | undefined) => (why === undefined ? {} : { unavailable: why })
@@ -11385,6 +11644,8 @@ export default function Workspace({
         },
       },
       { id: 'select-text', kind: 'command', title: 'Select text', shortcut: 'T', keywords: ['copy text', 'text', 'clipboard'], ...stuck(noSheet), run: () => setTool('text') },
+      { id: 'link-tool', kind: 'command', title: 'Add a link', detail: 'drag a box over a callout, then pick its sheet', keywords: ['link', 'hyperlink', 'jump', 'callout', 'reference'], ...stuck(noSheet), run: () => setTool('link') },
+      { id: 'link-callouts', kind: 'command', title: 'Link detail callouts', detail: 'find every reference to another sheet and choose which to link', keywords: ['link', 'batch link', 'callout', 'detail', 'section', 'hyperlink', 'auto link'], ...stuck(noSheet), run: () => void findCalloutLinksRef.current() },
       ...[50, 100, 200, 400].map((pct): Command => ({
         id: `zoom-${pct}`, kind: 'command', title: `Zoom to ${pct}%`, keywords: ['zoom', 'actual size'],
         whenTyped: true, ...stuck(noSheet), run: () => setZoom(pct / 100),
@@ -12971,6 +13232,39 @@ export default function Workspace({
           />
         )}
 
+        {tool === 'link' && activeDocId !== null && review === null && (
+          <LinkBar onFind={() => void findCalloutLinks()} />
+        )}
+        {pendingLink !== null && (
+          <LinkPicker
+            x={pendingLink.x}
+            y={pendingLink.y}
+            sheets={pickerSheets}
+            suggested={pendingLink.suggested}
+            fromPage={pendingLink.page}
+            onPick={(p) => void pickLinkTarget(p)}
+            onCancel={() => cancelLinkRef.current()}
+          />
+        )}
+        {review !== null && (
+          <CalloutReview
+            state={review}
+            sheetLabel={sheetLabelFor}
+            sheetTitle={sheetTitleFor}
+            onToggle={(i) => { setReview((r) => r === null ? r : { ...r, candidates: r.candidates.map((c, j) => j === i ? { ...c, checked: !c.checked } : c) }); requestPaint() }}
+            onAll={(on) => { setReview((r) => r === null ? r : { ...r, candidates: r.candidates.map((c) => ({ ...c, checked: on })) }); requestPaint() }}
+            onFocus={focusCandidate}
+            onApply={() => void applyReview()}
+            onCancel={closeReview}
+          />
+        )}
+        {CURVE_TOOLS.has(tool) && activeDocId !== null && (
+          <SegmentBar
+            mode={segMode}
+            caption={segmentCaption(segMode, draftRef.current.points.length, draftRef.current.pivot !== undefined, tool)}
+            onMode={setSegmentMode}
+          />
+        )}
         <Dock
           pinned={pendingCal !== null || pendingRegion !== null}
           left={

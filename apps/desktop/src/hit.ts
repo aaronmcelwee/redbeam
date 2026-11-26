@@ -59,7 +59,7 @@ export function hitTest(
     if (m.kind === 'count') continue
     const ring = toScreenRing(m.rings[0] ?? [], view, pageW, pageH)
     if (ring.length < 2) continue
-    const closed = m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape'
+    const closed = m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape' || m.kind === 'link'
     const e = nearestEdge(p, ring, closed)
     if (e && e.distance <= EDGE_GRAB_PX) {
       return { markupId: m.id, part: 'edge', index: e.index }
@@ -69,7 +69,7 @@ export function hitTest(
   // pass 3: interiors (closed shapes only)
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
-    if (m.kind !== 'area' && m.kind !== 'cutout' && m.kind !== 'shape') continue
+    if (m.kind !== 'area' && m.kind !== 'cutout' && m.kind !== 'shape' && m.kind !== 'link') continue
     // Even-odd over the area as cut (cuts.ts), so a click in a cut is not a
     // click on the area: the cut is the sheet, or the cutout drawn over it.
     let inside = false
@@ -132,7 +132,7 @@ function drawOne(
   // halo so the selection reads against any drawing; an area's holes too
   if (ring.length >= 2) {
     ctx.beginPath()
-    const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape'
+    const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape' || markup.kind === 'link'
     const outlined = markup.kind === 'area' && markup.rings.length > 1
       ? areaRegion(markup.rings).map((r) => toScreenRing(r, view, pageW, pageH))
       : [ring]

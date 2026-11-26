@@ -115,6 +115,16 @@ interface MarkupRowLike {
   scope_id: string | null
   kind: string
   geometry_json: string
+  content_json?: string | null
+}
+
+/** Where a link markup goes (tools/links.ts), read from its content_json. */
+function linkTargetOf(raw: MarkupRowLike): number | undefined {
+  if (raw.kind !== 'link' || typeof raw.content_json !== 'string') return undefined
+  try {
+    const to = (JSON.parse(raw.content_json) as { toPage?: unknown }).toPage
+    return typeof to === 'number' && Number.isInteger(to) && to >= 0 ? to : undefined
+  } catch { return undefined }
 }
 
 interface ScopeRowLike { id: string, label: string, color: string }
@@ -230,7 +240,9 @@ export function embedMarkupsFor(tables: SliceTables, documentId: string): {
       }
     }
     if (raw.kind === 'count') quantity = 1
+    const linkTo = linkTargetOf(raw)
     markups.push({
+      ...(linkTo === undefined ? {} : { linkTo }),
       id: raw.id, pageIndex, kind: raw.kind, rings: [rings[0]!], scopeLabel: label, color, quantity,
       rev: markupRev(raw),
       ...(cutouts.length === 0 ? {} : { cutouts }),

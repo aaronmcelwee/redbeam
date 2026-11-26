@@ -3,6 +3,8 @@ import { areaRegion, type Markup, type Scope } from '@redbeam/domain'
 import type { OverlaySet } from '@redbeam/viewer'
 
 const FALLBACK = '#8a929c'
+/** Links: the blue every reader uses for one. */
+export const LINK_COLOR = '#1a73e8'
 
 /**
  * `pending`: markups not yet accepted (imported from the PDF). They are drawn
@@ -62,6 +64,16 @@ export function toOverlay(markups: Markup[], scopes: Scope[], pending: ReadonlyS
           color, opacity: 1, width: 2, dashed: waiting,
         })
       }
+    } else if (m.kind === 'link') {
+      // A link (tools/links.ts): a thin dashed box in the link blue, no fill,
+      // so it says "this jumps" without covering the callout it sits on.
+      set.polygons.push({
+        poly: ring.map((p) => [p.x, p.y] as [number, number]),
+        fill: LINK_COLOR, stroke: LINK_COLOR,
+        fillOpacity: 0.06, strokeOpacity: 0.9, strokeWidth: 1, dashed: true,
+        cx: ring.reduce((a, p) => a + p.x, 0) / ring.length,
+        cy: ring.reduce((a, p) => a + p.y, 0) / ring.length,
+      })
     } else if (m.kind === 'count') {
       const a = ring[0]!
       set.dots.push({ x: a.x, y: a.y, color, opacity: 1, r: 5, shape: 'circle' })

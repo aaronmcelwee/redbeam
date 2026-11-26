@@ -39,7 +39,7 @@ import { productLabelFor } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
-  OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, Type, ZoomBox,
+  LinkIcon, OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, Type, ZoomBox,
 } from './icons.js'
 import { shortcutFor } from './sheetKeys.js'
 import type { Icon } from './icons.js'
@@ -77,7 +77,7 @@ const TOOLS: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
  * `'dimension'` is typed loosely here on purpose: the workspace is gaining the
  * tool in its own `Tool` union, and this row must not have to wait for it.
  */
-export type ReadTool = 'pan' | 'select' | 'dimension' | 'text'
+export type ReadTool = 'pan' | 'select' | 'dimension' | 'text' | 'link'
 const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
   { id: 'pan', label: 'Pan', title: 'Move the sheet', icon: Hand },
   // Marquee selection existed as Shift+drag in Pan and nobody found it.
@@ -85,6 +85,9 @@ const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon
   { id: 'select', label: 'Select', title: 'Select markups: click one, or drag a box around several', icon: Cursor },
   { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: Ruler },
   { id: 'text', label: 'Text', title: 'Select text: drag a box around it, then Ctrl+C', icon: Type },
+  // A box that jumps to another sheet (Kenneth #12). With the reading tools:
+  // a link is how the set is read, not takeoff.
+  { id: 'link', label: 'Link', title: 'Link: drag a box over a callout, then pick the sheet it goes to', icon: LinkIcon },
 ]
 
 /**
