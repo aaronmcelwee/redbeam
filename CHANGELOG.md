@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.104 — 2026-11-26
+
+### Agents catch long runs and copy floors in one step
+
+- **Runs longer than the stock are flagged.** When a run is longer than the stock it is cut from, an agent's parts list now says so: how many runs, the longest, how many joints that makes, and the shortest stock that would run them all in one piece.
+- **Copy a scope's areas to other floors at once.** An agent can copy every area of a scope from one sheet to the same spot on several other sheets in one step, nudge a sheet that does not line up exactly, and keep each area's start point and direction.
+- **The frame round a whole field.** An agent can read the length of the frame around a scope's whole field on each sheet. Edges two areas share, like the fold line between chevron wings, are counted once and reported separately.
+
 ## 0.3.103 — 2026-11-26
 
 ### Sheet names with brackets no longer stop the save

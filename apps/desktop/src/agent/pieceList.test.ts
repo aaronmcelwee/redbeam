@@ -31,6 +31,19 @@ describe('pieceList', () => {
     expect(list.runs[0]!.pieces.some((p) => p.cutToFit)).toBe(true)
   })
 
+  it('flags runs longer than the stock and gives the stock that would run them whole', () => {
+    const r = calculatePieces(scope, area([outer]), cal, opts)
+    const over = pieceList(r).longerThanStock!
+    expect(over.stockFeet).toBeCloseTo(8, 3)
+    expect(over.runs).toBe(pieceList(r).runs.length)
+    expect(over.longestFeet).toBeCloseTo(20, 1)
+    expect(over.fitsWithoutJoints).toBe(20)
+    // 20 ft of 8 ft stock is three pieces, two joints, on every run.
+    expect(over.joints).toBe(over.runs * 2)
+    const long = calculatePieces({ ...scope, specifications: { ...scope.specifications, stockLength: '25', stockLengthUnit: 'ft' } }, area([outer]), cal, opts)
+    expect(pieceList(long).longerThanStock).toBeUndefined()
+  })
+
   it('pages through runs with no cap: pages join up to the whole list', () => {
     const r = calculatePieces(scope, area([outer]), cal, opts)
     const all = pieceList(r).runs

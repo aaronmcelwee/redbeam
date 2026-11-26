@@ -168,7 +168,7 @@ import { libraryEntry, readLibrary, saveToLibrary, newerInLibrary } from './patt
 import type { PatternControls } from './shell/PatternCard.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
-import { bomScopeFilter, perAreaCounts } from './bom/agentBom.js'
+import { bomScopeFilter, fieldPerimeters, perAreaCounts } from './bom/agentBom.js'
 import { detectGrid, nearestCrossing } from './search/grid.js'
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
@@ -7543,6 +7543,32 @@ export default function Workspace({
             ...(wanted.ids !== null ? { scopes: [...wanted.ids] } : {}),
             lines,
             ...(brief && Object.keys(notes).length > 0 ? { notes } : {}),
+            /*
+             * Runs longer than the stock they are cut from (NOIC report): each
+             * is jointed, and the shortest stock that would run them whole.
+             */
+            ...((): Record<string, unknown> => {
+              const warn = entries.filter((e) => e.result.blockers.length === 0 && e.result.runs.length > 0)
+                .map((e) => ({ e, over: pieceList(e.result).longerThanStock }))
+                .filter((x) => x.over !== undefined)
+                .map(({ e, over }) => ({ scopeId: e.scope.id, scope: e.scope.label, stockFeet: over!.stockFeet, runs: over!.runs, longest: over!.longest, joints: over!.joints, fitsWithoutJoints: over!.fitsWithoutJoints }))
+              return warn.length > 0 ? { longerThanStock: warn } : {}
+            })(),
+            /*
+             * The frame round each scope's field, per sheet, with the edges
+             * its areas share (a chevron's fold line) counted once and apart.
+             */
+            ...(params['perimeter'] === true ? {
+              perimeters: entries.map((e) => ({
+                scopeId: e.scope.id,
+                sheets: fieldPerimeters(
+                  projectMarkupsRef.current.filter((m) => m.scopeId === e.scope.id && m.kind === 'area'),
+                  (pid) => projectPageBoxes.get(pid) ?? null,
+                  (pid) => projectCalibrationsLatest.current.get(pid) ?? null,
+                  (pid) => { const pg = pageNumberFrom(pid, docIdRef.current); return { page: pg, sheet: pg === null ? null : sheetLabelFor(pg) } },
+                ),
+              })),
+            } : {}),
             ...(perArea !== undefined ? {
               areas: perArea.areas,
               areaItems: perArea.items,
@@ -8401,20 +8427,56 @@ export default function Workspace({
         }
         /* Copies of markups, on their own sheet or another one. */
         case 'duplicate_markups': {
-          const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String) : typeof params['id'] === 'string' ? [params['id']] : []
+          /*
+           * Also a scope's areas copied to the same spot on other floors in
+           * one step (NOIC report, 2026-11-26, L3, L4 and L6): `scopeId` with
+           * `fromPage` picks every area and cutout of the scope on that
+           * sheet, `toPages` names the floors, and `offsets` nudges a sheet
+           * that does not line up exactly. Start points and directions set
+           * per area go with the copies.
+           */
+          let ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String) : typeof params['id'] === 'string' ? [params['id']] : []
+          const sheetRows = sheetGroups.flatMap((g) => g.rows)
+          const pageOf = (v: unknown): number | string => {
+            if (typeof v === 'string' && !/^\d+$/.test(v.trim())) {
+              const at = pageForSheet(sheetRows, v)
+              return at === null ? `no single sheet is called ${v}` : at
+            }
+            const n = Number(v)
+            return Number.isInteger(n) && n >= 0 && n < pageCount ? n : `page ${String(v)} out of range (0..${pageCount - 1})`
+          }
+          if (ids.length === 0 && typeof params['scopeId'] === 'string') {
+            const targetPage = params['fromPage'] === undefined ? ap.index : pageOf(params['fromPage'])
+            if (typeof targetPage === 'string') return { error: targetPage }
+            const fromId = pageIdFor(docIdRef.current, targetPage)
+            ids = docMarkupsRef.current.filter((m) => m.scopeId === params['scopeId'] && m.pageId === fromId && (m.kind === 'area' || m.kind === 'cutout')).map((m) => m.id)
+            if (ids.length === 0) return { error: `no areas of scope ${String(params['scopeId'])} on page ${targetPage}` }
+          }
           const src = ids.map((i) => docMarkupsRef.current.find((m) => m.id === i))
           const missing = ids.filter((_, k) => src[k] === undefined)
-          if (ids.length === 0 || missing.length > 0) return { error: ids.length === 0 ? 'duplicate_markups needs `ids`' : `no such markup: ${missing.join(', ')}` }
-          const toPage = params['toPage']
-          const sameSheet = toPage === undefined
-          const targetPage = sameSheet ? -1 : Number(toPage)
-          if (!sameSheet && (!Number.isInteger(targetPage) || targetPage < 0 || targetPage >= pageCount)) return { error: `toPage ${String(toPage)} out of range (0..${pageCount - 1})` }
-          const dx = Number(params['dx'] ?? (sameSheet ? 0.01 : 0)), dy = Number(params['dy'] ?? (sameSheet ? 0.01 : 0))
+          if (ids.length === 0 || missing.length > 0) return { error: ids.length === 0 ? 'duplicate_markups needs `ids`, or `scopeId` (with `fromPage`)' : `no such markup: ${missing.join(', ')}` }
+          const asked = Array.isArray(params['toPages']) ? params['toPages'] as unknown[] : params['toPage'] !== undefined ? [params['toPage']] : []
+          const targets: number[] = []
+          for (const t of asked) {
+            const at = pageOf(t)
+            if (typeof at === 'string') return { error: at }
+            targets.push(at)
+          }
+          const sameSheet = targets.length === 0
+          const offsets = typeof params['offsets'] === 'object' && params['offsets'] !== null ? params['offsets'] as Record<string, unknown> : {}
+          const shiftFor = (target: number | null): { dx: number; dy: number } => {
+            const o = target === null ? undefined : offsets[String(target)] as { dx?: unknown; dy?: unknown } | undefined
+            const dx = Number(o?.dx ?? params['dx'] ?? (sameSheet ? 0.01 : 0)), dy = Number(o?.dy ?? params['dy'] ?? (sameSheet ? 0.01 : 0))
+            return { dx: Number.isFinite(dx) ? dx : 0, dy: Number.isFinite(dy) ? dy : 0 }
+          }
           const made: Array<{ id: string; from: string; page: number | null }> = []
-          const cmds = (src as Markup[]).map((m) => {
+          const copies: Array<{ from: Markup; id: string; dx: number; dy: number }> = []
+          const cmds = (sameSheet ? [null] : targets).flatMap((targetPage) => (src as Markup[]).map((m) => {
             const id = uid()
-            const pageId = sameSheet ? m.pageId : pageIdFor(docIdRef.current, targetPage)
+            const { dx, dy } = shiftFor(targetPage)
+            const pageId = targetPage === null ? m.pageId : pageIdFor(docIdRef.current, targetPage)
             made.push({ id, from: m.id, page: pageNumberFrom(pageId, docIdRef.current) })
+            copies.push({ from: m, id, dx, dy })
             const content = (m as Markup & { content?: Record<string, unknown> }).content
             return cmdCreate({
               id, documentId: m.documentId, pageId, scopeId: m.scopeId, kind: m.kind,
@@ -8422,9 +8484,26 @@ export default function Workspace({
               origin: 'agent', reviewState: 'accepted',
               ...(content !== undefined ? { content: structuredClone(content) } : {}),
             })
-          })
+          }))
+          await ensurePageRows(targets)
           await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`duplicate ${cmds.length} markups`, cmds))
-          return { duplicated: made }
+          // The area's own start point and direction, moved with it.
+          const carried: string[] = []
+          for (const scId of new Set(copies.map((c) => c.from.scopeId).filter((x): x is string => x !== null))) {
+            const sc = scopesRef.current.find((x) => x.id === scId)
+            if (sc === undefined) continue
+            const origins = { ...(sc.specifications[AREA_ORIGINS_KEY] as Record<string, { x: number; y: number }> ?? {}) }
+            const dirs = { ...(sc.specifications[AREA_DIRECTIONS_KEY] as Record<string, Record<string, number>> ?? {}) }
+            let changed = false
+            for (const c of copies.filter((x) => x.from.scopeId === scId)) {
+              const o = origins[c.from.id]
+              if (o !== undefined) { origins[c.id] = { x: o.x + c.dx, y: o.y + c.dy }; changed = true; carried.push(c.id) }
+              const d = dirs[c.from.id]
+              if (d !== undefined) { dirs[c.id] = { ...d }; changed = true }
+            }
+            if (changed) await saveScope({ ...sc, specifications: { ...sc.specifications, [AREA_ORIGINS_KEY]: origins, [AREA_DIRECTIONS_KEY]: dirs } })
+          }
+          return { duplicated: made, ...(carried.length > 0 ? { startPointsCarried: carried.length } : {}) }
         }
         case 'select_markups': {
           const ids = Array.isArray(params['ids']) ? (params['ids'] as unknown[]).map(String) : []
