@@ -1,0 +1,623 @@
+[
+  {
+    "k": "A1.activate",
+    "v": "redbeam fg=False",
+    "t": 1795722207541
+  },
+  {
+    "k": "A1.whatsNew",
+    "v": "clicked 1495,1185",
+    "t": 1795722209005
+  },
+  {
+    "k": "A1.row1",
+    "v": "clicked 386,289",
+    "t": 1795722211290
+  },
+  {
+    "k": "A1.state",
+    "v": {
+      "page": "1 / 12",
+      "zoom": "60%",
+      "focus": "BUTTON.sheetrow \"General1\"",
+      "dialogs": [],
+      "ask": 0,
+      "tab": "CoWork",
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "hasFocus": true
+    },
+    "t": 1795722212103
+  },
+  {
+    "k": "A2.setup",
+    "v": [
+      {
+        "n": "redbeam_open_file",
+        "ok": true,
+        "ms": 24,
+        "d": false
+      },
+      {
+        "n": "redbeam_go_to_page",
+        "ok": true,
+        "ms": 20,
+        "d": 5
+      },
+      {
+        "n": "redbeam_set_page_scale",
+        "ok": true,
+        "ms": 11,
+        "d": [
+          5
+        ]
+      },
+      {
+        "n": "redbeam_create_scope",
+        "ok": true,
+        "ms": 40,
+        "d": "sc-mwxyn3hi-9pkqt"
+      }
+    ],
+    "t": 1795722213249
+  },
+  {
+    "k": "A2.before",
+    "v": {
+      "page5": 0,
+      "total": 0
+    },
+    "t": 1795722213268
+  },
+  {
+    "k": "A3.row3",
+    "v": {
+      "label": "row3",
+      "t": 1795722214788,
+      "out": "clicked 386,361",
+      "before": {
+        "page": "1 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"General1\""
+      },
+      "after": {
+        "page": "3 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"Architectural3\"",
+        "dialogs": [],
+        "ask": 0
+      }
+    },
+    "t": 1795722216990
+  },
+  {
+    "k": "A3.ctrlwheelIn",
+    "v": {
+      "label": "ctrlwheelIn",
+      "t": 1795722217625,
+      "out": "ctrl+wheel 3 at 1211,796",
+      "before": {
+        "page": "3 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"Architectural3\""
+      },
+      "after": {
+        "page": "3 / 12",
+        "zoom": "316%",
+        "focus": "BUTTON.sheetrow \"Architectural3\"",
+        "dialogs": [],
+        "ask": 0
+      }
+    },
+    "t": 1795722220302
+  },
+  {
+    "k": "A3.dragPan",
+    "v": {
+      "label": "dragPan",
+      "t": 1795722220304,
+      "out": "dragged 1211,796 by -220,-140",
+      "before": {
+        "page": "3 / 12",
+        "zoom": "316%",
+        "focus": "BUTTON.sheetrow \"Architectural3\""
+      },
+      "after": {
+        "page": "3 / 12",
+        "zoom": "316%",
+        "focus": "BODY.ads \"Contentsscratch-6set-171set-10\"",
+        "dialogs": [],
+        "ask": 0
+      }
+    },
+    "t": 1795722223013
+  },
+  {
+    "k": "A3.row8",
+    "v": {
+      "label": "row8",
+      "t": 1795722223717,
+      "out": "clicked 386,541",
+      "before": {
+        "page": "3 / 12",
+        "zoom": "316%",
+        "focus": "BODY.ads \"Contentsscratch-6set-171set-10\""
+      },
+      "after": {
+        "page": "8 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\"",
+        "dialogs": [],
+        "ask": 0
+      }
+    },
+    "t": 1795722226120
+  },
+  {
+    "k": "A3.pageDown1",
+    "v": {
+      "label": "pageDown1",
+      "t": 1795722226126,
+      "out": "key pagedown",
+      "before": {
+        "page": "8 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\""
+      },
+      "after": {
+        "page": "9 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\"",
+        "dialogs": [],
+        "ask": 0
+      }
+    },
+    "t": 1795722227614
+  },
+  {
+    "k": "A3.pageDown2",
+    "v": {
+      "label": "pageDown2",
+      "t": 1795722227616,
+      "out": "key pagedown",
+      "before": {
+        "page": "9 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\""
+      },
+      "after": {
+        "page": "10 / 12",
+        "zoom": "60%",
+        "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\"",
+        "dialogs": [],
+        "ask": 0
+      }
+    },
+    "t": 1795722229058
+  },
+  {
+    "k": "A3.calls",
+    "v": [
+      {
+        "k": 0,
+        "at": 1795722213280,
+        "ms": 17,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 1,
+        "at": 1795722213806,
+        "ms": 12,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 2,
+        "at": 1795722214320,
+        "ms": 27,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 3,
+        "at": 1795722215297,
+        "ms": 780,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 4,
+        "at": 1795722216579,
+        "ms": 11,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 5,
+        "at": 1795722217623,
+        "ms": 525,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 6,
+        "at": 1795722219394,
+        "ms": 23,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 7,
+        "at": 1795722219928,
+        "ms": 24,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 8,
+        "at": 1795722220910,
+        "ms": 1197,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 9,
+        "at": 1795722222607,
+        "ms": 11,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 10,
+        "at": 1795722223715,
+        "ms": 618,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 11,
+        "at": 1795722225206,
+        "ms": 30,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 12,
+        "at": 1795722225742,
+        "ms": 10,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 13,
+        "at": 1795722226708,
+        "ms": 12,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 14,
+        "at": 1795722227222,
+        "ms": 16,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 15,
+        "at": 1795722228155,
+        "ms": 16,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 16,
+        "at": 1795722228681,
+        "ms": 22,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 17,
+        "at": 1795722229866,
+        "ms": 9,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 18,
+        "at": 1795722230389,
+        "ms": 10,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 19,
+        "at": 1795722230911,
+        "ms": 18,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 20,
+        "at": 1795722231439,
+        "ms": 23,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 21,
+        "at": 1795722231966,
+        "ms": 21,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 22,
+        "at": 1795722232492,
+        "ms": 15,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 23,
+        "at": 1795722233018,
+        "ms": 27,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 24,
+        "at": 1795722233558,
+        "ms": 22,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 25,
+        "at": 1795722234092,
+        "ms": 16,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 26,
+        "at": 1795722234622,
+        "ms": 17,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 27,
+        "at": 1795722235150,
+        "ms": 21,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 28,
+        "at": 1795722235679,
+        "ms": 16,
+        "ok": true,
+        "page": 5
+      },
+      {
+        "k": 29,
+        "at": 1795722236207,
+        "ms": 17,
+        "ok": true,
+        "page": 5
+      }
+    ],
+    "t": 1795722240196
+  },
+  {
+    "k": "A3.slowCalls",
+    "v": [
+      {
+        "k": 8,
+        "at": 1795722220910,
+        "ms": 1197,
+        "ok": true,
+        "page": 5
+      }
+    ],
+    "t": 1795722240196
+  },
+  {
+    "k": "A3.strayChanges",
+    "v": [
+      {
+        "t": 1795722216394,
+        "field": "page",
+        "from": "1 / 12",
+        "to": "3 / 12"
+      },
+      {
+        "t": 1795722216394,
+        "field": "focus",
+        "from": "BUTTON.sheetrow \"General1\"",
+        "to": "BUTTON.sheetrow \"Architectural3\""
+      },
+      {
+        "t": 1795722219714,
+        "field": "zoom",
+        "from": "60%",
+        "to": "316%"
+      },
+      {
+        "t": 1795722222412,
+        "field": "focus",
+        "from": "BUTTON.sheetrow \"Architectural3\"",
+        "to": "BODY.ads \"Contentsscratch-6set-171set-10\""
+      },
+      {
+        "t": 1795722225512,
+        "field": "page",
+        "from": "3 / 12",
+        "to": "8 / 12"
+      },
+      {
+        "t": 1795722225512,
+        "field": "zoom",
+        "from": "316%",
+        "to": "60%"
+      },
+      {
+        "t": 1795722225512,
+        "field": "focus",
+        "from": "BODY.ads \"Contentsscratch-6set-171set-10\"",
+        "to": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\""
+      }
+    ],
+    "t": 1795722240196
+  },
+  {
+    "k": "A3.dialogsSeen",
+    "v": 0,
+    "t": 1795722240196
+  },
+  {
+    "k": "A4.markups",
+    "v": {
+      "before": {},
+      "after": {
+        "5": 30
+      },
+      "addedOnPage5": 30,
+      "okAnswers": 30
+    },
+    "t": 1795722240210
+  },
+  {
+    "k": "B.before",
+    "v": {
+      "page": "10 / 12",
+      "zoom": "60%",
+      "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\"",
+      "dialogs": [],
+      "ask": 0,
+      "tab": "CoWork",
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "hasFocus": true
+    },
+    "t": 1795722240212
+  },
+  {
+    "k": "B.row",
+    "v": {
+      "x": 1282.3334197998047,
+      "y": 617.15625,
+      "text": "CoWorkyour PDF",
+      "n": 1
+    },
+    "t": 1795722240911
+  },
+  {
+    "k": "B.click",
+    "v": "clicked 2055,1017",
+    "t": 1795722242257
+  },
+  {
+    "k": "B.after",
+    "v": {
+      "page": "10 / 12",
+      "zoom": "60%",
+      "focus": "BUTTON.sheetrow \"A8.01INTERIOR ELEVATIONS8\"",
+      "dialogs": [],
+      "ask": 0,
+      "tab": "CoWork",
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "hasFocus": false
+    },
+    "t": 1795722243767
+  },
+  {
+    "k": "B.backToSheet1",
+    "v": "clicked 386,289",
+    "t": 1795722245830
+  },
+  {
+    "k": "B.onSheet1",
+    "v": {
+      "page": "1 / 12",
+      "zoom": "60%",
+      "focus": "BUTTON.sheetrow \"General1\"",
+      "dialogs": [],
+      "ask": 0,
+      "tab": "CoWork",
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "hasFocus": true
+    },
+    "t": 1795722246844
+  },
+  {
+    "k": "B.afterAgentMarkup",
+    "v": {
+      "answer": 5,
+      "ms": 26,
+      "page": "1 / 12",
+      "zoom": "60%",
+      "focus": "BUTTON.sheetrow \"General1\""
+    },
+    "t": 1795722248084
+  },
+  {
+    "k": "C.before",
+    "v": {
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "zoom": "60%"
+    },
+    "t": 1795722249329
+  },
+  {
+    "k": "C.ctrlwheel",
+    "v": "ctrl+wheel 3 at 2036,451",
+    "t": 1795722250601
+  },
+  {
+    "k": "C.afterWheel",
+    "v": {
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "zoom": "60%"
+    },
+    "t": 1795722251418
+  },
+  {
+    "k": "C.ctrlplus",
+    "v": "key ctrlplus key ctrlplus",
+    "t": 1795722252599
+  },
+  {
+    "k": "C.afterCtrlPlus",
+    "v": {
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "zoom": "93%"
+    },
+    "t": 1795722253408
+  },
+  {
+    "k": "end",
+    "v": {
+      "closed": [],
+      "ended": true,
+      "handedBack": [],
+      "note": "The session is finished. PDFs you changed are now the person's own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). A new job starts with redbeam_start_session.",
+      "why": {}
+    },
+    "t": 1795722254216
+  }
+]
