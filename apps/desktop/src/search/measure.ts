@@ -233,6 +233,12 @@ export interface DetectedPattern {
   /** The box the members fill, normalized. */
   extent: { x0: number; y0: number; x1: number; y1: number }
   feetPerPoint: number | null
+  /** Members told apart by how they are drawn (one line, or faces this far apart), most common first. */
+  memberTypes: Array<{ type: string; drawnAs: 'faces' | 'one line'; faceWidthPoints?: number; faceWidthFeet?: number | null; faceWidth?: string | null; count: number; lengthPoints: number; length: string | null }>
+  /** The member kinds in order across the field, by letter, when there is more than one. */
+  sequence?: string
+  /** A kind that recurs every Nth member, as a beam every 4th member with slabs between. */
+  repeat?: { every: number; pattern: string; summary: string }
   note?: string
 }
 
@@ -288,27 +294,52 @@ export function detectPattern(
     else lineGroups.push({ across: p.across, spans: [[p.from, p.to]] })
   }
   if (lineGroups.length < 2) return { error: 'the parallel lines in the box all sit on one line' }
-  let gaps = lineGroups.slice(1).map((g, i) => g.across - lineGroups[i]!.across)
-  // Two faces per member: alternating small and large gaps. Pair them up.
-  const sortedGaps = [...gaps].sort((a, b) => a - b)
-  const small = sortedGaps[Math.floor(sortedGaps.length * 0.25)]!, large = sortedGaps[Math.floor(sortedGaps.length * 0.75)]!
-  let centres = lineGroups.map((g) => g.across)
-  let groupsForLength = lineGroups
-  let note: string | undefined
-  if (lineGroups.length >= 4 && large > small * 2.5) {
-    const merged: Array<{ across: number; spans: Array<[number, number]> }> = []
-    for (let i = 0; i < lineGroups.length; i++) {
-      const a = lineGroups[i]!, b = lineGroups[i + 1]
-      if (b && b.across - a.across < (small + large) / 2) {
-        merged.push({ across: (a.across + b.across) / 2, spans: [...a.spans, ...b.spans] })
-        i++
-      } else merged.push(a)
+  /*
+   * Members: one drawn line, or two or more close lines (a member's faces).
+   *
+   * The faces used to be paired only when the gaps split cleanly into small
+   * and large quartiles, so a field that mixed members drawn differently (the
+   * NOIC L7 breakroom: beams as double lines, slabs as single ones between)
+   * came back as 110 members 2.1 pt apart, a face width read as a spacing.
+   * Now the gaps are split at their widest natural break (a jump of 2x or
+   * more between neighbouring sizes); every run of lines closer than that is
+   * one member, and members are told apart by how they are drawn (face
+   * width) and how long they are.
+   */
+  const allGaps = lineGroups.slice(1).map((g, i) => g.across - lineGroups[i]!.across)
+  const sortedGaps = [...allGaps].sort((a, b) => a - b)
+  let faceBelow = 0
+  {
+    let bestRatio = 1
+    for (let i = 1; i < sortedGaps.length; i++) {
+      const ratio = sortedGaps[i]! / Math.max(0.05, sortedGaps[i - 1]!)
+      if (ratio > bestRatio) { bestRatio = ratio; faceBelow = Math.sqrt(Math.max(0.05, sortedGaps[i - 1]!) * sortedGaps[i]!) }
     }
-    centres = merged.map((g) => g.across)
-    groupsForLength = merged
-    note = `members are drawn with two faces ${r3(small)} pt apart; spacing is measured centre to centre`
-    gaps = centres.slice(1).map((c, i) => c - centres[i]!)
+    const faceGaps = allGaps.filter((g) => g < faceBelow).length
+    // Faces need a clear break and at least two members drawn with them.
+    if (!(bestRatio >= 2 && lineGroups.length >= 4 && faceGaps >= 2)) faceBelow = 0
   }
+  const memberGroups: Array<{ across: number; face: number; lines: number; spans: Array<[number, number]> }> = []
+  for (let i = 0; i < lineGroups.length;) {
+    let j = i
+    while (j + 1 < lineGroups.length && lineGroups[j + 1]!.across - lineGroups[j]!.across < faceBelow) j++
+    const run = lineGroups.slice(i, j + 1)
+    memberGroups.push({
+      across: (run[0]!.across + run.at(-1)!.across) / 2,
+      face: run.at(-1)!.across - run[0]!.across,
+      lines: run.length,
+      spans: run.flatMap((g) => g.spans),
+    })
+    i = j + 1
+  }
+  const centres = memberGroups.map((g) => g.across)
+  const groupsForLength = memberGroups
+  let gaps = centres.slice(1).map((c, i) => c - centres[i]!)
+  let note: string | undefined
+  if (memberGroups.some((g) => g.lines > 1)) {
+    note = 'members drawn with two faces count once, at their centre line; spacing is centre to centre'
+  }
+  if (gaps.length === 0) gaps = allGaps
   const spacing = median(gaps)
   const regular = gaps.filter((g) => Math.abs(g - spacing) <= spacing * 0.05).length / Math.max(1, gaps.length)
   // Member lengths: merge overlapping spans along each line, count pieces.
@@ -326,6 +357,70 @@ export function detectPattern(
     for (const m of merged) pieceLengths.push(m[1] - m[0])
   }
   const memberLength = median(pieceLengths)
+  /*
+   * Kinds of member, told apart by how they are drawn: single line or faces,
+   * and the face width (within 15%). Then which kind sits where across the
+   * field, and whether that repeats ("beam every 4th member, slab between").
+   */
+  const kinds: Array<{ face: number; lines: number; count: number; lengths: number[] }> = []
+  const kindOf: number[] = []
+  groupsForLength.forEach((g, gi) => {
+    let k = kinds.findIndex((t) => (t.lines > 1) === (g.lines > 1) && (g.lines === 1 || Math.abs(t.face - g.face) <= Math.max(0.3, 0.15 * t.face)))
+    if (k < 0) { kinds.push({ face: g.face, lines: g.lines, count: 0, lengths: [] }); k = kinds.length - 1 }
+    const kind = kinds[k]!
+    kind.count++
+    kind.lengths.push(...(() => {
+      const sp = [...g.spans].sort((a, b) => a[0] - b[0])
+      const out: number[] = []
+      let cur: [number, number] | null = null
+      for (const x of sp) {
+        if (cur !== null && x[0] <= cur[1] + 0.75) cur[1] = Math.max(cur[1], x[1])
+        else { if (cur !== null) out.push(cur[1] - cur[0]); cur = [x[0], x[1]] }
+      }
+      if (cur !== null) out.push(cur[1] - cur[0])
+      return out
+    })())
+    kindOf[gi] = k
+  })
+  // Most common first, lettered A, B, C as the sequence names them.
+  const order = kinds.map((_, i) => i).sort((a, b) => kinds[b]!.count - kinds[a]!.count)
+  const letter = new Map(order.map((k, i) => [k, String.fromCharCode(65 + i)]))
+  const sequence = kindOf.map((k) => letter.get(k)!).join('')
+  let repeat: { every: number; pattern: string; summary: string } | undefined
+  if (kinds.length > 1 && sequence.length >= 4) {
+    for (let p = 2; p <= Math.min(16, Math.floor(sequence.length / 2)); p++) {
+      let same = 0
+      for (let i = 0; i + p < sequence.length; i++) if (sequence[i] === sequence[i + p]) same++
+      if (same / (sequence.length - p) >= 0.9) {
+        // Start the period on the rarer kind, the one that marks it ("every Nth").
+        const rare = letter.get(order.at(-1)!)!
+        const at = sequence.indexOf(rare)
+        const period = (sequence.slice(at) + sequence.slice(0, at)).slice(0, p)
+        const describe = (ch: string) => {
+          const t = kinds[order[ch.charCodeAt(0) - 65]!]!
+          return t.lines > 1 ? `${ch} (faces ${r3(t.face)} pt apart)` : `${ch} (one line)`
+        }
+        const others = [...new Set(period.slice(1))].map(describe).join(' and ')
+        repeat = { every: p, pattern: period, summary: `${describe(rare)} every ${p}${p === 2 ? 'nd' : p === 3 ? 'rd' : 'th'} member, ${others} between` }
+        break
+      }
+    }
+  }
+  const memberTypes = order.map((k) => {
+    const t = kinds[k]!
+    const len = median(t.lengths)
+    return {
+      type: letter.get(k)!,
+      drawnAs: t.lines > 1 ? 'faces' as const : 'one line' as const,
+      ...(t.lines > 1 ? { faceWidthPoints: r3(t.face), faceWidthFeet: fpp === null ? null : r3(t.face * fpp), faceWidth: fpp === null ? null : formatFeetInches(t.face * fpp) } : {}),
+      count: t.count,
+      lengthPoints: r3(len),
+      length: fpp === null ? null : formatFeetInches(len * fpp),
+    }
+  })
+  if (kinds.length > 1) {
+    note = `${kinds.length} kinds of member, drawn differently (see memberTypes${repeat !== undefined ? ' and repeat' : ''}); spacing is between every member, centre to centre${note !== undefined ? '. ' + note : ''}`
+  }
   const counts = new Map<number, number>()
   for (const n of piecesPerLine) counts.set(n, (counts.get(n) ?? 0) + 1)
   const rows = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]![0]
@@ -357,6 +452,9 @@ export function detectPattern(
     memberLength: fpp === null ? null : formatFeetInches(memberLength * fpp),
     extent: { x0: Math.round(x0 * 1e5) / 1e5, y0: Math.round(y0 * 1e5) / 1e5, x1: Math.round(x1 * 1e5) / 1e5, y1: Math.round(y1 * 1e5) / 1e5 },
     feetPerPoint: fpp,
+    memberTypes,
+    ...(kinds.length > 1 ? { sequence } : {}),
+    ...(repeat !== undefined ? { repeat } : {}),
     ...(note !== undefined ? { note } : {}),
   }
 }

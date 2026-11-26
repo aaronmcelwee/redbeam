@@ -413,10 +413,13 @@ describe('the layout preview', () => {
   })
 
   it('draws every scope, not only the active one', () => {
-    const at = workspace.indexOf('if (layoutOn) {')
+    // The window and close-up screenshots both paint through this one helper.
+    const at = workspace.indexOf('drawLayoutsRef.current = (')
     expect(at, 'the layout block has moved').toBeGreaterThan(-1)
     const block = workspace.slice(at, workspace.indexOf('drawRunLayout(', at) + 200)
     expect(block).toContain('for (const entry of piecesRef.current)')
+    const paint = workspace.indexOf('if (layoutOn) {')
+    expect(workspace.slice(paint, paint + 1500)).toContain('drawLayoutsRef.current(oc')
     // The old bug in one line: no picking a single scope out of the list.
     expect(block).not.toContain('activeScopeRef.current')
   })

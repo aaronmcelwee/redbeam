@@ -175,3 +175,33 @@ describe('traceField', () => {
     expect(r.fields[0]!.areaPoints2).toBeLessThan(400 * 200 * 1.06)
   })
 })
+
+describe('traceField near a denser hatch (NOIC, 2026-11-26)', () => {
+  // A sparse slat field (6 pt apart) right beside a dense 45-degree wall poche
+  // (1.5 pt): the window around the point holds more of the poche, which used
+  // to win. The field at the point is the slats.
+  const FIELD: Polygon = [{ x: 100, y: 100 }, { x: 500, y: 100 }, { x: 500, y: 400 }, { x: 100, y: 400 }]
+  const POCHE: Polygon = [{ x: 140, y: 100 }, { x: 175, y: 100 }, { x: 175, y: 400 }, { x: 140, y: 400 }]
+  const segs = norm([
+    ...hatch(FIELD, { spacing: 6, angle: 0, holes: [(p) => pointInPolygon(p, POCHE)] }),
+    ...hatch(POCHE, { spacing: 1.5, angle: 45 }),
+  ])
+  const seed = { x: 185 / PAGE.width, y: 250 / PAGE.height }
+
+  it('follows the hatch that is solid at the point, and lists the other', () => {
+    const r = traceField({ segments: segs, page: PAGE, seed, frame: { x0: 0, y0: 0, x1: 1, y1: 1 } })
+    if (!r.ok) throw new Error(r.message)
+    expect(angleGap(r.diagnostics.angleDeg!, 0)).toBeLessThan(2)
+    const area = regionArea(r.fields[0]!.rings.map((ring) => ring.map((q) => ({ x: q.x * PAGE.width, y: q.y * PAGE.height }))))
+    // The slat field less the poche strip it surrounds.
+    expect(area).toBeGreaterThan(0.8 * (400 * 300 - 35 * 300))
+    expect(r.diagnostics.alternatives?.some((a) => angleGap(a.angleDeg, 45) < 2)).toBe(true)
+  })
+
+  it('takes the stroke spacing it is told', () => {
+    const r = traceField({ segments: segs, page: PAGE, seed, frame: { x0: 0, y0: 0, x1: 1, y1: 1 }, options: { strokeSpacingPoints: 6 } })
+    if (!r.ok) throw new Error(r.message)
+    expect(angleGap(r.diagnostics.angleDeg!, 0)).toBeLessThan(2)
+  })
+})
+
