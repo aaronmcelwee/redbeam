@@ -15,6 +15,7 @@ import type { NormClip } from './geometry.js'
 import type { DocumentIndex } from './outline.js'
 import type { PageText } from './text.js'
 import type { PageAnnotation } from './annots.js'
+import type { AnnotEdit } from './annotEdit.js'
 import type { PageLink } from './links.js'
 import { TileCache } from './tileCache.js'
 import {
@@ -177,6 +178,8 @@ export class Viewer {
   /** Annotation indexes hidden on a page. The token is part of the tile key. */
   private hiddenByPage = new Map<number, readonly number[]>()
   private hiddenTokens = new Map<number, string>()
+  /** Other apps' annotations moved or recoloured on a page, and a token of them for the tile key. */
+  private editsByPage = new Map<number, string>()
   /** The PDF's own annotations drawn at all. Off is part of the tile key. */
   private annotsOn = true
   /** REDBEAM's own markup overlay drawn. */
@@ -573,6 +576,24 @@ export class Viewer {
   }
 
   /**
+   * Show other apps' annotations moved or recoloured (annotEdit.ts), in the
+   * worker's copy of the PDF; the file is written by the app's save. The
+   * whole page's list each time: an annotation left out goes back to how the
+   * file draws it. Returns whether the visible tiles need asking for again.
+   */
+  setAnnotationEdits(page: number, edits: readonly AnnotEdit[]): boolean {
+    const sorted = [...edits].sort((a, b) => (a.nm < b.nm ? -1 : a.nm > b.nm ? 1 : 0))
+    const token = sorted.length === 0 ? '' : editsToken(JSON.stringify(sorted))
+    const prev = this.editsByPage.get(page) ?? ''
+    if (token === prev) return false
+    if (token === '') this.editsByPage.delete(page)
+    else this.editsByPage.set(page, token)
+    this.send({ type: 'annotEdits', page, edits: sorted })
+    this.dropPage(page)
+    return true
+  }
+
+  /**
    * Draw the PDF's own annotations (markups made in Bluebeam or anywhere
    * else), or none of them. Nothing is written to the file. Returns whether
    * anything changed, in which case the visible tiles need asking for again.
@@ -688,7 +709,8 @@ export class Viewer {
   private tileIdentity(page: number, zoom: number, tx: number, ty: number): string {
     if (!this.annotsOn) return tileKey(page, zoom, tx, ty, 'off')
     const hidden = this.hiddenByPage.get(page) ?? []
-    return tileKey(page, zoom, tx, ty, hidden.length > 0 ? hidden.join(',') : '')
+    const edits = this.editsByPage.get(page)
+    return tileKey(page, zoom, tx, ty, (hidden.length > 0 ? hidden.join(',') : '') + (edits === undefined ? '' : `~e${edits}`))
   }
 
   private requestTile(page: number, zoom: number, tx: number, ty: number, priority: number, tile: number): boolean {
@@ -1310,4 +1332,17 @@ export function zoomAbout(v: Viewport, nextZoom: number, sx: number, sy: number)
 
 function clamp01(n: number): number {
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0
+}
+
+/** A short, stable name for one page's list of annotation edits. */
+function editsToken(text: string): string {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
 }
