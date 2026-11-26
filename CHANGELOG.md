@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.96 — 2026-11-26
+
+### Agents work better on big sets
+
+- **Agents name the PDF they mean.** With several PDFs open, an agent's screenshot and reads now go to the PDF it names, not whichever one it opened last. A screenshot of any sheet is drawn on its own, without turning your view or the agent's tab to it, so several can be taken at once.
+- **Sheet names from the title block, found automatically.** REDBEAM now finds where the sheet number and title sit on a set's title block by comparing sheets, and names the sheets from there. Tags on the drawing (like a ceiling type "CL201") are no longer mistaken for sheet numbers. Agents are shown the boxes it found, so they can check them and keep them in the file.
+- **Searching a big set is faster.** Text is read by several readers at once, in the background, so an agent searching a 4,000-page spec gets through it in far fewer steps. A page that can't be read is listed with the reason, and the search carries on past it.
+- **No more hanging on a bad page.** If the PDF reader stops on a page, REDBEAM starts a fresh one and the agent is told what happened, instead of waiting forever. Other calls on that PDF no longer queue behind a stuck one.
+- **Agents pick up where they left off.** If the AI app restarts REDBEAM's connector, the agent keeps its session and gets its tabs back, instead of being asked to start over and finding its own PDF marked as someone else's.
+
 ## 0.3.93 — 2026-11-25
 
 ### A tidier start screen
