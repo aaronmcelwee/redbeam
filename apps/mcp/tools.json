@@ -743,7 +743,7 @@
     },
     {
       "name": "redbeam_get_bom",
-      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room.",
+      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room. `longerThanStock` names each scope whose runs are longer than the stock they are cut from (jointed in the field), with the shortest stock in whole feet that would run them without joints. `perimeter` adds `perimeters`: per scope and sheet, the frame round the whole field (every area's edges less the stretches two areas share, such as the fold line between chevron wings) and those shared edges on their own, in feet.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -769,6 +769,10 @@
           "brief": {
             "type": "boolean",
             "description": "Each scope's note once, in `notes`, not on every line."
+          },
+          "perimeter": {
+            "type": "boolean",
+            "description": "Also give the frame round each scope's field per sheet, shared edges counted once and apart."
           },
           "file": {
             "type": "string",
@@ -1379,7 +1383,7 @@
     },
     {
       "name": "redbeam_get_piece_list",
-      "description": "A run product's piece list: every run with its length and pieces, each piece's cut length and whether it is cut to fit at an edge or curve, the cutting list (identical cuts counted), stock lengths used by size, offcut, rails, and parts (connectors, end caps, joiners, trim). export what:\"pieces-csv\" writes it as a sheet. Needs a window.",
+      "description": "A run product's piece list: every run with its length and pieces, each piece's cut length and whether it is cut to fit at an edge or curve, the cutting list (identical cuts counted), stock lengths used by size, offcut, rails, and parts (connectors, end caps, joiners, trim). export what:\"pieces-csv\" writes it as a sheet. Needs a window. `longerThanStock` lists the runs longer than the stock length, the joints they need, and `fitsWithoutJoints`: the shortest stock, in whole feet, that would run every one of them in one piece.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2461,7 +2465,7 @@
     },
     {
       "name": "redbeam_duplicate_markups",
-      "description": "Copy markups, on their own sheet (offset by dx/dy) or onto another with toPage. Returns the new ids.",
+      "description": "Copy markups, on their own sheet (offset by dx/dy) or onto other sheets with toPage or toPages, at the same spot. To copy a scope's areas to other floors in one step, give `scopeId` and `fromPage` (every area and cutout of the scope on that sheet) and `toPages`; `offsets` nudges a sheet that does not line up exactly, e.g. {\"14\":{\"dx\":0,\"dy\":0.004}}. Start points and directions set per area go with the copies. One undo step for the markups. Returns the new ids.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2484,6 +2488,25 @@
           "toPage": {
             "type": "integer",
             "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+          },
+          "toPages": {
+            "type": "array",
+            "description": "Several sheets to copy onto: ZERO-based page numbers or sheet numbers as the set prints them (\"A4.0\")."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "Copy every area and cutout of this scope on `fromPage` (no ids needed)."
+          },
+          "fromPage": {
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "With scopeId: the sheet to copy from. Defaults to your sheet."
+          },
+          "offsets": {
+            "type": "object",
+            "description": "Per target page, {\"<page>\":{\"dx\":..,\"dy\":..}} normalized, for a sheet that does not line up exactly. Default dx/dy."
           },
           "file": {
             "type": "string",
@@ -3076,6 +3099,18 @@
           "brief": {
             "type": "boolean",
             "description": "For get_bom: each scope's note once, in `notes`."
+          },
+          "toPages": {
+            "type": "array",
+            "description": "Several sheets to copy onto: ZERO-based page numbers or sheet numbers as the set prints them (\"A4.0\")."
+          },
+          "offsets": {
+            "type": "object",
+            "description": "Per target page, {\"<page>\":{\"dx\":..,\"dy\":..}} normalized, for a sheet that does not line up exactly. Default dx/dy."
+          },
+          "perimeter": {
+            "type": "boolean",
+            "description": "For get_bom: the frame round each scope's field per sheet."
           }
         },
         "required": [

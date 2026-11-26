@@ -54,6 +54,21 @@ export interface PieceList {
   truncated?: boolean
   /** Where the next page of runs starts, when there is one. */
   nextOffset?: number
+  /**
+   * Runs longer than the stock length (NOIC report, 2026-11-26: "warn when a
+   * run is longer than the stock length, and offer the next stock size").
+   * Each is jointed in the field; `fitsWithoutJoints` is the shortest stock,
+   * in whole feet, that would run every one of them in one piece.
+   */
+  longerThanStock?: {
+    stockFeet: number
+    runs: number
+    longestFeet: number
+    longest: string
+    joints: number
+    fitsWithoutJoints: number
+    where: Array<{ pageId: string; area: number; run: number; lengthFeet: number }>
+  }
 }
 
 const len = (s: Segment) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y)
@@ -85,6 +100,8 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?
   const skip = Math.max(0, Math.floor(opts.offset ?? 0))
   let seen = 0
   let truncated = false
+  let stockFeet = 0
+  const allRuns: Array<{ pageId: string; area: number; run: number; lengthFeet: number; pieces: number }> = []
   for (const entry of result.runs) {
     fpp = entry.feetPerPoint
     const area = areaOnPage.get(entry.pageId) ?? 0
@@ -102,6 +119,7 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?
         cutToFit, offcutFeet: r3(Math.max(0, full - inside)), startCap: p.startCap, endCap: p.endCap,
         connectors: p.connectorPoints.length,
       }
+      if (p.stockFraction > 0) stockFeet = Math.max(stockFeet, full / p.stockFraction)
       placed++; stockUsed += p.stockFraction; installed += inside; offcut += Math.max(0, full - inside)
       byFamily[p.family] = (byFamily[p.family] ?? 0) + 1
       const key = `${piece.cut}|${cutToFit}`
@@ -119,6 +137,7 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?
     for (const r of entry.layout.railPieces) { railPieces++; railFeet += len(r.insideSegment) * entry.feetPerPoint }
     for (const l of lists) {
       if (l.pieces.length === 0) continue
+      allRuns.push({ pageId: l.pageId, area: l.area, run: l.run, lengthFeet: l.lengthFeet, pieces: l.pieces.length })
       if (seen++ < skip) continue
       if (runs.length >= maxRuns) { truncated = true; continue }
       runs.push(l)
@@ -136,5 +155,27 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?
     rails: { pieces: railPieces, installedFeet: r3(railFeet) },
     parts: result.quantities.map((q) => ({ ...q })),
     ...(truncated ? { truncated: true, nextOffset: skip + runs.length } : {}),
+    ...longerThan(allRuns, stockFeet),
+  }
+}
+
+function longerThan(
+  runs: ReadonlyArray<{ pageId: string; area: number; run: number; lengthFeet: number; pieces: number }>, stockFeet: number,
+): Pick<PieceList, 'longerThanStock'> {
+  if (stockFeet <= 0) return {}
+  // A hair over is rounding, not a joint.
+  const over = runs.filter((r) => r.lengthFeet > stockFeet + 1 / 96)
+  if (over.length === 0) return {}
+  const longest = Math.max(...over.map((r) => r.lengthFeet))
+  return {
+    longerThanStock: {
+      stockFeet: r3(stockFeet),
+      runs: over.length,
+      longestFeet: r3(longest),
+      longest: formatFeetInches(longest),
+      joints: over.reduce((n, r) => n + Math.max(0, Math.ceil(r.lengthFeet / stockFeet - 1e-9) - 1), 0),
+      fitsWithoutJoints: Math.ceil(longest - 1e-9),
+      where: over.slice(0, 50).map(({ pageId, area, run, lengthFeet }) => ({ pageId, area, run, lengthFeet })),
+    },
   }
 }
