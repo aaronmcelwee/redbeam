@@ -44,7 +44,7 @@
  */
 import type { SqlDriver } from '@redbeam/store'
 import { pageIdFor } from '@redbeam/store'
-import { hash53, type SheetEmbedReading, type SliceTables } from './sheetEmbed.js'
+import { hash53, nmOfKey, type SheetEmbedReading, type SliceTables } from './sheetEmbed.js'
 import { markupRev } from './drawingEmbed.js'
 import type { AnnotRewrite } from './annotRewrite.js'
 
@@ -176,7 +176,7 @@ export async function adoptedTables(
       if (pageIndex === undefined) continue
       const held = heldOf(row.content_json)
       rewrite.push({
-        pageIndex, nm: a.nm, rect, color: held?.color ?? null,
+        pageIndex, nm: nmOfKey(a.nm), rect, color: held?.color ?? null,
         ...(a.gone === undefined ? {} : { restore: a.gone }),
       })
       rebase.push({ id: row.id, rev: markupRev(row), color: held?.color ?? held?.fileColor ?? null })
@@ -280,11 +280,11 @@ export async function adoptForeignAnnots(
   await db.exec('BEGIN')
   try {
     for (const f of reading.adoptable) {
-      if (seen.has(f.nm)) continue
-      seen.add(f.nm)
+      if (seen.has(f.key)) continue
+      seen.add(f.key)
       if (f.kind === 'annot') out.heldNms.push(f.nm)
       else out.nms.push(f.nm)
-      const id = adoptedId(documentId, f.nm)
+      const id = adoptedId(documentId, f.key)
       const geometry = JSON.stringify(f.rings)
       const rev = markupRev({ kind: f.kind, scope_id: null, geometry_json: geometry })
       const annot: HeldAnnot | null = f.kind === 'annot'
@@ -294,7 +294,7 @@ export async function adoptForeignAnnots(
         source: 'pdf-annotation', subtype: f.subtype, subject: f.subject, label: f.label,
         contents: f.contents, author: f.author, color: f.color,
         ...(annot === null ? {} : { annot }),
-        adopted: { nm: f.nm, rev },
+        adopted: { nm: f.key, rev },
       }
       const prior = ids.get(id)
       if (prior !== undefined) {

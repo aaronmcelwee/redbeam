@@ -365,4 +365,43 @@ describe('other apps\' markups held in place (Kenneth, 2026-11-26)', () => {
     await embed(file)
     expect((await readSheetEmbed(file.bytes)).redbeamAnnots).toHaveLength(1)
   })
+
+  it('one /NM on two pages (Revu copies to pages): each page\'s copy is its own markup', async () => {
+    const d = await PDFDocument.create()
+    const ctx = d.context
+    for (let i = 0; i < 2; i++) {
+      const page = d.addPage([2592, 1728])
+      const ap = ctx.register(ctx.flateStream('1 0 0 RG 2 w 700 700 m 900 700 l 900 900 l 700 900 l h S', {
+        Type: 'XObject', Subtype: 'Form', BBox: [695, 695, 905, 905],
+      }))
+      const cloud = ctx.register(ctx.obj({
+        Type: 'Annot', Subtype: 'Polygon', NM: PDFString.of('SAMESAMESAMESAME'), BE: { S: 'C', I: 1 }, Subj: PDFString.of('Cloud'),
+        Rect: [695, 695, 905, 905], Vertices: [700, 700, 900, 700, 900, 900, 700, 900], C: [1, 0, 0], AP: ctx.obj({ N: ap }),
+      }))
+      page.node.set(PDFName.of('Annots'), ctx.obj([cloud]))
+    }
+    const file = memoryFile(await d.save())
+    const adopted = await adoptForeignAnnots(db, docId, await readSheetEmbed(file.bytes))
+    expect(adopted.held).toBe(2)
+    const first = adoptedId(docId, 'SAMESAMESAMESAME@p0'), second = adoptedId(docId, 'SAMESAMESAMESAME@p1')
+    await db.run('UPDATE markups SET deleted_at = ? WHERE id = ?', [NOW, first])
+    const [row] = await db.all<{ content_json: string }>('SELECT content_json FROM markups WHERE id = ?', [second])
+    const c = JSON.parse(row!.content_json) as Record<string, Record<string, unknown>>
+    await db.run('UPDATE markups SET content_json = ? WHERE id = ?', [JSON.stringify({ ...c, annot: { ...c['annot'], color: '#0070ff' } }), second])
+    expect((await embed(file)).kind).toBe('written')
+    const out = await PDFDocument.load(file.bytes)
+    const on = (i: number) => {
+      const arr = out.getPage(i).node.lookup(PDFName.of('Annots'))
+      return arr instanceof PDFArray ? arr.asArray().map((_, j) => arr.lookup(j) as PDFDict) : []
+    }
+    expect(on(0)).toHaveLength(0)
+    expect(on(1)).toHaveLength(1)
+    expect(numbers(on(1)[0]!, 'C').map((n) => Math.round(n * 255))).toEqual([0, 112, 255])
+    // Undone after the save: only the first page's copy comes back.
+    await db.run('UPDATE markups SET deleted_at = NULL WHERE id = ?', [first])
+    await embed(file)
+    const back = await PDFDocument.load(file.bytes)
+    const count = (i: number) => (back.getPage(i).node.lookup(PDFName.of('Annots')) as PDFArray).size()
+    expect([count(0), count(1)]).toEqual([1, 1])
+  })
 })

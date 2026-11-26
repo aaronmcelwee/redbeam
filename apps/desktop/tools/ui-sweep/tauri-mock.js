@@ -48,7 +48,8 @@
     project_read_document: async (a) => {
       const key = String(a.relativePath ?? '')
       if (key.includes('Broken')) return new Uint8Array([1, 2, 3])
-      if (!files.has(key)) files.set(key, new Uint8Array(await (await fetch('/__sweep.pdf')).arrayBuffer()))
+      // A path containing "Held" is a sheet marked up in Bluebeam (fixtures/ui/held.pdf).
+      if (!files.has(key)) files.set(key, new Uint8Array(await (await fetch(key.includes('Held') ? '/__held.pdf' : '/__sweep.pdf')).arrayBuffer()))
       // A copy: the app hands what it reads to the PDF worker, which detaches it.
       return files.get(key).slice()
     },

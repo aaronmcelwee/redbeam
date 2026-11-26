@@ -25,7 +25,8 @@ const contentOf = (m: Markup): HeldContent =>
 export function heldNmOf(m: Markup): string | null {
   if (m.kind !== 'annot') return null
   const nm = contentOf(m).adopted?.nm
-  return typeof nm === 'string' && nm !== '' ? nm : null
+  // A copy Revu gave the same /NM as copies on other pages is keyed "NM@p3".
+  return typeof nm === 'string' && nm !== '' ? nm.replace(/@p\d+$/, '') : null
 }
 
 const hex = (v: unknown): string | null => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null)

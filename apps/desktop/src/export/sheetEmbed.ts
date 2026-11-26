@@ -512,6 +512,11 @@ export interface ForeignAnnot {
   pageIndex: number
   /** The annotation's /NM, its identity across saves in either app. */
   nm: string
+  /**
+   * What REDBEAM knows it by: the /NM, or, where Revu gave copies on several
+   * pages the same /NM, the /NM and its page (`heldKey`).
+   */
+  key: string
   subtype: string
   /**
    * `annot`: anything else with an /NM (a cloud, a text box, an arrow, a
@@ -794,7 +799,7 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
         if (shape !== null) {
           const turned = Math.abs(Math.round(rotation / 90)) % 2 === 1
           adoptable.push({
-            pageIndex, nm: textOf(a, 'NM'), subtype: subtypeOf(a), kind: shape.kind,
+            pageIndex, nm: textOf(a, 'NM'), key: textOf(a, 'NM'), subtype: subtypeOf(a), kind: shape.kind,
             rings: [toRing(shape.flat), ...(shape.kind === 'area' ? cutoutsOf(a).filter((c) => c.length >= 6 && c.every(Number.isFinite)).map(toRing) : [])],
             color: shape.kind === 'annot' ? hexOf(annotColor(a)) : colorOf(a), subject: textOf(a, 'Subj'), label: textOf(a, 'Label'),
             contents: textOf(a, 'Contents'), author: textOf(a, 'T'),
@@ -846,6 +851,11 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     allSheets.push(facts)
     if (redbeamAnnots.length > oursBefore || scales.length > 0) sheets.push({ pageIndex, ...facts })
   })
+  // Revu copies a markup to other pages under the same /NM: each page's copy
+  // is its own markup here.
+  const pagesOfNm = new Map<string, Set<number>>()
+  for (const f of adoptable) (pagesOfNm.get(f.nm) ?? pagesOfNm.set(f.nm, new Set()).get(f.nm)!).add(f.pageIndex)
+  for (const f of adoptable) if ((pagesOfNm.get(f.nm)?.size ?? 0) > 1) f.key = heldKey(f.nm, f.pageIndex)
   // An annotation that does not name its markup is named by whichever slice wrote it.
   for (const r of redbeamAnnots) {
     if (r.markupId !== null) continue
@@ -1185,12 +1195,30 @@ function parseRef(text: string): PDFRef | null {
  * sheet (or can be put back) and stands somewhere else, or in another colour.
  * One being retired in the same save is left to the retire.
  */
+/** The key a repeated /NM's copy on one page goes by. */
+export function heldKey(nm: string, pageIndex: number): string {
+  return `${nm}@p${pageIndex}`
+}
+
+/** The /NM a key stands for. */
+export function nmOfKey(key: string): string {
+  return key.replace(/@p\d+$/, '')
+}
+
+/** Which retire entry, if any, takes this /NM off this page. */
+function retiredAs(retire: ReadonlySet<string>, nm: string, pageIndex: number): string | null {
+  if (nm === '') return null
+  if (retire.has(nm)) return nm
+  const k = heldKey(nm, pageIndex)
+  return retire.has(k) ? k : null
+}
+
 function planRewrites(doc: PDFDocument, rewrites: readonly AnnotRewrite[], retire: ReadonlySet<string>): PlannedRewrite[] {
   if (rewrites.length === 0) return []
   const pages = doc.getPages()
   const out: PlannedRewrite[] = []
   for (const rw of rewrites) {
-    if (retire.has(rw.nm)) continue
+    if (retiredAs(retire, rw.nm, rw.pageIndex) !== null) continue
     const page = pages[rw.pageIndex]
     if (page === undefined) continue
     let annot: PDFDict | null = null
@@ -1269,7 +1297,7 @@ function embedInto(
     return !(st instanceof PDFName && KEEP_SUBTYPES.has(st.decodeText()))
   }
   const rewrites = planRewrites(doc, input.rewrite ?? [], retire)
-  const retiring = rewrites.length > 0 || (retire.size > 0 && doc.getPages().some((p) => annotsOn(p).some((a) => !isOurs(a) && retire.has(textOf(a, 'NM')))))
+  const retiring = rewrites.length > 0 || (retire.size > 0 && doc.getPages().some((p, i) => annotsOn(p).some((a) => !isOurs(a) && retiredAs(retire, textOf(a, 'NM'), i) !== null)))
     || (input.retireForeign === true && doc.getPages().some((p) => annotsOn(p).some((a) => foreignMarkup(a))))
   // Sheet names: a file saved before they became bookmarks is written once more.
   const labels = sheetLabelsFrom(input.tables)
@@ -1294,7 +1322,7 @@ function embedInto(
 
   // 1. Take REDBEAM's previous annotations off, keeping everything else and
   //    any of ours that somebody edited.
-  pages.forEach((page) => {
+  pages.forEach((page, pageIndex) => {
     const arr = page.node.lookup(PDFName.of('Annots'))
     if (!(arr instanceof PDFArray)) return
     const keep: unknown[] = []
@@ -1317,8 +1345,8 @@ function embedInto(
       if (a instanceof PDFDict && retire.size > 0) {
         // The retired markup, and the note popup that belongs to it.
         const parent = a.lookup(PDFName.of('Parent'))
-        const owner = retire.has(textOf(a, 'NM')) ? textOf(a, 'NM')
-          : parent instanceof PDFDict && retire.has(textOf(parent, 'NM')) ? textOf(parent, 'NM') : null
+        const owner = retiredAs(retire, textOf(a, 'NM'), pageIndex)
+          ?? (parent instanceof PDFDict ? retiredAs(retire, textOf(parent, 'NM'), pageIndex) : null)
         if (owner !== null) {
           if (entry instanceof PDFRef) (retired[owner] ??= []).push(entry.toString())
           removed = true

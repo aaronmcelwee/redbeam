@@ -320,8 +320,24 @@ function readOriginal(annot: number): AnnotOriginal | null {
   const r = annotBackend().rect(annot)
   if (r === null) return null
   const sub = pdfium.FPDFAnnot_GetSubtype(annot) as number
-  const c = annotBackend().color(annot)
-  const stroke: Rgb | null = c === null ? null : [c.r / 255, c.g / 255, c.b / 255]
+  // FPDFAnnot_GetColor refuses once an annotation has an appearance, which
+  // every Bluebeam markup has; EPDFAnnot_GetColor reads /C itself.
+  let stroke: Rgb | null = null
+  if (typeof pdfium.EPDFAnnot_GetColor === 'function') {
+    const ptr = pdfium.pdfium.wasmExports.malloc(12) as number
+    try {
+      if (pdfium.EPDFAnnot_GetColor(annot, 0, ptr, ptr + 4, ptr + 8)) {
+        const u32: Uint32Array = pdfium.pdfium.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 3)
+        stroke = [u32[0]! / 255, u32[1]! / 255, u32[2]! / 255]
+      }
+    } finally {
+      pdfium.pdfium.wasmExports.free(ptr)
+    }
+  }
+  if (stroke === null) {
+    const c = annotBackend().color(annot)
+    stroke = c === null ? null : [c.r / 255, c.g / 255, c.b / 255]
+  }
   let ca: number | null = null
   if (typeof pdfium.FPDFAnnot_GetNumberValue === 'function') {
     const ptr = pdfium.pdfium.wasmExports.malloc(4) as number

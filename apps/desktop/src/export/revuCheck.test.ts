@@ -63,7 +63,7 @@ describe.skipIf(IN === undefined)('Revu round trip', () => {
       await db.run('UPDATE markups SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), remove.id])
       report.push(`deleted: ${label(remove)}`)
     }
-    let current = bytes
+    let current: Uint8Array = bytes
     let version = 0
     const file: DrawingFile = {
       read: async () => ({ bytes: current, version: String(version) }),
