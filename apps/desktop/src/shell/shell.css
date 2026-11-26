@@ -3719,7 +3719,8 @@ html[data-backdrop="tabbed"] .dockgroup {
   right: 0;
   margin-inline: auto;
   width: max-content;
-  bottom: calc(var(--ads-sp-4) + var(--rb-dock-btn) + 2 * var(--rb-dock-pad) + 2px + var(--ads-sp-2));
+  /* At the top of the drawing: over the dock it collided with the sheet row a narrow dock wraps up. */
+  top: var(--ads-sp-3);
   z-index: 100;
   max-width: calc(100% - var(--ads-sp-8));
 }
