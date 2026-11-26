@@ -12,6 +12,16 @@ All are unsigned; SmartScreen will ask once.
 - **Saving works when a sheet name has a bracket in it.** A sheet name read off the title block with a stray ")" or "(" (or a backslash) was written into the PDF in a way that broke the file's page names. The next save then failed with "Failed to parse PDF document … Expected next byte to be 47 but it was actually 41". Names are now written safely, and they show exactly as read in REDBEAM, Bluebeam and every PDF viewer.
 - **Files already affected save again.** When REDBEAM finds page names an earlier version broke, it reads past them and the next save writes them correctly, along with your takeoff.
 
+## 0.3.101 — 2026-11-26
+
+### Agents read drawn grids and check layouts with less work
+
+- **Agents start an area on the drawn grid.** An agent can now start an area's layout on the nearest crossing of the panel or tile grid drawn in it, instead of measuring the grid off screenshots. On the NOIC takeoff that was 40 areas set by hand.
+- **Agents read a drawn grid.** A new tool reads a panel or tile grid off the drawing: its module both ways, rows and columns, its angle and where it starts. Grids drawn in double lines are read at their centres.
+- **Counts per area.** The parts list an agent reads can now give each area's own counts as well as the scope's, so drawn and counted numbers can be compared room by room.
+- **Smaller parts lists for agents.** An agent can ask for the parts list of one scope or a few, and have each scope's note said once, so a big takeoff's list no longer fills its memory.
+- **Check images saved to a file.** An agent can save a picture of a sheet, with the takeoff drawn on it, to a file it names, so it can send you check images without driving the window.
+
 ## 0.3.100 — 2026-11-26
 
 ### You and an agent in the same set, each with your own view
