@@ -79,8 +79,7 @@ export function describeProduct(type: string): ProductDescription {
     measuredAs: scopeTypeForProduct(product),
     fields,
     example,
-    ...(product === 'baffle' || product === 'baffle_cassette' ? { options: [...MIXED_OPTIONS, ...CLOUD_OPTIONS] }
-      : scopeTypeForProduct(product) !== 'linear' ? { options: CLOUD_OPTIONS } : {}),
+    ...(product === 'baffle' || product === 'baffle_cassette' ? { options: MIXED_OPTIONS } : {}),
     note: 'Values are text ("6", "7 1/2"). Each measure is two keys: the number under `key`, the unit under `unitKey`. '
       + 'Set them with update_scope {specifications}, which merges. Laid-out products also need a pattern direction (set_pattern_direction).',
   }
@@ -92,13 +91,6 @@ const MIXED_OPTIONS = [
   { key: 'mixedStart', help: 'which line is the first of them, 0 = the first line of each area', default: '0' },
   { key: 'mixedLabel', help: 'the Nth member\'s name', default: 'Beam' },
   { key: 'memberLabel', help: 'the members between (e.g. "Slab"); the stock line is named after it', default: 'Baffle' },
-]
-
-/** A cloud or 3D feature from its plan (NOIC report, 2026-11-26). Read by takeoff.ts readCloudShape. */
-const CLOUD_OPTIONS = [
-  { key: 'cloudSlope', help: 'degrees the face tilts from flat (0-80); the face area is the plan area over its cosine, as "Cloud face (developed)"', default: '' },
-  { key: 'cloudUpturn', help: 'height the edges turn up, a measure with cloudUpturnUnit; gives "Cloud upturn" (SF) and "Cloud fold line" (LF) round each area', default: '' },
-  { key: 'cloudUpturnUnit', help: 'unit of cloudUpturn: in, ft, mm, cm or m', default: 'in' },
 ]
 
 export function describeAllProducts(): ProductDescription[] {
@@ -117,7 +109,7 @@ const OTHER_KNOWN = [
   PRODUCT_TYPE_KEY, 'alignSeams', 'profileWidthInches', 'scopeColor', 'scopeDefaultDirection',
   'pageDirections', 'areaDirections', 'areaOrigins', 'panelGranularity', 'yieldGranularity',
   'layoutPreviewActive', 'showConnectors', 'showEndCaps', 'showJoiners', 'showOverflowPreview', 'dimPageContent',
-  'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'cloudSlope', 'cloudUpturn', 'cloudUpturnUnit',
+  'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel',
 ]
 
 /**
