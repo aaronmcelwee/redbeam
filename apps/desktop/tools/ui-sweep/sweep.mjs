@@ -424,6 +424,32 @@ const STEPS = [
     if (await page.locator('.prefs-layer').count() > 0) problems.push('Escape left Settings open')
     return problems
   }],
+  ['privacy-setting', async (page) => {
+    // Settings › General › Privacy: the switch for anonymous signals (src/signals).
+    await button(page, 'Settings').last().click()
+    await page.waitForTimeout(400)
+    const problems = []
+    const sw = page.getByRole('switch', { name: 'Send anonymous error and usage signals' })
+    if (await sw.count() === 0) {
+      problems.push('privacy-setting: no switch for anonymous signals in Settings')
+    } else {
+      await sw.scrollIntoViewIfNeeded()
+      await page.waitForTimeout(200)
+      problems.push(...await inspect(page))
+      if (await sw.getAttribute('aria-checked') !== 'true') problems.push('privacy-setting: signals should be on by default')
+      await sw.click()
+      await page.waitForTimeout(200)
+      const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('redbeam.settings.v1') ?? '{}')['general.shareSignals'])
+      if (stored !== false) problems.push(`privacy-setting: turning it off stored ${String(stored)}`)
+      await page.screenshot({ path: join(out, `${shotPrefix}privacy-setting-off.png`) })
+      await sw.click()
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: join(out, `${shotPrefix}privacy-setting-on.png`) })
+    }
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(250)
+    return problems
+  }],
   ['export', async (page) => {
     await button(page, 'Export…').click()
     await page.waitForTimeout(300)

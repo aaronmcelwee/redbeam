@@ -24,6 +24,7 @@
 import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
 import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
 import { type HandoverStore } from './handover.js'
+import { signal } from '../signals/install.js'
 import { type Agent, type AgentIdentity, callPage, callPoint, callWrites, describeCall, type EndedBy, identityOf, type RosterStore } from './roster.js'
 
 export interface RouterDeps {
@@ -98,10 +99,21 @@ export class BridgeRouter {
       if (server !== '' && !this.aliveAt.has(server)) this.aliveAt.set(server, this.now())
     }
     switch (req.action) {
-      case 'open_file': return this.openFile(agent, params)
       case 'agent_bye': return this.bye(who)
       case 'agent_alive': return this.alive(params)
-      default: return this.call(agent, req.action, params)
+      default: {
+        const t0 = this.now()
+        const out = req.action === 'open_file' ? await this.openFile(agent, params) : await this.call(agent, req.action, params)
+        // Every tool call is counted by how it ended and how long it took
+        // (src/signals): the failing and slow tools are what agents trip on.
+        if (out !== null) {
+          const ms = this.now() - t0
+          const error = typeof out['error'] === 'string' ? out['error'] : null
+          const ended = error !== null ? 'failed' : ms >= CALL_BUDGET_MS ? 'over-budget' : 'ok'
+          signal('agent', `${req.action}:${ended}`, [agent?.app ?? '', error ?? ''].filter((x) => x !== '').join(' · '), ms)
+        }
+        return out
+      }
     }
   }
 

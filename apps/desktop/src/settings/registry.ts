@@ -148,6 +148,24 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     description: 'A project not opened for this long leaves the lists. It is not forgotten: the prompt still finds it.',
   },
   {
+    /*
+     * On. Aaron, 2026-11-26: errors and paper cuts that never become a bug
+     * report should still reach someone who can fix them. What is sent is
+     * counts and scrubbed labels (src/signals), never a person's work, and
+     * the description says so in as many words.
+     */
+    id: 'general.shareSignals',
+    category: 'general',
+    section: 'Privacy',
+    type: 'bool',
+    default: true,
+    label: 'Send anonymous error and usage signals',
+    description:
+      'Counts of errors, failed saves, slow steps and moments the app got in the way, sent to REDBEAM\'s ' +
+      'update server so they get fixed. Never a drawing, a file or project name, a quantity or anything you ' +
+      'typed. Off, nothing is sent and anything not sent yet is thrown away.',
+  },
+  {
     id: 'viewer.scrollToZoom',
     category: 'viewer',
     section: 'Navigation',

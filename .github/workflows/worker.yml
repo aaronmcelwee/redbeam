@@ -1,6 +1,7 @@
 # Deploy the update Worker (workers/updater) when it changes on main.
 #
-# The Worker serves the update channel and takes bug reports (POST /reports).
+# The Worker serves the update channel and takes bug reports (POST /reports)
+# and anonymous app signals (POST /signals).
 # Deploying it is `wrangler deploy` with the same CLOUDFLARE_API_TOKEN and
 # CLOUDFLARE_ACCOUNT_ID secrets the release workflow uploads with. It also
 # sets the Worker's SYNC_KEY, the key reports.yml uses to read the report
@@ -75,9 +76,10 @@ jobs:
             health=$(curl -fsS "$host/health" || true)
             preflight=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS "$host/reports")
             inbox=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $key" "$host/reports/inbox")
-            echo "try $attempt: health $health, OPTIONS /reports $preflight, GET /reports/inbox $inbox"
+            signals=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS "$host/signals")
+            echo "try $attempt: health $health, OPTIONS /reports $preflight, GET /reports/inbox $inbox, OPTIONS /signals $signals"
             case "$health" in *'"ok":true'*) ok=1 ;; *) ok=0 ;; esac
-            [ "$ok" = 1 ] && [ "$preflight" = 204 ] && [ "$inbox" = 200 ] && exit 0
+            [ "$ok" = 1 ] && [ "$preflight" = 204 ] && [ "$inbox" = 200 ] && [ "$signals" = 204 ] && exit 0
             sleep 10
           done
           echo "The deployed Worker is not serving updates, reports and the report inbox." >&2

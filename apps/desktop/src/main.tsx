@@ -4,6 +4,7 @@ import { applySystemAccent, followSystemAccent } from './accent.js'
 import { applyBackdropClass } from './backdrop.js'
 import { installTheme } from './theme.js'
 import { installCrashHandlers } from './crash.js'
+import { installSignals } from './signals/install.js'
 import App from './App.js'
 import './styles.css'
 
@@ -69,6 +70,12 @@ window.addEventListener('contextmenu', (e) => {
  * console it logs to closes with the process.
  */
 installCrashHandlers()
+
+/*
+ * Anonymous error and UX counts (src/signals). After the crash handlers, so
+ * a failure while starting is both written to disk and counted.
+ */
+installSignals()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

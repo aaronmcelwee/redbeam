@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.97 — 2026-11-26
+
+### REDBEAM learns where it gets in the way
+
+- **Problems reach us without a bug report.** REDBEAM now quietly counts errors, saves into a PDF that fail, AI tool calls that fail or run long, slow sheets, and moments it got in the way: a button clicked over and over, a dialog closed without being used, an undo right after an action, a shape or calibration abandoned with Escape. The counts go to REDBEAM's update server every few minutes, in the background, so the rough edges get fixed in later updates.
+- **Nothing of your work is sent.** No drawing, markup, quantity, screenshot or anything you typed, and file, project and scope names are taken out before anything leaves your PC. What goes is the app version, Windows 10 or 11, a random id for this copy and the counts.
+- **You can turn it off.** Settings › General › Privacy › **Send anonymous error and usage signals**. Off, nothing is sent and anything not yet sent is thrown away.
+
 ## 0.3.94 — 2026-11-26
 
 ### Updates wait beside Settings
