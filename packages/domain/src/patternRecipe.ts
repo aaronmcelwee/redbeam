@@ -165,6 +165,12 @@ export interface PatternRecipe {
   source?: string
   /** Plain numbers in tiles and members are in this unit. Default in. */
   units?: LengthUnit
+  /**
+   * How far off a module line an area edge may be drawn and still count as
+   * ON it (NOIC, 2026-11-26): an area drawn exactly N modules wide counted
+   * slivers, and one a hair smaller cut its whole last row. Default 1".
+   */
+  edgeSnap?: LengthText
   /** Set when it came from, or went to, the library. */
   libraryId?: string
   libraryVersion?: number
@@ -179,7 +185,13 @@ export interface PatternRecipe {
 
 export interface ResolvedModule { along: number; across: number; shift: number }
 
-export interface ResolvedTile { name: string; points: Point[]; area: number }
+export interface ResolvedTile {
+  name: string
+  points: Point[]
+  area: number
+  /** Feet: the longest side, the edge a sliver strip runs along. */
+  span: number
+}
 
 export interface ResolvedMember { along: number; across: number; length: number }
 
@@ -216,7 +228,12 @@ export interface ResolvedRecipe {
   name: string
   draft: boolean
   layers: ResolvedLayer[]
+  /** Feet. A piece narrower than this at an area edge is a sliver and dropped; one missing less than this is whole. */
+  edgeSnap: number
 }
+
+/** 1 inch: hand-drawn area edges land within it of the grid they were drawn to. */
+export const DEFAULT_EDGE_SNAP_FEET = 1 / 12
 
 export type RecipeCheck =
   | { ok: true; recipe: PatternRecipe; resolved: ResolvedRecipe; warnings: string[] }
@@ -358,7 +375,7 @@ export function checkPatternRecipe(raw: unknown): RecipeCheck {
           if (pts.length < 3) { errors.push(`${tw}: needs three corners or more`); return }
           if (!isConvex(pts)) { errors.push(`${tw}: is not convex. Split it into convex tiles with the same name (an L is two rectangles)`); return }
           const area = Math.abs(signedPolygonArea(pts))
-          tiles.push({ name: typeof t['name'] === 'string' && t['name'].trim() !== '' ? t['name'].trim() : layerName, points: pts, area })
+          tiles.push({ name: typeof t['name'] === 'string' && t['name'].trim() !== '' ? t['name'].trim() : layerName, points: pts, area, span: Math.max(...pts.map((p, k) => { const q = pts[(k + 1) % pts.length]!; return Math.hypot(q.x - p.x, q.y - p.y) })) })
         })
         if (m.along > 0 && m.across > 0 && tiles.length > 0) {
           const covered = tiles.reduce((s, t) => s + t.area, 0)
@@ -473,6 +490,13 @@ export function checkPatternRecipe(raw: unknown): RecipeCheck {
   }
   if (!resolved.some((l) => l.kind !== 'hardware')) errors.push('layers: hardware needs a material layer to count on')
 
+  const snapRaw = input['edgeSnap']
+  let edgeSnap = DEFAULT_EDGE_SNAP_FEET
+  if (snapRaw !== undefined) {
+    const f = lengthToFeet(snapRaw, units)
+    if (f === null || !(f >= 0)) errors.push(`edgeSnap: "${String(snapRaw)}" is not a length (0 turns the snap off)`)
+    else edgeSnap = f
+  }
   if (errors.length > 0) return { ok: false, errors, warnings }
   const recipe: PatternRecipe = {
     version: 1,
@@ -481,13 +505,14 @@ export function checkPatternRecipe(raw: unknown): RecipeCheck {
     ...(typeof input['description'] === 'string' ? { description: input['description'] } : {}),
     ...(typeof input['source'] === 'string' ? { source: input['source'] } : {}),
     ...(unitsRaw !== undefined ? { units } : {}),
+    ...(snapRaw !== undefined && (typeof snapRaw === 'number' || typeof snapRaw === 'string') ? { edgeSnap: snapRaw } : {}),
     ...(typeof input['libraryId'] === 'string' ? { libraryId: input['libraryId'] } : {}),
     ...(typeof input['libraryVersion'] === 'number' ? { libraryVersion: input['libraryVersion'] } : {}),
     ...(typeof input['approvedBy'] === 'string' ? { approvedBy: input['approvedBy'] } : {}),
     ...(typeof input['approvedAt'] === 'string' ? { approvedAt: input['approvedAt'] } : {}),
     layers,
   }
-  return { ok: true, recipe, resolved: { name, draft: resolved.some((l) => l.draft), layers: resolved }, warnings }
+  return { ok: true, recipe, resolved: { name, draft: resolved.some((l) => l.draft), layers: resolved, edgeSnap }, warnings }
 }
 
 export function defaultLayerName(kind: LayerKind, id: string): string {
@@ -650,7 +675,8 @@ export const PATTERN_FORMAT = {
     + 'A person approves it in the app; agents cannot.',
   coordinates: '"along" is the scope\'s pattern direction (set_pattern_direction), "across" is perpendicular. Tile points are [along, across]. '
     + 'Plain numbers are in `units` (in by default); text is a length ("48", "4\'", "4\' 6\\"", "1200 mm"). The pattern starts at the area\'s origin (set_pattern_origin) or, by default, at its corner.',
-  recipe: '{ name, units?, description?, layers: [...] }',
+  recipe: '{ name, units?, description?, edgeSnap?, layers: [...] }',
+  edgeSnap: 'How far off a module line an area edge may be drawn and still count as on it (default 1"). A tile or member piece narrower than this at an edge is a sliver and is not counted; one short of whole by less than this counts whole. 0 turns it off.',
   layers: {
     tiles: '{ id, kind:"tiles", name?, module:{along, across, shift?}, tiles:[{name?, points:[[along,across],...]}], joint?, cuts?:"whole"|"halves"|"nest" }. '
       + 'One module repeats along and across; each next row slides `shift` along (half the module for triangles, hexagons, running bond). '

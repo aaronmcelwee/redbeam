@@ -997,6 +997,13 @@ export function buildPanelCells(
   panelWidthPoints: number,
   panelLengthPoints: number,
   panelGranularity: string,
+  /**
+   * How far off a grid line an area edge may be drawn and still count as on
+   * it, in points (NOIC, 2026-11-26: an area drawn N panels wide counted
+   * slivers, and one a hair smaller cut its whole last row). 0, the default,
+   * is the Qt build's rule.
+   */
+  edgeSnapPoints = 0,
 ): PanelCell[] {
   const cells: PanelCell[] = []
   const bounds = regionBounds(region)
@@ -1062,11 +1069,32 @@ export function buildPanelCells(
       }
       clippedArea = Math.max(0, clippedArea)
       if (clippedArea <= minUsefulArea) continue
+      const snap = edgeSnapPoints > 0 ? edgeSnapPoints : 0
+      // A strip no wider than the snap along the panel's long side: a sliver.
+      if (snap > 0 && clippedArea <= snap * Math.max(panelLengthPoints, panelWidthPoints)) continue
 
-      const selection = panelStockSelectionForCell({
+      let selection = panelStockSelectionForCell({
         frame, clippedRings, clippedSigns, clippedArea, fullPanelArea,
         startAlong, endAlong, startOffset, endOffset, granularity: panelGranularity,
       })
+      /*
+       * In the area once every side moves in by the snap: short of it only by
+       * drawing error, so a whole panel.
+       */
+      let snappedWhole = false
+      if (snap > 0 && clippedArea < fullPanelArea * 0.999 && 2 * snap < panelLengthPoints && 2 * snap < panelWidthPoints) {
+        const coreArea = (panelLengthPoints - 2 * snap) * (panelWidthPoints - 2 * snap)
+        let inCore = 0
+        for (let i = 0; i < localRegion.length; i++) {
+          if (signs[i] === 0) continue
+          const c = clipRingToRect(localRegion[i]!, startAlong + snap, endAlong - snap, startOffset + snap, endOffset - snap)
+          if (c.length >= 3) inCore += signs[i]! * localRingArea(c)
+        }
+        if (inCore / coreArea > 0.999) {
+          snappedWhole = true
+          selection = { ...selection, kind: 'full', fraction: 1, path: panelCellPath(frame.origin, frame.direction, frame.normal, startAlong, endAlong, startOffset, endOffset) }
+        }
+      }
 
       cells.push({
         gridRow: row,
@@ -1075,7 +1103,7 @@ export function buildPanelCells(
         clippedRegion: clippedRings.map((ring) => ring.map((p) => toPage(p, frame))),
         clippedArea,
         stockPath: selection.path,
-        coverageFraction: clamp(0, clippedArea / fullPanelArea, 1),
+        coverageFraction: snappedWhole ? 1 : clamp(0, clippedArea / fullPanelArea, 1),
         stockFraction: selection.fraction,
         stockKind: selection.kind,
         requiredLengthFraction: selection.requiredLengthFraction,
@@ -1209,6 +1237,8 @@ export interface PanelLayoutOptions {
    * what the Qt build does and what the golden fixtures capture.
    */
   perAreaOrigin?: boolean
+  /** See buildPanelCells' edgeSnapPoints, here in feet. Absent is the Qt rule. */
+  edgeSnapFeet?: number
 }
 
 export interface PanelLayoutResult extends PanelPieceSummary {
@@ -1256,6 +1286,7 @@ export function layoutPanels(
     cells.push(...tagPage(group.pageId, buildPanelCells(
       group.region, origin, group.directionLine,
       panelWidthPoints, panelLengthPoints, options.panelGranularity,
+      options.edgeSnapFeet !== undefined && options.edgeSnapFeet > 0 ? options.edgeSnapFeet / feetPerPoint : 0,
     )))
   }
   return { ...summarizePanelCells(cells), cells }

@@ -58,6 +58,8 @@ export interface FieldTraceOptions {
   angleDeg?: number
   /** How far a stroke may lean from the pattern direction. Default 2 degrees. */
   angleToleranceDeg?: number
+  /** The spacing between the hatch's strokes, in points, when known: picks the direction whose strokes are that far apart. */
+  strokeSpacingPoints?: number
   /** The widest break inside the pattern to bridge, in points. Default: twice the measured stroke gap. */
   bridgePoints?: number
   /** Parts of the pattern narrower than this are not field (a hatched wall, a neck between fields). Default 10 points. */
@@ -114,6 +116,8 @@ export interface FieldTraceDiagnostics {
   gridWidth: number
   gridHeight: number
   ms: number
+  /** The strong stroke directions at the point, when there was a choice: retry with `angleDeg` if the wrong one was taken. */
+  alternatives?: Array<{ angleDeg: number; strokeGapPoints: number | null; coversPoint: boolean; chosen: boolean }>
 }
 
 export type FieldTraceResult =
@@ -418,6 +422,8 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
   // second direction (panel joints, omega bars) as strong but far sparser.
   const half = Math.max(28, 24 * c)
   const win = { x0: Math.max(box.x0, sx - half), y0: Math.max(box.y0, sy - half), x1: Math.min(box.x1, sx + half), y1: Math.min(box.y1, sy + half) }
+  /** Per close radius: the share of the window made solid, and whether the point itself is. */
+  const seedCovered = new Map<number, boolean[]>()
   const fillCurve = (a0: number): number[] => {
     const g = patternGrid(a0, win, c)
     const { mask, count } = drawFamily(g, a0, win)
@@ -426,12 +432,24 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
     let cells = 0
     for (let i = 0; i < inside.length; i++) cells += inside[i]!
     const out: number[] = []
+    const covered: boolean[] = []
+    const gx = Math.floor(gridX(g, sx, sy)), gy = Math.floor(gridY(g, sx, sy))
     for (let r = 1; r <= Math.max(2, Math.ceil(12 / c)); r++) {
       const closed = closeXY(mask, g.w, g.h, 2 * r, r)
       let s = 0
       for (let i = 0; i < closed.length; i++) s += closed[i]! & inside[i]!
       out.push(cells > 0 ? s / cells : 0)
+      // The point and the cells just around it: a tag or a symbol at the point is not a miss.
+      let hit = false
+      for (let dy = -r; dy <= r && !hit; dy++) {
+        for (let dx = -r; dx <= r && !hit; dx++) {
+          const x = gx + dx, y = gy + dy
+          if (x >= 0 && y >= 0 && x < g.w && y < g.h && closed[y * g.w + x]) hit = true
+        }
+      }
+      covered.push(hit)
     }
+    seedCovered.set(a0, covered)
     return out
   }
   const gapOf = (fills: number[]): number => {
@@ -440,23 +458,40 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
   }
   let angle: number | null = null
   let fills: number[] = []
+  const alternatives: Array<{ angleDeg: number; strokeGapPoints: number | null; coversPoint: boolean; chosen: boolean }> = []
   if (Number.isFinite(o.angleDeg)) {
     angle = ((o.angleDeg! % 180) + 180) % 180
     fills = fillCurve(angle)
   } else {
+    /*
+     * Of the strong directions near the point, the hatch is the one that is
+     * solid AT the point (NOIC, 2026-11-26: on hatched fields the trace
+     * latched onto other linework, a denser hatch beside the point winning on
+     * the window as a whole). With `strokeSpacingPoints`, the direction whose
+     * gap is nearest it wins. The others are reported, to retry with `angle`.
+     */
+    const want = o.strokeSpacingPoints !== undefined && o.strokeSpacingPoints > 0 ? o.strokeSpacingPoints : null
     for (let radius = Math.max(20, 30 * c); radius <= 640 && angle === null; radius *= 2) {
       const pa = patternAngles(segs, nSeg, sx, sy, radius, Math.max(3, 4 * c))
       if (pa.count < 24) continue
-      let bestGap = Infinity
+      let bestScore = Infinity
+      alternatives.length = 0
       for (const cand of pa.angles) {
         if (cand.weight < 0.15 * pa.angles[0]!.weight) continue
         const f = fillCurve(cand.angle)
         const gap = gapOf(f)
-        if (gap < bestGap) { bestGap = gap; angle = cand.angle; fills = f }
+        const covers = Number.isFinite(gap) && (seedCovered.get(cand.angle)?.[gap - 1] ?? false)
+        alternatives.push({ angleDeg: Math.round(cand.angle * 100) / 100, strokeGapPoints: Number.isFinite(gap) ? Math.round(2 * gap * c * 100) / 100 : null, coversPoint: covers, chosen: false })
+        if (!Number.isFinite(gap)) continue
+        // Not solid at the point ranks after every one that is.
+        const score = (covers ? 0 : 1e6) + (want !== null ? Math.abs(2 * gap * c - want) : gap)
+        if (score < bestScore) { bestScore = score; angle = cand.angle; fills = f }
       }
       if (angle === null && pa.angles.length > 0) { angle = pa.angles[0]!.angle; fills = fillCurve(angle) }
     }
+    for (const a of alternatives) a.chosen = angle !== null && Math.abs(a.angleDeg - Math.round(angle * 100) / 100) < 1e-6
   }
+  if (alternatives.length > 1) diag.alternatives = alternatives
   diag.angleDeg = angle === null ? null : Math.round(angle * 100) / 100
   if (angle !== null && cellFor(angle) < c) {
     c = cellFor(angle)

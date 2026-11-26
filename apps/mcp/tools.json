@@ -335,7 +335,7 @@
     },
     {
       "name": "redbeam_screenshot",
-      "description": "PNG of a sheet. With no `page`: YOUR sheet (the one your session is on; redbeam_go_to_page turns it, and the person's screen is not touched), showing the box you last framed with redbeam_zoom_to_region, or the whole sheet, with markups drawn. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning anything, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. Needs a window with a document open. With `path` (ending .png) the picture is written to that file instead of sent back, and the answer is only {saved, path}: a check image with the layout on it, kept without filling your context.",
+      "description": "PNG of a sheet. With no `page`: YOUR sheet (the one your session is on; redbeam_go_to_page turns it, and the person's screen is not touched), showing the box you last framed with redbeam_zoom_to_region, or the whole sheet, with markups drawn. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning anything, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. With the overlay on, the layout preview is drawn too, under the markups (when your view or the person's setting has it on, or with layout:true), so a layout can be checked without zooming the person's window. Needs a window with a document open. With `path` (ending .png) the picture is written to that file instead of sent back, and the answer is only {saved, path}: a check image with the layout on it, kept without filling your context.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -365,6 +365,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "layout": {
+            "type": "boolean",
+            "description": "Draw the layout preview (the laid-out panels, tiles, members and hardware) under the markups. Default: on when your session's view has it on (set_layout_preview) or the person's Show the layout preview setting is on. Needs the overlay on."
           },
           "path": {
             "type": "string",
@@ -743,7 +747,7 @@
     },
     {
       "name": "redbeam_get_bom",
-      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room. `longerThanStock` names each scope whose runs are longer than the stock they are cut from (jointed in the field), with the shortest stock in whole feet that would run them without joints. `perimeter` adds `perimeters`: per scope and sheet, the frame round the whole field (every area's edges less the stretches two areas share, such as the fold line between chevron wings) and those shared edges on their own, in feet.",
+      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. `layoutSettings` says what decides where each area's layout starts (a placed start always wins; takeoff.perAreaOrigin only matters when takeoff.patternStart is automatic) and the 1\" edge snap. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room. `longerThanStock` names each scope whose runs are longer than the stock they are cut from (jointed in the field), with the shortest stock in whole feet that would run them without joints. `perimeter` adds `perimeters`: per scope and sheet, the frame round the whole field (every area's edges less the stretches two areas share, such as the fold line between chevron wings) and those shared edges on their own, in feet.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -972,7 +976,7 @@
     },
     {
       "name": "redbeam_get_pattern",
-      "description": "A scope's pattern set-up: product type, scope direction, sheet directions, and for each area the direction it uses (and where from) and its origin (placed or automatic). Needs a window.",
+      "description": "A scope's pattern set-up: product type, scope direction, sheet directions, and for each area the direction it uses (and where from) and where it starts: placed (set_pattern_origin), the corner the patternStart setting names, or automatic. `layoutSettings` says in words what decides each start: a placed start always wins, a corner start lays every area out on its own, and takeoff.perAreaOrigin only matters when patternStart is automatic. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1019,7 +1023,7 @@
     },
     {
       "name": "redbeam_save_pattern",
-      "description": "Save a custom pattern (beta) on a scope, so the scope is measured as that product and saved in the PDF. It is always a DRAFT: it counts at once, but its BOM lines are unverified until the person approves it in the scope's Setup (an agent cannot approve). On a pattern the person already approved, unchanged layers keep their approval and only new or changed layers wait for them, so adding rails or hardware never reopens the panels. `label` renames the scope.",
+      "description": "Save a custom pattern (beta) on a scope, so the scope is measured as that product and saved in the PDF. It is always a DRAFT: it counts at once, but its BOM lines are unverified until the person approves it in the scope's Setup (an agent cannot approve). On a pattern the person already approved, unchanged layers keep their approval and only new or changed layers wait for them, so adding rails or hardware never reopens the panels. `label` renames the scope. The counts it returns are laid out from the recipe you sent, never the scope's previous one; if the layout is still working they come back as `counting` and redbeam_get_pattern or get_bom has them in a moment. The recipe's `edgeSnap` (default 1\") is how far off a module line an area edge may be drawn and still count as on it: no slivers at an area drawn N modules wide, no cut row at one drawn a hair under.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1165,7 +1169,7 @@
     },
     {
       "name": "redbeam_trace_field",
-      "description": "A hatched or patterned field (a wood slat, baffle or cassette ceiling, a tiled or textured finish) traced from the pattern itself, for a field with no line drawn around it, where trace_area says it landed on drawing content and get_lines returns thousands of strokes. Give a point inside the field. REDBEAM finds the pattern's stroke direction there, joins the strokes into a solid field (bridging the breaks a dashed hatch has at every grid line, column and panel joint, and ignoring grid lines, dimensions, text and walls at other angles), and returns its outline where the strokes stop, as normalized rings ready for create_markup, with its area. Columns, light troughs and shafts the pattern stops around come back as cutouts (holes in the rings, listed under `cutouts`); specks smaller than minCutoutSqFt are filled. It then checks the outline against the sheet as rendered: strokes painted over in white are cut out and flagged, and `onTheSheet` says how dark the field is, how much of the band just past its edge looks the same (`edgeContinues`, 0 is a clean edge) and how much of it the sheet shows blank. Every outline is also checked for crossing itself and for points in the title block; `warnings` says so. all:true also returns every other field of the same pattern on the sheet (rooms of the same ceiling separated by walls). Look at each field's `lookAt` box with redbeam_screenshot (region, overlay on) before you trust an edge. Reads the whole sheet unless `rect` narrows it. create:true places each field as an area of scopeId (or your scope), one undo step. Needs a window.",
+      "description": "A hatched or patterned field (a wood slat, baffle or cassette ceiling, a tiled or textured finish) traced from the pattern itself, for a field with no line drawn around it, where trace_area says it landed on drawing content and get_lines returns thousands of strokes. Give a point inside the field. REDBEAM finds the pattern's stroke direction there, joins the strokes into a solid field (bridging the breaks a dashed hatch has at every grid line, column and panel joint, and ignoring grid lines, dimensions, text and walls at other angles), and returns its outline where the strokes stop, as normalized rings ready for create_markup, with its area. Columns, light troughs and shafts the pattern stops around come back as cutouts (holes in the rings, listed under `cutouts`); specks smaller than minCutoutSqFt are filled. It then checks the outline against the sheet as rendered: strokes painted over in white are cut out and flagged, and `onTheSheet` says how dark the field is, how much of the band just past its edge looks the same (`edgeContinues`, 0 is a clean edge) and how much of it the sheet shows blank. Every outline is also checked for crossing itself and for points in the title block; `warnings` says so. all:true also returns every other field of the same pattern on the sheet (rooms of the same ceiling separated by walls). Look at each field's `lookAt` box with redbeam_screenshot (region, overlay on) before you trust an edge. When several stroke directions meet at the point, the one that is solid AT the point wins and the rest come back as `pattern.alternatives`; if the outline followed the wrong linework, call again with `angle` from that list or with `strokeSpacingFeet`. Reads the whole sheet unless `rect` narrows it. create:true places each field as an area of scopeId (or your scope), one undo step. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1220,6 +1224,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "strokeSpacingFeet": {
+            "type": "number",
+            "description": "For trace_field: how far apart the hatch's strokes are, in feet, when you know it (from get_lines or detect_pattern). The stroke direction at the point whose spacing is nearest wins."
           }
         },
         "required": [
@@ -1269,7 +1277,7 @@
     },
     {
       "name": "redbeam_detect_pattern",
-      "description": "Read a drawn pattern of parallel members (baffles, planks, slats) in a box: direction (and a directionLine for set_pattern_direction), on-centre spacing, member length, runs across and rows along, and how regular it is. Needs a window. The box must hold whole members: lines cut by its edge are not counted.",
+      "description": "Read a drawn pattern of parallel members (baffles, planks, slats, beams and slabs) in a box: direction (and a directionLine for set_pattern_direction), on-centre spacing, member length, runs across and rows along, and how regular it is. Members drawn differently are told apart: `memberTypes` lists each kind (one line, or faces and how far apart) with its count and length, `sequence` gives the kinds in order across the field (\"BAAABAAA\"), and `repeat` says when one recurs every Nth member (a beam every 4th member, slabs between). A member drawn as two faces counts once, at its centre line. Needs a window. The box must hold whole members: lines cut by its edge are not counted.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1756,7 +1764,7 @@
     },
     {
       "name": "redbeam_create_scope",
-      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text.",
+      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. A custom pattern can be made in the same call: send `recipe` (or specifications.patternRecipe) and the scope is made and the recipe saved on it through redbeam_save_pattern's checks, as a draft; `pattern` in the answer is save_pattern's answer. A recipe that does not check makes no scope.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1788,6 +1796,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "recipe": {
+            "type": "object",
+            "description": "For preview_pattern and save_pattern: the pattern recipe, {version:1, name, units?, layers:[...]}. Layers are tiles (convex shapes in a repeating module), members (runs at set places in a module, for a repeating 'random' layout), lines (runs at a spacing), a built-in product (panels, planks, baffle, baffle_cassette, linear_parts with its specifications), and hardware (counted per piece, module, along a run, per joint, where runs cross another layer, per edge or per area). describe_product {productType:\"custom_pattern\"} returns the full format and worked examples."
           }
         },
         "required": [
@@ -1801,7 +1813,7 @@
     },
     {
       "name": "redbeam_update_scope",
-      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. A baffle can mix two members (\"Beam every Nth, Slab between\"): mixedEvery N, mixedLabel, memberLabel, mixedStart; the Nth lines are ordered on their own (describe_product lists them).",
+      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. productType changes the product (a custom pattern can become a baffle and back; the recipe is kept), and a new laid-out product makes the scope an area scope unless scopeType says otherwise; `needs` lists what the new product still needs. `recipe` (or specifications.patternRecipe) saves a custom pattern in the same call, through redbeam_save_pattern's checks, as a draft. A baffle can mix two members (\"Beam every Nth, Slab between\"): mixedEvery N, mixedLabel, memberLabel, mixedStart; the Nth lines are ordered on their own (describe_product lists them).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1837,6 +1849,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "recipe": {
+            "type": "object",
+            "description": "For preview_pattern and save_pattern: the pattern recipe, {version:1, name, units?, layers:[...]}. Layers are tiles (convex shapes in a repeating module), members (runs at set places in a module, for a repeating 'random' layout), lines (runs at a spacing), a built-in product (panels, planks, baffle, baffle_cassette, linear_parts with its specifications), and hardware (counted per piece, module, along a run, per joint, where runs cross another layer, per edge or per area). describe_product {productType:\"custom_pattern\"} returns the full format and worked examples."
           }
         },
         "required": [

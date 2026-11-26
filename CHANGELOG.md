@@ -11,6 +11,18 @@ All are unsigned; SmartScreen will ask once.
 
 - **"Beam every Nth member, Slab between."** An agent can set a baffle scope so every Nth line is a different member, such as a beam with slabs between. Those lines are counted and ordered as their own stock, with their own installed length, and the members between keep the main stock line under their own name. Lines are counted from the first line of each area, so a hole or notch never shifts which ones are beams.
 
+## 0.3.105 — 2026-11-26
+
+### Agents check and count layouts more reliably
+
+- **Close-ups show the layout.** An agent's close-up of part of a sheet now shows the layout preview, as your window does, so it can check a layout without zooming your window.
+- **Saving a pattern reports the right numbers.** An agent saving a custom pattern no longer sees "pick one from the library" after a save that worked, and the counts it gets back come from the pattern it just saved, not the one before.
+- **No slivers at the edge of a grid.** An area drawn exactly a whole number of tiles or panels wide no longer counts thin cut pieces along its edge, and one drawn a hair smaller no longer cuts its whole last row. An edge within 1" of a grid line counts as on it.
+- **Clearer start points.** An agent asking how the layout starts each area is now told plainly: a start point set on an area always wins, and "Lay each area out on its own" only matters when the start is Automatic.
+- **Scopes change product in one step.** An agent can turn a custom pattern scope into a baffle (and back), and can create a scope with its custom pattern in the same step.
+- **Beams told from slabs.** When an agent reads a drawn pattern where some members are drawn differently (beams as double lines, slabs as single ones), it is told which is which and how often each repeats, instead of a wrong spacing.
+- **Hatched fields traced from the right lines.** Tracing a hatched ceiling follows the hatch under the point the agent gave, not a denser hatch next to it, and tells the agent what else it saw so it can try again.
+
 ## 0.3.104 — 2026-11-26
 
 ### Agents catch long runs and copy floors in one step

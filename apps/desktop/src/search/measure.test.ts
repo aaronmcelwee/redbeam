@@ -119,4 +119,35 @@ describe('detectPattern', () => {
     expect(r.memberLengthPoints).toBeCloseTo(200, 1)
     expect(r.regularity).toBe(1)
   })
+
+  it('tells beams from slabs when they are drawn differently (NOIC L7 breakroom)', () => {
+    // 24 members 12 pt apart: every 4th a beam drawn as two faces 2.1 pt apart, slabs one line between.
+    const flat: number[] = []
+    for (let i = 0; i < 24; i++) {
+      const y = 100 + i * 12
+      if (i % 4 === 0) {
+        flat.push(0.1, (y - 1.05) / 1000, 0.5, (y - 1.05) / 1000)
+        flat.push(0.1, (y + 1.05) / 1000, 0.5, (y + 1.05) / 1000)
+      } else flat.push(0.1, y / 1000, 0.5, y / 1000)
+    }
+    const r = detectPattern(flat, pg, { feetPerPoint: 0.1 })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.runs).toBe(24)
+    expect(r.spacingPoints).toBeCloseTo(12, 1)
+    expect(r.memberTypes).toHaveLength(2)
+    expect(r.memberTypes[0]).toMatchObject({ type: 'A', drawnAs: 'one line', count: 18 })
+    expect(r.memberTypes[1]).toMatchObject({ type: 'B', drawnAs: 'faces', count: 6 })
+    expect(r.memberTypes[1]!.faceWidthPoints).toBeCloseTo(2.1, 1)
+    expect(r.repeat).toMatchObject({ every: 4, pattern: 'BAAA' })
+  })
+
+  it('reports one kind for a uniform field', () => {
+    const flat: number[] = []
+    for (let i = 0; i < 8; i++) flat.push(0.1, (100 + i * 20) / 1000, 0.5, (100 + i * 20) / 1000)
+    const r = detectPattern(flat, pg, { feetPerPoint: 0.1 })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.memberTypes).toHaveLength(1)
+    expect(r.repeat).toBeUndefined()
+    expect(r.spacingPoints).toBeCloseTo(20, 1)
+  })
 })
