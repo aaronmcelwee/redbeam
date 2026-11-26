@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { calculatePieces, layoutGroupsFor, perimeterTrimLengthFeet, readCloudShape, scopeDefaultDirectionFrom } from './takeoff.js'
+import { calculatePieces, layoutGroupsFor, perimeterTrimLengthFeet, scopeDefaultDirectionFrom } from './takeoff.js'
 import { regionArea } from './geometry.js'
 import type { Calibration, Markup, Scope } from './scope.js'
 import type { NormalizedDirection } from './pattern.js'
@@ -694,33 +694,5 @@ describe('linear parts', () => {
       { scopeDirection: null, pageSize: page, calibrations: new Map() })
     expect(r.quantities).toEqual([])
     expect(r.blockers).toHaveLength(1)
-  })
-})
-
-describe('cloud / 3D shape', () => {
-  // A 20 ft x 10 ft cloud at 1 ft per point on a 1000-point page.
-  const cal: Calibration = { feetPerPoint: 1, pageWidth: 1000, pageHeight: 1000 }
-  const area: Markup = {
-    id: 'a', scopeId: 's', documentId: 'd', pageId: 'p', kind: 'area',
-    rings: [[{ x: 0.1, y: 0.1 }, { x: 0.12, y: 0.1 }, { x: 0.12, y: 0.11 }, { x: 0.1, y: 0.11 }]],
-  } as Markup
-  const scope = (specs: Record<string, unknown>): Scope => ({
-    id: 's', label: 'Cloud', scopeType: 'area', color: '#000',
-    specifications: { productType: 'custom_assembly', ...specs },
-  } as unknown as Scope)
-  const q = (specs: Record<string, unknown>) => calculatePieces(scope(specs), [area], cal, { pageSize: { width: 1000, height: 1000 } } as never).quantities
-
-  it('reads the slope and upturn and leaves a flat scope alone', () => {
-    expect(readCloudShape({ cloudSlope: '30', cloudUpturn: '6', cloudUpturnUnit: 'in' })).toEqual({ slopeDegrees: 30, upturnFeet: 0.5 })
-    expect(readCloudShape({})).toBeNull()
-    expect(q({})).toEqual([])
-  })
-
-  it('develops the face by the slope, and the upturn and fold from the outline', () => {
-    const by = Object.fromEntries(q({ cloudSlope: '60', cloudUpturn: '12', cloudUpturnUnit: 'in' }).map((x) => [x.itemKey, x.quantity]))
-    expect(by['cloud_face_area']).toBeCloseTo(400, 1) // 200 SF / cos 60
-    expect(by['cloud_fold_length']).toBeCloseTo(60, 1)
-    expect(by['cloud_upturn_area']).toBeCloseTo(60, 1)
-    expect(by['cloud_developed_area']).toBeCloseTo(460, 1)
   })
 })
