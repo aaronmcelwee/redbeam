@@ -40,7 +40,18 @@ import {
  * goes as UTF-16 with a byte-order mark, which every reader decodes.
  */
 export function pdfText(s: string): PDFString | PDFHexString {
-  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s)
+  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(escapePdfLiteral(s)) : PDFHexString.fromText(s)
+}
+
+/**
+ * PDFString.of writes its text between parentheses exactly as given, so a
+ * sheet name with an unmatched ")" (or a trailing backslash) ended the string
+ * early and left an object no reader could parse; the next save then failed
+ * with "Expected next byte to be 47 but it was actually 41". Backslash and
+ * both parentheses are escaped, which every reader (and decodeText) undoes.
+ */
+export function escapePdfLiteral(s: string): string {
+  return s.replace(/[\\()]/g, (c) => `\\${c}`)
 }
 
 export interface WritablePoint { x: number, y: number }
@@ -497,7 +508,7 @@ export function writeMarkupsInto(
       T: pdfText(markup.scopeLabel),
       Subj: PDFString.of(SUBJECT[markup.kind] ?? 'Markup'),
       Contents: pdfText(markup.note ?? ''),
-      NM: PDFString.of(markup.id),
+      NM: pdfText(markup.id),
       AP: ctx.obj({ N: apRef }),
     })
     const ref: PDFRef = ctx.register(annot)

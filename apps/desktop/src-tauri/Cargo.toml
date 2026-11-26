@@ -1,6 +1,6 @@
 [package]
 name = "redbeam"
-version = "0.3.99"
+version = "0.3.103"
 description = "REDBEAM — construction quantity takeoff"
 authors = ["REDBEAM"]
 edition = "2021"
