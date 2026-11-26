@@ -12,9 +12,10 @@
  * current sheet into view, because that is a DOM concern.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Glyph, Search } from './icons.js'
+import { Bookmark, ChevronRight, FolderAdd, Glyph, Search } from './icons.js'
 import { hasSheetActions, SheetMenu, type SheetActions } from './SheetMenu.js'
-import { BookmarkTree } from './BookmarkTree.js'
+import { BookmarkRows, SHEET_DRAG, useBookmarkEditor } from './BookmarkTree.js'
+import { makeBookmark, type BookmarkView, type FileBookmark } from './bookmarks.js'
 import {
   buildSheetIndex, filterSheets, sheetDots, type SheetIndexInput, type SheetRow,
 } from './sheets.js'
@@ -23,8 +24,9 @@ import {
   type SheetSelection,
 } from './sheetSelection.js'
 
-/** Which view of Contents was last shown, kept per viewer. */
-const VIEW_KEY = 'redbeam.contents-view'
+/** Whether the "Sheets" folder is open when there are bookmarks below it, kept per viewer. */
+const SHEETS_OPEN_KEY = 'redbeam.contents-sheets-open'
+const NO_BOOKMARKS: FileBookmark[] = []
 
 export interface SheetIndexProps extends SheetIndexInput, SheetActions {
   /** 0-based index of the sheet on screen. */
@@ -47,10 +49,24 @@ export interface SheetIndexProps extends SheetIndexInput, SheetActions {
     reading: { done: number; total: number } | null
     onPick: () => void
   }
+  /**
+   * The PDF's bookmarks and the ones added here, listed under the sheets
+   * (Kenneth, 2026-11-26: one list, not a Sheets|Bookmarks switch).
+   */
+  bookmarks?: readonly FileBookmark[]
+  /** Set when the list can be edited; the edited list is saved into the PDF. */
+  onBookmarksChange?: (next: FileBookmark[]) => void
+  /** Go where a bookmark points. Defaults to its sheet. */
+  onGoToBookmark?: (b: FileBookmark) => void
+  /** The view on screen, for "Bookmark this view". */
+  currentView?: () => BookmarkView | null
+  /** Which file the list is of: its editing history starts over with another. */
+  fileKey?: string
 }
 
 export function SheetIndex({
-  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, titleBlock, ...input
+  current, onGoToPage, onSetScale, onRotate, onPrint, scaleOf, pending = null, titleBlock,
+  bookmarks = NO_BOOKMARKS, onBookmarksChange, onGoToBookmark, currentView, fileKey = '', ...input
 }: SheetIndexProps) {
   const actions: SheetActions = {
     ...(onSetScale !== undefined ? { onSetScale } : {}),
@@ -58,13 +74,15 @@ export function SheetIndex({
     ...(onPrint !== undefined ? { onPrint } : {}),
   }
   const [query, setQuery] = useState('')
-  const [view, setView] = useState<'sheets' | 'bookmarks'>(() => {
-    try { return localStorage.getItem(VIEW_KEY) === 'bookmarks' ? 'bookmarks' : 'sheets' } catch { return 'sheets' }
+  const editable = onBookmarksChange !== undefined
+  const editor = useBookmarkEditor(bookmarks, onBookmarksChange, fileKey)
+  const [sheetsOpen, setSheetsOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem(SHEETS_OPEN_KEY) !== 'false' } catch { return true }
   })
-  const chooseView = (v: 'sheets' | 'bookmarks') => {
-    setView(v)
-    try { localStorage.setItem(VIEW_KEY, v) } catch { /* a convenience only */ }
-  }
+  const toggleSheets = () => setSheetsOpen((v) => {
+    try { localStorage.setItem(SHEETS_OPEN_KEY, String(!v)) } catch { /* a convenience only */ }
+    return !v
+  })
   const [selection, setSelection] = useState<SheetSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{ x: number, y: number, pages: number[] } | null>(null)
   const groups = useMemo(() => buildSheetIndex(input), [
@@ -105,6 +123,18 @@ export function SheetIndex({
     }
     return `Page ${page + 1}`
   }
+  /** A new bookmark for a sheet says its number and name, as the sheet list does. */
+  const sheetTitle = (page: number) => {
+    for (const g of groups) {
+      const hit = g.rows.find((r) => r.page === page)
+      if (hit !== undefined) return hit.title === '' ? hit.number : `${hit.number} ${hit.title}`
+    }
+    return `Page ${page + 1}`
+  }
+  const goToBookmark = (b: FileBookmark) => {
+    if (onGoToBookmark !== undefined) onGoToBookmark(b)
+    else if (b.page !== null) onGoToPage(b.page)
+  }
 
   const row = (r: SheetRow) => (
     <button
@@ -114,7 +144,15 @@ export function SheetIndex({
         + `${selection.pages.has(r.page) ? ' picked' : ''}`}
       aria-current={r.page === current ? 'true' : undefined}
       aria-selected={selection.pages.has(r.page)}
+      draggable={editable}
+      onDragStart={(e) => {
+        // Dropped on the bookmarks below, the sheets become bookmarks.
+        const pages = selection.pages.has(r.page) ? selectedInOrder(selection) : [r.page]
+        e.dataTransfer.setData(SHEET_DRAG, JSON.stringify(pages))
+        e.dataTransfer.effectAllowed = 'copy'
+      }}
       onClick={(e) => {
+        if (editor.picked.size > 0) editor.pick(new Set(), null)
         setSelection((prev) => clickSheet(
           prev, r.page, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey }, visible,
         ))
@@ -162,38 +200,91 @@ export function SheetIndex({
     </button>
   )
 
-  // Sheets or the PDF's own bookmarks. Offered only when the PDF has bookmarks.
-  const viewSwitch = input.outline.length === 0 ? null : (
-    <div className="contentsview" role="tablist" aria-label="Show">
-      <button role="tab" aria-selected={view === 'sheets'} className={view === 'sheets' ? 'on' : ''} onClick={() => chooseView('sheets')}>Sheets</button>
-      <button role="tab" aria-selected={view === 'bookmarks'} className={view === 'bookmarks' ? 'on' : ''} onClick={() => chooseView('bookmarks')}>Bookmarks</button>
-    </div>
-  )
-
-  if (view === 'bookmarks' && input.outline.length > 0) {
+  const hasBookmarks = bookmarks.length > 0
+  /*
+   * A publisher who bookmarked every sheet already gave the sheet list: it
+   * is shown once, as their bookmarks (with the takeoff dots), not again
+   * above them. Sheets named off the title block are REDBEAM's own list and
+   * keep their folder, as the PDF does for Bluebeam.
+   */
+  const rowByPage = useMemo(() => {
+    const m = new Map<number, SheetRow>()
+    for (const g of groups) for (const r of g.rows) m.set(r.page, r)
+    return m
+  }, [groups])
+  const sheetsCovered = useMemo(() => {
+    if (!hasBookmarks || input.pageCount === 0 || (input.named ?? []).some((n) => n !== null)) return false
+    const seen = new Set<number>()
+    const walk = (list: readonly FileBookmark[]) => { for (const b of list) { if (b.page !== null) seen.add(b.page); walk(b.children) } }
+    walk(bookmarks)
+    return seen.size >= input.pageCount
+  }, [hasBookmarks, bookmarks, input.pageCount, input.named])
+  const showSheets = !sheetsCovered
+  const trailFor = (page: number) => {
+    const r = rowByPage.get(page)
+    if (r === undefined) return null
     return (
       <>
-        {viewSwitch}
-        <BookmarkTree outline={input.outline} current={current} onGoToPage={onGoToPage} labelFor={labelFor} {...actions} />
+        {scaleOf !== undefined && r.hasTakeoff && scaleOf(r.page) === null && (
+          <span className="sheetunscaled" title="This sheet has no scale set">no scale</span>
+        )}
+        <SheetDots row={r} />
       </>
     )
   }
+  const addSheet = () => editor.add([makeBookmark(sheetTitle(current), current)])
+  const addFolder = () => editor.add([makeBookmark('New folder', null)])
+  const bookmarkRowsEl = (
+    <BookmarkRows
+      editor={editor}
+      query={query}
+      current={current}
+      labelFor={labelFor}
+      sheetTitle={sheetTitle}
+      onGo={goToBookmark}
+      trailFor={trailFor}
+      onPicked={() => { if (selection.pages.size > 0) setSelection(EMPTY_SELECTION) }}
+      editable={editable}
+      {...(currentView !== undefined ? { currentView } : {})}
+      {...actions}
+    />
+  )
 
   return (
     <>
-      {viewSwitch}
-      <div className="panesearch">
-        <Glyph icon={Search} role="small" />
-        <input
-          value={query}
-          placeholder="Find a sheet"
-          aria-label="Find a sheet"
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setQuery('') }}
-        />
+      <div className="contentsbar">
+        <div className="panesearch">
+          <Glyph icon={Search} role="small" />
+          <input
+            value={query}
+            placeholder={hasBookmarks ? 'Find a sheet or bookmark' : 'Find a sheet'}
+            aria-label={hasBookmarks ? 'Find a sheet or bookmark' : 'Find a sheet'}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setQuery('') }}
+          />
+        </div>
+        {editable && input.pageCount > 0 && (
+          <>
+            <button type="button" className="paneact" title="Bookmark this sheet" aria-label="Bookmark this sheet" onClick={addSheet}>
+              <Glyph icon={Bookmark} role="inline" />
+            </button>
+            <button type="button" className="paneact" title="New bookmark folder" aria-label="New bookmark folder" onClick={addFolder}>
+              <Glyph icon={FolderAdd} role="inline" />
+            </button>
+          </>
+        )}
       </div>
 
-      <div className="panebody">
+      <div
+        className="panebody"
+        onKeyDown={(e) => {
+          // Ctrl+Z here takes back the last change to the bookmarks, not the takeoff.
+          if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && editor.editing === null
+            && (e.target as HTMLElement).closest('[data-bookmark]') !== null) {
+            if (editor.undo()) { e.preventDefault(); e.stopPropagation() }
+          }
+        }}
+      >
         {shown.length === 0 && input.pageCount === 0 && pending !== null && (
           <div className="paneempty pending" role="status">{pending}</div>
         )}
@@ -212,29 +303,41 @@ export function SheetIndex({
               : `No sheet matches “${query}”.`}
           </div>
         )}
-        {shown.map((g, i) => {
-          if (g.label === null) return <div key={i}>{g.rows.map(row)}</div>
-          const isOpen = !collapsed.has(g.label)
-          return (
-            <section className="sheetgroup" key={g.label}>
-              <button
-                className="sheetgrouphead"
-                aria-expanded={isOpen}
-                onClick={() => setCollapsed((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(g.label!)) next.delete(g.label!)
-                  else next.add(g.label!)
-                  return next
-                })}
-              >
-                <Glyph icon={ChevronRight} role="small" />
-                <span className="grow">{g.label}</span>
-                <span>{g.rows.length}</span>
-              </button>
-              {isOpen && g.rows.map(row)}
-            </section>
-          )
-        })}
+        {showSheets && hasBookmarks && input.pageCount > 0 && (
+          <button className="sheetgrouphead sheetsfolder" aria-expanded={sheetsOpen || query !== ''} onClick={toggleSheets}>
+            <Glyph icon={ChevronRight} role="small" />
+            <span className="grow">Sheets</span>
+            <span>{input.pageCount}</span>
+          </button>
+        )}
+        {showSheets && (!hasBookmarks || sheetsOpen || query !== '') && (
+          <div className={hasBookmarks ? 'sheetsinfolder' : undefined}>
+            {shown.map((g, i) => {
+              if (g.label === null) return <div key={i}>{g.rows.map(row)}</div>
+              const isOpen = !collapsed.has(g.label)
+              return (
+                <section className="sheetgroup" key={g.label}>
+                  <button
+                    className="sheetgrouphead"
+                    aria-expanded={isOpen}
+                    onClick={() => setCollapsed((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(g.label!)) next.delete(g.label!)
+                      else next.add(g.label!)
+                      return next
+                    })}
+                  >
+                    <Glyph icon={ChevronRight} role="small" />
+                    <span className="grow">{g.label}</span>
+                    <span>{g.rows.length}</span>
+                  </button>
+                  {isOpen && g.rows.map(row)}
+                </section>
+              )
+            })}
+          </div>
+        )}
+        {bookmarkRowsEl}
       </div>
 
       {menu !== null && (

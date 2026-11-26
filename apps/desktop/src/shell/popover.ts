@@ -73,7 +73,16 @@ export function useClampedPopover<T extends HTMLElement>(
       const bounds: Box = container === null
         ? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
         : container.getBoundingClientRect()
-      setShift(shiftIntoBounds(box, bounds, EDGE))
+      const next = shiftIntoBounds(box, bounds, EDGE)
+      /*
+       * Put back on the element here, not only through state. The first
+       * ResizeObserver callback re-measures straight after mounting; when the
+       * shift comes out the same, React sees an unchanged style and never
+       * writes it back, and the menu stayed where the line above left it,
+       * unshifted and off the window.
+       */
+      el.style.transform = next.dx === 0 && next.dy === 0 ? '' : `translate(${next.dx}px, ${next.dy}px)`
+      setShift(next)
     }
     measure()
     /*

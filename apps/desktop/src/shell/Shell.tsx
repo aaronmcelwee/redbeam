@@ -459,13 +459,23 @@ export interface ShellTab {
   missing?: boolean
   /** Dots after the name: who else is in this tab, or who left it here (agents/AgentTabs.tsx `tabMarks`). */
   marks?: { color: string; title: string }[]
+  /** Where the file is, said in the hover card under its full name. */
+  folder?: string
 }
 
+/** How long the pointer rests on a tab before its card shows, as Windows' own tab previews wait. */
+const TAB_CARD_DELAY_MS = 450
+
 export function DocumentTabStrip({
-  tabs, activeId, onSelect, onClose, onBrowse, onPopOut,
+  tabs, activeId, onSelect, onClose, onBrowse, onPopOut, previewOf,
 }: {
   tabs: ShellTab[]
   activeId: string | null
+  /**
+   * A picture of the sheet the tab was last on (a data URL), for its hover
+   * card. Null while there is none yet; the card then shows the name alone.
+   */
+  previewOf?: (id: string) => string | null
   onSelect: (id: string) => void
   onClose?: (id: string) => void
   /** The "+" that opens another document: in Light, another PDF in a new tab. */
@@ -484,6 +494,18 @@ export function DocumentTabStrip({
   const menuRef = useDismiss(menu !== null, () => setMenu(null))
   const stripRef = useRef<HTMLDivElement | null>(null)
   const [fits, setFits] = useState(tabs.length)
+  /*
+   * Every tab stops at 32ch, the one being worked in too (Aaron, 2026-11-26,
+   * after Kenneth: long names squeezed the strip to two tabs). The full name
+   * is one rest of the pointer away, in a card with the sheet it is on.
+   */
+  const [card, setCard] = useState<{ id: string; left: number; top: number } | null>(null)
+  const cardTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelCard = () => {
+    if (cardTimer.current !== null) { clearTimeout(cardTimer.current); cardTimer.current = null }
+    setCard(null)
+  }
+  useEffect(() => () => { if (cardTimer.current !== null) clearTimeout(cardTimer.current) }, [])
 
   /*
    * How many tabs fit at their natural width.
@@ -550,9 +572,19 @@ export function DocumentTabStrip({
         // can grow back when the window widens.
         `${index >= fits ? ' tucked' : ''}`
       }
-      title={t.missing === true ? `${t.relativePath} — file not found` : t.relativePath}
-      onClick={() => onSelect(t.id)}
+      {...(t.missing === true ? { title: `${t.relativePath} — file not found` } : {})}
+      onClick={() => { cancelCard(); onSelect(t.id) }}
+      onPointerEnter={(e) => {
+        if (t.missing === true || menu !== null) return
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+        if (cardTimer.current !== null) clearTimeout(cardTimer.current)
+        // Moving from one tab to the next while a card is up swaps it at once.
+        const show = () => { cardTimer.current = null; setCard({ id: t.id, left: r.left, top: r.bottom + 4 }) }
+        if (card !== null) show(); else cardTimer.current = setTimeout(show, TAB_CARD_DELAY_MS)
+      }}
+      onPointerLeave={cancelCard}
       onContextMenu={(e) => {
+        cancelCard()
         e.preventDefault()
         const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
         setMenu({ id: t.id, x: r.left, y: r.bottom })
@@ -574,9 +606,20 @@ export function DocumentTabStrip({
   )
 
   const menuTab = menu === null ? null : tabs.find((t) => t.id === menu.id) ?? null
+  const cardTab = card === null ? null : tabs.find((t) => t.id === card.id) ?? null
+  const cardPreview = cardTab === null ? null : previewOf?.(cardTab.id) ?? null
 
   return (
     <>
+    {card !== null && cardTab !== null && (
+      <TabCard
+        name={cardTab.relativePath.split(/[\\/]/).pop() ?? cardTab.name}
+        folder={cardTab.folder ?? folderOf(cardTab.relativePath)}
+        preview={cardPreview}
+        left={card.left}
+        top={card.top}
+      />
+    )}
     {menu !== null && menuTab !== null && (
       <div
         className="titlemenu tabctx"
@@ -658,6 +701,38 @@ export function DocumentTabStrip({
       )}
     </div>
     </>
+  )
+}
+
+/** The folder part of a path, or empty when it has none. */
+function folderOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'))
+  return cut > 0 ? path.slice(0, cut) : ''
+}
+
+/**
+ * A tab's hover card: the sheet it is on, its whole name, and where it is.
+ * Not interactive (the pointer is on the tab, not here), so it is a tooltip
+ * to assistive technology, and it never takes focus.
+ */
+function TabCard({
+  name, folder, preview, left, top,
+}: { name: string; folder: string; preview: string | null; left: number; top: number }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [x, setX] = useState(left)
+  // Kept inside the window: a tab near the right edge opens its card leftwards.
+  useEffect(() => {
+    const el = ref.current
+    if (el === null) return
+    const w = el.getBoundingClientRect().width
+    setX(Math.max(8, Math.min(left, window.innerWidth - w - 8)))
+  }, [left, name, preview])
+  return (
+    <div className="tabcard" role="tooltip" ref={ref} style={{ left: x, top }}>
+      {preview !== null && <img className="tabcard-preview" src={preview} alt="" />}
+      <div className="tabcard-name">{name}</div>
+      {folder !== '' && <div className="tabcard-folder">{folder}</div>}
+    </div>
   )
 }
 

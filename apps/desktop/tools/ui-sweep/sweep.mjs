@@ -333,9 +333,44 @@ const STEPS = [
     if (await page.getByText('Names read from the title block').count() === 0) problems.push('title-block: Contents does not say the names came from the title block')
     return problems
   }],
+  /*
+   * Contents is one list: the sheets, then the PDF's bookmarks and the ones
+   * added here (Kenneth, 2026-11-26). Add one, name it, colour it from its
+   * menu, and look at the menu and the coloured row in both themes.
+   */
   ['bookmarks', async (page) => {
-    await page.getByRole('tab', { name: 'Bookmarks', exact: true }).click()
-    await page.waitForTimeout(300)
+    const problems = []
+    await page.getByRole('button', { name: 'Bookmark this sheet', exact: true }).click()
+    await page.waitForTimeout(200)
+    await page.keyboard.type('Corridor ceiling check')
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(200)
+    const row = page.locator('[data-bookmark]', { hasText: 'Corridor ceiling check' })
+    if (await row.count() !== 1) return ['bookmarks: the new bookmark is not in Contents']
+    await row.click({ button: 'right' })
+    await page.waitForTimeout(250)
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}bookmarks-menu.png`) })
+    await page.getByRole('menuitemradio', { name: 'Red', exact: true }).click()
+    await row.click({ button: 'right' })
+    await page.getByRole('menuitemcheckbox', { name: 'Bold', exact: true }).click()
+    await page.waitForTimeout(200)
+    if (await page.locator('.bookmarkrow.colored.bold', { hasText: 'Corridor ceiling check' }).count() !== 1) {
+      problems.push('bookmarks: colour or bold did not take')
+    }
+    return problems
+  }],
+  /* Every tab stops at 32ch; resting on one shows its whole name, folder and sheet (2026-11-26). */
+  ['tab-card', async (page) => {
+    const tab = page.locator('[data-tab]').first()
+    await tab.hover()
+    await page.waitForTimeout(1200)
+    if (await page.locator('.tabcard').count() !== 1) return ['tab-card: resting on a tab shows no card']
+    const problems = await inspect(page)
+    await page.mouse.move(640, 400)
+    await page.waitForTimeout(200)
+    if (await page.locator('.tabcard').count() !== 0) problems.push('tab-card: the card stays after the pointer leaves')
+    return problems
   }],
   ['thumbnails', async (page) => {
     await button(page, 'Thumbnails').click()

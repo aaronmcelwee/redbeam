@@ -17,6 +17,7 @@ import {
   embedSheet, hash53, readSheetEmbed, type EmbedInput, type EmbedMarkup, type EmbedResult, type SheetEmbedReading, type SheetSlice, type SliceTables,
 } from './sheetEmbed.js'
 import { adoptedTables } from './adopt.js'
+import type { FileBookmark } from './sheetOutline.js'
 import type { WritableScaleRegion } from './pdfMarkup.js'
 
 /**
@@ -398,6 +399,8 @@ export interface EmbedDrawingOptions {
   expectStamp?: string | null
   /** Sheets turned in REDBEAM, page index to degrees; see `EmbedInput.pageRotations`. */
   pageRotations?: ReadonlyMap<number, number>
+  /** The Contents list's bookmarks, when changed here; see `EmbedInput.bookmarks`. */
+  bookmarks?: readonly FileBookmark[]
 }
 
 async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
@@ -430,7 +433,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
     // The file's own notes (hand-made addenda links) are worth a save with no takeoff at all.
     const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
       .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes && opts.bookmarks === undefined) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) {
@@ -450,6 +453,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
       ...(retire.length === 0 ? {} : { retire }),
       ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
       ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
+      ...(opts.bookmarks === undefined ? {} : { bookmarks: opts.bookmarks }),
     })
     if (result.bytes === null) opts.file.keep?.(source, current.version)
     if (result.conflict === true) return { kind: 'elsewhere' }
@@ -478,7 +482,7 @@ async function embedRanged(
   try {
     const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
       .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes && opts.bookmarks === undefined) {
       const before = await ranged.readEmbed()
       if (before.slice === null && before.redbeamAnnots.length === 0) return { kind: 'nothing-to-embed' }
     }
@@ -494,6 +498,7 @@ async function embedRanged(
       ...(retire.length === 0 ? {} : { retire }),
       ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
       ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
+      ...(opts.bookmarks === undefined ? {} : { bookmarks: opts.bookmarks }),
     })
     if (result.conflict === true) return { kind: 'elsewhere' }
     if (tail === null) return { kind: 'unchanged', stamp: result.stamp }
@@ -523,6 +528,8 @@ export interface CopyOptions {
   pageRotations?: ReadonlyMap<number, number>
   /** Leave every other app's markups out of the copy. */
   withoutForeign?: boolean
+  /** The Contents list's bookmarks, when changed here. */
+  bookmarks?: readonly FileBookmark[]
 }
 
 /** What `embedCopy` writes into the copy: for a big drawing, handed to rangedPdf.ts instead. */
@@ -536,6 +543,7 @@ export async function copyInput(opts: CopyOptions): Promise<EmbedInput> {
     ...(retire.length === 0 ? {} : { retire }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
     ...(opts.withoutForeign === true ? { retireForeign: true } : {}),
+    ...(opts.bookmarks === undefined ? {} : { bookmarks: opts.bookmarks }),
   }
 }
 

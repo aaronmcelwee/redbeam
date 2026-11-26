@@ -4,6 +4,7 @@ import {
   embedSheet, isRedbeamNm, readSheetEmbed, redbeamNm, quantityText,
   type EmbedInput, type EmbedMarkup,
 } from './sheetEmbed.js'
+import type { FileBookmark } from './sheetOutline.js'
 import { isXrefTable, lastStartXref, trailerSize } from './pdfIncremental.js'
 
 const FPP = 8 / 72 // 1/8" = 1'-0"
@@ -399,6 +400,49 @@ describe('sheet names read off the title block', () => {
     expect(await bookmarks(again.bytes!)).toEqual(['0:A1 - PLAN'])
     // And once they are there, an unchanged save writes nothing.
     expect((await embedSheet(again.bytes!, withLabels(['A1 - PLAN', null]))).bytes).toBeNull()
+  })
+
+  it('write the bookmarks edited in Contents, coloured, after the Sheets folder, and read them back', async () => {
+    const src = await resaveElsewhere(await blank(false), (doc) => userBookmark(doc, 'Check this detail', 1))
+    const first = await embedSheet(src, withLabels(['A1 - PLAN', 'A2 - RCP']))
+    const read = (await readSheetEmbed(first.bytes!)).bookmarks!
+    expect(read.map((b) => [b.title, b.page, b.color])).toEqual([['Check this detail', 1, null]])
+    // Recoloured, renamed and bolded, with a folder and a view bookmark added.
+    const edited: FileBookmark[] = [
+      { ...read[0]!, title: 'Check this detail!', color: '#d13438', bold: true },
+      {
+        id: 'new-1', title: 'Ceilings', page: null, view: null, color: '#0f6cbd', bold: false, italic: true, src: null,
+        children: [{ id: 'new-2', title: 'Corridor', page: 0, view: { x: 100, y: 200, zoom: 1.5 }, color: null, bold: false, italic: false, src: null, children: [] }],
+      },
+    ]
+    const out = await embedSheet(first.bytes!, { ...withLabels(['A1 - PLAN', 'A2 - RCP']), bookmarks: edited, now: () => new Date('2026-11-13T20:00:00Z') })
+    expect(out.bytes).not.toBeNull()
+    expect(await bookmarks(out.bytes!)).toEqual([
+      { t: 'Sheets', kids: ['0:A1 - PLAN', '1:A2 - RCP'] }, '1:Check this detail!', { t: 'Ceilings', kids: ['0:Corridor'] },
+    ])
+    const back = (await readSheetEmbed(out.bytes!)).bookmarks!
+    expect(back.map((b) => [b.title, b.color, b.bold, b.italic])).toEqual([
+      ['Check this detail!', '#d13438', true, false], ['Ceilings', '#0f6cbd', false, true],
+    ])
+    expect(back[1]!.children[0]).toMatchObject({ title: 'Corridor', page: 0, view: { x: 100, y: 200, zoom: 1.5 } })
+    // The publisher's own object was reused, not copied.
+    expect(back[0]!.src).toBe(read[0]!.src)
+    // Saved again with the same list: nothing to write.
+    expect((await embedSheet(out.bytes!, { ...withLabels(['A1 - PLAN', 'A2 - RCP']), bookmarks: back })).bytes).toBeNull()
+    // And it survives another app's full rewrite.
+    const revu = (await readSheetEmbed(await resaveElsewhere(out.bytes!))).bookmarks!
+    expect(revu.map((b) => b.title)).toEqual(['Check this detail!', 'Ceilings'])
+  })
+
+  it('write edited bookmarks into a file with no sheet names, keeping a publisher bookmark that matches a label', async () => {
+    const src = await resaveElsewhere(await blank(false), (doc) => userBookmark(doc, 'Plan', 0))
+    const read = (await readSheetEmbed(src)).bookmarks!
+    expect(read.map((b) => b.title)).toEqual(['Plan'])
+    const out = await embedSheet(src, { ...input(), bookmarks: [...read, { ...read[0]!, id: 'new-9', src: null, title: 'Also', page: 1 }] })
+    expect(await bookmarks(out.bytes!)).toEqual(['0:Plan', '1:Also'])
+    // Every bookmark deleted: the outline is emptied, not left as it was.
+    const none = await embedSheet(out.bytes!, { ...input(), bookmarks: [], now: () => new Date('2026-11-13T20:00:00Z') })
+    expect(await bookmarks(none.bytes!)).toEqual([])
   })
 
   it('leave the file’s labels alone when nothing was read', async () => {

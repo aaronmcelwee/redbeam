@@ -53,7 +53,7 @@ import {
 import { areaRegion } from '@redbeam/domain'
 import { openLazyPdf } from './lazyPdf.js'
 import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
-import { sheetOutlineCurrent, writeSheetOutline } from './sheetOutline.js'
+import { bookmarksCurrent, readBookmarks, sheetOutlineCurrent, writeSheetOutline, type FileBookmark } from './sheetOutline.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, pdfText, regionAt, shapeForKind,
@@ -160,6 +160,12 @@ export interface EmbedInput {
    * RedBeam"). Never used on a save to the original.
    */
   retireForeign?: boolean
+  /**
+   * The Contents list's bookmarks as the estimator left them, when they were
+   * changed in REDBEAM: written as the file's bookmarks, after the "Sheets"
+   * folder when there is one. Left out, the file's own stay as they are.
+   */
+  bookmarks?: readonly FileBookmark[]
   /** For tests; defaults to the clock. */
   now?: () => Date
 }
@@ -561,6 +567,11 @@ export interface SheetEmbedReading {
    * merged, inserted, deleted or moved in another app since REDBEAM saved.
    */
   rebound?: Rebound | null
+  /**
+   * The file's bookmarks, REDBEAM's sheet names left out, with their colour,
+   * style and view: the Contents list starts from these.
+   */
+  bookmarks?: FileBookmark[]
 }
 
 const NOT_MARKUP = new Set(['Link', 'Popup', 'Widget'])
@@ -827,6 +838,16 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     // An older copy that still reads does not make the newer one safe to drop.
     sliceTooNew,
     rebound,
+    bookmarks: bookmarksOf(doc, slice),
+  }
+}
+
+/** The Contents list's bookmarks; none when the outline cannot be read, which never stops a file opening. */
+function bookmarksOf(doc: PDFDocument, slice: SheetSlice | null): FileBookmark[] {
+  try {
+    return readBookmarks(doc, slice === null ? null : sheetLabelsFrom(slice.tables))
+  } catch {
+    return []
   }
 }
 
@@ -1162,7 +1183,8 @@ function embedInto(
     || (input.retireForeign === true && doc.getPages().some((p) => annotsOn(p).some((a) => foreignMarkup(a))))
   // Sheet names: a file saved before they became bookmarks is written once more.
   const labels = sheetLabelsFrom(input.tables)
-  const outlineDue = labels !== null && !sheetOutlineCurrent(doc, labels)
+  const outlineDue = (labels !== null && !sheetOutlineCurrent(doc, labels))
+    || (input.bookmarks !== undefined && !bookmarksCurrent(doc, labels, input.bookmarks))
   if (prev !== null && prev.contentHash === contentHash && editedNms.size === 0 && !retiring
     && prev.documentId === input.documentId && turned.length === 0 && !outlineDue) {
     return { result: { bytes: null, editedElsewhere: [], foreignKept: before.foreignAnnots, stamp: sliceStamp(prev) }, tail: null }
@@ -1343,10 +1365,10 @@ function embedInto(
   //    And as bookmarks, which is where Bluebeam lists a set's sheets. The
   //    outline is rewritten before the labels change, because REDBEAM's old
   //    bookmarks are recognised by the labels they were written with.
-  if (labels !== null) {
-    for (const r of writeSheetOutline(doc, labels)) changed.push(r)
-    doc.catalog.set(PDFName.of('PageLabels'), pageLabelTree(ctx, labels, pages.length))
+  if (labels !== null || input.bookmarks !== undefined) {
+    for (const r of writeSheetOutline(doc, labels, input.bookmarks)) changed.push(r)
   }
+  if (labels !== null) doc.catalog.set(PDFName.of('PageLabels'), pageLabelTree(ctx, labels, pages.length))
 
   // Second carrier: every annotation of ours points at the same stream.
   for (const [, ref] of annotRefs) {

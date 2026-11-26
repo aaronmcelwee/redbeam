@@ -128,6 +128,7 @@ import {
 import { keptDrawingFile, projectDrawingFile } from './export/drawingSync.js'
 import { embedInWorker } from './export/embedInWorker.js'
 import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
+import type { BookmarkView, FileBookmark } from './export/sheetOutline.js'
 import { adoptForeignAnnots } from './export/adopt.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import {
@@ -177,6 +178,7 @@ import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
 import { AgentsDock, AgentSummary, askLookIn, peekMarks, showAgentsDock, takeLookIn } from './agents/AgentsPane.js'
 import { samePath } from './lightTabs.js'
+import { setTabPreview, tabPreview } from './shell/tabPreviews.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -5603,6 +5605,55 @@ export default function Workspace({
    */
   const pageRotationsRef = useRef(new Map<string, Map<number, number>>())
   const [rotationTick, setRotationTick] = useState(0)
+  /**
+   * The Contents list's bookmarks per document (shell/bookmarks.ts): read
+   * from the PDF when it opens, with their colours. Once changed here, the
+   * list is in `bookmarksEditedRef` too and every save of that drawing
+   * writes it as the PDF's bookmarks; until then the file's own stay as
+   * they are.
+   */
+  const [fileBookmarks, setFileBookmarks] = useState<ReadonlyMap<string, FileBookmark[]>>(new Map())
+  const bookmarksEditedRef = useRef(new Map<string, FileBookmark[]>())
+  const [bookmarksTick, setBookmarksTick] = useState(0)
+  /**
+   * A small picture of the sheet each Light tab is on, for its hover card
+   * (Shell.tsx `TabCard`). Taken from the viewer's thumbnail whenever the
+   * sheet on screen changes, so a tab left behind keeps the sheet it was left
+   * on. Only the showing tab has a viewer; the others keep their last one.
+   */
+  const previewFile = light ? quickView?.file ?? null : null
+  useEffect(() => {
+    const file = previewFile
+    if (file === null || pageCount === 0) return
+    const page = pageIndex
+    let tries = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const take = () => {
+      timer = null
+      const v = viewerRef.current
+      const bmp = v?.requestThumbnail(page, 320)
+      if (bmp === undefined) {
+        if (++tries < 40) timer = setTimeout(take, 250)
+        return
+      }
+      try {
+        const c = document.createElement('canvas')
+        c.width = bmp.width
+        c.height = bmp.height
+        c.getContext('2d')?.drawImage(bmp, 0, 0)
+        const url = c.toDataURL('image/jpeg', 0.8)
+        setTabPreview(file, url)
+      } catch { /* a card without a picture still names the file */ }
+    }
+    // After the sheet settles: paging through a set takes one picture, not one per sheet passed.
+    timer = setTimeout(take, 600)
+    return () => { if (timer !== null) clearTimeout(timer) }
+  }, [previewFile, pageIndex, pageCount])
+  const changeBookmarks = useCallback((docId: string, next: FileBookmark[]) => {
+    bookmarksEditedRef.current.set(docId, next)
+    setFileBookmarks((prev) => new Map(prev).set(docId, next))
+    setBookmarksTick((n) => n + 1)
+  }, [])
 
   const [loadBlock, setLoadBlock] = useState<string | null>(null)
   /** Light: this file's takeoff was rebuilt from its markups, and what that could not bring back. */
@@ -5638,6 +5689,7 @@ export default function Workspace({
         // Light: the file's scopes are all of the store's, drawn on or not.
         allScopes: light,
         ...(pageRotationsRef.current.has(docId) ? { pageRotations: pageRotationsRef.current.get(docId)! } : {}),
+        ...(bookmarksEditedRef.current.has(docId) ? { bookmarks: bookmarksEditedRef.current.get(docId)! } : {}),
         ...(light && seenStampRef.current.has(docId) ? { expectStamp: seenStampRef.current.get(docId) ?? null } : {}),
       })
       if ((out.kind === 'written' || out.kind === 'unchanged') && out.stamp !== undefined) seenStampRef.current.set(docId, out.stamp)
@@ -5824,6 +5876,7 @@ export default function Workspace({
         db, documentId: doc.id, relativePath: doc.relativePath, displayName: name, appVersion: APP_VERSION,
         allScopes: light,
         ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+        ...(bookmarksEditedRef.current.has(doc.id) ? { bookmarks: bookmarksEditedRef.current.get(doc.id)! } : {}),
       }
       // A big drawing is copied by the core, with the takeoff appended: never in memory.
       const big = await withRanged(projectBridge, projectPath, doc.relativePath, (d) => copyRanged(d, copyOpts,
@@ -5989,6 +6042,11 @@ export default function Workspace({
           return
         }
         if (light && firstLook) seenStampRef.current.set(doc.id, sliceStamp(reading.slice))
+        // The Contents list starts from the file's bookmarks, unless they were changed here already.
+        if (!bookmarksEditedRef.current.has(doc.id)) {
+          const found = reading.bookmarks ?? []
+          setFileBookmarks((prev) => new Map(prev).set(doc.id, found))
+        }
         /*
          * Bluebeam's areas and lengths become REDBEAM markups (export/adopt.ts).
          * After the slice is in: importing it needs a drawing with no markups.
@@ -7473,6 +7531,8 @@ export default function Workspace({
             db, documentId: doc.id, relativePath: doc.relativePath, displayName: doc.displayName || doc.relativePath, appVersion: APP_VERSION,
             allScopes: light,
             ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+            ...(bookmarksEditedRef.current.has(doc.id) ? { bookmarks: bookmarksEditedRef.current.get(doc.id)! } : {}),
+        ...(bookmarksEditedRef.current.has(doc.id) ? { bookmarks: bookmarksEditedRef.current.get(doc.id)! } : {}),
             ...(params['withoutEmbeddedMarkups'] === true ? { withoutForeign: true } : {}),
           }
           // A big drawing is copied by the core with the takeoff appended, never read whole.
@@ -10306,7 +10366,7 @@ export default function Workspace({
       () => { void saveTakeoffIntoDrawing(docId, { quiet: true }) },
       () => performance.now() - lastInputRef.current,
     )
-  }, [activeDocId, markups, scopes, committed, cal, rotationTick, quickView, light, identity.role, saveTakeoffIntoDrawing])
+  }, [activeDocId, markups, scopes, committed, cal, rotationTick, bookmarksTick, quickView, light, identity.role, saveTakeoffIntoDrawing])
 
   const activeEntry = pieces.find((p) => p.scope.id === shownScopeId)
   const activePieces = activeEntry?.result
@@ -10603,6 +10663,39 @@ export default function Workspace({
     showView({ ...viewRef.current, zoom: to.zoom, ox: to.ox, oy: to.oy })
   }, [pageIndex, page.width, page.height, showView])
 
+  /**
+   * Go where a Contents bookmark points: its sheet, framed as it was saved
+   * when it carries a view. Back returns to where you were, as after a link.
+   * A view is kept in points and PDF zoom (1 = 100 %), so it means the same
+   * in Bluebeam; the viewer counts device pixels.
+   */
+  const pdfZoomScale = () => (stage.dpr > 0 ? stage.dpr : 1) * 96 / 72
+  const goToBookmark = useCallback((b: FileBookmark) => {
+    const v = viewerRef.current
+    if (!v || b.page === null) return
+    if (b.view === null) {
+      if (b.page !== pageIndexRef.current) goToPage(b.page)
+      return
+    }
+    const cur = viewRef.current
+    const zoom = b.view.zoom === null ? cur.zoom : b.view.zoom * pdfZoomScale()
+    const to = { page: b.page, zoom, ox: b.view.x * zoom, oy: b.view.y * zoom }
+    if (b.page === pageIndexRef.current) { showView({ ...cur, zoom: to.zoom, ox: to.ox, oy: to.oy }); return }
+    historyRef.current.leave({ page: pageIndexRef.current, zoom: cur.zoom, ox: cur.ox, oy: cur.oy })
+    historyNavRef.current = to
+    v.loadPage(b.page)
+    setSelectedIds([]); selectedRef.current = []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goToPage, showView, stage.dpr])
+  /** The view on screen as a bookmark keeps it: the window's top left in points, and the PDF zoom. */
+  const bookmarkViewNow = useCallback((): BookmarkView | null => {
+    const cur = viewRef.current
+    if (!(cur.zoom > 0)) return null
+    const round = (n: number) => Math.round(n * 100) / 100
+    return { x: round(cur.ox / cur.zoom), y: round(cur.oy / cur.zoom), zoom: round(cur.zoom / pdfZoomScale()) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage.dpr])
+
   /** Follow one of the PDF's own links: to its sheet, or out to the browser. */
   const followLink = useCallback((link: PageLink) => {
     if (link.page !== undefined) {
@@ -10670,6 +10763,7 @@ export default function Workspace({
         appVersion: APP_VERSION,
         allScopes: light,
         ...(pageRotationsRef.current.has(doc.id) ? { pageRotations: pageRotationsRef.current.get(doc.id)! } : {}),
+        ...(bookmarksEditedRef.current.has(doc.id) ? { bookmarks: bookmarksEditedRef.current.get(doc.id)! } : {}),
       }
       // A big drawing: just these sheets, with the takeoff, read by range.
       const big = await withRanged(projectBridge, projectPath, doc.relativePath, async (d) => d.sheets(await copyInput(copyOpts), [...indices]))
@@ -12262,6 +12356,7 @@ export default function Workspace({
                 marks: t.owner === undefined ? tabMarks(t, agentsNow) : peekMarks(t.owner, agentsNow),
               }))}
               activeId={quickView!.file}
+              previewOf={tabPreview}
               onSelect={lightTabs.onSelect}
               onClose={lightTabs.onClose}
               {...(quickView?.onOpenAnother !== undefined ? { onBrowse: openAnotherFile } : {})}
@@ -12379,6 +12474,13 @@ export default function Workspace({
                 reading: titleReading,
                 onPick: openTitlePick,
               }}
+              bookmarks={activeDocId === null ? [] : fileBookmarks.get(activeDocId) ?? []}
+              {...(activeDocId !== null && identity.role !== 'context' && (!light || fileLoadRef.current.get(activeDocId)?.state !== 'blocked')
+                ? { onBookmarksChange: (next: FileBookmark[]) => changeBookmarks(activeDocId, next) }
+                : {})}
+              onGoToBookmark={goToBookmark}
+              currentView={bookmarkViewNow}
+              fileKey={activeDocId ?? ''}
             />
           )}
           {railPanel === 'thumbnails' && (

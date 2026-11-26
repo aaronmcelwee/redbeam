@@ -214,11 +214,11 @@
 .tab.missing, .tab.missing > svg { color: var(--rb-bad); }
 .tabname { overflow: hidden; text-overflow: ellipsis; }
 /*
- * The tab being worked in says its whole name. Aaron, 2026-11-24: "It's all
- * very truncated and unusable." The others keep 32ch so the strip still holds
- * several; this one gives way only when the name alone would take the strip.
+ * Every tab stops at 32ch, the active one too (Aaron, 2026-11-26, choosing
+ * Kenneth's cap over the 2026-11-24 wide active tab): a long name no longer
+ * pushes the other files into the +N menu. The whole name is in the tab's
+ * hover card (.tabcard).
  */
-.tab.active { max-width: min(72ch, 70%); }
 
 .tabclose {
   display: grid;
@@ -3706,3 +3706,75 @@ html[data-backdrop="tabbed"] .dockgroup {
 .tbpick-actions .st-btn.accent { border-color: transparent; background: var(--rb-accent); color: var(--rb-accent-ink); }
 .tbpick-actions .st-btn.accent:hover { background: var(--rb-accent-2); }
 .tbpick-actions .st-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ---- Contents: one list of sheets and bookmarks (Kenneth, 2026-11-26) ----
+   The search field and the two "add" buttons share a row; the field gives
+   way first. The sheets sit in a "Sheets" folder once there are bookmarks
+   below them, which is how the PDF saves them for Bluebeam too. */
+.contentsbar { flex: none; display: flex; align-items: center; gap: 2px; padding-right: var(--ads-sp-1); }
+.contentsbar > .panesearch { flex: 1 1 auto; min-width: 0; }
+.sheetgrouphead.sheetsfolder { color: var(--ads-ink-2); font-weight: 600; }
+.sheetsinfolder .sheetrow { padding-left: calc(var(--rb-pad-row) + 14px); }
+.sheetsinfolder .sheetgroup .sheetrow { padding-left: calc(var(--ads-sp-6) + 14px); }
+.sheetsinfolder .sheetgrouphead { padding-left: calc(var(--rb-pad-row) + 14px); }
+
+/* A bookmark's colour tints its title, mixed with the ink so the eight
+   offered colours (and any a file brings) stay readable on both themes. */
+.sheetrow.bookmarkrow.colored .sheettitle { color: color-mix(in srgb, var(--bm) 78%, var(--rb-ink)); }
+.sheetrow.bookmarkrow.bold .sheettitle { font-weight: 600; }
+.sheetrow.bookmarkrow.italic .sheettitle { font-style: italic; }
+.sheetrow.bookmarkrow:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: -2px; }
+.sheetrow.bookmarkrow[draggable="true"] { cursor: default; }
+/* Where a drag lands: a line above or below, or the folder it goes into. */
+.sheetrow.bookmarkrow.drop-before::after,
+.sheetrow.bookmarkrow.drop-after::after,
+.bookmarkend.drop-after::after {
+  content: ""; position: absolute; left: var(--ads-sp-2); right: var(--ads-sp-2); height: 2px;
+  border-radius: 1px; background: var(--rb-accent); pointer-events: none;
+}
+.sheetrow.bookmarkrow.drop-before::after { top: -1px; }
+.sheetrow.bookmarkrow.drop-after::after { bottom: -1px; }
+.sheetrow.bookmarkrow.drop-inside { box-shadow: inset 0 0 0 2px var(--rb-accent); }
+.bookmarkend { position: relative; min-height: var(--ads-sp-6); flex: 1 0 auto; }
+.bookmarkend.drop-after::after { top: 0; }
+.bookmarkedit {
+  min-width: 0; width: 100%; height: 22px; padding: 0 var(--ads-sp-1);
+  border: 1px solid var(--rb-accent); border-radius: var(--ads-radius-s);
+  background: var(--rb-raised, var(--ads-surface)); color: var(--ads-ink); font: inherit; outline: none;
+}
+.bookmarkswatches { display: flex; flex-wrap: wrap; gap: 6px; padding: var(--ads-sp-1) var(--ads-sp-2) var(--ads-sp-2); }
+.bookmarkswatches .swatch {
+  width: 18px; height: 18px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--ads-ink) 25%, transparent);
+}
+.bookmarkswatches .swatch.none {
+  background: linear-gradient(135deg, transparent 45%, var(--rb-bad) 45%, var(--rb-bad) 55%, transparent 55%), var(--ads-surface, transparent);
+}
+.bookmarkswatches .swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--ads-surface, #fff), 0 0 0 4px var(--rb-accent); }
+.bookmarkswatches .swatch:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+
+/* A tab's hover card: the sheet it is on, its whole name, where it is. */
+.tabcard {
+  position: fixed;
+  z-index: 140;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: var(--ads-sp-2);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-m, 8px);
+  background: var(--ads-surface);
+  color: var(--ads-ink);
+  box-shadow: 0 8px 16px rgb(0 0 0 / 14%), 0 0 2px rgb(0 0 0 / 12%);
+  pointer-events: none;
+}
+.tabcard-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 200px;
+  margin-bottom: var(--ads-sp-2);
+  border: 1px solid var(--ads-line);
+  border-radius: var(--ads-radius-s);
+  background: #fff;
+}
+.tabcard-name { font-weight: 600; overflow-wrap: anywhere; }
+.tabcard-folder { margin-top: 2px; color: var(--ads-ink-3); font-size: var(--rb-caption); overflow-wrap: anywhere; }
