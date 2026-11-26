@@ -13,6 +13,13 @@ All are unsigned; SmartScreen will ask once.
 - **Copy a scope's areas to other floors at once.** An agent can copy every area of a scope from one sheet to the same spot on several other sheets in one step, nudge a sheet that does not line up exactly, and keep each area's start point and direction.
 - **The frame round a whole field.** An agent can read the length of the frame around a scope's whole field on each sheet. Edges two areas share, like the fold line between chevron wings, are counted once and reported separately.
 
+## 0.3.103 — 2026-11-26
+
+### Sheet names with brackets no longer stop the save
+
+- **Saving works when a sheet name has a bracket in it.** A sheet name read off the title block with a stray ")" or "(" (or a backslash) was written into the PDF in a way that broke the file's page names. The next save then failed with "Failed to parse PDF document … Expected next byte to be 47 but it was actually 41". Names are now written safely, and they show exactly as read in REDBEAM, Bluebeam and every PDF viewer.
+- **Files already affected save again.** When REDBEAM finds page names an earlier version broke, it reads past them and the next save writes them correctly, along with your takeoff.
+
 ## 0.3.101 — 2026-11-26
 
 ### Agents read drawn grids and check layouts with less work

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { PDFDocument } from 'pdf-lib'
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFInvalidObject, PDFName, PDFString } from 'pdf-lib'
 import { openLazyPdf, type ByteSource } from './lazyPdf.js'
 import { embedSheet, embedSheetTail, readSheetEmbed, readSheetEmbedFrom, type EmbedInput, type EmbedMarkup } from './sheetEmbed.js'
 import { updateBaseOf } from './pdfIncremental.js'
@@ -105,4 +105,54 @@ describe('a set with hundreds of thousands of objects', () => {
     joined.set(tail!, bytes.length)
     expect(readSheetEmbedFrom(openLazyPdf(source(joined)).doc).slice?.tables.markups?.map((m) => m.id)).toEqual(['m1'])
   }, 120_000)
+})
+
+describe('sheet names with parentheses and backslashes', () => {
+  const named = (labels: string[]): EmbedInput => {
+    const base = input([area('m1')])
+    return { ...base, tables: { ...base.tables, redbeam_meta: [{ key: 'sheet_labels', value: JSON.stringify(labels) }] } as never }
+  }
+  const labelsOf = async (bytes: Uint8Array): Promise<string[]> => {
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false })
+    const nums = (doc.catalog.lookup(PDFName.of('PageLabels'), PDFDict).lookup(PDFName.of('Nums'), PDFArray)).asArray()
+    const out: string[] = []
+    for (let i = 1; i < nums.length; i += 2) {
+      const p = (doc.context.lookup(nums[i]) as PDFDict).lookup(PDFName.of('P'))
+      if (p instanceof PDFString || p instanceof PDFHexString) out.push(p.decodeText())
+    }
+    return out
+  }
+  const odd = ['A-101 PLAN B)', 'A-102 (PART', 'A-103 \\ ROOF\\']
+
+  it('writes them so the PDF parses and they read back as written', async () => {
+    const bytes = (await embedSheet(await blank(false), named(odd))).bytes!
+    expect(await labelsOf(bytes)).toEqual(odd)
+    // And a second save into it works, whole and by range.
+    const more = { ...named(odd), markups: [area('m1'), area('m2', 1)] }
+    expect(await labelsOf((await embedSheet(bytes, more)).bytes!)).toEqual(odd)
+    expect(embedSheetTail(openLazyPdf(source(bytes)).doc, updateBaseOf(bytes), more).tail).not.toBeNull()
+  })
+
+  it('saves over a file an older REDBEAM left an unparseable sheet name in', async () => {
+    for (const objectStreams of [false, true]) {
+      const good = (await embedSheet(await blank(objectStreams), named(['A-101 PLAN B)', null as never, null as never]))).bytes!
+      // What 0.3.99 and earlier wrote: the ")" unescaped. Same length, so every offset holds.
+      const text = new TextDecoder('latin1').decode(good)
+      const broken = good.slice()
+      let hits = 0
+      for (let at = text.indexOf('B\\)'); at >= 0; at = text.indexOf('B\\)', at + 1)) { broken[at + 1] = 0x20; hits++ }
+      expect(hits).toBeGreaterThan(1) // the page label and the bookmark
+      const before = await PDFDocument.load(broken, { updateMetadata: false, throwOnInvalidObject: false }).catch(() => null)
+      expect(before === null || [...before.context.enumerateIndirectObjects()].some(([, o]) => o instanceof PDFInvalidObject)).toBe(true)
+
+      const whole = (await embedSheet(broken, named(odd))).bytes!
+      expect(await labelsOf(whole)).toEqual(odd)
+      const { tail } = embedSheetTail(openLazyPdf(source(broken)).doc, updateBaseOf(broken), named(odd))
+      const joined = new Uint8Array(broken.length + tail!.length)
+      joined.set(broken, 0)
+      joined.set(tail!, broken.length)
+      expect(await labelsOf(joined)).toEqual(odd)
+      expect(readSheetEmbedFrom(openLazyPdf(source(joined)).doc).slice?.tables.markups?.map((m) => m.id)).toEqual(['m1'])
+    }
+  })
 })

@@ -46,11 +46,12 @@
  * left exactly as they saved it rather than being snapped back, and reported.
  */
 import {
-  PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream,
+  PDFArray, PDFDict, PDFDocument, PDFHexString, PDFInvalidObject, PDFName, PDFNumber, PDFRawStream,
   PDFRef, PDFStream, PDFString, decodePDFRawStream, degrees,
   type PDFContext, type PDFPage,
 } from 'pdf-lib'
 import { areaRegion } from '@redbeam/domain'
+import { openLazyPdf } from './lazyPdf.js'
 import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
 import { sheetOutlineCurrent, writeSheetOutline } from './sheetOutline.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
@@ -279,7 +280,7 @@ export function revuMeasure(ctx: PDFContext, feetPerPoint: number): PDFDict {
   return ctx.obj({
     Type: 'Measure',
     Subtype: 'RL',
-    R: PDFString.of(scaleRatioText(feetPerPoint)),
+    R: pdfText(scaleRatioText(feetPerPoint)),
     X: [revuNumberFormat(ctx, 'ft', feetPerPoint)],
     D: [revuNumberFormat(ctx, 'ft', 1)],
     A: [revuNumberFormat(ctx, 'sf', 1, true)],
@@ -831,7 +832,21 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
 
 /** Load a PDF the way this module needs: no metadata rewrite, no throw on encryption. */
 async function load(bytes: Uint8Array): Promise<PDFDocument> {
-  return PDFDocument.load(bytes, { updateMetadata: false, throwOnInvalidObject: false })
+  let doc: PDFDocument | null = null
+  try {
+    doc = await PDFDocument.load(bytes, { updateMetadata: false, throwOnInvalidObject: false })
+  } catch { /* the catalog itself may be the object that does not parse */ }
+  if (doc !== null && !hasInvalidObjects(doc)) return doc
+  // A full load keeps only the newest revision of each object, even one that
+  // does not parse (see lazyPdf's fallback). The ranged reader falls back to
+  // the newest earlier revision that does, so a file an older REDBEAM saved a
+  // bad sheet name into can still be saved over.
+  return openLazyPdf({ size: bytes.length, read: (a, b) => bytes.subarray(a, b) }).doc
+}
+
+function hasInvalidObjects(doc: PDFDocument): boolean {
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) if (obj instanceof PDFInvalidObject) return true
+  return false
 }
 
 /**
