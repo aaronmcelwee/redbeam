@@ -83,7 +83,7 @@ const READ_ACTIONS = new Set([
 const READ_UI_ACTIONS = new Set([
   'find_text', 'get_words', 'list_sheets', 'list_markups', 'list_scopes', 'get_bom', 'get_history',
   'get_settings', 'list_bookmarks', 'list_links', 'list_annotations', 'get_piece_list', 'get_pattern',
-  'list_patterns', 'get_scale_presets', 'describe_product', 'get_lines', 'read_scale', 'measure', 'detect_grid', 'detect_directions',
+  'list_patterns', 'get_scale_presets', 'describe_product', 'get_lines', 'read_scale', 'measure', 'detect_grid', 'detect_directions', 'match_hatch',
 ])
 
 /** Whether a call only reads: see READ_ACTIONS. A screenshot of the canvas as it is, or of a named sheet, reads. */
