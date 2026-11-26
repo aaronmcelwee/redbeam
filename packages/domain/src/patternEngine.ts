@@ -27,7 +27,7 @@
 import { pointInPolygon, regionArea, signedPolygonArea, trimEdgeLengths, trimPiecesForEdges, type Point, type Region } from './geometry.js'
 import { orderStockPieceCount, roundUpQuantity } from './panels.js'
 import { allowedPieceFractions, leftNormal, roundStockFractionToAllowed } from './pieces.js'
-import { slugOf, type ResolvedHardware, type ResolvedLayer, type ResolvedModule, type ResolvedRecipe, type ResolvedRunMaterial } from './patternRecipe.js'
+import { DEFAULT_EDGE_SNAP_FEET, slugOf, type ResolvedHardware, type ResolvedLayer, type ResolvedModule, type ResolvedRecipe, type ResolvedRunMaterial } from './patternRecipe.js'
 
 /** One area group to lay out, in PDF points. Same shape as runs.ts RunGroup. */
 export interface PatternGroup {
@@ -193,6 +193,38 @@ function segmentCross(a: Point, b: Point, c: Point, d: Point): Point | null {
   return { x: a.x + rx * t, y: a.y + ry * t }
 }
 
+/**
+ * A convex polygon moved in by `by` on every side (each edge parallel to its
+ * own), or null when nothing is left. The edge snap asks whether THIS is in
+ * the area: if so, the tile is short of the area only by drawing error.
+ */
+function insetConvex(points: readonly Point[], by: number): Point[] | null {
+  const n = points.length
+  if (n < 3) return null
+  if (!(by > 0)) return [...points]
+  const ccw = signedPolygonArea(points as Point[]) > 0 ? 1 : -1
+  const lines: Array<{ p: Point; d: Point }> = []
+  for (let k = 0; k < n; k++) {
+    const a = points[k]!, b = points[(k + 1) % n]!
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    if (len < 1e-12) continue
+    const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len }
+    // Inward is left of a counter-clockwise edge.
+    const inward = { x: -d.y * ccw, y: d.x * ccw }
+    lines.push({ p: { x: a.x + inward.x * by, y: a.y + inward.y * by }, d })
+  }
+  const out: Point[] = []
+  for (let k = 0; k < lines.length; k++) {
+    const l1 = lines[(k + lines.length - 1) % lines.length]!, l2 = lines[k]!
+    const den = l1.d.x * l2.d.y - l1.d.y * l2.d.x
+    if (Math.abs(den) < 1e-12) { out.push(l2.p); continue }
+    const t = ((l2.p.x - l1.p.x) * l2.d.y - (l2.p.y - l1.p.y) * l2.d.x) / den
+    out.push({ x: l1.p.x + l1.d.x * t, y: l1.p.y + l1.d.y * t })
+  }
+  // Inset past its own middle, the polygon turns inside out.
+  return signedPolygonArea(out) * ccw > 1e-12 ? out : null
+}
+
 function shrink(points: readonly Point[], by: number): Point[] {
   if (!(by > 0)) return [...points]
   const cx = points.reduce((s, p) => s + p.x, 0) / points.length
@@ -287,6 +319,7 @@ export function layoutPattern(
   const hardwareLayer = new Map<string, string>()
   let areaSquareFeet = 0
   recipe.layers.forEach((l) => accs.set(l.id, newAcc(l.kind, l.name)))
+  const snap = Math.max(0, recipe.edgeSnap ?? DEFAULT_EDGE_SNAP_FEET)
   const indexOf = new Map(recipe.layers.map((l, i) => [l.id, i]))
 
   for (const group of groups) {
@@ -347,9 +380,25 @@ export function layoutPattern(
             if (tb.maxX < b.minX || tb.minX > b.maxX || tb.maxY < b.minY || tb.minY > b.maxY) continue
             const clipped = clipRegion(region, signs, poly)
             const fraction = clipped.area / tile.area
-            if (fraction < 0.001) continue
+            /*
+             * Edge snap (NOIC CL115, 2026-11-26): an area drawn N modules
+             * wide counted six "cut" slivers, and one a hair smaller cut its
+             * whole last row. A strip `snap` wide along the tile's longest
+             * side is the most a drawing error can add, so a piece no bigger
+             * is a sliver; and a tile that is in the area once every side
+             * moves in by `snap` is short of it only by drawing error, so it
+             * is whole.
+             */
+            if (fraction < 0.001 || clipped.area <= snap * tile.span) continue
             touched = true
-            const full = fraction > 0.999
+            let full = fraction > 0.999
+            if (!full && snap > 0) {
+              const core = insetConvex(poly, snap)
+              if (core !== null) {
+                const coreArea = Math.abs(signedPolygonArea(core))
+                full = coreArea > 0 && clipRegion(region, signs, core).area / coreArea > 0.999
+              }
+            }
             let t = acc.tileCounts.get(tile.name)
             if (t === undefined) { t = { placed: 0, full: 0, ordered: 0, cutFractions: [], tileArea: tile.area, coveredArea: 0 }; acc.tileCounts.set(tile.name, t) }
             t.placed++
@@ -384,9 +433,11 @@ export function layoutPattern(
             for (const [s, e] of lineIntervals(region, y)) {
               if (onBoundary(region, s, e, y)) continue
               const a = Math.max(s, x0), z = Math.min(e, x1)
-              if (z - a <= 1e-6) continue
+              if (z - a <= Math.max(1e-6, snap)) continue
               touched = true
-              const piece: RunPiece = { a: { x: a, y }, b: { x: z, y }, length: z - a, full: Math.abs((z - a) - m.length) < 1e-6 }
+              // Within the snap of whole is whole, and is ordered at its full length.
+              const whole = m.length - (z - a) <= Math.max(1e-6, snap)
+              const piece: RunPiece = { a: { x: a, y }, b: { x: z, y }, length: whole ? m.length : z - a, full: whole }
               addRun(acc, layer, piece)
               shape(layer.id, 'segment', [piece.a, piece.b], !piece.full, layer.width)
             }

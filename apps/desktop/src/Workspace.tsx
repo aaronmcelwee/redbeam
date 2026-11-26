@@ -196,6 +196,12 @@ import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
  * no arbitrary caps); the tiles render only what is on screen, so a deeper
  * zoom costs no more than a shallow one.
  */
+/** JSON with object keys sorted, so two values that differ only in key order compare equal. */
+const stableJson = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => (
+  x !== null && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : x))
+
 const MAX_ZOOM = 64
 const VW = 1180
 const VH = 780
@@ -1077,6 +1083,52 @@ export default function Workspace({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const selectedRef = useRef<string[]>([])
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  /*
+   * Every scope's layout on one sheet, onto any canvas at any view. The window
+   * paints with it, and so does a close-up (NOIC, 2026-11-26: a region
+   * screenshot skipped the layout even with the overlay on, so the only way to
+   * check a layout was to zoom the person's window).
+   */
+  const drawLayoutsRef = useRef<(oc: CanvasRenderingContext2D, view: Viewport, here: string, pageWidth: number, pageHeight: number, feetPerPoint: number) => void>(() => {})
+  drawLayoutsRef.current = (oc, view, here, pageWidth, pageHeight, feetPerPoint) => {
+    for (const entry of piecesRef.current) {
+      const opts = {
+        color: entry.scope.color,
+        pageWidth: pageWidth,
+        pageHeight: pageHeight,
+        // What to draw is a global reading preference, not a property of a
+        // scope: waste and coverage are two different questions asked of
+        // every scope, not two kinds of scope.
+        showOverflow: prefsRef.current['takeoff.layoutOverflow'] === true,
+        // The same preference, spelled the way the panel path names it.
+        showFullCells: prefsRef.current['takeoff.layoutOverflow'] === true,
+        showRails: prefsRef.current['takeoff.layoutRails'] !== false,
+        showTrim: prefsRef.current['takeoff.layoutTrim'] !== false,
+        showSeams: prefsRef.current['takeoff.layoutSeams'] !== false,
+        lineWeight: strokeScaleFor(view.zoom),
+        // The face width, in this sheet's points, when the scope states one.
+        ...(entry.result.componentWidthFeet !== undefined && feetPerPoint > 0
+          ? { componentWidthPoints: entry.result.componentWidthFeet / feetPerPoint }
+          : {}),
+        ...(entry.factoryCut !== undefined ? { factoryCut: entry.factoryCut } : {}),
+      }
+      /*
+       * A pattern's layers can each be hidden from its layer list, so the
+       * rails can be checked without the panels over them. A built-in
+       * layer's geometry is the cells and runs; the rest are shapes.
+       */
+      const hidden = hiddenLayersRef.current.get(entry.scope.id)
+      const layers = entry.result.layers ?? []
+      const builtInHidden = hidden !== undefined && layers.some((l) => hidden.has(l.id) && l.kind !== 'tiles' && l.kind !== 'members' && l.kind !== 'lines' && l.kind !== 'hardware')
+      const cells = builtInHidden ? [] : entry.result.cells.filter((c) => c.pageId === undefined || c.pageId === here)
+      const runs = builtInHidden ? [] : entry.result.runs.filter((r) => r.pageId === here)
+      if (cells.length > 0) drawPanelLayout(oc, cells, view, opts)
+      if (runs.length > 0 && (cells.length === 0 || entry.result.shapes !== undefined)) drawRunLayout(oc, runs, view, opts)
+      const shapes = (entry.result.shapes ?? []).filter((sh) => sh.pageId === here && !(hidden?.has(sh.layer) ?? false))
+      if (shapes.length > 0) drawPatternShapes(oc, shapes, layers, view, opts)
+    }
+  }
+
   /**
    * Zoom to a box (Z): armed for one drag, then back to whatever tool was in
    * hand. A box rather than a tool because it is a glance, not a mode: you
@@ -1452,44 +1504,7 @@ export default function Workspace({
          * calculation returns all of them because that is what the totals are
          * made of.
          */
-        const here = pageIdFor(docIdRef.current, pageIndexRef.current)
-        for (const entry of piecesRef.current) {
-          if (bare) break
-          const opts = {
-            color: entry.scope.color,
-            pageWidth: page.width,
-            pageHeight: page.height,
-            // What to draw is a global reading preference, not a property of a
-            // scope: waste and coverage are two different questions asked of
-            // every scope, not two kinds of scope.
-            showOverflow: prefsRef.current['takeoff.layoutOverflow'] === true,
-            // The same preference, spelled the way the panel path names it.
-            showFullCells: prefsRef.current['takeoff.layoutOverflow'] === true,
-            showRails: prefsRef.current['takeoff.layoutRails'] !== false,
-            showTrim: prefsRef.current['takeoff.layoutTrim'] !== false,
-            showSeams: prefsRef.current['takeoff.layoutSeams'] !== false,
-            lineWeight: strokeScaleFor(viewRef.current.zoom),
-            // The face width, in this sheet's points, when the scope states one.
-            ...(entry.result.componentWidthFeet !== undefined && (calRef.current?.feetPerPoint ?? 0) > 0
-              ? { componentWidthPoints: entry.result.componentWidthFeet / calRef.current!.feetPerPoint }
-              : {}),
-            ...(entry.factoryCut !== undefined ? { factoryCut: entry.factoryCut } : {}),
-          }
-          /*
-           * A pattern's layers can each be hidden from its layer list, so the
-           * rails can be checked without the panels over them. A built-in
-           * layer's geometry is the cells and runs; the rest are shapes.
-           */
-          const hidden = hiddenLayersRef.current.get(entry.scope.id)
-          const layers = entry.result.layers ?? []
-          const builtInHidden = hidden !== undefined && layers.some((l) => hidden.has(l.id) && l.kind !== 'tiles' && l.kind !== 'members' && l.kind !== 'lines' && l.kind !== 'hardware')
-          const cells = builtInHidden ? [] : entry.result.cells.filter((c) => c.pageId === undefined || c.pageId === here)
-          const runs = builtInHidden ? [] : entry.result.runs.filter((r) => r.pageId === here)
-          if (cells.length > 0) drawPanelLayout(oc, cells, viewRef.current, opts)
-          if (runs.length > 0 && (cells.length === 0 || entry.result.shapes !== undefined)) drawRunLayout(oc, runs, viewRef.current, opts)
-          const shapes = (entry.result.shapes ?? []).filter((sh) => sh.pageId === here && !(hidden?.has(sh.layer) ?? false))
-          if (shapes.length > 0) drawPatternShapes(oc, shapes, layers, viewRef.current, opts)
-        }
+        if (!bare) drawLayoutsRef.current(oc, viewRef.current, pageIdFor(docIdRef.current, pageIndexRef.current), page.width, page.height, calRef.current?.feetPerPoint ?? 0)
       }
       const hereId = pageIdFor(docIdRef.current, pageIndexRef.current)
       const origins: PatternOriginItem[] = []
@@ -2913,6 +2928,8 @@ export default function Workspace({
         pageDirections: pageDirectionsFrom(s.specifications),
         areaDirections: areaDirectionsFrom(s.specifications),
         perAreaOrigin: prefs['takeoff.perAreaOrigin'] === true,
+        // A drawn edge within 1" of a panel line is on it (NOIC CL115).
+        edgeSnapFeet: 1 / 12,
         defaultPatternCorner: isAreaCorner(prefs['takeoff.patternStart'])
           ? prefs['takeoff.patternStart']
           : prefs['takeoff.patternStart'] === 'automatic' ? null : 'top-left',
@@ -6411,17 +6428,80 @@ export default function Workspace({
     }
     return { ...base, status: 'draft', layers: base.layers.map((l) => { const { status: _s, ...rest } = l; void _s; return rest as typeof l }) }
   }
-  /** The scope's counts once the layout has caught up with a change, or what there is after 3 s. */
-  const settledPieces = async (scopeId: string, ready: (r: PieceResult) => boolean): Promise<PieceResult | undefined> => {
-    for (let waited = 0; waited < 3000; waited += 40) {
-      const e = piecesRef.current.find((p) => p.scope.id === scopeId)
-      if (e !== undefined && (ready(e.result) || e.result.blockers.length > 0)) return e.result
-      await new Promise((r) => setTimeout(r, 40))
+  /*
+   * The scope as the window holds it once a write has come back from the
+   * store. scopesRef follows React state, a render behind the write, so a
+   * call that writes and then reads (create_scope then saving its recipe,
+   * update_scope then answering) waited for nothing and read the scope as it
+   * was (SLS, 0.3.102: "no such scope" for the id just made, and a stale
+   * productType in update_scope's answer).
+   */
+  const scopeWhen = async (id: string, ready: (sc: Scope) => boolean): Promise<Scope | undefined> => {
+    for (let waited = 0; waited < 10_000; waited += 25) {
+      const sc = scopesRef.current.find((x) => x.id === id)
+      if (sc !== undefined && ready(sc)) return sc
+      await new Promise((res) => setTimeout(res, 25))
     }
-    return piecesRef.current.find((p) => p.scope.id === scopeId)?.result
+    return scopesRef.current.find((x) => x.id === id)
   }
-  const patternAnswer = (r: PieceResult | undefined): Record<string, unknown> => {
+  /**
+   * The scope's counts once the layout has caught up with THIS recipe.
+   *
+   * It used to take the first result for the scope that had the recipe's name
+   * or any blocker, which was often the one from before the save (NOIC,
+   * 2026-11-26): a save reported the old "pick one from the library" blocker
+   * though it had worked, and a resave of CL114 reported 51 clouds from the
+   * previous recipe when the new one laid out 34. Now only a result computed
+   * from the recipe that was sent counts. If the layout is still working when
+   * the wait ends, it says so instead of handing back old numbers.
+   */
+  const settledPieces = async (scopeId: string, recipe: unknown): Promise<PieceResult | 'pending' | undefined> => {
+    // Key order is not part of a recipe: the store may hand it back reordered.
+    const stable = stableJson
+    const want = stable(recipe)
+    const current = () => {
+      const e = piecesRef.current.find((p) => p.scope.id === scopeId)
+      return e !== undefined && readProductType(e.scope.specifications) === 'custom_pattern'
+        && stable(e.scope.specifications[PATTERN_RECIPE_KEY]) === want ? e.result : undefined
+    }
+    for (let waited = 0; waited < 30_000; waited += 40) {
+      const r = current()
+      if (r !== undefined) return r
+      await new Promise((res) => setTimeout(res, 40))
+    }
+    return current() ?? (piecesRef.current.some((p) => p.scope.id === scopeId) ? 'pending' : undefined)
+  }
+  /*
+   * What decides where each area's layout starts, read back as the layout
+   * uses it (NOIC, 2026-11-26: "Lay each area out on its own" read Off, yet
+   * the start points placed per area took effect, and the agent could not
+   * tell which was wrong). Neither was: a start point placed on an area
+   * always wins, and an area with none starts at the corner `patternStart`
+   * names. The per-area switch only matters when that is automatic.
+   */
+  const layoutSettingsAnswer = (): Record<string, unknown> => {
+    const start = prefsRef.current['takeoff.patternStart'] ?? 'top-left'
+    const automatic = start === 'automatic'
+    const perArea = prefsRef.current['takeoff.perAreaOrigin'] === true
+    let placed = 0
+    for (const sc of scopesRef.current) placed += areaOriginsFrom(sc.specifications).size
+    return {
+      'takeoff.patternStart': start,
+      'takeoff.perAreaOrigin': perArea,
+      'takeoff.layoutPreview': prefsRef.current['takeoff.layoutPreview'] === true,
+      areasWithPlacedStart: placed,
+      edgeSnap: '1" (an area edge within 1" of a module line is on it; a pattern recipe can set its own edgeSnap)',
+      howStartsAreChosen: [
+        'An area with a start point placed on it (set_pattern_origin, or the Origin tool) starts there, whatever the settings say.',
+        automatic
+          ? `Other areas: automatic. ${perArea ? 'Panels start a whole panel at each area\'s own edge (perAreaOrigin on).' : 'Panels share one grid across the sheet (perAreaOrigin off).'} Runs pick the phase with the fewest pieces per area either way.`
+          : `Other areas start at their own ${String(start)} corner, each on its own; perAreaOrigin has no effect unless patternStart is automatic.`,
+      ],
+    }
+  }
+  const patternAnswer = (r: PieceResult | 'pending' | undefined): Record<string, unknown> => {
     if (r === undefined) return { note: 'the scope has no calibrated sheet yet, so nothing could be counted' }
+    if (r === 'pending') return { counting: 'still laying out this recipe; read the counts with redbeam_get_pattern or redbeam_get_bom in a moment' }
     if (r.blockers.length > 0) return { blockers: r.blockers }
     const layers = (r.layers ?? []).map((l) => ({
       id: l.id, name: l.name, kind: l.kind, draft: l.draft,
@@ -6809,6 +6889,21 @@ export default function Workspace({
           } : {}),
           ...(annots !== undefined ? { annots } : {}),
           ...(overlay !== undefined ? { overlay } : {}),
+          /*
+           * The layout preview, under the markups (NOIC, 2026-11-26: a
+           * close-up skipped it even with the overlay on, so checking a layout
+           * meant zooming the person's window). A session's picture shows it
+           * when its own view has it on or the person's setting does; with no
+           * session, when the window shows it. `layout` decides for one picture.
+           */
+          ...((params['layout'] === true || (params['layout'] !== false && (
+            view !== null ? view.layoutOn || prefsRef.current['takeoff.layoutPreview'] === true
+              : prefsRef.current['takeoff.layoutPreview'] === true && !redbeamHiddenRef.current))) ? {
+            under: (g: CanvasRenderingContext2D, at: Viewport, pw: number, ph: number) => {
+              const pid = pageIdFor(docIdRef.current, targetPage)
+              drawLayoutsRef.current(g, at, pid, pw, ph, projectCalibrationsLatest.current.get(pid) ?? 0)
+            },
+          } : {}),
         })
         return out.canvas.toDataURL('image/png')
       }
@@ -7581,10 +7676,7 @@ export default function Workspace({
             // The bill is project-wide; so is this.
             calibrated: projectCalibrations.size > 0,
             // Settings that change the counts (P1-6); set_setting changes them.
-            layoutSettings: {
-              'takeoff.patternStart': prefs['takeoff.patternStart'] ?? null,
-              'takeoff.perAreaOrigin': prefs['takeoff.perAreaOrigin'] === true,
-            },
+            layoutSettings: layoutSettingsAnswer(),
           }
         }
         /*
@@ -7850,14 +7942,27 @@ export default function Workspace({
           if (product !== null && product === 'baffle' && !/baffle/i.test(productRaw)) {
             return { error: `unknown productType "${productRaw}": use one of ${PRODUCT_TYPES.join(', ')}` }
           }
-          if (product === 'custom_pattern') {
+          /*
+           * A recipe with the scope, in one call (NOIC, 2026-11-26: it was
+           * refused and the agent sent to save_pattern). It still goes through
+           * save_pattern's checks and is still a draft: the scope is made,
+           * then the recipe saved on it.
+           */
+          const recipeSent = params['recipe'] ?? objectParam(params['specifications'])?.[PATTERN_RECIPE_KEY]
+          if (recipeSent !== undefined && recipeSent !== null && product !== null && product !== 'custom_pattern') {
+            return { error: `a recipe makes the scope a custom_pattern, not a ${product}; leave productType out or send custom_pattern` }
+          }
+          if (product === 'custom_pattern' || (recipeSent !== undefined && recipeSent !== null)) {
             const off = patternsOff()
             if (off !== null) return off
           }
-          if (objectParam(params['specifications'])?.[PATTERN_RECIPE_KEY] !== undefined) {
-            return { error: 'a pattern goes on a scope through redbeam_save_pattern, which checks it and keeps it a draft until the person approves it' }
+          if (recipeSent !== undefined && recipeSent !== null) {
+            const check = checkPatternRecipe(typeof recipeSent === 'string' ? ((): unknown => { try { return JSON.parse(recipeSent) } catch { return recipeSent } })() : recipeSent)
+            if (!check.ok) return { error: 'the recipe does not check, so no scope was made', errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
           }
-          const implied = product === null ? null : scopeTypeForProduct(product)
+          const implied = product === null
+            ? (recipeSent !== undefined && recipeSent !== null ? 'area' : null)
+            : scopeTypeForProduct(product)
           const scopeType = String(params['scopeType'] ?? implied ?? '') as Scope['scopeType']
           if (!types.includes(scopeType)) {
             return { error: `scopeType must be one of ${types.join(', ')}${product === 'custom_assembly' ? ' (a custom assembly can be any of them)' : ''}` }
@@ -7874,8 +7979,9 @@ export default function Workspace({
           if (scopesRef.current.some((s) => s.label === label)) {
             return { error: `a scope called "${label}" already exists` }
           }
-          const sent = objectParam(params['specifications'])
-          if (sent === null) return { error: 'specifications must be an object' }
+          const sentRaw = objectParam(params['specifications'])
+          if (sentRaw === null) return { error: 'specifications must be an object' }
+          const sent = sentRaw === undefined ? undefined : (() => { const { [PATTERN_RECIPE_KEY]: _r, ...rest } = sentRaw; void _r; return rest })()
           // A measure sent as a number is the text the product reads.
           const specs = sent === undefined ? undefined : measuresAsText(sent)
           const scope: Scope = {
@@ -7883,7 +7989,9 @@ export default function Workspace({
             label,
             scopeType,
             color: typeof params['color'] === 'string' ? params['color'] : '#39a2ff',
-            specifications: product === null ? (specs ?? {}) : writeProductType(specs ?? {}, product),
+            specifications: product === null
+              ? (recipeSent !== undefined && recipeSent !== null ? writeProductType(specs ?? {}, 'custom_pattern') : (specs ?? {}))
+              : writeProductType(specs ?? {}, product),
           }
           // In the person's PDF the new scope is the agent's to draw in, not the person's active one.
           const guest = !agentCtxRef.current.drives
@@ -7895,9 +8003,16 @@ export default function Workspace({
            * the sheet — and is in no total anywhere. Reported rather than
            * refused, because the same is true of the button.
            */
-          const madeProduct = readProductType(scope.specifications)
-          const stillNeeds = missingKeys(madeProduct, scope.specifications)
+          await scopeWhen(scope.id, () => true)
+          const pattern = recipeSent === undefined || recipeSent === null ? null
+            : await invokeAction('save_pattern', { scopeId: scope.id, recipe: recipeSent })
+          const made = (pattern !== null && pattern['saved'] === true
+            ? await scopeWhen(scope.id, (x) => x.specifications[PATTERN_RECIPE_KEY] !== undefined)
+            : undefined) ?? scopesRef.current.find((x) => x.id === scope.id) ?? scope
+          const madeProduct = readProductType(made.specifications)
+          const stillNeeds = madeProduct === 'custom_pattern' ? [] : missingKeys(madeProduct, made.specifications)
           return {
+            ...(pattern !== null ? { pattern } : {}),
             scopeId: scope.id,
             label,
             scopeType,
@@ -7930,8 +8045,29 @@ export default function Workspace({
            * otherwise express, and without it a spec field set by mistake
            * could never be taken off again.
            */
-          let merged = sc.specifications
+          /*
+           * A recipe sent here goes through save_pattern's checks, after the
+           * rest of the change (NOIC, 2026-11-26: it was refused, sending the
+           * agent to a second tool for what is one change).
+           */
+          const recipeSent = params['recipe'] ?? (specs !== undefined && specs[PATTERN_RECIPE_KEY] !== null ? specs[PATTERN_RECIPE_KEY] : undefined)
+          const specsSent = specs === undefined ? undefined : (() => { const { [PATTERN_RECIPE_KEY]: r, ...rest } = specs; return r === null ? specs : rest })()
+          let merged: Record<string, unknown> = { ...sc.specifications }
+          if (specsSent !== undefined) {
+            for (const [k, v] of Object.entries(specsSent)) {
+              if (v === null) delete merged[k]
+              else merged[k] = v
+            }
+          }
+          /*
+           * The product AFTER the specifications, which used to be merged
+           * from the scope as it was and so threw a new productType away
+           * (NOIC, 2026-11-26: a custom pattern scope could not become a
+           * baffle). A new product also brings its own measure, area for every
+           * laid-out product, unless scopeType says otherwise.
+           */
           const nextProductRaw = typeof params['productType'] === 'string' ? params['productType'].trim() : ''
+          let impliedType: Scope['scopeType'] | null = null
           if (nextProductRaw !== '') {
             const np = canonicalProductType(nextProductRaw)
             if (np === 'baffle' && !/baffle/i.test(nextProductRaw)) {
@@ -7942,19 +8078,13 @@ export default function Workspace({
               if (off !== null) return off
             }
             merged = writeProductType(merged, np)
-          }
-          if (specs !== undefined && specs[PATTERN_RECIPE_KEY] !== undefined && specs[PATTERN_RECIPE_KEY] !== null) {
-            return { error: 'change a pattern with redbeam_save_pattern (or try it first with redbeam_preview_pattern); update_scope does not write recipes' }
-          }
-          if (specs !== undefined) {
-            merged = { ...sc.specifications }
-            for (const [k, v] of Object.entries(specs)) {
-              if (v === null) delete merged[k]
-              else merged[k] = v
-            }
+            if (np !== readProductType(sc.specifications)) impliedType = scopeTypeForProduct(np)
+          } else if (recipeSent !== undefined && recipeSent !== null) {
+            const off = patternsOff()
+            if (off !== null) return off
           }
           const types: Array<Scope['scopeType']> = ['area', 'linear', 'count']
-          const nextType = params['scopeType']
+          const nextType = params['scopeType'] ?? impliedType ?? undefined
           if (nextType !== undefined && !types.includes(nextType as Scope['scopeType'])) {
             return { error: `scopeType must be one of ${types.join(', ')}` }
           }
@@ -7971,20 +8101,32 @@ export default function Workspace({
             specifications: merged,
           }
           await saveScope(next)
+          const wanted = (x: Scope) => x.label === next.label && x.scopeType === next.scopeType && x.color === next.color
+            && stableJson(x.specifications) === stableJson(next.specifications)
+          await scopeWhen(id, wanted)
+          const pattern = recipeSent === undefined || recipeSent === null ? null
+            : await invokeAction('save_pattern', { scopeId: id, recipe: recipeSent })
+          if (pattern !== null && pattern['saved'] === true) await scopeWhen(id, (x) => readProductType(x.specifications) === 'custom_pattern' && x.specifications[PATTERN_RECIPE_KEY] !== undefined)
+          if (pattern !== null && typeof pattern['error'] === 'string') {
+            return { scopeId: id, updated: 'everything but the pattern', patternError: pattern['error'], ...(pattern['errors'] !== undefined ? { errors: pattern['errors'] } : {}) }
+          }
+          const after = scopesRef.current.find((x) => x.id === id) ?? next
           /*
            * A changed type is reported back loudly: an area scope counts only
            * areas, so retyping one to `count` does not convert its takeoff, it
            * stops every existing markup contributing to a quantity.
            */
           return {
+            ...(pattern !== null ? { pattern } : {}),
             scopeId: id,
             label: next.label,
             scopeType: next.scopeType,
             typeChanged: next.scopeType !== sc.scopeType,
-            productType: readProductType(next.specifications),
-            specifications: next.specifications,
-            ...(((u) => u.length > 0 ? { ignoredKeys: u, warning: `nothing reads ${u.join(', ')} for a ${readProductType(next.specifications)}; see describe_product for the keys that count` } : {})(unknownSpecKeys(readProductType(next.specifications), next.specifications))),
-            ...(((n) => n.length > 0 ? { needs: n } : {})(missingKeys(readProductType(next.specifications), next.specifications))),
+            productChanged: readProductType(after.specifications) !== readProductType(sc.specifications),
+            productType: readProductType(after.specifications),
+            specifications: after.specifications,
+            ...(((u) => u.length > 0 ? { ignoredKeys: u, warning: `nothing reads ${u.join(', ')} for a ${readProductType(after.specifications)}; see describe_product for the keys that count` } : {})(unknownSpecKeys(readProductType(after.specifications), after.specifications))),
+            ...(((n) => n.length > 0 ? { needs: n } : {})(missingKeys(readProductType(after.specifications), after.specifications))),
           }
         }
 
@@ -8566,7 +8708,7 @@ export default function Workspace({
           const recipe = asAgentDraft(check.recipe, sc, by)
           if (action === 'preview_pattern') {
             setPatternPreviews((m) => new Map(m).set(id, recipe))
-            const result = await settledPieces(id, (r) => r.productLabel === recipe.name)
+            const result = await settledPieces(id, recipe)
             return {
               scopeId: id, previewing: true, saved: false, name: recipe.name,
               ...patternAnswer(result), warnings: check.warnings,
@@ -8580,7 +8722,7 @@ export default function Workspace({
             specifications: { ...sc.specifications, productType: 'custom_pattern', [PATTERN_RECIPE_KEY]: recipe },
           })
           setPatternPreviews((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n })
-          const result = await settledPieces(id, (r) => r.productLabel === recipe.name)
+          const result = await settledPieces(id, recipe)
           return {
             scopeId: id, saved: true, name: recipe.name, status: recipe.status,
             draftLayers: recipe.status === 'draft' ? 'all' : recipe.layers.filter((l) => l.status === 'draft').map((l) => l.id),
@@ -8630,7 +8772,7 @@ export default function Workspace({
             ...sc, scopeType: 'area',
             specifications: { ...sc.specifications, productType: 'custom_pattern', [PATTERN_RECIPE_KEY]: entry.recipe },
           })
-          const result = await settledPieces(id, (r) => r.productLabel === entry.recipe.name)
+          const result = await settledPieces(id, entry.recipe)
           return { scopeId: id, name: entry.recipe.name, patternId: entry.id, version: entry.version, status: entry.recipe.status, ...patternAnswer(result) }
         }
         /*
@@ -8764,7 +8906,10 @@ export default function Workspace({
               markupId: m.id,
               pageId: m.pageId,
               direction: ad !== undefined ? { source: 'area', ...dirOut(ad)! } : pd !== undefined ? { source: 'page', ...dirOut(pd)! } : scopeDirectionOf(specs) !== null ? { source: 'scope', ...dirOut(scopeDirectionOf(specs))! } : null,
-              origin: o !== undefined ? { source: 'placed', x: o.x, y: o.y } : { source: 'automatic' },
+              origin: o !== undefined ? { source: 'placed', x: o.x, y: o.y }
+                : isAreaCorner(prefsRef.current['takeoff.patternStart'] ?? 'top-left')
+                  ? { source: 'corner', corner: prefsRef.current['takeoff.patternStart'] ?? 'top-left', setting: 'takeoff.patternStart' }
+                  : { source: 'automatic', perAreaOrigin: prefsRef.current['takeoff.perAreaOrigin'] === true },
             }
           })
           return {
@@ -8774,7 +8919,8 @@ export default function Workspace({
             pageDirections: Object.fromEntries([...pageDirs].map(([k, d]) => [k, dirOut(d)])),
             areas,
             layoutOrigins: [...used.values()],
-            note: 'direction precedence: area, then page, then scope. An automatic origin is chosen per area for the best yield.',
+            layoutSettings: layoutSettingsAnswer(),
+            note: 'direction precedence: area, then page, then scope. Start precedence: a placed start, then the patternStart corner (each area on its own), then automatic.',
           }
         }
         /*
@@ -8915,6 +9061,7 @@ export default function Workspace({
             segments, page: pageSize, seed: pt, frame,
             options: {
               ...(num('angle') !== undefined ? { angleDeg: num('angle')! } : {}),
+              ...(ptsOf(num('strokeSpacingFeet')) !== undefined ? { strokeSpacingPoints: ptsOf(num('strokeSpacingFeet'))! } : {}),
               ...(bridge !== undefined ? { bridgePoints: bridge } : {}),
               ...(minWidth !== undefined ? { minWidthPoints: minWidth } : {}),
               ...(fpp !== null && fpp > 0 ? { minCutoutPoints2: minCut / (fpp * fpp) } : {}),
@@ -8952,6 +9099,14 @@ export default function Workspace({
               angle: d.angleDeg, from: d.source, strokes: d.patternSegments, segmentsRead: d.segments,
               strokeGapFeet: fpp !== null && fpp > 0 ? Math.round(d.strokeGapPoints * fpp * 1000) / 1000 : null,
               strokeGapPoints: d.strokeGapPoints,
+              ...(d.alternatives !== undefined ? {
+                alternatives: d.alternatives.map((a) => ({
+                  angle: a.angleDeg, strokeGapPoints: a.strokeGapPoints,
+                  strokeGapFeet: a.strokeGapPoints !== null && fpp !== null && fpp > 0 ? Math.round(a.strokeGapPoints * fpp * 1000) / 1000 : null,
+                  solidAtPoint: a.coversPoint, chosen: a.chosen,
+                })),
+                ifWrong: 'if the outline followed the wrong linework, call again with `angle` set to the hatch\'s direction from alternatives, or with strokeSpacingFeet',
+              } : {}),
             },
             totalSquareFeet: fpp !== null && fpp > 0 ? Math.round(fields.reduce((n, f) => n + (f.areaSquareFeet ?? 0), 0) * 100) / 100 : null,
             ...(readsCut ? { note: 'the sheet holds more geometry than could be read; trace with a smaller `rect`' } : {}),

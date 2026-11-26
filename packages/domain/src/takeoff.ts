@@ -158,6 +158,13 @@ export interface PieceOptions {
    */
   perAreaOrigin?: boolean
   /**
+   * How far off a grid line an area edge may be drawn and still count as on
+   * it, in feet, for panels and cassettes (custom patterns carry their own,
+   * `edgeSnap`). Absent is the Qt build's rule, which the golden fixtures
+   * capture; the app passes 1".
+   */
+  edgeSnapFeet?: number
+  /**
    * A direction stated for a whole sheet, by page id — the FIRST one set on
    * that sheet for this scope. Beaten by an area's own, beats the scope
    * default. See `directionFrom`.
@@ -675,6 +682,7 @@ export function calculatePieces(
       feetPerPoint: cal.feetPerPoint,
       panelGranularity: readGranularity(specs, 'panelGranularity'),
       ...(opts.perAreaOrigin === true ? { perAreaOrigin: true } : {}),
+      ...(opts.edgeSnapFeet !== undefined ? { edgeSnapFeet: opts.edgeSnapFeet } : {}),
     })
     return {
       productType: product,
@@ -740,6 +748,7 @@ export function calculatePieces(
       feetPerPoint: cal.feetPerPoint,
       panelGranularity: 'full',
       ...(opts.perAreaOrigin === true ? { perAreaOrigin: true } : {}),
+      ...(opts.edgeSnapFeet !== undefined ? { edgeSnapFeet: opts.edgeSnapFeet } : {}),
     })
     const perCassette = Math.max(1, Math.floor(cassetteWidth / spacing + 1e-9))
     const cassettes = result.panelCount
