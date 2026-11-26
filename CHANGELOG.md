@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.100 — 2026-11-26
+
+### You and an agent in the same set, each with your own view
+
+- **An agent no longer moves your screen.** When Claude or ChatGPT worked in a set you had open, it worked through the sheet on your screen: it turned your page and zoomed your view to wherever it was working. Each AI session now has a view of its own inside the PDF, with its own sheet, zoom and selection. It turns its own pages and draws, sets scales and deletes on any sheet while you stay exactly where you are, on a different sheet or the same one.
+- **Agents no longer ask to work in your PDF.** The "Let it work there / Not now" question is gone. A session starts working in your open set straight away, and nothing waits on you.
+- **Your tool, selection, panels and layout preview are yours.** An agent picking a tool, selecting markups, hiding markups for a clean screenshot or asking for a panel changes only its own view.
+- **Go to where an agent is working when you want to.** Click its PDF in the Agents list and you land on the sheet it is on, with its cursor and what it is doing. Nothing takes you there unless you click.
+
 ## 0.3.99 — 2026-11-26
 
 ### Clicking a markup takes you to it
