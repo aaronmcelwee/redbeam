@@ -19,6 +19,7 @@ import {
 import { adoptedTables, rebaseAdopted } from './adopt.js'
 import type { AnnotRewrite } from './annotRewrite.js'
 import type { WritableScaleRegion } from './pdfMarkup.js'
+import { parseNoteContent, type NoteContent } from '../tools/noteGeometry.js'
 
 /**
  * The tables a drawing's slice is cut from, and how each is filtered to it.
@@ -116,6 +117,7 @@ interface MarkupRowLike {
   scope_id: string | null
   kind: string
   geometry_json: string
+  content_json?: string | null
 }
 
 interface ScopeRowLike { id: string, label: string, color: string }
@@ -135,9 +137,11 @@ const parseRings = (json: string): Array<Array<{ x: number, y: number }>> => {
  * "the annotation changed and the markup did not" (an edit made in another
  * app) from "both changed" (a conflict REDBEAM leaves alone).
  */
-export function markupRev(row: { kind: string, scope_id: string | null, geometry_json: string }): string {
+export function markupRev(row: { kind: string, scope_id: string | null, geometry_json: string, content_json?: string | null }): string {
   let rings: unknown = []
   try { rings = JSON.parse(row.geometry_json) } catch { rings = row.geometry_json }
+  // A note's text and colours are what it is, so they are part of its revision.
+  if (row.kind === 'note') return hash53(JSON.stringify([row.kind, row.scope_id ?? '', rings, row.content_json ?? ''])).toString(16)
   return hash53(JSON.stringify([row.kind, row.scope_id ?? '', rings])).toString(16)
 }
 
@@ -208,6 +212,16 @@ export function embedMarkupsFor(tables: SliceTables, documentId: string): {
 
   const markups: EmbedMarkup[] = []
   for (const { raw, rings } of rows) {
+    if (raw.kind === 'note') {
+      let content: NoteContent | null = null
+      try { content = parseNoteContent(JSON.parse(raw.content_json ?? '{}')) } catch { content = null }
+      if (content === null) continue
+      markups.push({
+        id: raw.id, pageIndex: pageNumberFrom(raw.page_id, documentId)!, kind: 'note', rings,
+        scopeLabel: '', color: content.color, noteContent: content, rev: markupRev(raw),
+      })
+      continue
+    }
     if (raw.kind === 'cutout' && foldedIds.has(raw.id)) continue
     const pageIndex = pageNumberFrom(raw.page_id, documentId)!
     const scope = raw.scope_id === null ? undefined : scopes.get(raw.scope_id)

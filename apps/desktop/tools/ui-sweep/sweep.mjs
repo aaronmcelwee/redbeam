@@ -1291,6 +1291,113 @@ const STEPS = [
     await page.keyboard.press('Escape')
     return problems
   }],
+  /*
+   * The note tools (0.3.115, Kenneth 2026-11-26): a text box, a cloud, a
+   * cloud with a leader, an arrow, a rectangle, an ellipse, a polygon and a
+   * pen stroke, each drawn the way a person draws it; the property strip
+   * over the dock, for the tool and then for a selected note.
+   */
+  ['notes', async (page) => {
+    const problems = []
+    await page.goto(view(FILE))
+    await page.locator('.sheetrow, [data-page]').first().waitFor({ timeout: 20000 })
+    await page.waitForTimeout(1500)
+    const at = (nx, ny) => page.evaluate(([a, b]) => {
+      const rb = window.__redbeam
+      const v = rb.view(), w = rb.page.width, h = rb.page.height
+      const r = document.querySelector('.stage').getBoundingClientRect()
+      return { x: r.left + a * w * v.zoom - v.ox, y: r.top + b * h * v.zoom - v.oy }
+    }, [nx, ny])
+    const drag = async (a, b, steps = 6) => {
+      const p = await at(...a), q = await at(...b)
+      await page.mouse.move(p.x, p.y)
+      await page.mouse.down()
+      await page.mouse.move(q.x, q.y, { steps })
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+    }
+    const click = async (a) => { const p = await at(...a); await page.mouse.click(p.x, p.y); await page.waitForTimeout(150) }
+    const notes = () => page.evaluate(() => (window.__redbeam.markups ?? []).filter((m) => m.kind === 'note')
+      .map((m) => ({ id: m.id, shape: m.content?.shape, text: m.content?.text, color: m.content?.color, ring: m.rings[0] })))
+    const markupTool = async (name) => {
+      await page.getByRole('button', { name: 'More markup tools' }).click()
+      await page.getByRole('menuitemradio', { name, exact: true }).click()
+      await page.waitForTimeout(200)
+    }
+
+    await page.getByRole('button', { name: 'Text', exact: true }).click()
+    await drag([0.06, 0.08], [0.3, 0.14])
+    const editor = page.locator('textarea.notetextedit')
+    if (await editor.count() !== 1) problems.push('notes: no text box opened for typing')
+    else {
+      await page.keyboard.type('VERIFY CEILING HEIGHT with architect')
+      await page.screenshot({ path: join(out, `${shotPrefix}notes-typing.png`) })
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(600)
+    }
+    await markupTool('Cloud')
+    await drag([0.4, 0.08], [0.58, 0.25])
+    await page.keyboard.press('q')
+    await drag([0.64, 0.08], [0.8, 0.2])
+    await click([0.9, 0.32])
+    await markupTool('Arrow')
+    await drag([0.1, 0.3], [0.28, 0.42])
+    await page.keyboard.press('r')
+    await drag([0.4, 0.35], [0.52, 0.48])
+    await page.keyboard.press('e')
+    await drag([0.58, 0.35], [0.72, 0.48])
+    await page.keyboard.press('n')
+    await click([0.78, 0.4]); await click([0.92, 0.44]); await click([0.86, 0.56])
+    { const p = await at(0.86, 0.56); await page.mouse.dblclick(p.x, p.y) }
+    await page.waitForTimeout(400)
+    await page.keyboard.press('p')
+    {
+      const pts = [[0.1, 0.62], [0.14, 0.7], [0.18, 0.63], [0.22, 0.72], [0.27, 0.64]]
+      const first = await at(...pts[0])
+      await page.mouse.move(first.x, first.y)
+      await page.mouse.down()
+      for (const q of pts.slice(1)) { const s = await at(...q); await page.mouse.move(s.x, s.y, { steps: 8 }) }
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+    }
+    const strip = page.getByRole('toolbar', { name: 'Markup properties' })
+    if (await strip.count() !== 1) problems.push('notes: no property strip while the pen is in hand')
+    // Closer, so the screenshot shows what was drawn.
+    await page.keyboard.press('z')
+    await drag([0.03, 0.03], [0.97, 0.6])
+    await page.waitForTimeout(1200)
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}notes-drawn.png`) })
+
+    const list = await notes()
+    const shapes = list.map((n) => n.shape).sort().join(',')
+    const want = ['arrow', 'callout', 'cloud', 'ellipse', 'pen', 'polygon', 'rect', 'text'].join(',')
+    if (shapes !== want) problems.push(`notes: drew ${shapes || 'nothing'}, expected ${want}`)
+    const text = list.find((n) => n.shape === 'text')
+    if (text !== undefined && text.text !== 'VERIFY CEILING HEIGHT with architect') problems.push(`notes: the text box holds "${text.text}"`)
+
+    // Select the cloud and make it blue from the strip.
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('v')
+    await click([0.49, 0.165])
+    const selStrip = page.locator('.notestrip')
+    if (await selStrip.count() !== 1) problems.push('notes: selecting the cloud showed no property strip')
+    else {
+      await page.getByRole('radio', { name: '#1f6fd6' }).click()
+      await page.waitForTimeout(600)
+      const cloud = (await notes()).find((n) => n.shape === 'cloud')
+      if (cloud?.color !== '#1f6fd6') problems.push(`notes: the cloud is ${cloud?.color} after picking blue`)
+      problems.push(...await inspect(page))
+      await page.screenshot({ path: join(out, `${shotPrefix}notes-selected.png`) })
+    }
+    // A drag in Select over no markups picks the sheet's words instead.
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: join(out, `${shotPrefix}notes-blue.png`) })
+    await drag([0.05, 0.85], [0.6, 0.98])
+    await page.keyboard.press('Escape')
+    return problems
+  }],
 ]
 
 // ---------------------------------------------------------------- run --
@@ -1311,7 +1418,8 @@ async function serve() {
 
 async function pass(browser, theme, backdrop) {
   // The theme setting defaults to Match Windows, which follows prefers-color-scheme.
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: theme })
+  // SWEEP_DSF=2 takes screenshots for a person to look at; the checks are the same.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: theme, deviceScaleFactor: Number(process.env.SWEEP_DSF ?? 1) })
   // A control that is there clicks at once; waiting 30 s for one that is not only hides the failure.
   page.setDefaultTimeout(5000)
   const errors = []

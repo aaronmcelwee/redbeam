@@ -230,3 +230,18 @@ export function Glyph({
   const { size } = SIZE[role]
   return createElement(assetFor(icon, size, filled), { fontSize: size, 'aria-hidden': true, ...rest })
 }
+
+// The note tools (tools/notes.ts) and their property strip.
+export const TextBox = family('Textbox', 16, 20, 24)
+export const CloudShape = family('Cloud', 16, 20, 24)
+export const Callout = family('Comment', 16, 20, 24)
+export const ArrowShape = family('ArrowUpLeft', 16, 20, 24)
+export const LineShape = family('Line', 20, 24)
+export const RectShape = family('RectangleLandscape', 16, 20, 24)
+export const EllipseShape = family('Oval', 16, 20, 24)
+export const PolygonShape = family('Pentagon', 20)
+export const PenShape = family('InkStroke', 20, 24)
+export const Shapes = family('Shapes', 16, 20, 24)
+export const LineWidth = family('LineThickness', 20, 24)
+export const FillColor = family('PaintBucket', 16, 20, 24)
+export const FontSize = family('TextFontSize', 16, 20, 24)
