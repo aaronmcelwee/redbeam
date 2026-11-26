@@ -227,7 +227,7 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
  * more of the primary one, and a single "EA" total that mixed them would mean
  * nothing.
  */
-const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock', 'linear_parts'] as const
+const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock', 'mixed_stock', 'linear_parts'] as const
 
 function lineOf(q: PieceQuantity): Pick<BomLine, 'itemKey' | 'label' | 'quantity' | 'unit'> {
   // A layered product names the layer, so "Rails" under a pattern reads as the pattern's rails.

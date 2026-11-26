@@ -1801,7 +1801,7 @@
     },
     {
       "name": "redbeam_update_scope",
-      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text.",
+      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. A baffle can mix two members (\"Beam every Nth, Slab between\"): mixedEvery N, mixedLabel, memberLabel, mixedStart; the Nth lines are ordered on their own (describe_product lists them).",
       "inputSchema": {
         "type": "object",
         "properties": {
