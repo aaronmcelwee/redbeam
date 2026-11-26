@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.108 — 2026-11-26
+
+### Agents split a field by the way its members run
+
+- **Lay out by direction.** An agent can split a field drawn in several directions, like chevron wings or rooms turned against each other, into regions by the way the members run. It gets each region's outline and angle, ready to draw as its own area with its own direction.
+
 ## 0.3.107 — 2026-11-26
 
 ### Going to an agent's sheet, and slow answers

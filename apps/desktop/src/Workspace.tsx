@@ -170,6 +170,7 @@ import { drawScaleRegions } from './scale/drawRegions.js'
 import { UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
 import { bomScopeFilter, fieldPerimeters, perAreaCounts } from './bom/agentBom.js'
 import { detectGrid, nearestCrossing } from './search/grid.js'
+import { directionRegions } from './search/directions.js'
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
@@ -9158,6 +9159,42 @@ export default function Workspace({
             start: first ?? null,
             ...(limit > 0 ? { crossings: g.crossings.slice(0, limit) } : {}),
             note: 'set_pattern_origin with mode "grid" starts an area on the crossing nearest a point; set_pattern_direction with `angle` lines the layout up with it',
+          }
+        }
+        /*
+         * Lay out by direction (NOIC report, 2026-11-26): the regions of an
+         * area whose members run one way, as polygons with their angles, so
+         * an agent can draw one area per region and set its direction.
+         */
+        case 'detect_directions': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
+          let area: Markup | undefined
+          if (typeof params['markupId'] === 'string') {
+            area = docMarkupsRef.current.find((m) => m.id === params['markupId'])
+            if (area === undefined || area.kind !== 'area') return { error: `no area ${String(params['markupId'])}` }
+            if (area.pageId !== ap.id) return { error: `area ${area.id} is on another sheet; pass its page` }
+          }
+          const rect = bridgeRect(params['rect'])
+          if (area === undefined && (rect === undefined || rect === null)) return { error: 'detect_directions needs `markupId` (an area) or `rect` {x0,y0,x1,y1} around the field' }
+          const r = area !== undefined ? normalizedBoundingRect(area.rings) : { left: Math.min(rect!.x0, rect!.x1), right: Math.max(rect!.x0, rect!.x1), top: Math.min(rect!.y0, rect!.y1), bottom: Math.max(rect!.y0, rect!.y1) }
+          if (r === null) return { error: 'that area has no outline' }
+          const clip = { x0: Math.max(0, r.left - 0.002), y0: Math.max(0, r.top - 0.002), x1: Math.min(1, r.right + 0.002), y1: Math.min(1, r.bottom + 0.002) }
+          const geo = await v.requestGeometry(ap.index, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 400_000 })
+          const cellPoints = Number(params['cellPoints'])
+          const found = directionRegions(geo.segments, ap.size, {
+            ...(area !== undefined ? { rings: area.rings } : { box: { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom } }),
+            ...(Number.isFinite(cellPoints) && cellPoints > 0 ? { cellPoints } : {}),
+          })
+          if (found === null) return { error: 'no members are drawn there' }
+          return {
+            page: ap.index,
+            directions: found.directions,
+            regions: found.regions,
+            cellPoints: found.cellPoints,
+            ...(geo.truncated ? { warning: 'more geometry than was read; use a smaller area' } : {}),
+            note: 'draw each polygon with create_markup {kind:"area", rings} in the scope, then set_pattern_direction {applyTo:"area", markupId, angle}. Region edges follow cells of `cellPoints`; pass a smaller cellPoints for a finer edge',
           }
         }
         case 'detect_pattern': {
