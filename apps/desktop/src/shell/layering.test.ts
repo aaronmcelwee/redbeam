@@ -484,10 +484,11 @@ describe('the scope roll-up', () => {
   })
 
   it('gives the piece calculation the project too', () => {
+    // Laid out through `layOut`, which get_bom's per-area counts reuse.
     const at = workspace.indexOf('const pieces = scopes.map(')
     expect(at, 'the pieces roll-up is gone').toBeGreaterThan(-1)
-    const pieces = workspace.slice(at, at + 900)
-    expect(pieces).toContain('calculatePieces(s, projectMarkups, fallbackCal,')
+    expect(workspace.slice(at, at + 200)).toContain('layOut(s, projectMarkups)')
+    expect(workspace).toContain('calculatePieces(s, markups, fallbackCal,')
   })
 
   /**

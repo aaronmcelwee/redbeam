@@ -168,6 +168,8 @@ import { libraryEntry, readLibrary, saveToLibrary, newerInLibrary } from './patt
 import type { PatternControls } from './shell/PatternCard.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
+import { bomScopeFilter, perAreaCounts } from './bom/agentBom.js'
+import { detectGrid, nearestCrossing } from './search/grid.js'
 import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
@@ -2765,6 +2767,8 @@ export default function Workspace({
   const takeoffTotals = useMemo((): {
     quantities: Array<{ scope: Scope; rows: QuantityResult[] }>
     pieces: Array<{ scope: Scope; result: PieceResult; factoryCut?: FactoryCut }>
+    /** Lays one scope out over the markups given, as `pieces` was: for get_bom's per-area counts. */
+    layOut?: (scope: Scope, markups: readonly Markup[]) => PieceResult
   } => {
     /*
      * NOT GATED ON THE OPEN SHEET'S SCALE.
@@ -2916,8 +2920,8 @@ export default function Workspace({
       const recipe = patternPreviews.get(s.id)
       return recipe === undefined ? s : { ...s, specifications: { ...s.specifications, productType: 'custom_pattern', [PATTERN_RECIPE_KEY]: recipe } }
     }
-    const pieces = scopes.map(asPreviewed).map((s) => withCuts(s,
-      calculatePieces(s, projectMarkups, fallbackCal, {
+    const layOut = (s: Scope, markups: readonly Markup[]): PieceResult =>
+      calculatePieces(s, markups, fallbackCal, {
         scopeDirection: scopeDefaultDirectionFrom(s.specifications),
         // AREA beats PAGE beats SCOPE. See `directionFrom` in the domain.
         pageDirections: pageDirectionsFrom(s.specifications),
@@ -2935,13 +2939,15 @@ export default function Workspace({
         // sheet's piece count agrees with its area instead of the two
         // disagreeing confidently.
         scaleRegions: projectRegions,
-      }),
-    ))
-    return { quantities, pieces }
+      })
+    const pieces = scopes.map(asPreviewed).map((s) => withCuts(s, layOut(s, projectMarkups)))
+    return { quantities, pieces, layOut: (s, markups) => layOut(asPreviewed(s), markups) }
   }, [projectMarkups, projectCalibrations, projectPageBoxes, projectRegions, scopes, cal, prefs, patternPreviews])
   const { quantities, pieces } = takeoffTotals
 
   useEffect(() => { piecesRef.current = pieces }, [pieces])
+  const layOutRef = useRef(takeoffTotals.layOut)
+  layOutRef.current = takeoffTotals.layOut
 
   /*
    * Name the window after the project (Aaron's request).
@@ -6570,6 +6576,49 @@ export default function Workspace({
     error: `no such scope: ${id === null || id === '' ? '(none given, and none is active)' : id}. Use a scopeId from \`scopes\`, or create_scope`,
     scopes: scopesRef.current.slice(0, 60).map((x) => ({ scopeId: x.id, label: x.label })),
   })
+  /**
+   * The grid drawn in an area (or a box) of the sheet showing, with its
+   * module in points, feet and inches at the scale there.
+   */
+  const agentGridIn = async (
+    where: Markup | { x0: number; y0: number; x1: number; y1: number }, angle: unknown,
+  ): Promise<{ grid: NonNullable<ReturnType<typeof detectGrid>>; modules: Record<string, unknown>; fpp: number | null } | { error: string }> => {
+    const v = viewerRef.current
+    if (!v || ap.size.width === 0) return { error: 'no page is showing' }
+    const here = ap.id
+    const isArea = 'rings' in where
+    if (isArea && where.pageId !== here) return { error: `area ${where.id} is on another sheet; turn to it first with redbeam_go_to_page` }
+    const r = isArea ? normalizedBoundingRect(where.rings) : { left: Math.min(where.x0, where.x1), right: Math.max(where.x0, where.x1), top: Math.min(where.y0, where.y1), bottom: Math.max(where.y0, where.y1) }
+    if (r === null) return { error: 'that area has no outline' }
+    const pad = 0.002
+    const clip = { x0: Math.max(0, r.left - pad), y0: Math.max(0, r.top - pad), x1: Math.min(1, r.right + pad), y1: Math.min(1, r.bottom + pad) }
+    const geo = await v.requestGeometry(ap.index, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 400_000 })
+    const a = Number(angle)
+    const grid = detectGrid(geo.segments, ap.size, {
+      ...(isArea ? { rings: where.rings } : { box: clip }),
+      ...(angle !== undefined && angle !== null && Number.isFinite(a) ? { angle: a } : {}),
+    })
+    if (grid === null) return { error: 'no grid of crossing lines is drawn there' }
+    const centre = { x: (clip.x0 + clip.x1) / 2, y: (clip.y0 + clip.y1) / 2 }
+    const region = (projectRegions.get(here) ?? []).find((s) => pointInRegion(centre, [[
+      { x: Math.min(s.rect.x0, s.rect.x1), y: Math.min(s.rect.y0, s.rect.y1) }, { x: Math.max(s.rect.x0, s.rect.x1), y: Math.min(s.rect.y0, s.rect.y1) },
+      { x: Math.max(s.rect.x0, s.rect.x1), y: Math.max(s.rect.y0, s.rect.y1) }, { x: Math.min(s.rect.x0, s.rect.x1), y: Math.max(s.rect.y0, s.rect.y1) },
+    ]]))
+    const fpp = region?.feetPerPoint ?? ap.feetPerPoint
+    const len = (pts: number | null) => pts === null ? null : {
+      points: Math.round(pts * 100) / 100,
+      ...(fpp === null ? {} : { feet: Math.round(pts * fpp * 1000) / 1000, inches: Math.round(pts * fpp * 12 * 100) / 100 }),
+    }
+    return {
+      grid, fpp,
+      modules: {
+        // Spacing between the lines at `angle` (measured across them), and between the lines across those.
+        moduleAcrossLines: len(grid.moduleA), moduleAlongLines: len(grid.moduleB),
+        ...(fpp === null ? { scale: 'the sheet has no scale; modules are in PDF points only' } : {}),
+        ...(geo.truncated ? { note: 'more geometry than was read; use a smaller area' } : {}),
+      },
+    }
+  }
   const agentAreas = (params: Record<string, unknown>): { scope: Scope; areas: Markup[] } | { error: string } => {
     const sid = String(params['scopeId'] ?? agentScope() ?? '')
     const ids = Array.isArray(params['markupIds']) ? (params['markupIds'] as unknown[]).map(String)
@@ -6696,6 +6745,7 @@ export default function Workspace({
   }
 
   useBridgeHost(quickView?.file ?? '', {
+    saveFile: projectBridge.writeExport === undefined ? undefined : (path, bytes, overwrite) => projectBridge.writeExport!(path, bytes, overwrite),
     query: async (sql, params) => {
       const db = dbRef.current
       if (db === null) throw new Error('the PDF is still opening; poll redbeam_get_ui_state until pageCount > 0')
@@ -6871,7 +6921,6 @@ export default function Workspace({
       return out.toDataURL('image/png')
       } finally { agentCtxRef.current = UNNAMED_CALL }
     },
-
     invoke: async (action, params, ctx) => {
       actorRef.current = 'agent'
       agentCtxRef.current = ctx
@@ -7547,15 +7596,53 @@ export default function Workspace({
          * Qt original. A total that flattens the three is a bid.
          */
         case 'get_bom': {
-          const bom = buildBom(piecesRef.current)
-          return {
+          /*
+           * One scope, or a few, instead of the whole bill (NOIC report,
+           * 2026-11-26: "at about 60 KB per call it overflows my context").
+           * `brief` says each scope's note once instead of on every line.
+           */
+          const wanted = bomScopeFilter(params, scopesRef.current)
+          if ('error' in wanted) return wanted
+          const entries = wanted.ids === null ? piecesRef.current : piecesRef.current.filter((p) => wanted.ids!.has(p.scope.id))
+          const bom = buildBom(entries)
+          const brief = params['brief'] === true
+          const notes: Record<string, string> = {}
+          const lines = bom.lines.map((l) => {
+            let out: Record<string, unknown> = { ...l }
             // A blocked line names the keys to set, not only their labels (round 3 #1).
-            lines: bom.lines.map((l) => {
-              if (l.confidence !== 'blocked') return l
+            if (l.confidence === 'blocked') {
               const sc = scopesRef.current.find((x) => x.id === l.scopeId)
               const keys = sc === undefined ? [] : missingKeys(readProductType(sc.specifications), sc.specifications)
-              return keys.length > 0 ? { ...l, missing: keys } : l
-            }),
+              if (keys.length > 0) out = { ...out, missing: keys }
+            }
+            if (brief) {
+              if (l.note !== undefined && l.confidence !== 'blocked') { notes[l.scopeId] ??= l.note; delete out['note'] }
+              delete out['productType']
+            }
+            return out
+          })
+          /*
+           * Per area (NOIC report: "show layout counts per area as well as
+           * per scope, so drawn and counted numbers can be compared room by
+           * room"). Each area is laid out alone, with the same settings the
+           * scope's count uses, so its numbers are the ones its pieces show.
+           */
+          const layOut = layOutRef.current
+          const perArea = params['perArea'] === true && layOut !== undefined
+            ? perAreaCounts(entries.map((e) => e.scope), projectMarkupsRef.current, layOut, (pid) => {
+              const pg = pageNumberFrom(pid, docIdRef.current)
+              return { page: pg, sheet: pg === null ? null : sheetLabelFor(pg) }
+            })
+            : undefined
+          return {
+            ...(wanted.ids !== null ? { scopes: [...wanted.ids] } : {}),
+            lines,
+            ...(brief && Object.keys(notes).length > 0 ? { notes } : {}),
+            ...(perArea !== undefined ? {
+              areas: perArea.areas,
+              areaItems: perArea.items,
+              areaNote: 'each area laid out on its own with the scope\'s settings; counts are keyed as in areaItems. A connector shared by two areas is counted in both, so area connectors can add up to more than the scope\'s',
+            } : {}),
             totals: bom.totals,
             counts: bom.counts,
             needsAttention: bom.needsAttention,
@@ -8621,10 +8708,32 @@ export default function Workspace({
           const corner = params['corner']
           const pageBox = { width: ap.size.width, height: ap.size.height }
           const origins = { ...(sc.specifications[AREA_ORIGINS_KEY] as Record<string, unknown> ?? {}) }
-          const placed: Array<{ markupId: string; origin: { x: number; y: number } | null }> = []
+          const placed: Array<{ markupId: string; origin: { x: number; y: number } | null; grid?: Record<string, unknown> }> = []
           for (const m of areas) {
             let p: { x: number; y: number } | null = null
             if (mode === 'auto') { delete origins[m.id]; placed.push({ markupId: m.id, origin: null }); continue }
+            if (mode === 'grid') {
+              /*
+               * The nearest crossing of the grid drawn in the area (NOIC
+               * report, 2026-11-26: "start this area on the nearest drawn
+               * grid crossing"), to `point`, else to the corner the layout
+               * starts from.
+               */
+              const read = await agentGridIn(m, params['angle'])
+              if ('error' in read) return read
+              const fromCorner = isAreaCorner(corner) ? corner
+                : isAreaCorner(prefs['takeoff.patternStart']) ? prefs['takeoff.patternStart'] : 'top-left'
+              const to = pt ?? areaCornerPoint(m.rings, fromCorner, pageBox)
+              const hit = to === null ? null : nearestCrossing(read.grid, to, pageBox)
+              if (hit === null) return { error: `no drawn grid crossing inside ${m.id}; redbeam_detect_grid shows what lines were found` }
+              p = hit.point
+              origins[m.id] = { x: p.x, y: p.y }
+              placed.push({
+                markupId: m.id, origin: { x: p.x, y: p.y },
+                grid: { angle: read.grid.angle, ...read.modules, movedPoints: Math.round(hit.distancePoints * 10) / 10, crossings: read.grid.crossings.length },
+              })
+              continue
+            }
             if (mode === 'center') {
               const r = normalizedBoundingRect(m.rings)
               p = r === null ? null : { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }
@@ -8643,7 +8752,7 @@ export default function Workspace({
               p = patternStartPoint(pt, m.rings, { scaleX: ap.size.width, scaleY: ap.size.height, radius: 3 })
               if (p === null) return { error: `that point is outside area ${m.id}` }
             } else {
-              return { error: 'mode must be point, corner, edge, center or auto' }
+              return { error: 'mode must be point, corner, edge, center, grid or auto' }
             }
             if (p === null) return { error: `could not place an origin on ${m.id}` }
             origins[m.id] = { x: p.x, y: p.y }
@@ -8934,6 +9043,42 @@ export default function Workspace({
             return { ...summary, fields: fields.map((f, i) => ({ id: ids[i], ...f })), note: 'placed as areas; look at each `lookAt` with redbeam_screenshot (overlay on) to check the edges' }
           }
           return { ...summary, fields, note: 'pass a field’s rings to create_markup, or call again with create:true. Look at `lookAt` with redbeam_screenshot to check the edges' }
+        }
+        /*
+         * A drawn panel or tile grid (NOIC report, 2026-11-26): its module,
+         * rows, columns and first crossing, from single or double lines, in
+         * an area or a box.
+         */
+        case 'detect_grid': {
+          if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
+          const v = viewerRef.current
+          if (!v || ap.size.width === 0) return { error: 'no page is showing' }
+          let area: Markup | undefined
+          if (typeof params['markupId'] === 'string') {
+            area = docMarkupsRef.current.find((m) => m.id === params['markupId'])
+            if (area === undefined || area.kind !== 'area') return { error: `no area ${String(params['markupId'])}` }
+          }
+          const rect = bridgeRect(params['rect'])
+          if (area === undefined && (rect === undefined || rect === null)) return { error: 'detect_grid needs `markupId` (an area) or `rect` {x0,y0,x1,y1} around the grid' }
+          const read = area !== undefined ? await agentGridIn(area, params['angle']) : await agentGridIn(rect!, params['angle'])
+          if ('error' in read) return read
+          const g = read.grid
+          const limit = Math.max(0, Math.min(5000, Number(params['limit'] ?? 0) || 0))
+          const first = [...g.crossings].sort((a, b) => a.y - b.y || a.x - b.x)[0]
+          return {
+            page: ap.index,
+            angle: g.angle,
+            ...read.modules,
+            // Lines of the first family run at `angle`; so there are as many rows across them as lines less one.
+            linesAtAngle: g.linesA.length, linesAcross: g.linesB.length,
+            rows: Math.max(0, g.linesA.length - 1), columns: Math.max(0, g.linesB.length - 1),
+            doubleLines: g.doubleLines,
+            ...(g.bandWidth !== null ? { bandWidthPoints: g.bandWidth, bandWidthInches: read.fpp === null ? null : Math.round(g.bandWidth * read.fpp * 12 * 100) / 100 } : {}),
+            crossingCount: g.crossings.length,
+            start: first ?? null,
+            ...(limit > 0 ? { crossings: g.crossings.slice(0, limit) } : {}),
+            note: 'set_pattern_origin with mode "grid" starts an area on the crossing nearest a point; set_pattern_direction with `angle` lines the layout up with it',
+          }
         }
         case 'detect_pattern': {
           if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))

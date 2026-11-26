@@ -17,6 +17,16 @@ All are unsigned; SmartScreen will ask once.
 - **Beams told from slabs.** When an agent reads a drawn pattern where some members are drawn differently (beams as double lines, slabs as single ones), it is told which is which and how often each repeats, instead of a wrong spacing.
 - **Hatched fields traced from the right lines.** Tracing a hatched ceiling follows the hatch under the point the agent gave, not a denser hatch next to it, and tells the agent what else it saw so it can try again.
 
+## 0.3.101 — 2026-11-26
+
+### Agents read drawn grids and check layouts with less work
+
+- **Agents start an area on the drawn grid.** An agent can now start an area's layout on the nearest crossing of the panel or tile grid drawn in it, instead of measuring the grid off screenshots. On the NOIC takeoff that was 40 areas set by hand.
+- **Agents read a drawn grid.** A new tool reads a panel or tile grid off the drawing: its module both ways, rows and columns, its angle and where it starts. Grids drawn in double lines are read at their centres.
+- **Counts per area.** The parts list an agent reads can now give each area's own counts as well as the scope's, so drawn and counted numbers can be compared room by room.
+- **Smaller parts lists for agents.** An agent can ask for the parts list of one scope or a few, and have each scope's note said once, so a big takeoff's list no longer fills its memory.
+- **Check images saved to a file.** An agent can save a picture of a sheet, with the takeoff drawn on it, to a file it names, so it can send you check images without driving the window.
+
 ## 0.3.100 — 2026-11-26
 
 ### You and an agent in the same set, each with your own view
