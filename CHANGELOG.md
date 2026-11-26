@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.112 — 2026-11-26
+
+### Bluebeam markups can be moved, recoloured and deleted
+
+- **Edit markups made in other apps.** Clouds, text boxes, arrows, dimensions and other markups made in Bluebeam or another app can now be selected in REDBEAM. Drag one to move it, pick a new colour from its menu, or delete it. They keep looking exactly as Bluebeam drew them.
+- **Saved back into the PDF.** Saving writes the change into the original markup, so Bluebeam shows it moved, recoloured or gone. Nothing is doubled or dropped, and undoing a delete after saving brings the same markup back.
+- **Dimensions stay dimensions.** A Bluebeam dimension is kept as Bluebeam's own markup rather than being offered as a length to take off.
+
 ## 0.3.111 — 2026-11-26
 
 ### Cloud slope and upturn taken back out
