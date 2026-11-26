@@ -81,7 +81,8 @@ import type { SheetScope } from './shell/sheets.js'
 import { StatusToast } from './shell/StatusToast.js'
 import { PerfReadout } from './shell/PerfReadout.js'
 import { buildSheetIndex, isOrdinalLabel, mergeSheetLabels, sheetFromText } from './shell/sheets.js'
-import { codeOf, findTitleBlock, type FoundTitleBlock } from './shell/findTitleBlock.js'
+import type { FoundTitleBlock } from './shell/findTitleBlock.js'
+import { SheetNamer } from './shell/sheetNamer.js'
 import type { SheetIndexShape, SheetOutlineNode } from './shell/sheets.js'
 import {
   EstimatesPanel, type EstimateFile, type EstimateListItem, type PanelWarning, type ScopeMarkup, type ScopeStanding,
@@ -1998,69 +1999,50 @@ export default function Workspace({
       const pool = textPool()
       const all = Array.from({ length: pageCount }, (_, k) => k)
       pool?.want(all.filter((k) => v.getText(k) === undefined))
-      const texts: Array<PageText | null> = new Array<PageText | null>(pageCount).fill(null)
-      const labels: Array<string | null> = new Array<string | null>(pageCount).fill(null)
-      let regions: TitleBlockRegions | null = null
-      let readCount = 0
-      let nextLook = 12
+      // Each sheet named from the set's own title block as it is read (shell/sheetNamer.ts).
+      const namer = new SheetNamer(pageCount)
+      let blockShown: FoundTitleBlock | null = null
       let shown = performance.now()
-      const labelFor = (pt: PageText): string | null => {
-        // The set's title block, found from where its codes sit, before a guess from the text order.
-        const boxed = regions === null ? null : readSheetName(pt, regions)
-        if (boxed !== null && codeOf(boxed.number) !== null) {
-          const title = boxed.title.replace(boxed.number, '').replace(/\s+/g, ' ').trim()
-          return title === '' ? boxed.number : `${boxed.number} ${title}`
-        }
-        const found = sheetFromText(pt.text)
-        return found === null ? null : found.title === '' ? found.number : `${found.number} ${found.title}`
-      }
       // `sweepPage`, not `i`: this enumerates EVERY page, so unlike every other
       // page id in this file there is no "current page" it could be wrong
       // about. The name is what tells the page-identity guard that.
       for (let sweepPage = 0; sweepPage < pageCount; sweepPage++) {
         if (cancelled) return
         try {
-          const pt = v.getText(sweepPage) ?? (pool !== null ? await pool.text(sweepPage) : await v.requestText(sweepPage))
+          /*
+           * The set's readers, and the viewer's own when they are gone: a pool
+           * closed under the sweep (a tab switch) must not leave the rest of
+           * the set unnamed (0.3.96 retest: one sheet of 60 named).
+           */
+          let pt: PageText | null | undefined = v.getText(sweepPage)
+          if (pt === undefined && pool !== null && !pool.isClosed) pt = await pool.text(sweepPage)
+          // Null from an open pool is a page it gave up on; from a closed one, nothing was tried.
+          if (pt === undefined || (pt === null && pool !== null && pool.isClosed)) pt = await v.requestText(sweepPage)
           if (cancelled) return
           if (pt === null) continue
-          texts[sweepPage] = pt
-          readCount++
           await indexPageText(db, {
             pageId: pageIdFor(docId, sweepPage),
             documentId: docId,
             content: pt.text,
             source: pt.scanned ? 'ocr-needed' : 'native',
           })
-          /*
-           * Look for the title block once a dozen sheets are read, and again
-           * as more come in, until it is found (shell/findTitleBlock.ts).
-           * Once found, every sheet read so far is named again from it.
-           */
-          if (regions === null && (readCount === nextLook || sweepPage === pageCount - 1)) {
-            nextLook = Math.max(nextLook * 3, 12)
-            const sample = texts.filter((t): t is PageText => t !== null)
-            const step = Math.max(1, Math.floor(sample.length / 300))
-            const found = findTitleBlock(sample.filter((_, k) => k % step === 0))
-            if (found !== null) {
-              regions = found.regions
-              setFoundTitleBlock(found)
-              for (let k = 0; k < sweepPage; k++) { const t = texts[k]; if (t !== null && t !== undefined) labels[k] = labelFor(t) }
-            }
-          }
-          labels[sweepPage] = labelFor(pt)
+          namer.add(sweepPage, pt, false, v.getPageSize(sweepPage))
         } catch {
           // One unreadable sheet is not a reason to stop reading the rest.
         }
         // The list fills in as it goes, a few times a second rather than per page.
+        if (sweepPage === pageCount - 1) namer.finish()
         if (performance.now() - shown > 250 || sweepPage === pageCount - 1) {
           shown = performance.now()
-          setDerivedLabels([...labels])
+          setDerivedLabels(namer.names())
+          const block = namer.titleBlock()
+          if (block !== blockShown) { blockShown = block; setFoundTitleBlock(block) }
         }
       }
     })()
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageCount, docIndex.shape, docIndex.labels, activeDocId])
+  }, [pageCount, docIndex.shape, docIndex.labels, activeDocId, docUrl])
   /** The title block found on the set's own sheets (shell/findTitleBlock.ts), for list_sheets. */
   const [foundTitleBlock, setFoundTitleBlock] = useState<FoundTitleBlock | null>(null)
 

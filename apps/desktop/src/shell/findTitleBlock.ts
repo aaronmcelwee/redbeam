@@ -32,8 +32,12 @@ import type { TitleBlockRegions } from './titleBlock.js'
 
 type Page = { text: string; runs: readonly TextRun[] }
 
-/** A word that could be a sheet number: "A101", "A-101", "A1.01", "ID-201", "S2.1A", "E0.00". */
-const CODE = /^[A-Z]{1,4}[-. ]?\d{1,4}(?:[-.]\d{1,3}){0,2}[A-Z]?$/
+/**
+ * A word that could be a sheet number: "A101", "A-101", "A1.01", "ID-201",
+ * "S2.1A", "E0.00", and the NOIC set's "IB4.LL1" and "IC8.0L1B", whose part
+ * after the dot names a level in letters and figures.
+ */
+const CODE = /^[A-Z]{1,4}[-. ]?\d{1,4}(?:[-.](?=[0-9A-Z]*\d)[0-9A-Z]{1,5}){0,2}[A-Z]?$/
 /** Shaped like a code but never a sheet: a revision mark, a grid line, a level. */
 const NOT_A_SHEET = /^(?:R|REV|L|LVL|LEVEL|NO|N|S|E|W)[-. ]?\d{1,2}$/
 
@@ -160,9 +164,40 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
       c.box = union(c.box, w.box)
     }
   })
+  /*
+   * The cells that clear the bar, gathered into touching clusters, and the
+   * cluster nearest the number is the title. On a whole set the window round
+   * the number also takes in the drawing's own changing words (room names,
+   * finish tags), and a union of every cell made a box half the sheet wide
+   * (NOIC Interior Fit-Up, 2026-11-26).
+   */
+  const bar = Math.max(2, Math.ceil(P * 0.3))
+  const good = new Map<string, NormBox>()
+  for (const [k, c] of titleCells) if (c.pages.size >= bar && c.box !== null) good.set(k, c.box)
+  const seen = new Set<string>()
   let title: NormBox | null = null
-  for (const c of titleCells.values()) {
-    if (c.pages.size >= Math.max(2, Math.ceil(P * 0.3)) && c.box !== null) title = union(title, c.box)
+  let nearest = Infinity
+  for (const start of good.keys()) {
+    if (seen.has(start)) continue
+    let box: NormBox | null = null
+    const todo = [start]
+    seen.add(start)
+    while (todo.length > 0) {
+      const k = todo.pop()!
+      box = union(box, good.get(k)!)
+      const [ix, iy] = k.split(',').map(Number) as [number, number]
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const n = `${ix + dx},${iy + dy}`
+          if (!seen.has(n) && good.has(n)) { seen.add(n); todo.push(n) }
+        }
+      }
+    }
+    const gap = Math.hypot(
+      Math.max(0, box!.x0 - number.x1, number.x0 - box!.x1),
+      Math.max(0, box!.y0 - number.y1, number.y0 - box!.y1),
+    )
+    if (gap < nearest) { nearest = gap; title = box }
   }
   /*
    * Then out along its lines: a long title's last word sits in a cell few
@@ -170,21 +205,40 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
    * any changing word on the box's lines, just past either end, widens it.
    */
   if (title !== null) {
-    for (let grew = true; grew;) {
-      grew = false
-      const t: NormBox = title
-      for (const ws of pageWords) {
+    // Never far: a line of the drawing at the same height is not the title (NOIC, 2026-11-26).
+    const core: NormBox = title
+    const reach: NormBox = { x0: core.x0 - 0.06, y0: core.y0, x1: core.x1 + 0.06, y1: core.y1 }
+    /*
+     * Each sheet grows its own line from the core by its own words, a word's
+     * gap at a time, and the box takes an end that two sheets reach: one
+     * sheet's drawing label beside its title is that sheet's, not the block's.
+     */
+    const lefts: number[] = []
+    const rights: number[] = []
+    for (const ws of pageWords) {
+      let t: NormBox = core
+      for (let grew = true; grew;) {
+        grew = false
         for (const w of ws) {
-          if (!near(w) || furniture(w) || w.cy < t.y0 || w.cy > t.y1) continue
+          if (!near(w) || furniture(w) || w.cy < core.y0 || w.cy > core.y1) continue
           if (w.box.x0 >= t.x0 && w.box.x1 <= t.x1) continue
-          if (w.box.x0 > t.x1 + 0.03 || w.box.x1 < t.x0 - 0.03) continue
+          // A word's gap, not a column's: NOIC's legends sit six letters' height left of the title and are not it.
+          const gap = Math.max(0.006, 2.5 * (w.box.y1 - w.box.y0))
+          if (w.box.x0 > t.x1 + gap || w.box.x1 < t.x0 - gap) continue
+          if (w.box.x0 < reach.x0 || w.box.x1 > reach.x1) continue
           // Never into the number box.
           if (w.cx >= number.x0 && w.cx <= number.x1 && w.cy >= number.y0 && w.cy <= number.y1) continue
-          title = union(title, w.box)
+          t = { ...union(t, w.box), y0: core.y0, y1: core.y1 }
           grew = true
         }
       }
+      lefts.push(t.x0)
+      rights.push(t.x1)
     }
+    lefts.sort((a, b) => a - b)
+    rights.sort((a, b) => b - a)
+    const k = Math.min(1, lefts.length - 1)
+    title = { x0: Math.min(core.x0, lefts[k]!), y0: core.y0, x1: Math.max(core.x1, rights[k]!), y1: core.y1 }
   }
   return {
     regions: { number, title: title === null ? null : pad(title, 0.003) },

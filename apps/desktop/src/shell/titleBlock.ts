@@ -83,7 +83,7 @@ export function textInBox(page: { text: string; runs: readonly TextRun[] }, box:
 
 /** A field's printed label, when the box took it in with the value. */
 const NUMBER_LABEL = /^(?:(?:DRAWING|DWG|SHEET)\.?\s*(?:NO|NUMBER|NUM|#)\.?|NO\.|NUMBER)\s*:?\s*/i
-const TITLE_LABEL = /^(?:(?:DRAWING|DWG|SHEET)\.?\s*)?(?:TITLE|NAME)\s*:?\s*/i
+const TITLE_LABEL = /^(?:(?:(?:DRAWING|DWG|SHEET)\.?\s*)?(?:TITLE|NAME)|DESCRIPTION)\s*:?\s*/i
 
 /** What the two boxes say on one sheet, or null when the number box is empty. */
 export function readSheetName(

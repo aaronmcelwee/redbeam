@@ -73,4 +73,21 @@ describe('reading every sheet with several readers', () => {
     expect(laneCount(1)).toBe(1)
     expect(laneCount(undefined)).toBe(2)
   })
+  it('answers at once from a closed pool, never with a wait for ever', async () => {
+    // 0.3.96 retest: the sheet list held a pool closed by a tab switch and named one sheet of 60.
+    const pool = new PageTextPool({ open: opener().open, lanes: 2 })
+    pool.close()
+    expect(pool.isClosed).toBe(true)
+    await expect(pool.text(7)).resolves.toBeNull()
+  })
+  it('lets a reader go after so many pages, so PDFium memory never piles up', async () => {
+    // NOIC spec: one PDFium document read whole passed 2 GB at page 4,022 and aborted.
+    const o = opener()
+    const pool = new PageTextPool({ open: o.open, lanes: 1, readsPerReader: 10 })
+    const pages = Array.from({ length: 35 }, (_, i) => i)
+    pool.want(pages)
+    const all = await Promise.all(pages.map((p) => pool.text(p)))
+    expect(all.every((t) => t !== null)).toBe(true)
+    expect(o.opened()).toBe(4)
+  })
 })

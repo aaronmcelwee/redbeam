@@ -33,12 +33,23 @@ export interface TextPoolOptions {
   onText?: (page: number, text: PageText) => void
   /** A page that kept one reader busy this long is given up on (that reader is replaced). */
   stuckMs?: number
+  /** Pages one reader reads before it is let go for a fresh one (see READS_PER_READER). */
+  readsPerReader?: number
 }
 
 /** One page that could not be read, and why. */
 export interface Unreadable { page: number; why: string }
 
 export const STUCK_MS = 120_000
+
+/*
+ * NOIC spec, read whole in one PDFium document (2026-11-26): the heap grew
+ * about 100 MB every 250-500 pages and never came back (PDFium keeps what a
+ * page's fonts and images decoded for the life of the document), and at page
+ * 4,022 it passed 2 GB and aborted. One page read alone takes nothing like
+ * it. So a reader is let go after this many pages and the next is fresh.
+ */
+export const READS_PER_READER = 400
 
 type Slot = {
   promise: Promise<PageText | null>
@@ -60,17 +71,27 @@ export class PageTextPool {
   private closed = false
   private readonly sources: Array<TextSource | null>
   private readonly stuckMs: number
+  private readonly readsPerReader: number
+  private readonly reads: number[]
 
   constructor(private readonly opts: TextPoolOptions) {
     this.sources = Array.from({ length: Math.max(1, opts.lanes) }, () => null)
     this.stuckMs = opts.stuckMs ?? STUCK_MS
+    this.readsPerReader = Math.max(1, opts.readsPerReader ?? READS_PER_READER)
+    this.reads = this.sources.map(() => 0)
   }
 
   /** The page's text, read in the background if it is not yet; null when it cannot be read. */
   text(page: number): Promise<PageText | null> {
+    // A closed pool reads nothing more: an answer now, never a wait for ever
+    // (0.3.96 retest: the sheet sweep held a closed pool and named one sheet).
+    if (this.closed && !this.done.has(page)) return Promise.resolve(null)
     this.want([page], true)
     return this.slot(page).promise
   }
+
+  /** Whether close() has been called: nothing more will be read. */
+  get isClosed(): boolean { return this.closed }
 
   /** Whether a page has been read, or given up on. */
   settled(page: number): boolean {
@@ -159,6 +180,7 @@ export class PageTextPool {
         if (src === null || src === undefined) { src = await this.opts.open(); this.sources[lane] = src }
         if (this.closed) { src.close(); return }
         const got = await this.within(src.textLayer(page))
+        if (++this.reads[lane]! >= this.readsPerReader) this.replace(lane)
         if (got === undefined) {
           failed = `still being read after ${Math.round(this.stuckMs / 1000)} s`
           this.replace(lane)
@@ -190,6 +212,7 @@ export class PageTextPool {
   private replace(lane: number): void {
     this.sources[lane]?.close()
     this.sources[lane] = null
+    this.reads[lane] = 0
   }
 
   private within<T>(job: Promise<T>): Promise<T | undefined> {
