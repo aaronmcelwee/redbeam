@@ -50,6 +50,8 @@ export interface RouterDeps {
   setOwner: (file: string, owner: string | null) => void
   /** Move a finished session's tab to the person's strip, marked as come from `agent` until they open it. */
   handBack: (file: string, agent: Agent) => void
+  /** Give a tab handed back from `agentId` (and not yet opened by the person) back to it. */
+  reclaim?: (file: string, agentId: string) => void
   roster: RosterStore
   appVersion: string
   now?: () => number
@@ -68,8 +70,53 @@ export const OPEN_WAIT_MS = 20_000
  */
 export const LOST_AFTER_MS = 20_000
 
+/**
+ * Calls that only read, and never move a view: answered at once rather than
+ * queued behind the PDF's other calls. NOIC spec, 2026-11-26: a close-up of
+ * page 1968 that never came back held the PDF's queue, so the get_state and
+ * get_words after it waited too, and the AI app gave up on the whole
+ * connector after 140 s. A read may see a write half done; it never blocks one.
+ */
+const READ_ACTIONS = new Set([
+  'get_ui_state', 'query', 'get_state', 'screenshot',
+])
+const READ_UI_ACTIONS = new Set([
+  'find_text', 'get_words', 'list_sheets', 'list_markups', 'list_scopes', 'get_bom', 'get_history',
+  'get_settings', 'list_bookmarks', 'list_links', 'list_annotations', 'get_piece_list', 'get_pattern',
+  'list_patterns', 'get_scale_presets', 'describe_product', 'get_lines', 'read_scale', 'measure',
+])
+
+/** Whether a call only reads: see READ_ACTIONS. A screenshot of the canvas as it is, or of a named sheet, reads. */
+export function readsOnly(action: string, params: Record<string, unknown>): boolean {
+  if (READ_ACTIONS.has(action)) return true
+  if (action !== 'invoke_ui_action') return false
+  const what = typeof params['action'] === 'string' ? params['action'] : ''
+  if (!READ_UI_ACTIONS.has(what)) return false
+  // Some reads turn the window to the sheet they name first; those wait their turn.
+  return params['page'] === undefined || READS_ANY_SHEET.has(what)
+}
+/** Reads that answer for any sheet without showing it. */
+const READS_ANY_SHEET = new Set(['find_text', 'get_words', 'list_sheets', 'list_markups', 'get_bom', 'get_piece_list', 'get_history'])
+
+/**
+ * A window that did not run its tick for this long was itself stalled (a
+ * long render on the main thread, a laptop asleep): no AI app's server could
+ * reach it meanwhile, so silence over that stretch says nothing about them.
+ */
+export const STALL_MS = 10_000
+/**
+ * How long the PDFs of a session whose app stopped answering wait for it to
+ * come back before the ones it only read are closed. Its app may only be
+ * restarting its connector: SLS, 2026-11-26, read-only tabs closed 25 s
+ * after the connector went, and the session came back to find them gone.
+ */
+export const LOST_GRACE_MS = 10 * 60_000
+
 export class BridgeRouter {
   private readonly queues = new Map<string, Promise<unknown>>()
+  private lastSweep: number | null = null
+  /** Read-only tabs of lost sessions, waiting out LOST_GRACE_MS before they close. */
+  private readonly lingering = new Map<string, { agentId: string; at: number }>()
   /** When each AI app's server last said it was alive, by the part of an agent's id before the last "/". */
   private readonly aliveAt = new Map<string, number>()
   private readonly now: () => number
@@ -84,7 +131,17 @@ export class BridgeRouter {
   async answer(req: BridgeRequest): Promise<Record<string, unknown> | null> {
     const params = req.params ?? {}
     const who = identityOf(req.agent)
+    const before = who === null ? undefined : this.deps.roster.agent(who.id)
     const agent = who === null ? null : this.deps.roster.see(who)
+    /*
+     * A session coming back after its app's server was lost or restarted
+     * (mcp.rs keeps sessions across a restart): the tabs it was handed back
+     * and that the person has not opened since are its own again. NOIC
+     * intake, 2026-11-26: after a restart the spec answered yours:false.
+     */
+    if (agent !== null && before?.state === 'gone' && (before.ended?.by === 'lost' || before.ended?.by === 'app')) {
+      this.reclaimTabs(agent)
+    }
     /*
      * A server is on the clock from its first call, not from its first "still
      * here". One that was killed in its first five seconds never said so, and
@@ -166,8 +223,9 @@ export class BridgeRouter {
         : { text, file: tab.file, page: callPage(params), point: callPoint(params) })
     }
     let result: Record<string, unknown>
+    const turn = <T,>(run: () => Promise<T>): Promise<T> => (readsOnly(action, params) ? run() : this.inTurn(tab.file, run))
     try {
-      result = await this.inTurn(tab.file, async () => {
+      result = await turn(async () => {
         const host = await this.ready(tab.file, Math.min(12_000, left() - 1500))
         if (host === undefined) {
           return { error: `${nameOf(tab.file)} is still opening in the background. Try again in a few seconds.`, opening: true }
@@ -311,8 +369,8 @@ export class BridgeRouter {
     return {
       yours: false,
       tab: tab.owner === undefined
-        ? 'This PDF is open in the person\'s own tab. You can read it and add markups on any of its sheets (name the sheet with `page`; it is written in the background). A call that would turn its pages or zoom it asks them first; for free rein, redbeam_save_copy and open the copy.'
-        : `This PDF is ${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab. You can read it; to change its view, work in a copy (redbeam_save_copy, then open the copy).`,
+        ? 'This PDF was already open in the person\'s own tab, so it stays theirs. That changes nothing for you: you have your own view of it, and every read, screenshot, page turn, zoom and write works there without asking them or moving their screen.'
+        : `This PDF was already open as ${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab. You have your own view of it and can read and write there; you are both changing one PDF, so do not undo or delete what you did not make.`,
     }
   }
 
@@ -382,30 +440,58 @@ export class BridgeRouter {
     const wrote = (file: string) => agent.wrote.some((f) => samePath(f, file))
     const handedBack: string[] = []
     const closed: string[] = []
+    // Why each PDF that stayed open did: an agent told "handed back" about a set it only read took that for a mistake (Aaron's agent report, 2026-11-26).
+    const why: Record<string, string> = {}
     // Finished first: from here it has no cursor, no call in flight, and asks nothing.
     this.deps.roster.finish(agentId, { by, summary, handedBack: [], closed: [] })
     for (const tab of own) {
       const showing = this.deps.showing()
       const watched = showing !== null && samePath(showing, tab.file)
+      if (by === 'lost' && !wrote(tab.file) && !kept(tab.file) && !watched) {
+        // Kept for a while, marked as its, in case its app is only restarting.
+        this.deps.handBack(tab.file, agent)
+        this.lingering.set(tab.file, { agentId, at: this.now() })
+        handedBack.push(tab.file)
+        why[tab.file] = 'only read; kept open for a while in case its app is restarting'
+        continue
+      }
       if (!wrote(tab.file) && !kept(tab.file) && !watched) {
-        const shut = await this.inTurn(tab.file, () => this.deps.closeTab(tab.file)).catch(() => false)
+        // A session whose app is gone has no calls of its own to wait for, and
+        // one stuck call must not keep its tab owned by nobody for ever.
+        const close = () => this.deps.closeTab(tab.file)
+        const shut = await (by === 'lost' || by === 'app' ? close() : this.inTurn(tab.file, close)).catch(() => false)
         if (shut) { closed.push(tab.file); continue }
       }
       this.deps.handBack(tab.file, agent)
       handedBack.push(tab.file)
+      why[tab.file] = wrote(tab.file) ? 'you changed it' : kept(tab.file) ? 'you asked to keep it' : watched ? 'only read, but the person is looking at it, so it was not closed under them' : 'only read, but it could not be closed just now'
     }
     this.deps.roster.settle(agentId, handedBack, closed)
     return {
-      ended: true, handedBack, closed,
-      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed. A new job starts with redbeam_start_session.',
+      ended: true, handedBack, closed, why,
+      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). A new job starts with redbeam_start_session.',
     }
   }
 
-  /** An AI app's server saying it is still there. */
+  /**
+   * An AI app's server saying it is still there. `servers` adds the earlier
+   * servers whose sessions it took over after a restart (mcp.rs).
+   */
   private alive(params: Record<string, unknown>): Record<string, unknown> | null {
     const server = line(params['server'])
     if (server !== null) this.aliveAt.set(server, this.now())
+    if (Array.isArray(params['servers'])) {
+      for (const s of params['servers']) { const one = line(s); if (one !== null) this.aliveAt.set(one, this.now()) }
+    }
     return this.deps.isMain ? { ok: true } : null
+  }
+
+  /** Tabs handed back from `agent` that the person has not opened: its own again. */
+  private reclaimTabs(agent: Agent): void {
+    if (this.deps.reclaim === undefined) return
+    for (const t of this.deps.tabs()) {
+      if (t.owner === undefined && t.handed?.agentId === agent.id) this.deps.reclaim(t.file, agent.id)
+    }
   }
 
   /**
@@ -414,6 +500,25 @@ export class BridgeRouter {
    */
   sweep(): void {
     const now = this.now()
+    // The window itself was stalled: nobody could have reached it, so start everyone's clock again.
+    if (this.lastSweep !== null && now - this.lastSweep > STALL_MS) {
+      for (const server of this.aliveAt.keys()) this.aliveAt.set(server, now)
+    }
+    this.lastSweep = now
+    for (const [file, l] of [...this.lingering]) {
+      const tab = tabFor(this.deps.tabs(), file)
+      const agent = this.deps.roster.agent(l.agentId)
+      // Taken back by its session, or opened by the person: theirs now, not ours to close.
+      if (tab === undefined || tab.owner !== undefined || tab.handed?.agentId !== l.agentId || agent?.state !== 'gone') {
+        this.lingering.delete(file)
+        continue
+      }
+      if (now - l.at < LOST_GRACE_MS) continue
+      const showing = this.deps.showing()
+      if (showing !== null && samePath(showing, file)) { this.lingering.delete(file); continue }
+      this.lingering.delete(file)
+      void this.deps.closeTab(file).then((shut) => { if (shut) this.deps.roster.settle(l.agentId, [], [file]) }, () => undefined)
+    }
     for (const [server, at] of [...this.aliveAt]) {
       if (now - at < LOST_AFTER_MS) continue
       this.aliveAt.delete(server)
