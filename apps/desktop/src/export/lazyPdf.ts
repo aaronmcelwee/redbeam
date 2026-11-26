@@ -65,6 +65,8 @@ export function openLazyPdf(src: ByteSource): LazyPdf {
   const entries = new Map<number, Entry>()
   /** Every offset any section gave an object, newest first (for object streams a later update replaced). */
   const history = new Map<number, number[]>()
+  /** Every in-use entry any section gave an object, newest first. */
+  const revisions = new Map<number, Entry[]>()
   const stats = { objects: 0, bytes: 0 }
   const read = (a: number, b: number) => {
     stats.bytes += b - a
@@ -105,7 +107,7 @@ export function openLazyPdf(src: ByteSource): LazyPdf {
     const head = ascii(read(at, Math.min(src.size, at + 32)))
     let dict: PDFDict
     if (head.startsWith('xref')) {
-      const r = readTable(src, read, at, entries, context, history)
+      const r = readTable(src, read, at, entries, context, history, revisions)
       dict = r.trailer
     } else {
       // An xref stream: read until the end of its object (bounded by the file).
@@ -113,7 +115,7 @@ export function openLazyPdf(src: ByteSource): LazyPdf {
       if (!(obj instanceof PDFRawStream)) throw new Error('xref is neither a table nor a stream')
       if (at === startxref) xrefIsStream = true
       dict = obj.dict
-      readXrefStream(obj, entries, history)
+      readXrefStream(obj, entries, history, revisions)
     }
     if (trailer === null) trailer = dict
     const prev = dict.get(PDFName.of('Prev'))
@@ -171,12 +173,34 @@ export function openLazyPdf(src: ByteSource): LazyPdf {
     return out
   }
 
+  const loadEntry = (num: number, e: Entry): PDFObject | undefined => {
+    if (e.kind === 'free') return undefined
+    if (e.kind === 'at') return parseAt(read(e.offset, endOf(e.offset)))
+    return loadPacked(e.stream).get(num)
+  }
+
   const load = (ref: PDFRef): PDFObject | undefined => {
     const e = entries.get(ref.objectNumber)
     if (e === undefined || e.kind === 'free') return undefined
     stats.objects++
-    if (e.kind === 'at') return parseAt(read(e.offset, endOf(e.offset)))
-    return loadPacked(e.stream).get(ref.objectNumber)
+    try {
+      return loadEntry(ref.objectNumber, e)
+    } catch {
+      // Up to 0.3.99 REDBEAM could write a sheet name with an unmatched ")"
+      // unescaped, leaving an update whose catalog (or bookmark) no reader
+      // can parse. Fall back to the newest earlier revision that does parse;
+      // the save then writes a sound one over it. With none, the object reads
+      // as missing, as a full load with throwOnInvalidObject off would have it,
+      // rather than failing the whole save.
+      for (const older of revisions.get(ref.objectNumber) ?? []) {
+        if (older.kind === e.kind && (older.kind === 'at' ? older.offset === (e as { offset: number }).offset : older.stream === (e as { stream: number }).stream)) continue
+        try {
+          const obj = loadEntry(ref.objectNumber, older)
+          if (obj !== undefined) return obj
+        } catch { /* older still */ }
+      }
+      return undefined
+    }
   }
 
   // pdf-lib reads objects through context.indirectObjects (a Map keyed by the
@@ -250,6 +274,7 @@ function readObjectGrowing(
 function readTable(
   src: ByteSource, read: (a: number, b: number) => Uint8Array, at: number,
   entries: Map<number, Entry>, context: PDFContext, history: Map<number, number[]>,
+  revisions: Map<number, Entry[]>,
 ): { trailer: PDFDict } {
   for (let span = 64 * 1024; ; span *= 4) {
     const end = Math.min(src.size, at + span)
@@ -266,7 +291,10 @@ function readTable(
       if (m[1] !== undefined) {
         objNum = Number(m[1])
       } else {
-        if (m[5] === 'n') pushHistory(history, objNum, Number(m[3]))
+        if (m[5] === 'n') {
+          pushHistory(history, objNum, Number(m[3]))
+          pushRevision(revisions, objNum, { kind: 'at', offset: Number(m[3]), gen: Number(m[4]) })
+        }
         if (!entries.has(objNum)) {
           entries.set(objNum, m[5] === 'n' ? { kind: 'at', offset: Number(m[3]), gen: Number(m[4]) } : { kind: 'free' })
         }
@@ -286,7 +314,9 @@ function readTable(
 }
 
 /** Entries of an xref stream. Offsets past 2 GB are read without 32-bit overflow. */
-function readXrefStream(stream: PDFRawStream, entries: Map<number, Entry>, history: Map<number, number[]>): void {
+function readXrefStream(
+  stream: PDFRawStream, entries: Map<number, Entry>, history: Map<number, number[]>, revisions: Map<number, Entry[]>,
+): void {
   const dict = stream.dict
   const W = dict.lookup(PDFName.of('W'), PDFArray)
   const w = [0, 1, 2].map((i) => W.lookup(i, PDFNumber).asNumber())
@@ -313,12 +343,20 @@ function readXrefStream(stream: PDFRawStream, entries: Map<number, Entry>, histo
       const b = field(w[2]!, 0)
       const num = first + k
       if (type === 1) pushHistory(history, num, a)
+      if (type === 1) pushRevision(revisions, num, { kind: 'at', offset: a, gen: b })
+      if (type === 2) pushRevision(revisions, num, { kind: 'packed', stream: a, index: b })
       if (entries.has(num)) continue
       if (type === 0) entries.set(num, { kind: 'free' })
       else if (type === 1) entries.set(num, { kind: 'at', offset: a, gen: b })
       else if (type === 2) entries.set(num, { kind: 'packed', stream: a, index: b })
     }
   }
+}
+
+function pushRevision(revisions: Map<number, Entry[]>, num: number, e: Entry): void {
+  const list = revisions.get(num)
+  if (list === undefined) revisions.set(num, [e])
+  else list.push(e)
 }
 
 function pushHistory(history: Map<number, number[]>, num: number, offset: number): void {

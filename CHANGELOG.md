@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.103 — 2026-11-26
+
+### Sheet names with brackets no longer stop the save
+
+- **Saving works when a sheet name has a bracket in it.** A sheet name read off the title block with a stray ")" or "(" (or a backslash) was written into the PDF in a way that broke the file's page names. The next save then failed with "Failed to parse PDF document … Expected next byte to be 47 but it was actually 41". Names are now written safely, and they show exactly as read in REDBEAM, Bluebeam and every PDF viewer.
+- **Files already affected save again.** When REDBEAM finds page names an earlier version broke, it reads past them and the next save writes them correctly, along with your takeoff.
+
 ## 0.3.101 — 2026-11-26
 
 ### Agents read drawn grids and check layouts with less work
