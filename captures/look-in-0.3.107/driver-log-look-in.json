@@ -1,0 +1,157 @@
+[
+  {
+    "k": "activate",
+    "v": "redbeam fg=False"
+  },
+  {
+    "k": "row1",
+    "v": "clicked 386,289"
+  },
+  {
+    "k": "agent.open",
+    "v": false
+  },
+  {
+    "k": "agent.goto5",
+    "v": {
+      "file": "LookIn.pdf",
+      "page": 5,
+      "sheet": "A6.02"
+    }
+  },
+  {
+    "k": "agent.markup",
+    "v": 5
+  },
+  {
+    "k": "row10",
+    "v": "clicked 386,613"
+  },
+  {
+    "k": "state.beforeClick",
+    "v": {
+      "page": "10 / 12",
+      "zoom": "60%",
+      "focus": "BUTTON.sheetrow \"E2.01LIGHTING PLAN10\"",
+      "dialogs": [],
+      "ask": 0,
+      "tab": "LookIn",
+      "dpr": 1.5,
+      "vvScale": 1,
+      "inner": "1440x900",
+      "hasFocus": true
+    }
+  },
+  {
+    "k": "4.agentUi",
+    "v": {
+      "pageIndex": 5,
+      "personPageIndex": 9
+    }
+  },
+  {
+    "k": "1.row",
+    "v": {
+      "inShowing": 1,
+      "inDoc": 1,
+      "inShowingWorkspace": true,
+      "text": "LookInyour PDF",
+      "title": "C:\\temp\\rb-108\\LookIn.pdf\nYour PDF. Claude Code · look-in test is working in it with you. Click to go to the sheet it is on.",
+      "cls": "agentfile active",
+      "active": true,
+      "disabled": false,
+      "ariaDisabled": null,
+      "rect": {
+        "x": 1138.666748046875,
+        "y": 605.15625,
+        "w": 287.3333435058594,
+        "h": 24
+      },
+      "cx": 1282.3334197998047,
+      "cy": 617.15625,
+      "hit": {
+        "tag": "SPAN",
+        "cls": "agentfile-name",
+        "isRow": false,
+        "inRow": true
+      },
+      "pointerEvents": "auto"
+    }
+  },
+  {
+    "k": "2.listen",
+    "v": "installed"
+  },
+  {
+    "k": "2.realClick",
+    "v": "clicked 2055,1017"
+  },
+  {
+    "k": "2.result",
+    "v": {
+      "clicks": [
+        {
+          "type": "window-blur",
+          "time": 19035
+        },
+        {
+          "type": "window-blur",
+          "time": 19035
+        }
+      ],
+      "fgBefore": "redbeam | LookIn — REDBEAM",
+      "fgAfter": "ShellExperienceHost | New notification",
+      "hasFocusBefore": true,
+      "hasFocusAfter": false,
+      "pageAfter1s": "10 / 12",
+      "zoom": "60%"
+    }
+  },
+  {
+    "k": "3.jsClick",
+    "v": "clicked"
+  },
+  {
+    "k": "3.afterJsClick",
+    "v": {
+      "page": "6 / 12",
+      "zoom": "60%",
+      "clicks": [
+        {
+          "type": "window-blur",
+          "time": 19035
+        },
+        {
+          "type": "window-blur",
+          "time": 19035
+        },
+        {
+          "type": "click",
+          "tag": "BUTTON",
+          "cls": "agentfile active",
+          "text": "LookInyour PDF",
+          "x": 0,
+          "y": 0,
+          "time": 21574,
+          "defaultPrevented": false
+        }
+      ]
+    }
+  },
+  {
+    "k": "3.realClickRow2",
+    "v": "clicked 386,325"
+  },
+  {
+    "k": "3.afterRow2",
+    "v": "2 / 12"
+  },
+  {
+    "k": "4.consoleEvents",
+    "v": []
+  },
+  {
+    "k": "end",
+    "v": true
+  }
+]
