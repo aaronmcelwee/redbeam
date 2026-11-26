@@ -797,9 +797,14 @@ export function SidebarTabs({
 
 export function Sidebar({
   active, onSelect, onSettings, notes = {}, indexing = null, title, actions, children, documentOpen = true, panels,
-  tabsInTitle = false,
+  tabsInTitle = false, beside,
 }: SidebarTabsProps & {
   onSettings: () => void
+  /**
+   * Drawn beside Settings at the foot of the sidebar: the update chip
+   * (update/UpdateChip.tsx), when there is an update to offer.
+   */
+  beside?: ReactNode
   /** Light mode: the tabs are drawn in the title bar (see `SidebarTabs`), not here. */
   tabsInTitle?: boolean
   /**
@@ -842,15 +847,18 @@ export function Sidebar({
 
       {children}
 
-      <button
-        className="sidesettings"
-        title="Settings"
-        aria-label="Settings"
-        onClick={onSettings}
-      >
-        <Glyph icon={Settings2} role="card" />
-        <span>Settings</span>
-      </button>
+      <div className="sidefoot">
+        <button
+          className="sidesettings"
+          title="Settings"
+          aria-label="Settings"
+          onClick={onSettings}
+        >
+          <Glyph icon={Settings2} role="card" />
+          <span>Settings</span>
+        </button>
+        {beside}
+      </div>
     </aside>
   )
 }

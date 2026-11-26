@@ -12,6 +12,14 @@ All are unsigned; SmartScreen will ask once.
 - **Takeoffs save into very large PDFs.** On a big set or spec book (over 128 MB, read in pieces rather than whole), saving stopped with "Maximum call stack size exceeded", and Save a copy failed the same way. REDBEAM was counting every object in the file in one step, and a spec book can hold hundreds of thousands of them. It now counts them one at a time, with no limit on the size of the file.
 - **The same fix covers estimate exports** from those PDFs, and writing sheet bookmarks into a set with a very large number of sheets.
 
+## 0.3.94 — 2026-11-26
+
+### Updates wait beside Settings
+
+- **No more update card over the drawing.** When a new version is ready, a blue **Ready to update** chip appears next to Settings at the bottom of the sidebar (and next to the version number on the start screen), instead of a card at the top that covered the agent banner and the sheet.
+- **One click does the rest.** Click the chip to download and install. It shows **Updating** with the progress, then **Restart to update**. Clicking it never takes the keyboard away from what you are doing.
+- **A failed download says so.** If the download fails, the chip turns red and says **Update failed**; click it to check again. Settings › About still has the full update details.
+
 ## 0.3.93 — 2026-11-25
 
 ### A tidier start screen
