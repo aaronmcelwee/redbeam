@@ -356,6 +356,26 @@ describe('layoutPanels', () => {
     expect(layoutPanels([merged], opts).panelCount).toBe(1)
   })
 
+  it('snaps area edges drawn within the edge snap of a grid line (NOIC CL115)', () => {
+    // 0.1 ft per point, so a 1" snap is 0.83 pt: 20 x 10 ft of 5 x 10 ft panels,
+    // drawn 0.4 pt (about half an inch) over and under.
+    const opts = { panelWidthFeet: 5, panelLengthFeet: 10, feetPerPoint: 0.1, panelGranularity: 'full', edgeSnapFeet: 1 / 12 }
+    const over = layoutPanels([{ region: square(0, 0, 200.4, 100.4), directionLine: X_AXIS }], opts)
+    expect(over.cells.length).toBe(4)
+    expect(over.fullPanelCount).toBe(4)
+    const under = layoutPanels([{ region: square(0, 0, 199.6, 99.6), directionLine: X_AXIS }], opts)
+    expect(under.cells.length).toBe(4)
+    expect(under.fullPanelCount).toBe(4)
+    expect(under.partialPanelCount).toBe(0)
+    // Without the snap (the Qt rule) the half inch over is four more cut panels (the corner is under the Qt floor).
+    const { edgeSnapFeet: _off, ...qt } = opts
+    void _off
+    expect(layoutPanels([{ region: square(0, 0, 200.4, 100.4), directionLine: X_AXIS }], qt).cells.length).toBe(8)
+    // Really short is still cut.
+    const short = layoutPanels([{ region: square(0, 0, 190, 100), directionLine: X_AXIS }], opts)
+    expect(short.partialPanelCount).toBe(2)
+  })
+
   it('returns nothing for an unusable specification', () => {
     const group: PanelLayoutGroup = { region: square(0, 0, 20, 10), directionLine: X_AXIS }
     const result = layoutPanels([group], {

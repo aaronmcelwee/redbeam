@@ -606,7 +606,14 @@ export class Viewer {
   async renderRegion(
     box: { x0: number; y0: number; x1: number; y1: number },
     width: number,
-    opts: { annots?: boolean; overlay?: boolean; page?: number; overlaySet?: OverlaySet } = {},
+    opts: {
+      annots?: boolean; overlay?: boolean; page?: number; overlaySet?: OverlaySet
+      /**
+       * Drawn with the overlay, under the markups: the app's layout preview,
+       * which the viewer does not own (NOIC, 2026-11-26: close-ups skipped it).
+       */
+      under?: (ctx: CanvasRenderingContext2D, view: Viewport, pageWidth: number, pageHeight: number) => void
+    } = {},
   ): Promise<{ canvas: HTMLCanvasElement; width: number; height: number; pointsPerPixel: number }> {
     /*
      * Any page, not only the one showing (NOIC intake, 2026-11-26): an agent
@@ -645,6 +652,10 @@ export class Viewer {
     const zoom = w / regionW
     if (opts.overlay ?? this.overlayOn) {
       const view: Viewport = { zoom, ox: x0 * size.width * zoom, oy: y0 * size.height * zoom, vw: w, vh: h }
+      if (opts.under !== undefined) {
+        ctx.save()
+        try { opts.under(ctx, view, size.width, size.height) } finally { ctx.restore() }
+      }
       const set = opts.overlaySet ?? (page === this.activeIndex ? this.overlaySet : null)
       if (set !== null) drawOverlay(ctx, set, view, size.width, size.height, this.opts.overlay)
     }

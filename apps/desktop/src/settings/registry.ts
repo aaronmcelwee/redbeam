@@ -275,10 +275,12 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     default: false,
     label: 'Lay each area out on its own',
     description:
-      'Start a whole panel at each area’s own edge instead of sharing one '
-      + 'grid across the sheet. Usually fewer part-panels, and a different '
-      + 'total — the shared grid is what the Qt build produces. Planks '
-      + 'already optimise per area either way.',
+      'When the pattern start is Automatic: start a whole panel at each '
+      + 'area’s own edge instead of sharing one grid across the sheet. '
+      + 'Usually fewer part-panels, and a different total — the shared grid '
+      + 'is what the Qt build produces. Planks already optimise per area '
+      + 'either way. A corner start, or a start point placed on an area, '
+      + 'already lays each area out on its own.',
   },
   {
     id: 'takeoff.patternStart',

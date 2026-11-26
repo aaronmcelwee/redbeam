@@ -67,6 +67,50 @@ describe('custom pattern: tiles', () => {
   })
 })
 
+describe('custom pattern: edge snap (NOIC CL115)', () => {
+  // A drawn edge is never exactly on the grid: within 1" it counts as on it.
+  it('counts no slivers on an area drawn a hair over N modules', () => {
+    const r = calculatePieces(pattern(squareTiles()), [square(10 + 0.5 / 12)], cal, opts)
+    expect(q(r, 'tiles.tile.whole')).toBe(25)
+    expect(q(r, 'tiles.tile.cut')).toBeUndefined()
+  })
+
+  it('keeps the last row whole on an area drawn a hair under N modules', () => {
+    const r = calculatePieces(pattern(squareTiles()), [square(10 - 0.5 / 12)], cal, opts)
+    expect(q(r, 'tiles.tile.whole')).toBe(25)
+    expect(q(r, 'tiles.tile.cut')).toBeUndefined()
+  })
+
+  it('still cuts a row that is really short', () => {
+    const r = calculatePieces(pattern(squareTiles()), [square(10 - 3 / 12)], cal, opts)
+    expect(q(r, 'tiles.tile.whole')).toBe(16)
+    expect(q(r, 'tiles.tile.cut')).toBe(9)
+  })
+
+  it('edgeSnap 0 turns it off, and a bigger one widens it', () => {
+    const off = calculatePieces(pattern({ ...squareTiles(), edgeSnap: 0 }), [square(10 + 0.5 / 12)], cal, opts)
+    expect(q(off, 'tiles.tile.cut')).toBe(10)
+    const wide = calculatePieces(pattern({ ...squareTiles(), edgeSnap: '4"' }), [square(10 - 3 / 12)], cal, opts)
+    expect(q(wide, 'tiles.tile.whole')).toBe(25)
+  })
+
+  it('a member a hair short of its module is whole', () => {
+    const recipe: PatternRecipe = {
+      version: 1, name: 'Bars', status: 'draft', units: 'ft',
+      layers: [{ id: 'bars', kind: 'members', module: { along: 10, across: 2 }, members: [{ along: 0, across: 1, length: 10 }] }],
+    }
+    const r = calculatePieces(pattern(recipe), [square(10 - 0.5 / 12)], cal, opts)
+    expect(r.blockers).toEqual([])
+    const cutShapes = (r.shapes ?? []).filter((x) => x.cut)
+    expect(cutShapes).toHaveLength(0)
+  })
+
+  it('rejects an edgeSnap that is not a length', () => {
+    const c = checkPatternRecipe({ ...squareTiles(), edgeSnap: 'wide' })
+    expect(c.ok).toBe(false)
+  })
+})
+
 describe('custom pattern: members (a repeating "random" module)', () => {
   const recipe = (y: 'full' | 'half'): PatternRecipe => ({
     version: 1, name: 'Module', status: 'draft', units: 'ft',
