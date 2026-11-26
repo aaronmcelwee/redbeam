@@ -81,6 +81,7 @@ import type { SheetScope } from './shell/sheets.js'
 import { StatusToast } from './shell/StatusToast.js'
 import { PerfReadout } from './shell/PerfReadout.js'
 import { buildSheetIndex, isOrdinalLabel, mergeSheetLabels, sheetFromText } from './shell/sheets.js'
+import { codeOf, findTitleBlock, type FoundTitleBlock } from './shell/findTitleBlock.js'
 import type { SheetIndexShape, SheetOutlineNode } from './shell/sheets.js'
 import {
   EstimatesPanel, type EstimateFile, type EstimateListItem, type PanelWarning, type ScopeMarkup, type ScopeStanding,
@@ -1986,36 +1987,81 @@ export default function Workspace({
 
     let cancelled = false
     const docId = docIdRef.current
+    setFoundTitleBlock(null)
     void (async () => {
+      /*
+       * Read by the set's own readers, several at once (search/textPool.ts),
+       * so a 4,382-page spec is read in a fraction of the time and the
+       * worker drawing the sheet is left to draw it.
+       */
+      const pool = textPool()
+      const all = Array.from({ length: pageCount }, (_, k) => k)
+      pool?.want(all.filter((k) => v.getText(k) === undefined))
+      const texts: Array<PageText | null> = new Array<PageText | null>(pageCount).fill(null)
+      const labels: Array<string | null> = new Array<string | null>(pageCount).fill(null)
+      let regions: TitleBlockRegions | null = null
+      let readCount = 0
+      let nextLook = 12
+      let shown = performance.now()
+      const labelFor = (pt: PageText): string | null => {
+        // The set's title block, found from where its codes sit, before a guess from the text order.
+        const boxed = regions === null ? null : readSheetName(pt, regions)
+        if (boxed !== null && codeOf(boxed.number) !== null) {
+          const title = boxed.title.replace(boxed.number, '').replace(/\s+/g, ' ').trim()
+          return title === '' ? boxed.number : `${boxed.number} ${title}`
+        }
+        const found = sheetFromText(pt.text)
+        return found === null ? null : found.title === '' ? found.number : `${found.number} ${found.title}`
+      }
       // `sweepPage`, not `i`: this enumerates EVERY page, so unlike every other
       // page id in this file there is no "current page" it could be wrong
       // about. The name is what tells the page-identity guard that.
       for (let sweepPage = 0; sweepPage < pageCount; sweepPage++) {
         if (cancelled) return
         try {
-          const pt = await v.requestText(sweepPage)
+          const pt = v.getText(sweepPage) ?? (pool !== null ? await pool.text(sweepPage) : await v.requestText(sweepPage))
           if (cancelled) return
+          if (pt === null) continue
+          texts[sweepPage] = pt
+          readCount++
           await indexPageText(db, {
             pageId: pageIdFor(docId, sweepPage),
             documentId: docId,
             content: pt.text,
             source: pt.scanned ? 'ocr-needed' : 'native',
           })
-          const found = sheetFromText(pt.text)
-          if (found === null) continue
-          const label = found.title === '' ? found.number : `${found.number} ${found.title}`
-          setDerivedLabels((cur) => {
-            const next = [...cur]
-            next[sweepPage] = label
-            return next
-          })
+          /*
+           * Look for the title block once a dozen sheets are read, and again
+           * as more come in, until it is found (shell/findTitleBlock.ts).
+           * Once found, every sheet read so far is named again from it.
+           */
+          if (regions === null && (readCount === nextLook || sweepPage === pageCount - 1)) {
+            nextLook = Math.max(nextLook * 3, 12)
+            const sample = texts.filter((t): t is PageText => t !== null)
+            const step = Math.max(1, Math.floor(sample.length / 300))
+            const found = findTitleBlock(sample.filter((_, k) => k % step === 0))
+            if (found !== null) {
+              regions = found.regions
+              setFoundTitleBlock(found)
+              for (let k = 0; k < sweepPage; k++) { const t = texts[k]; if (t !== null && t !== undefined) labels[k] = labelFor(t) }
+            }
+          }
+          labels[sweepPage] = labelFor(pt)
         } catch {
           // One unreadable sheet is not a reason to stop reading the rest.
+        }
+        // The list fills in as it goes, a few times a second rather than per page.
+        if (performance.now() - shown > 250 || sweepPage === pageCount - 1) {
+          shown = performance.now()
+          setDerivedLabels([...labels])
         }
       }
     })()
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageCount, docIndex.shape, docIndex.labels, activeDocId])
+  /** The title block found on the set's own sheets (shell/findTitleBlock.ts), for list_sheets. */
+  const [foundTitleBlock, setFoundTitleBlock] = useState<FoundTitleBlock | null>(null)
 
 
   /*
@@ -6721,6 +6767,20 @@ export default function Workspace({
             pageCount,
             named: sheets.filter((x) => x.sheet !== null).length,
             ...(titleRegions !== null ? { titleBlocks: { numberBox: titleRegions.number, titleBox: titleRegions.title } } : {}),
+            /*
+             * Where REDBEAM found the title block on its own, from where the
+             * sheet codes sit across sheets. Names marked `document` come from
+             * it where the PDF has no names of its own. Check a few with a
+             * screenshot `region`; set_title_blocks with these boxes keeps
+             * them in the file, or with better ones corrects them.
+             */
+            ...(titleRegions === null && foundTitleBlock !== null ? {
+              foundTitleBlock: {
+                numberBox: foundTitleBlock.regions.number, titleBox: foundTitleBlock.regions.title,
+                sheetsWithANumber: `${foundTitleBlock.sheets} of ${foundTitleBlock.looked} sheets looked at`,
+                note: 'found automatically; check a few names, then redbeam_set_title_blocks with these boxes (or better ones) to keep them in the file',
+              },
+            } : {}),
             ...(titleReading !== null ? { reading: { ...titleReading, note: 'the title block boxes are still being read; names fill in as they are' } } : {}),
             sheets,
             ...(sheets.some((x) => x.sheet === null) ? { note: 'sheet: null means no sheet number has been read off that page yet (they are read as the file is indexed after opening, so ask again shortly), or the page has none; `page` always works' } : {}),

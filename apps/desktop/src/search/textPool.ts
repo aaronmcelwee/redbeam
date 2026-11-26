@@ -141,7 +141,12 @@ export class PageTextPool {
   private async lane(lane: number): Promise<void> {
     while (!this.closed) {
       const page = this.queue.shift()
-      if (page === undefined) return
+      if (page === undefined) {
+        // Nothing left to read: let the reader go. A PDFium worker holds
+        // memory, and ten tabs each keeping four idle readers adds up.
+        this.replace(lane)
+        return
+      }
       this.queued.delete(page)
       if (this.done.has(page)) continue
       this.inFlight.add(page)
