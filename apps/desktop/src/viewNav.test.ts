@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { historyStepForButton, historyStepForKey, ViewHistory, zoomToBox } from './viewNav'
+import { boundsOfRings, frameBox, historyStepForButton, historyStepForKey, ViewHistory, zoomToBox } from './viewNav'
 
 const v = { ox: 0, oy: 0, zoom: 1, vw: 1000, vh: 500 }
 const stage = { width: 1000, height: 500 }
@@ -69,4 +69,36 @@ describe('history keys', () => {
     expect(historyStepForButton(4)).toBe(1)
     expect(historyStepForButton(0)).toBeNull()
   })
+})
+
+describe('frameBox', () => {
+  const page = { width: 1000, height: 800 }
+  it('keeps the zoom and centres a markup that already fits', () => {
+    // Zoomed far in (8x): a 50 x 40 pt markup is 65 x 52 pt with room, 520 x 416 px, which fits 1000 x 500.
+    const out = frameBox({ ...v, zoom: 8 }, { x0: 0.6, y0: 0.5, x1: 0.65, y1: 0.55 }, page, stage, 64)
+    expect(out.zoom).toBe(8)
+    expect((out.ox + stage.width / 2) / out.zoom).toBeCloseTo(625)
+    expect((out.oy + stage.height / 2) / out.zoom).toBeCloseTo(420)
+  })
+  it('zooms out just enough when the markup does not fit', () => {
+    // 400 x 400 pt markup → 520 x 520 with room; stage 1000 x 500 → zoom 500/520.
+    const out = frameBox({ ...v, zoom: 8 }, { x0: 0.1, y0: 0.1, x1: 0.5, y1: 0.6 }, page, stage, 64)
+    expect(out.zoom).toBeCloseTo(500 / 520)
+    expect((out.ox + stage.width / 2) / out.zoom).toBeCloseTo(300)
+    expect((out.oy + stage.height / 2) / out.zoom).toBeCloseTo(280)
+  })
+  it('never zooms in, and centres a point (a count) at the current zoom', () => {
+    const out = frameBox({ ...v, zoom: 0.5 }, { x0: 0.3, y0: 0.3, x1: 0.3, y1: 0.3 }, page, stage, 64)
+    expect(out.zoom).toBe(0.5)
+    expect((out.ox + stage.width / 2) / 0.5).toBeCloseTo(300)
+    expect((out.oy + stage.height / 2) / 0.5).toBeCloseTo(240)
+  })
+})
+
+describe('boundsOfRings', () => {
+  it('spans every ring', () => {
+    expect(boundsOfRings([[{ x: 0.2, y: 0.3 }, { x: 0.4, y: 0.1 }], [{ x: 0.5, y: 0.2 }]]))
+      .toEqual({ x0: 0.2, y0: 0.1, x1: 0.5, y1: 0.3 })
+  })
+  it('is null for no points', () => { expect(boundsOfRings([[]])).toBeNull() })
 })

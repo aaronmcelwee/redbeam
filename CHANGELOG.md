@@ -14,6 +14,12 @@ All are unsigned; SmartScreen will ask once.
 - **Counts per area.** The parts list an agent reads can now give each area's own counts as well as the scope's, so drawn and counted numbers can be compared room by room.
 - **Smaller parts lists for agents.** An agent can ask for the parts list of one scope or a few, and have each scope's note said once, so a big takeoff's list no longer fills its memory.
 - **Check images saved to a file.** An agent can save a picture of a sheet, with the takeoff drawn on it, to a file it names, so it can send you check images without driving the window.
+## 0.3.99 — 2026-11-26
+
+### Clicking a markup takes you to it
+
+- **The view lands on the markup.** In a scope's Markups list, clicking a markup while zoomed in used to show the top-left corner of its sheet. It now centres the markup on screen, on another sheet or the one you are on.
+- **Your zoom is kept when the markup fits.** If it would not fit at your zoom (zoomed all the way in on a large area), the view zooms out just enough to show all of it. It never zooms in on you.
 
 ## 0.3.98 — 2026-11-26
 

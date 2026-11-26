@@ -617,6 +617,87 @@ const STEPS = [
     await page.waitForTimeout(300)
     return problems
   }],
+  /*
+   * Clicking a markup in a scope's list, zoomed far in, has to land ON the
+   * markup. It used to show the sheet's top-left corner at that zoom (Aaron,
+   * 2026-11-26): a new sheet's offsets were reset to 0,0 and nothing framed
+   * the markup, and on the sheet already showing nothing moved at all.
+   */
+  ['markup-jump', async (page) => {
+    const problems = []
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    await act('go_to_page', { page: 0 })
+    const scope = await act('create_scope', { label: 'JUMP-01', scopeType: 'area' })
+    if (typeof scope.scopeId !== 'string') return [`markup-jump: could not add a scope: ${JSON.stringify(scope).slice(0, 160)}`]
+    const box = (x, y) => [[{ x, y }, { x: x + 0.03, y }, { x: x + 0.03, y: y + 0.02 }, { x, y: y + 0.02 }]]
+    await act('create_markup', { kind: 'area', scopeId: scope.scopeId, rings: box(0.7, 0.75) })
+    await act('create_markup', { kind: 'area', scopeId: scope.scopeId, page: 3, rings: box(0.55, 0.6) })
+    await page.waitForTimeout(600)
+    const prior = await page.locator('nav.crumbs .crumb.current').first().textContent().catch(() => null)
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    await page.locator('.es-row', { hasText: 'JUMP-01' }).first().click()
+    await page.waitForTimeout(500)
+    const rows = page.locator('button.es-mk')
+    if (await rows.count() < 2) return [`markup-jump: the scope lists ${await rows.count()} markup(s), expected 2`]
+    // Where the stage's centre is on the sheet, normalized, and the zoom.
+    const centre = () => page.evaluate(() => {
+      const rb = window.__redbeam
+      const v = rb.view(), w = rb.page.width, h = rb.page.height
+      return { page: rb.pageIndex ?? null, zoom: v.zoom, x: (v.ox + v.vw / 2) / (v.zoom * w), y: (v.oy + v.vh / 2) / (v.zoom * h) }
+    })
+    const zoomIn = async (notches) => {
+      const vp = await page.locator('.viewport').boundingBox()
+      await page.mouse.move(vp.x + 40, vp.y + 40)
+      await page.keyboard.down('Control')
+      for (let i = 0; i < notches; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(60) }
+      await page.keyboard.up('Control')
+      await page.waitForTimeout(300)
+    }
+    const expectOn = async (label, cx, cy, zoomBefore) => {
+      const c = await centre()
+      if (Math.abs(c.x - cx) > 0.01 || Math.abs(c.y - cy) > 0.01) problems.push(`markup-jump: ${label}: the view is centred on ${c.x.toFixed(3)},${c.y.toFixed(3)} of the sheet, not on the markup at ${cx},${cy}`)
+      if (zoomBefore !== undefined && Math.abs(c.zoom - zoomBefore) > 1e-6) problems.push(`markup-jump: ${label}: zoom changed from ${zoomBefore} to ${c.zoom} though the markup fits`)
+    }
+    // Another sheet, zoomed far in (the markup still fits).
+    await zoomIn(3)
+    let z = (await centre()).zoom
+    await rows.nth(1).click()
+    await page.waitForTimeout(1200)
+    await expectOn('another sheet', 0.565, 0.61, z)
+    await page.screenshot({ path: join(out, `${shotPrefix}markup-jump-other-sheet.png`) })
+    // Back to the first sheet's markup, still zoomed in.
+    z = (await centre()).zoom
+    await rows.nth(0).click()
+    await page.waitForTimeout(1200)
+    await expectOn('back to the first sheet', 0.715, 0.76, z)
+    // The sheet already showing: pan away, then click its markup again.
+    await page.keyboard.press('Control+0')
+    await page.waitForTimeout(300)
+    await zoomIn(3)
+    z = (await centre()).zoom
+    await rows.nth(0).click()
+    await page.waitForTimeout(600)
+    await expectOn('the sheet already showing', 0.715, 0.76, z)
+    await page.screenshot({ path: join(out, `${shotPrefix}markup-jump-same-sheet.png`) })
+    // All the way in, where the markup no longer fits: zoom out just enough.
+    await page.keyboard.press('Control+0')
+    await page.waitForTimeout(300)
+    await zoomIn(30)
+    await rows.nth(1).click()
+    await page.waitForTimeout(1200)
+    await expectOn('all the way in', 0.565, 0.61)
+    const c = await centre()
+    if (!(c.zoom < 64)) problems.push(`markup-jump: all the way in: the zoom stayed at ${c.zoom}, too close to show the whole markup`)
+    await page.screenshot({ path: join(out, `${shotPrefix}markup-jump-all-the-way-in.png`) })
+    await page.keyboard.press('Control+0')
+    await page.waitForTimeout(300)
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()
+    await page.waitForTimeout(300)
+    return problems
+  }],
   ['slow-close', async (page) => {
     const problems = []
     await page.keyboard.press('Escape')
