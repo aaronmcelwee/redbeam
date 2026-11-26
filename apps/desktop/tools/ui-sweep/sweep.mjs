@@ -988,6 +988,36 @@ const STEPS = [
     await page.waitForTimeout(400)
     return problems
   }],
+  /*
+   * The update offer is a chip beside Settings at the foot of the sidebar
+   * (Aaron, 2026-11-26: the floating card sat on top of the agent banner).
+   * Pressing it downloads without taking focus; once staged it asks for a restart.
+   */
+  ['update-chip', async (page) => {
+    const problems = []
+    await page.goto(view(FILE))
+    await page.locator('.sheetrow, [data-page]').first().waitFor({ timeout: 20000 })
+    await page.evaluate(() => { window.__sweepUpdate = '9.9.9' })
+    await button(page, 'Settings').last().click()
+    await page.getByRole('button', { name: 'Check for updates' }).click()
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+    const chip = page.locator('.side [data-testid="update-chip"]')
+    if (await chip.count() !== 1) return ['update-chip: no chip beside Settings once an update was found']
+    if (!(await chip.innerText()).includes('Ready to update')) problems.push(`update-chip: says "${await chip.innerText()}"`)
+    if (await page.locator('.update-offer').count() > 0) problems.push('update-chip: the floating update card is still drawn')
+    problems.push(...await inspect(page))
+    await chip.click()
+    await page.waitForTimeout(300)
+    if (await page.evaluate(() => document.activeElement?.dataset?.testid === 'update-chip')) problems.push('update-chip: pressing it took focus')
+    if (!(await chip.innerText()).startsWith('Updating')) problems.push(`update-chip: while downloading it says "${await chip.innerText()}"`)
+    await page.screenshot({ path: join(out, `${shotPrefix}update-chip-downloading.png`) })
+    await page.evaluate(() => window.__sweepUpdateGo?.())
+    await page.waitForTimeout(300)
+    if (!(await chip.innerText()).includes('Restart to update')) problems.push(`update-chip: once staged it says "${await chip.innerText()}"`)
+    return problems
+  }],
 ]
 
 // ---------------------------------------------------------------- run --
