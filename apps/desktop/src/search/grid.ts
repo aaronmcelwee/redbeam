@@ -108,7 +108,8 @@ export function commonSpacing(gaps: readonly number[]): number | null {
   for (let i = 0; i < sorted.length; i++) {
     const g = sorted[i]!
     const run = sorted.filter((x) => Math.abs(x - g) <= Math.max(0.5, g * 0.02))
-    if (run.length > best.length || (run.length === best.length && g > (best[0] ?? 0))) best = run
+    // A tie goes to the smaller spacing: a line left out makes a gap of two modules, never half of one.
+    if (run.length > best.length) best = run
   }
   return best.reduce((s, x) => s + x, 0) / best.length
 }
@@ -168,10 +169,34 @@ export function detectGrid(
   const area = rings.length > 0 ? rings : boxRing !== null ? [boxRing] : []
   const EDGE = 1.5
 
+  /*
+   * Lines come whole, as drawn: a grid line across three rooms reaches far
+   * past this one. Each is cut to the area's bounding box first, so its
+   * middle is the middle of the part that is here.
+   */
+  const outer = area[0]
+  const bb = outer === undefined ? null : outer.reduce((r, p) => ({
+    x0: Math.min(r.x0, p.x), y0: Math.min(r.y0, p.y), x1: Math.max(r.x1, p.x), y1: Math.max(r.y1, p.y),
+  }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
+  const clipTo = (a: GridPoint, b: GridPoint): [GridPoint, GridPoint] | null => {
+    if (bb === null) return [a, b]
+    const ex = b.x - a.x, ey = b.y - a.y
+    let t0 = 0, t1 = 1
+    const edge = (q: number, r: number): boolean => {
+      if (q === 0) return r >= -EDGE
+      const t = r / q
+      if (q < 0) { if (t > t1) return false; if (t > t0) t0 = t } else { if (t < t0) return false; if (t < t1) t1 = t }
+      return true
+    }
+    if (!(edge(-ex, a.x - (bb.x0 - EDGE)) && edge(ex, bb.x1 + EDGE - a.x) && edge(-ey, a.y - (bb.y0 - EDGE)) && edge(ey, bb.y1 + EDGE - a.y))) return null
+    return [{ x: a.x + t0 * ex, y: a.y + t0 * ey }, { x: a.x + t1 * ex, y: a.y + t1 * ey }]
+  }
+
   const segs: Array<[GridPoint, GridPoint]> = []
   for (let i = 0; i + 3 < flat.length; i += 4) {
-    const a = { x: flat[i]! * W, y: flat[i + 1]! * H }
-    const b = { x: flat[i + 2]! * W, y: flat[i + 3]! * H }
+    const cut = clipTo({ x: flat[i]! * W, y: flat[i + 1]! * H }, { x: flat[i + 2]! * W, y: flat[i + 3]! * H })
+    if (cut === null) continue
+    const [a, b] = cut
     if (Math.hypot(b.x - a.x, b.y - a.y) < 1) continue
     // A piece of the grid has its middle in the area (or on its edge).
     if (!inArea({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, area, EDGE)) continue
@@ -245,15 +270,21 @@ export function detectGrid(
     const small = (g: number) => g < 0.3 * commonSpacing(big.filter((x) => x >= 0.3 * largest))!
     if (!gaps.some(small)) return f
     const lines: number[] = [], spans: Array<Array<[number, number]>> = []
+    const mine: number[] = []
     for (let i = 0; i < f.lines.length; i++) {
       if (i + 1 < f.lines.length && small(gaps[i]!)) {
         lines.push((f.lines[i]! + f.lines[i + 1]!) / 2)
         spans.push([...f.spans[i]!, ...f.spans[i + 1]!])
-        bands.push(gaps[i]!)
+        mine.push(gaps[i]!)
         i++
       } else { lines.push(f.lines[i]!); spans.push(f.spans[i]!) }
     }
-    doubleLines = true
+    /*
+     * A wall or a bulkhead at the edge is drawn double too. Only when most
+     * of the grid is double is the grid called double (NOIC IC3.004A: single
+     * 2'-0" grids with walls round them read as double before this).
+     */
+    if (mine.length * 2 >= lines.length) { doubleLines = true; bands.push(...mine) }
     return { ...f, lines, spans }
   }
   A = undouble(A)

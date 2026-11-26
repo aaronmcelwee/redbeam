@@ -81,6 +81,15 @@ describe('detectGrid', () => {
     expect(g.crossings).toHaveLength(6 * 5)
   })
 
+  it('reads grid lines drawn on past the area, as one hatch over several rooms', () => {
+    const segs: Array<[number, number, number, number]> = []
+    for (let i = 0; i <= 30; i++) segs.push([100 + i * 24, 0, 100 + i * 24, 1000], [0, 100 + i * 24, 1000, 100 + i * 24])
+    const g = detectGrid(flat(segs), PAGE, { rings: ring(110, 110, 300, 300) })!
+    expect(g.moduleA).toBeCloseTo(24, 3)
+    expect(g.linesA).toHaveLength(8)
+    expect(g.crossings).toHaveLength(64)
+  })
+
   it('says null when there is no grid', () => {
     expect(detectGrid(flat([[0, 0, 10, 0]]), PAGE)).toBeNull()
   })
