@@ -361,7 +361,7 @@ const WRITES: ReadonlySet<string> = new Set([
   'create_markup', 'create_markups', 'create_dimension', 'update_markup', 'delete_markup', 'reassign_markup',
   'duplicate_markups', 'accept_imported', 'create_scope', 'update_scope', 'duplicate_scope', 'archive_scope',
   'commit_scope', 'set_scope_direction', 'set_pattern_direction', 'set_pattern_origin', 'set_page_scale',
-  'set_calibration', 'set_region_scale', 'begin_scale_region', 'delete_scale_region', 'import_scopes',
+  'set_calibration', 'set_region_scale', 'delete_scale_region', 'import_scopes',
   'rotate_pages', 'undo', 'redo',
 ])
 

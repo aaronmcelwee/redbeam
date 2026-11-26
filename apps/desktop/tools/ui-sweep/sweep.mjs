@@ -870,36 +870,81 @@ const STEPS = [
     await page.keyboard.press('Escape')
     return problems
   }],
-  ['agent-ask', async (page) => {
-    // An agent wants to turn the pages of the person's own PDF: they are asked, and nothing moves.
+  ['agent-own-view', async (page) => {
+    /*
+     * Aaron, 2026-11-26: "I can be navigating around, and then the agent
+     * steals focus and jumps to where it's working ... the agent should also
+     * not need to request approval to work within a sheet. It should be able
+     * to just jump in and make changes." A session has a view of its own in
+     * the person's PDF: it turns ITS sheet, frames ITS box, draws, scales and
+     * deletes there, and nothing on screen moves and nothing is asked.
+     */
     const problems = []
-    const before = await person(page)
-    const going = agentAct(page, AGENTS[1], 'go_to_page', { page: 5, file: FILE })
-    // The question is counted in the title bar and asked in the Agents list, never over the sheet the person is working on.
-    const needing = shown(page).locator('.agentsummary[data-needing="true"]')
-    try { await needing.waitFor({ timeout: 4000 }) } catch { problems.push('agent-ask: the title bar does not say a session is waiting when one asked to work in the person\'s PDF') }
-    const said = await needing.locator('.agentsummary-text').textContent().catch(() => null)
-    if (said !== '3 AI sessions · 1 waiting for you') problems.push(`agent-ask: the title bar should say "3 AI sessions · 1 waiting for you", says ${said ?? 'nothing'}`)
-    if (await shown(page).locator('.agentbar .agentinfobar').count() > 0) problems.push('agent-ask: a question was put over the sheet the person is working on')
-    if (await page.locator('.agentflyout, [role="dialog"]').count() > 0) problems.push('agent-ask: a question opened something over the person\'s work')
+    const A = AGENTS[1]
+    const here = async () => JSON.stringify({ ...(await person(page)), view: await page.evaluate(() => {
+      const ws = document.querySelector('.wshost[data-showing="true"]')
+      return { dock: ws?.querySelector('.dockbtn[aria-pressed="true"], .dockbtn.active')?.getAttribute('aria-label') ?? null, dialogs: document.querySelectorAll('[role="dialog"]').length }
+    }) })
+    const before = await here()
+    const state0 = await agentCall(page, A, 'get_ui_state', { file: FILE })
+    const still = async (what) => {
+      await page.waitForTimeout(150)
+      const now = await here()
+      if (now !== before) problems.push(`agent-own-view: ${what} changed what the person has on screen: ${before} became ${now}`)
+      if (await shown(page).locator('.agentsummary[data-needing="true"]').count() > 0) problems.push(`agent-own-view: ${what} asked the person for something`)
+    }
+    const ok = (what, out) => { if (typeof out?.error === 'string') problems.push(`agent-own-view: ${what} was refused: ${out.error.slice(0, 160)}`); return out ?? {} }
+
+    ok('go_to_page', await agentAct(page, A, 'go_to_page', { page: 5, file: FILE })); await still('a session turning to another sheet')
+    const mine = await agentCall(page, A, 'get_ui_state', { file: FILE })
+    if (mine.pageIndex !== 5) problems.push(`agent-own-view: the session should be on sheet 5 of its own view, get_ui_state says ${mine.pageIndex}`)
+    if (mine.person?.pageIndex !== state0.person?.pageIndex && mine.person?.pageIndex !== state0.pageIndex) problems.push(`agent-own-view: get_ui_state should say where the person is (${JSON.stringify(mine.person).slice(0, 120)})`)
+    ok('zoom_to_region', await agentAct(page, A, 'zoom_to_region', { rect: { x0: 0.2, y0: 0.2, x1: 0.5, y1: 0.5 }, file: FILE })); await still('a session zooming')
+    ok('set_tool', await agentAct(page, A, 'set_tool', { tool: 'area', file: FILE })); await still('a session picking a tool')
+    ok('open_panel', await agentAct(page, A, 'open_panel', { panel: 'settings', file: FILE })); await still('a session asking for a panel')
+    ok('set_layout_preview', await agentAct(page, A, 'set_layout_preview', { on: true, file: FILE })); await still('a session asking for the layout preview')
+    ok('set_markup_visibility', await agentAct(page, A, 'set_markup_visibility', { redbeam: false, file: FILE })); await still('a session hiding markups in its screenshots')
+    ok('set_markup_visibility', await agentAct(page, A, 'set_markup_visibility', { redbeam: true, file: FILE }))
+    const shot = await agentCall(page, A, 'screenshot', { file: FILE })
+    if (typeof shot.dataUrl !== 'string' || shot.dataUrl.length < 2000) problems.push(`agent-own-view: a session got no picture of its own sheet: ${JSON.stringify(shot).slice(0, 140)}`)
+    await still('a session taking a screenshot')
+
+    // It draws on ITS sheet with no `page`, sets that sheet's scale, and takes a markup away again.
+    const scale = ok('set_calibration', await agentAct(page, A, 'set_calibration', { points: [{ x: 0.1, y: 0.1 }, { x: 0.3, y: 0.1 }], value: '20', unit: 'ft', file: FILE }))
+    if (scale.page !== 5) problems.push(`agent-own-view: the scale should land on the session's sheet 5, landed on ${scale.page}`)
+    await still('a session setting its sheet\'s scale')
+    const ring = (x, y) => [[{ x, y }, { x: x + 0.1, y }, { x: x + 0.1, y: y + 0.08 }, { x, y: y + 0.08 }]]
+    const made = ok('create_markup', await agentAct(page, A, 'create_markup', { kind: 'shape', rings: ring(0.25, 0.25), file: FILE }))
+    if (made.page !== 5) problems.push(`agent-own-view: a markup with no page should land on the session's sheet 5, landed on ${made.page}`)
+    await still('a session drawing on a sheet the person is not on')
+    ok('select_markups', await agentAct(page, A, 'select_markups', { ids: [made.id], file: FILE })); await still('a session selecting')
+    ok('begin_scale_region', await agentAct(page, A, 'begin_scale_region', { rect: { x0: 0.6, y0: 0.6, x1: 0.9, y1: 0.9 }, file: FILE })); await still('a session starting a scale region')
+    ok('set_region_scale', await agentAct(page, A, 'set_region_scale', { feetPerPoint: 0.02, label: 'Detail 4', file: FILE })); await still('a session finishing a scale region')
+    const after = await agentCall(page, A, 'get_ui_state', { file: FILE })
+    if (!(Array.isArray(after.scaleRegions) && after.scaleRegions.length === 1)) problems.push(`agent-own-view: the session's sheet should have its one scale region: ${JSON.stringify(after.scaleRegions).slice(0, 140)}`)
+    if (after.calibrated !== true) problems.push('agent-own-view: the session\'s sheet should report the scale it set')
+
+    // The person moves about while the session works: its next call still lands on ITS sheet.
+    await shown(page).locator('.viewport, .stage').first().click({ position: { x: 40, y: 40 } }).catch(() => {})
+    await page.keyboard.press('PageDown')
+    await page.waitForTimeout(700)
+    const moved = await person(page)
+    const again = ok('create_markup', await agentAct(page, A, 'create_markup', { kind: 'shape', rings: ring(0.5, 0.5), file: FILE }))
+    if (again.page !== 5) problems.push(`agent-own-view: after the person turned the page, the session's markup should still land on its sheet 5, landed on ${again.page}`)
+    await page.waitForTimeout(300)
+    if (JSON.stringify(await person(page)) !== JSON.stringify(moved)) problems.push('agent-own-view: the session\'s call moved the person after they turned the page')
     problems.push(...await inspect(page))
-    await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-question.png`) })
-    if (JSON.stringify(await person(page)) !== JSON.stringify(before)) problems.push('agent-ask: the person\'s sheet moved before they answered')
-    await needing.click().catch(() => {})
-    const ask = shown(page).locator('.agentcard[data-asking="true"] .agentcard-ask')
-    if (await ask.getByRole('button', { name: 'Let it work there' }).count() !== 1) problems.push('agent-ask: the Agents list has no way to say yes')
-    problems.push(...await inspect(page))
-    await page.screenshot({ path: join(out, `${shotPrefix}agent-ask-menu.png`) })
-    await ask.getByRole('button', { name: 'Not now' }).click().catch(() => problems.push('agent-ask: no Not now'))
-    const told = await going
-    if (told.handover !== 'refused') problems.push(`agent-ask: the agent was not told the person said not now: ${JSON.stringify(told).slice(0, 160)}`)
-    await page.waitForTimeout(200)
-    if (await shown(page).locator('.agentcard[data-asking="true"], .agentsummary[data-needing="true"]').count() > 0) problems.push('agent-ask: the question stayed up after Not now')
-    // Reading the person's PDF, and drawing on the sheet they are on, needs no asking.
-    const settled = await person(page)
-    const read = await agentAct(page, AGENTS[1], 'find_text', { query: 'CEILING', file: FILE })
-    if (!Array.isArray(read.matches)) problems.push(`agent-ask: an agent could not read the person's PDF: ${JSON.stringify(read).slice(0, 160)}`)
-    if (JSON.stringify(await person(page)) !== JSON.stringify(settled)) problems.push(`agent-ask: reading the person's PDF moved their view: ${JSON.stringify(settled)} became ${JSON.stringify(await person(page))}`)
+    await page.screenshot({ path: join(out, `${shotPrefix}agent-own-view.png`) })
+    // Tidy: its markups and region away, the person back where they were.
+    for (const id of [made.id, again.id]) ok('delete_markup', await agentAct(page, A, 'delete_markup', { id, file: FILE }))
+    const gone = await agentAct(page, A, 'list_markups', { file: FILE })
+    if (Array.isArray(gone.markups) && gone.markups.some((m) => m.id === made.id || m.id === again.id)) problems.push('agent-own-view: a session could not delete its markup on a sheet the person is not showing')
+    if (Array.isArray(after.scaleRegions) && after.scaleRegions[0] !== undefined) await agentAct(page, A, 'delete_scale_region', { id: after.scaleRegions[0].id, file: FILE })
+    await page.keyboard.press('PageUp')
+    await page.waitForTimeout(700)
+    // Reading needs no asking either.
+    const read = await agentAct(page, A, 'find_text', { query: 'CEILING', file: FILE })
+    if (!Array.isArray(read.matches)) problems.push(`agent-own-view: an agent could not read the person's PDF: ${JSON.stringify(read).slice(0, 160)}`)
     return problems
   }],
   ['agent-watch', async (page) => {
@@ -1025,7 +1070,7 @@ const STEPS = [
     const elsewhere = await agentAct(page, AGENTS[2], 'create_markup', { kind: 'area', scopeId: scope.scopeId, file: FILE, page: 3, rings: [[{ x: 0.2, y: 0.2 }, { x: 0.3, y: 0.2 }, { x: 0.3, y: 0.3 }, { x: 0.2, y: 0.3 }]] })
     await page.waitForTimeout(400)
     if (typeof elsewhere.error === 'string' || typeof elsewhere.id !== 'string') problems.push(`agent-together: a guest session could not add a markup to a sheet the person is not showing: ${JSON.stringify(elsewhere).slice(0, 200)}`)
-    if (await shown(page).locator('.agentcard[data-asking="true"]').count() > 0) problems.push('agent-together: the person was asked about a markup on another sheet')
+    if (await shown(page).locator('.agentsummary[data-needing="true"]').count() > 0) problems.push('agent-together: the person was asked about a markup on another sheet')
     if (await where() !== before) problems.push(`agent-together: the person's view moved for a markup on another sheet: ${before} became ${await where()}`)
     const listed = await agentAct(page, AGENTS[2], 'list_markups', { file: FILE })
     if (!(Array.isArray(listed.markups) && listed.markups.some((m) => m.id === elsewhere.id))) problems.push('agent-together: the markup for another sheet is not in the document')

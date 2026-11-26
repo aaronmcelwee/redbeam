@@ -170,7 +170,7 @@
     },
     {
       "name": "redbeam_open_file",
-      "description": "Open a PDF drawing set in REDBEAM as a tab of YOUR OWN, behind whatever the person is looking at: nothing on their screen moves, REDBEAM does not come to the front, and the keyboard stays where it is. Your tabs sit in a group under your name and colour, and in them you may turn pages, zoom and pick tools freely. Later calls that name no `file` go to the PDF you opened last. If the person already has this PDF open, it is not opened twice: the answer says `yours:false` and you share their tab (see the server instructions). Its takeoff is read from the PDF itself. Returns {accepted:true} — NOT \"opened\": rendering a large set takes a few seconds, so poll redbeam_get_ui_state until pageCount is above zero before drawing or reading quantities, or pass wait:true to be answered once it has opened.",
+      "description": "Open a PDF drawing set in REDBEAM as a tab of YOUR OWN, behind whatever the person is looking at: nothing on their screen moves, REDBEAM does not come to the front, and the keyboard stays where it is. Your tabs sit in a group under your name and colour. Later calls that name no `file` go to the PDF you opened last. If the person already has this PDF open, it is not opened twice: the answer says `yours:false`, which only means the tab stays theirs. You work in it exactly as in your own, through your own view: every read, screenshot, page turn and write works, and nothing asks them. Its takeoff is read from the PDF itself. Returns {accepted:true} — NOT \"opened\": rendering a large set takes a few seconds, so poll redbeam_get_ui_state until pageCount is above zero before drawing or reading quantities, or pass wait:true to be answered once it has opened.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -317,7 +317,7 @@
     },
     {
       "name": "redbeam_get_ui_state",
-      "description": "What the window is showing: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open. ABOUT THE SHEET SHOWING: pageIndex, pageWidth, pageHeight, zoom, viewport, calibration, scaleRegions, selection, tool. ABOUT THE WHOLE FILE: file, tabs, pageCount, scopes, quantities and piece counts, `saved` (false while a change is not yet in the PDF), `lastSave` (how the last save went), `warnings` (the warning bar, word for word), appVersion. Sheets with markups but no scale are listed by redbeam_list_markups as unscaledSheets. ABOUT THE WINDOW: `tabs` (every open PDF), `tabOwners` (whose each is: person, you, or another agent's name), `personShowing` (the PDF the person is looking at, which may not be yours), and `agent` (your name and colour in REDBEAM, your tabs, and `drives`: whether you may move the view of the PDF this call was about).",
+      "description": "What your session's view is on, and the window around it: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open. ABOUT YOUR SHEET (the one your session is on, which may not be the one on screen): pageIndex, pageWidth, pageHeight, zoom, viewport, calibration, scaleRegions, selection, tool. ABOUT THE WHOLE FILE: file, tabs, pageCount, scopes, quantities and piece counts, `saved` (false while a change is not yet in the PDF), `lastSave` (how the last save went), `warnings` (the warning bar, word for word), appVersion. Sheets with markups but no scale are listed by redbeam_list_markups as unscaledSheets. ABOUT THE WINDOW: `tabs` (every open PDF), `tabOwners` (whose each is: person, you, or another agent's name), `personShowing` (the PDF the person is looking at, which may not be yours), and `agent` (your name and colour in REDBEAM, your tabs, and `drives`: whether the PDF this call was about is a tab you opened). `person`: the sheet, zoom, tool and selection on the person's screen, which your calls never change.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -333,7 +333,7 @@
     },
     {
       "name": "redbeam_screenshot",
-      "description": "PNG of a sheet. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning the window to it, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. With neither `page` nor `region`: the window's canvas as it is, raster and markup overlay composited. Needs a window with a document open.",
+      "description": "PNG of a sheet. With no `page`: YOUR sheet (the one your session is on; redbeam_go_to_page turns it, and the person's screen is not touched), showing the box you last framed with redbeam_zoom_to_region, or the whole sheet, with markups drawn. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning anything, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. Needs a window with a document open.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -552,7 +552,7 @@
     },
     {
       "name": "redbeam_set_markup_visibility",
-      "description": "Hide or show markups for a clean look at the drawing, as the palette's \"Hide the PDF's own markups\" and \"Hide REDBEAM markups\" do. `embedded` is the PDF's own annotations (Bluebeam's or anyone's); `redbeam` is the takeoff, dimensions and layout REDBEAM draws over the sheet. Nothing is written or deleted, and the window tells the person while markups are hidden, so show them again when done. Needs a window.",
+      "description": "Hide or show markups in YOUR screenshots, for a clean look at the drawing. `embedded` is the PDF's own annotations (Bluebeam's or anyone's); `redbeam` is the takeoff, dimensions and layout REDBEAM draws over the sheet. Nothing is written or deleted, and what the person sees does not change. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1361,7 +1361,7 @@
     },
     {
       "name": "redbeam_set_tool",
-      "description": "Select a drawing tool, as clicking it on the toolbar does.",
+      "description": "Not needed: a session draws with its calls (redbeam_create_markup, redbeam_trace_area, redbeam_measure and the rest), not with a tool in hand. The tool on screen is the person's and this does not change it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1409,7 +1409,7 @@
     },
     {
       "name": "redbeam_go_to_page",
-      "description": "Show a sheet, by ZERO-based page number or sheet code. Answers once the sheet is showing, so the next call can act on it.",
+      "description": "Turn YOUR session's sheet, by ZERO-based page number or sheet code. Calls with no `page` then act on it. The sheet on the person's screen does not change.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1433,7 +1433,7 @@
     },
     {
       "name": "redbeam_set_layout_preview",
-      "description": "Turn the layout preview (the pieces drawn over each area) on or off.",
+      "description": "The layout preview on screen is the person's to turn on; this does not change it. redbeam_get_piece_list and redbeam_get_bom give you the layout's pieces.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1457,7 +1457,7 @@
     },
     {
       "name": "redbeam_open_panel",
-      "description": "Open one of the side panels, or close them all with `none`.",
+      "description": "Panels are the person's; this opens nothing. Everything a panel shows has a tool: redbeam_get_bom, redbeam_get_piece_list, redbeam_list_scopes, redbeam_update_scope, redbeam_get_settings, redbeam_export.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1504,7 +1504,7 @@
     },
     {
       "name": "redbeam_create_markup",
-      "description": "Draw one markup on a sheet. Answers after it has landed, with its id, sheet, measure and any warning (no scope, or the sheet has no scale so it measures nothing yet). Give `page` to say which sheet; without it, the sheet showing. A cutout with scopeId cuts only that scope's areas; without one, every area it crosses.",
+      "description": "Draw one markup on a sheet. Answers after it has landed, with its id, sheet, measure and any warning (no scope, or the sheet has no scale so it measures nothing yet). Give `page` to say which sheet; without it, the sheet your session is on. Works on any sheet of any open PDF, whatever the person has on screen. A cutout with scopeId cuts only that scope's areas; without one, every area it crosses.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2010,7 +2010,7 @@
     },
     {
       "name": "redbeam_zoom_to_region",
-      "description": "Frame a box of the sheet in the window and mark it, so the person sees what you mean.",
+      "description": "Frame a box of the sheet in YOUR view: redbeam_screenshot with no `region` then shows that box. The person's zoom does not change.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2427,7 +2427,7 @@
     },
     {
       "name": "redbeam_select_markups",
-      "description": "Select markups in the window, so the person sees which ones you mean.",
+      "description": "Select markups in YOUR view. The person's selection does not change; to point them at something, name the sheet and the markup in your chat.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3011,7 +3011,7 @@
     },
     {
       "name": "redbeam_end_session",
-      "description": "Call this ONCE when the job is done: after the last save, as you give the person your hand back. Also call it if the person tells you to stop, or the job is abandoned. REDBEAM then settles your tabs so the person has nothing to tidy: every PDF you changed is saved and becomes one of the person's own tabs (not shown over what they are looking at), and every PDF you only read is closed. `summary` is one line the person reads beside your finished session: what you produced and where. `keep` names PDFs you only read that the person should still be handed (rarely needed). The answer lists `handedBack` and `closed`. Do NOT call it at an approval gate or while waiting for an answer: that is redbeam_wait_for_person. After it, this session is over; a new job starts with redbeam_start_session.",
+      "description": "Call this ONCE when the job is done: after the last save, as you give the person your hand back. Also call it if the person tells you to stop, or the job is abandoned. REDBEAM then settles your tabs so the person has nothing to tidy: every PDF you changed is saved and becomes one of the person's own tabs (not shown over what they are looking at), and every PDF you only read is closed. `summary` is one line the person reads beside your finished session: what you produced and where. `keep` names PDFs you only read that the person should still be handed (rarely needed). The answer lists `handedBack` and `closed`, and `why` says for each PDF left open whether you changed it or only read it (a PDF the person is looking at is never closed under them). Do NOT call it at an approval gate or while waiting for an answer: that is redbeam_wait_for_person. After it, this session is over; a new job starts with redbeam_start_session.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3034,7 +3034,7 @@
       }
     }
   ],
-  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. THE TAKEOFF SKILL: redbeam_start_session hands you the Maxxit precon-takeoff skill (also the resource redbeam://skill/precon-takeoff). Follow it for any takeoff: scope definition for approval first, then the takeoff. A TAKEOFF, START TO FINISH: 0. redbeam_start_session, once per chat. 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area (a room or a field with a line around it), redbeam_trace_field (a hatched or slatted field whose edge is where the hatch stops) or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn; redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 6b. A product REDBEAM does not have (triangle panels, a repeating 'random' baffle module, panels on rails, an open cell with coffers, any hardware): with Settings › Beta › Custom patterns on, redbeam_describe_product {productType:\"custom_pattern\"} gives the recipe format and examples; redbeam_list_patterns shows what the person already has; redbeam_preview_pattern shows a recipe on the sheet, redbeam_save_pattern keeps it on the scope as a draft for the person to approve. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom, redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on your session's own undo (redbeam_undo takes back your last change and never the person's; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`. WORKING BESIDE A PERSON AND OTHER AGENTS: the person is usually working in REDBEAM too, in tabs of their own, and other agents may be working in theirs. Nothing you do moves the person's view, takes the keyboard, or brings REDBEAM to the front. A PDF you open is YOUR tab, behind theirs; there you turn pages, zoom and pick tools freely, and the person can look in on you (they see your cursor and a line saying what you are doing). In a tab that is NOT yours (the person's, or another agent's) you can read its sheet list, text, scopes and markups on any sheet, look at, measure and trace the sheet it is showing, and draw on that sheet (leave `page` out), but a call that needs another sheet shown, or would zoom it, change its tool, selection or panels, or undo, is not done: the person is asked instead, and the answer says `handover: asked` or `handover: refused`. Do not retry in a loop; either wait, or redbeam_save_copy and open the copy, which is yours. redbeam_get_ui_state lists `tabOwners` and whether you drive the PDF. SESSIONS: call redbeam_start_session once at the start of every chat, with a short name for the job, and pass the `session` it returns on every other call. REDBEAM shows the person your app and that name on your group of tabs and beside your cursor. Each chat, and each sub-agent or parallel worker, starts its own session and so gets its own tabs, colour and cursor; never use a session another chat was given. THE LIFE OF A SESSION, and keeping what the person sees true: the person sees your session as Working, Waiting for you, or Finished, and sees beside your cursor what your call in flight is doing. That line comes from your calls, so it is only as true as you keep it. (a) When you stop for the person, at a question or an approval gate, call redbeam_wait_for_person with what you need. Otherwise your group just goes quiet and the person cannot tell paused from stuck. (b) When the job is done, or the person calls it off, call redbeam_end_session with a one-line summary. REDBEAM hands the PDFs you changed to the person as their own tabs and closes the ones you only read. Do not leave a session open after your final message, and do not end it at a gate. (c) Work in few, purposeful calls. Do not poll redbeam_get_ui_state in a loop to look busy, and do not leave a session with nothing to do. (d) One session does one job. A new job in the same chat ends the old session and starts a new one, named for the new job. redbeam_close_tab closes a single tab of yours early; redbeam_end_session settles all of them. The guide at redbeam://guide/working-beside-a-person repeats this section.",
+  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. THE TAKEOFF SKILL: redbeam_start_session hands you the Maxxit precon-takeoff skill (also the resource redbeam://skill/precon-takeoff). Follow it for any takeoff: scope definition for approval first, then the takeoff. A TAKEOFF, START TO FINISH: 0. redbeam_start_session, once per chat. 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area (a room or a field with a line around it), redbeam_trace_field (a hatched or slatted field whose edge is where the hatch stops) or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn; redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 6b. A product REDBEAM does not have (triangle panels, a repeating 'random' baffle module, panels on rails, an open cell with coffers, any hardware): with Settings › Beta › Custom patterns on, redbeam_describe_product {productType:\"custom_pattern\"} gives the recipe format and examples; redbeam_list_patterns shows what the person already has; redbeam_preview_pattern shows a recipe on the sheet, redbeam_save_pattern keeps it on the scope as a draft for the person to approve. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom, redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on your session's own undo (redbeam_undo takes back your last change and never the person's; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`. WORKING BESIDE A PERSON AND OTHER AGENTS: the person is usually working in REDBEAM too, in tabs of their own, and other agents may be working in theirs. Nothing you do moves the person's view, takes the keyboard, or brings REDBEAM to the front. A PDF you open is YOUR tab, behind theirs. YOUR OWN VIEW: in every PDF, yours or the person's, your session has a view of its own: its own sheet, zoom box, selection and scope. redbeam_go_to_page turns YOUR sheet, redbeam_zoom_to_region frames YOUR view, and redbeam_screenshot shows YOUR sheet; none of them changes what is on the person's screen, and nothing ever asks the person for permission. So work in the person's open PDF exactly as you would in your own: read, look, measure, trace, set scales, draw and delete on any sheet, at any time, while they work on a different sheet or the same one. A call with no `page` acts on your sheet (you start on the sheet the person had showing), so pass `page`, or call redbeam_go_to_page first. redbeam_get_ui_state reports your own sheet and scale, and `person` says where the person is looking. The tool in hand, the panels and the layout preview on screen are the person's: redbeam_set_tool, redbeam_open_panel and redbeam_set_layout_preview change nothing there, and you need none of them, because every result has a tool that returns it. The person sees your work as it lands: your markups appear on the sheet, your cursor shows on the sheet you are on with a line saying what you are doing, and they can click your session in the Agents list to go to your sheet. If they should look at something, say which sheet in your chat; do not try to show it to them. SESSIONS: call redbeam_start_session once at the start of every chat, with a short name for the job, and pass the `session` it returns on every other call. REDBEAM shows the person your app and that name on your group of tabs and beside your cursor. Each chat, and each sub-agent or parallel worker, starts its own session and so gets its own tabs, colour and cursor; never use a session another chat was given. THE LIFE OF A SESSION, and keeping what the person sees true: the person sees your session as Working, Waiting for you, or Finished, and sees beside your cursor what your call in flight is doing. That line comes from your calls, so it is only as true as you keep it. (a) When you stop for the person, at a question or an approval gate, call redbeam_wait_for_person with what you need. Otherwise your group just goes quiet and the person cannot tell paused from stuck. (b) When the job is done, or the person calls it off, call redbeam_end_session with a one-line summary. REDBEAM hands the PDFs you changed to the person as their own tabs and closes the ones you only read. Do not leave a session open after your final message, and do not end it at a gate. (c) Work in few, purposeful calls. Do not poll redbeam_get_ui_state in a loop to look busy, and do not leave a session with nothing to do. (d) One session does one job. A new job in the same chat ends the old session and starts a new one, named for the new job. redbeam_close_tab closes a single tab of yours early; redbeam_end_session settles all of them. The guide at redbeam://guide/working-beside-a-person repeats this section.",
   "sessions": {
     "tool": {
       "name": "redbeam_start_session",

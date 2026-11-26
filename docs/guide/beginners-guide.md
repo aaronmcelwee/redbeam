@@ -201,7 +201,7 @@ Reply in the ChatGPT chat to approve, correct a scope, or ask it to redo somethi
 - Each ChatGPT chat gets its **own session**, named for the app and the job (for example "ChatGPT · Nokia Canada North Campus takeoff"), with its own colour and its own group of tabs.
 - The **Agents** list sits under Takeoff in the right panel. It shows each session, what it is doing now, and its PDFs. Pick a PDF to look in on it as one of your tabs.
 - When you look at a PDF an agent is working in, its **bright cursor** shows where it is acting, labelled with what it is doing.
-- An agent **never steals your keyboard, window or view**. You can keep working, even in the same PDF. If it wants to turn pages or zoom in your PDF, it asks in the Agents list (**Let it work there** / **Not now**) and the title bar shows a "!" until you answer.
+- An agent **never steals your keyboard, window or view**. You can keep working, even in the same PDF. Each agent has its own view of the set: it turns its own sheets and zooms on its own, and draws on any sheet, while what is on your screen stays exactly where you left it. It never asks permission to work in a sheet.
 - **Ctrl+Z only undoes your own work**, never the agent's, and the agent can only undo its own.
 - When it finishes, the PDFs it changed move to your own tabs with a dot until you open them. You can also **End this session** from the Agents list.
 
@@ -209,7 +209,6 @@ Reply in the ChatGPT chat to approve, correct a scope, or ask it to redo somethi
 
 ![Two agents in one window: each has its own colour and tab group, and you keep working in your own tab](images/05-agent-cursor-in-your-pdf.png)
 
-![An agent asking to turn pages in your PDF: Let it work there, or Not now](images/25-agent-asks.png)
 
 ![A finished session: its PDFs move to your tabs, and Finished keeps what it did](images/26-agent-finished.png)
 
@@ -259,5 +258,5 @@ Claude works the same way. Install the **Claude desktop app**, then in REDBEAM's
 | Bluebeam markups are dashed | They are pending imports. Give them a scope or use **Accept imported markups…**. |
 | A warning says the takeoff was rebuilt from the markups | Another app dropped REDBEAM's hidden data. Quantities are back; re-enter product details and any missing scales. |
 | ChatGPT can't see REDBEAM | Use the desktop app, not the web. Check the **Let AI apps use REDBEAM** switch is on, click **Add to ChatGPT** again, then fully quit and reopen ChatGPT. |
-| The agent is stuck "waiting for you" | Look in the Agents list for its question (**Let it work there** / **Not now**), or answer it in the chat. |
+| The agent is stuck "waiting for you" | Answer it in its chat. |
 | Something else is wrong | **Settings › Report a bug** (it can include a screenshot). Reports go straight to the team. |

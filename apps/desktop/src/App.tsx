@@ -26,7 +26,6 @@ import {
 import { bridgeHosts, UNNAMED_CALL, useBridgeListener } from './bridge/useBridgeRequests.js'
 import { BridgeRouter } from './agents/router.js'
 import { roster } from './agents/roster.js'
-import { handovers } from './agents/handover.js'
 import { AgentsOnStart, type AgentTabItem } from './agents/AgentTabs.js'
 import { sleepers, type LiveUse } from './agents/live.js'
 import { APP_VERSION } from './update/updates.js'
@@ -271,7 +270,6 @@ export default function App() {
     if (tab.owner === undefined) {
       closedTabsRef.current = [...closedTabsRef.current.filter((f) => !samePath(f, file)), file]
     }
-    handovers.dropFile(file)
     usedRef.current.delete(foldPath(file))
     setLive((l) => l.filter((f) => !samePath(f, file)))
     const showing = quickRef.current !== null && samePath(quickRef.current.file, file)
@@ -341,7 +339,6 @@ export default function App() {
   /** Hand a tab to an agent, or back to the person. A tab an agent drives stays live. */
   const setOwner = useCallback((file: string, owner: string | null) => {
     setTabs((t) => withOwner(t, file, owner))
-    handovers.dropFile(file)
     if (owner !== null) wake(file)
   }, [setTabs, wake])
 
@@ -375,15 +372,12 @@ export default function App() {
         const moved = tab === undefined ? mine : [...rest, tab]
         return showing ? moved : withHanded(moved, file, { by: agent.name, color: agent.color.bright, agentId: agent.id })
       })
-      handovers.dropFile(file)
     },
     reclaim: (file, agentId) => {
       setTabs((t) => withHanded(withOwner(t, file, agentId), file, null))
-      handovers.dropFile(file)
       wake(file)
     },
     roster,
-    handovers,
     appVersion: APP_VERSION,
   // The router lives as long as the window; what it calls reads refs.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -565,10 +559,6 @@ export default function App() {
       if (fn === null) beforeRef.current.delete(foldPath(file))
       else beforeRef.current.set(foldPath(file), fn)
     },
-    onHandOver: (file: string, agentId: string, yes: boolean) => {
-      if (yes) setOwner(file, agentId)
-      handovers.answer(file, agentId, yes)
-    },
     onTakeOver: (file: string) => setOwner(file, null),
     onEndSession: (agentId: string) => { void router.endSession(agentId, 'person', null, []) },
     onDismissSession: (agentId: string) => roster.forget(agentId),
@@ -651,7 +641,6 @@ interface WorkspaceHandlers {
   onDrop: (file: string) => void
   onRecentsChanged: () => void
   onBeforeClose: (file: string, fn: ((leave: () => void) => Promise<boolean>) | null) => void
-  onHandOver: (file: string, agentId: string, yes: boolean) => void
   onTakeOver: (file: string) => void
   onEndSession: (agentId: string) => void
   onDismissSession: (agentId: string) => void
@@ -693,7 +682,7 @@ const LiveWorkspace = memo(function LiveWorkspace({
       list: tabList,
       onSelect: handlers.onSelect, onClose: handlers.onClose, onStep: handlers.onStep,
       onReopen: handlers.onReopen,
-      onHandOver: handlers.onHandOver, onTakeOver: handlers.onTakeOver,
+      onTakeOver: handlers.onTakeOver,
       onEndSession: handlers.onEndSession, onDismissSession: handlers.onDismissSession, onReopenFile: handlers.onReopenFile,
     },
   }), [file, relativePath, desktop, tabList, handlers])

@@ -12,6 +12,15 @@ All are unsigned; SmartScreen will ask once.
 - **Saving works when a sheet name has a bracket in it.** A sheet name read off the title block with a stray ")" or "(" (or a backslash) was written into the PDF in a way that broke the file's page names. The next save then failed with "Failed to parse PDF document … Expected next byte to be 47 but it was actually 41". Names are now written safely, and they show exactly as read in REDBEAM, Bluebeam and every PDF viewer.
 - **Files already affected save again.** When REDBEAM finds page names an earlier version broke, it reads past them and the next save writes them correctly, along with your takeoff.
 
+## 0.3.100 — 2026-11-26
+
+### You and an agent in the same set, each with your own view
+
+- **An agent no longer moves your screen.** When Claude or ChatGPT worked in a set you had open, it worked through the sheet on your screen: it turned your page and zoomed your view to wherever it was working. Each AI session now has a view of its own inside the PDF, with its own sheet, zoom and selection. It turns its own pages and draws, sets scales and deletes on any sheet while you stay exactly where you are, on a different sheet or the same one.
+- **Agents no longer ask to work in your PDF.** The "Let it work there / Not now" question is gone. A session starts working in your open set straight away, and nothing waits on you.
+- **Your tool, selection, panels and layout preview are yours.** An agent picking a tool, selecting markups, hiding markups for a clean screenshot or asking for a panel changes only its own view.
+- **Go to where an agent is working when you want to.** Click its PDF in the Agents list and you land on the sheet it is on, with its cursor and what it is doing. Nothing takes you there unless you click.
+
 ## 0.3.99 — 2026-11-26
 
 ### Clicking a markup takes you to it
