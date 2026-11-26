@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.110 — 2026-11-26
+
+### Agents count clouds from the plan
+
+- **Slope and upturn on a cloud.** An agent can give a scope a slope angle and an upturn height. The bill of materials then shows the cloud's true face area, the upturn round its edges and the length of the fold line, all worked out from the areas drawn on the plan.
+
 ## 0.3.109 — 2026-11-26
 
 ### Agents match a hatch to the legend

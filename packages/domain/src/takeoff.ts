@@ -20,7 +20,7 @@
 
 import { resolveScaleForRings, type ScaleRegion } from './scaleRegion.js'
 import { ringToPoints, type Calibration, type Markup, type Scope } from './scope.js'
-import { polylineLength, trimEdgeLengths, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
+import { polylineLength, regionArea, trimEdgeLengths, trimPiecesForEdges, type Point, type Polygon, type Region } from './geometry.js'
 import { ringsOverlap, subtractRings } from './clip.js'
 import { areaRegion } from './cuts.js'
 import {
@@ -620,7 +620,86 @@ function linearParts(
   }
 }
 
+/** The cloud/3D settings a scope reads (NOIC report, 2026-11-26). */
+export interface CloudShape {
+  /** Degrees the face is tilted from flat, 0..80. */
+  slopeDegrees: number
+  /** Height the edges turn up, feet. */
+  upturnFeet: number
+}
+
+/** `cloudSlope` (degrees) and `cloudUpturn` with `cloudUpturnUnit`; null when neither is set. */
+export function readCloudShape(specs: Specifications): CloudShape | null {
+  const raw = specs['cloudSlope']
+  const slope = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim() || NaN)
+  const slopeDegrees = Number.isFinite(slope) ? Math.min(80, Math.max(0, slope)) : 0
+  const upturnFeet = measureToFeet(specs, { valueKey: 'cloudUpturn', unitKey: 'cloudUpturnUnit', label: 'Upturn' }) ?? 0
+  if (!(slopeDegrees > 0) && !(upturnFeet > 0)) return null
+  return { slopeDegrees, upturnFeet: Math.max(0, upturnFeet) }
+}
+
+/**
+ * A cloud from plan geometry (NOIC report: "allow a slope angle and upturn
+ * height, so developed width and fold length come out of plan geometry").
+ * Each area, less the scope's cutouts on its sheet, at its own scale: the
+ * face is the plan area over the cosine of the slope, the upturn is the
+ * outline times its height, and the fold runs round the outline where the
+ * face turns up.
+ */
+export function cloudQuantities(
+  shape: CloudShape,
+  mine: readonly Markup[],
+  cal: Calibration,
+  opts: Pick<PieceOptions, 'calibrations' | 'scaleRegions' | 'pageSizes' | 'pageSize'>,
+): PieceQuantity[] {
+  const calFor = (pageId: string): Calibration | null =>
+    opts.calibrations?.get(pageId) ?? (opts.calibrations === undefined ? cal : null)
+  const cos = Math.cos((shape.slopeDegrees * Math.PI) / 180)
+  let plan = 0, edge = 0
+  for (const m of mine) {
+    if (m.kind !== 'area') continue
+    const pageCal = calFor(m.pageId)
+    if (pageCal === null) continue
+    const regions = opts.scaleRegions?.get(m.pageId) ?? []
+    const fpp = regions.length > 0 ? resolveScaleForRings(m.rings, regions, pageCal.feetPerPoint).feetPerPoint : pageCal.feetPerPoint
+    if (fpp === null || !(fpp > 0)) continue
+    const own = areaRegion(m.rings.map((r) => ringToPoints(r as Point[], pageCal)))
+    const cuts = mine.filter((c) => c.kind === 'cutout' && c.pageId === m.pageId).flatMap((c) => c.rings.map((r) => ringToPoints(r as Point[], pageCal)))
+      .filter((c) => own.some((o) => ringsOverlap(c, o)))
+    const region: Region = cuts.length > 0 ? subtractRings(own, cuts) : own
+    plan += Math.abs(regionArea(region)) * fpp * fpp
+    for (const ring of region) for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!, b = ring[(i + 1) % ring.length]!
+      edge += Math.hypot(b.x - a.x, b.y - a.y) * fpp
+    }
+  }
+  const r1 = (v: number) => Math.round(v * 10) / 10
+  const face = plan / cos
+  const upturn = edge * shape.upturnFeet
+  const out: PieceQuantity[] = []
+  if (face > 0) out.push({ itemKey: 'cloud_face_area', label: `Cloud face (developed${shape.slopeDegrees > 0 ? `, ${shape.slopeDegrees}° slope` : ''})`, quantity: r1(face), unit: 'SF' })
+  if (upturn > 0) {
+    out.push({ itemKey: 'cloud_upturn_area', label: 'Cloud upturn', quantity: r1(upturn), unit: 'SF' })
+    out.push({ itemKey: 'cloud_fold_length', label: 'Cloud fold line', quantity: r1(edge), unit: 'LF' })
+  }
+  if (face > 0 && upturn > 0) out.push({ itemKey: 'cloud_developed_area', label: 'Cloud developed area', quantity: r1(face + upturn), unit: 'SF' })
+  return out
+}
+
 export function calculatePieces(
+  scope: Scope,
+  markups: readonly Markup[],
+  cal: Calibration,
+  opts: PieceOptions,
+): PieceResult {
+  const r = calculatePiecesFor(scope, markups, cal, opts)
+  const shape = readCloudShape(scope.specifications as Specifications)
+  if (shape === null || readProductType(scope.specifications as Specifications) === 'custom_pattern') return r
+  const extra = cloudQuantities(shape, markups.filter((m) => m.scopeId === scope.id), cal, opts)
+  return extra.length > 0 ? { ...r, quantities: [...r.quantities, ...extra] } : r
+}
+
+function calculatePiecesFor(
   scope: Scope,
   markups: readonly Markup[],
   cal: Calibration,
