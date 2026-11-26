@@ -5,7 +5,7 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.100 — 2026-11-26
+## 0.3.101 — 2026-11-26
 
 ### Agents read drawn grids and check layouts with less work
 
