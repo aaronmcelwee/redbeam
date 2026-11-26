@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.107 — 2026-11-26
+
+### Going to an agent's sheet, and slow answers
+
+- **Go to where an agent is working.** Clicking an agent's PDF in the Agents list takes you to the sheet it is on, including when that PDF is the one you already have on screen and however its path was typed.
+- **A slow answer no longer invites a double.** When the window is too busy to answer an agent in time, the agent is now told its request was delivered and may still finish, and to check before sending it again. Before, it was told no PDF was open, and a retry could draw the same markup twice.
+
+
 ## 0.3.104 — 2026-11-26
 
 ### Agents catch long runs and copy floors in one step

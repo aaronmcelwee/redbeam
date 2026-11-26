@@ -174,6 +174,7 @@ import { keepingFocus } from './agents/focusGuard.js'
 import { AgentCursors, type AgentCursorsHandle } from './agents/AgentCursors.js'
 import { AgentBar, type AgentTabItem, tabMarks, useAgents } from './agents/AgentTabs.js'
 import { AgentsDock, AgentSummary, askLookIn, peekMarks, showAgentsDock, takeLookIn } from './agents/AgentsPane.js'
+import { samePath } from './lightTabs.js'
 import { SettingsPanel } from './settings/SettingsPanel.js'
 import { THEME_CHANGED } from './theme.js'
 import { ReportDialog } from './report/ReportDialog.js'
@@ -11908,7 +11909,7 @@ export default function Workspace({
          * own calls never do this.
          */
         const view = agentId === undefined ? undefined : agentViewsRef.current.get(agentId)
-        if (file === quickView!.file) {
+        if (samePath(file, quickView!.file)) {
           if (view !== undefined && view.page !== pageIndexRef.current && view.page < pageCount) goToPage(view.page)
           return
         }
