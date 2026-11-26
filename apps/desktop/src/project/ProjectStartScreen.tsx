@@ -52,6 +52,8 @@ export interface ProjectStartScreenProps {
   onViewDrawing?: () => void
   /** A file or folder dropped on the window. Desktop only. */
   onDropPath?: (path: string) => void
+  /** Several files dropped at once; without it only the first is opened. */
+  onDropPaths?: (paths: string[]) => void
   /** Path currently being opened, if any. */
   busyPath?: string | null
   /** Beside the version line in the footer: the update chip, when there is one. */
@@ -148,6 +150,7 @@ export function ProjectStartScreen({
   onBrowse,
   onViewDrawing,
   onDropPath,
+  onDropPaths,
   busyPath = null,
   footerExtra,
   busy = false,
@@ -206,8 +209,9 @@ export function ProjectStartScreen({
         const { listen } = await import('@tauri-apps/api/event')
         const drop = await listen<{ paths?: string[] }>('tauri://drag-drop', (e) => {
           setDragging(false)
-          const first = e.payload?.paths?.[0]
-          if (typeof first === 'string') onDropPath(first)
+          const paths = (e.payload?.paths ?? []).filter((p): p is string => typeof p === 'string')
+          if (paths.length > 1 && onDropPaths !== undefined) onDropPaths(paths)
+          else if (paths[0] !== undefined) onDropPath(paths[0])
         })
         const enter = await listen('tauri://drag-enter', () => setDragging(true))
         const leave = await listen('tauri://drag-leave', () => setDragging(false))
@@ -215,7 +219,7 @@ export function ProjectStartScreen({
       } catch { /* no event bus: no drop */ }
     })()
     return () => { cancelled = true; for (const s of stop) s() }
-  }, [onDropPath])
+  }, [onDropPath, onDropPaths])
 
   /* Ctrl+O browses for a job, as the card says. */
   useEffect(() => {

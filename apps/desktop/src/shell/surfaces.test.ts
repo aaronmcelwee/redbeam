@@ -84,7 +84,10 @@ describe('the scope editor, in the sidebar', () => {
     expect(src).toContain("'Remove from round…'")
     // Rename in place (F2 or the menu) and what-it-counts were the two fields only the dialog had.
     expect(src).toContain('label="Scope name"')
-    expect(src).toContain('id="scope-counts"')
+    // Count and Length are products of their own, not a "Measured as" row (Kenneth, 2026-11-26).
+    expect(src).not.toContain('id="scope-counts"')
+    expect(src).toContain('<option value={MEASURE_COUNT}>Count</option>')
+    expect(src).toContain('<option value={MEASURE_LENGTH}>Length</option>')
   })
 })
 
@@ -174,7 +177,7 @@ describe('the scope pane, one screen', () => {
     const field = src.indexOf('id="scope-type"')
     expect(header).toBeGreaterThan(0)
     expect(field).toBeGreaterThan(grid)
-    expect(field).toBeLessThan(src.indexOf('id="scope-counts"'))
+    expect(field).toBeLessThan(src.indexOf('id="scope-device"'))
   })
 })
 
