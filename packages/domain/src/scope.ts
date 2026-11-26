@@ -30,6 +30,11 @@ export type MarkupKind =
   // Annotation kinds. Like `shape`, none of these is takeoff geometry and none
   // reaches a quantity; they carry their payload in `content`.
   | 'dimension' | 'callout' | 'highlight'
+  // Another app's annotation (a Bluebeam cloud, text box, arrow, dimension)
+  // held in place: the PDF draws it, the markup holds where it sits (its
+  // /Rect, as rings[0]) and its colour, so it can be moved, recoloured and
+  // deleted, and the save rewrites the annotation itself (export/adopt.ts).
+  | 'annot'
 
 export interface Calibration {
   /** Drawing feet represented by one PDF point on this page. */
