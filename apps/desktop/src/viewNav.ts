@@ -106,3 +106,47 @@ export function historyStepForKey(
 export function historyStepForButton(button: number): -1 | 1 | null {
   return button === 3 ? -1 : button === 4 ? 1 : null
 }
+
+/** A box in normalized page coordinates [0,1]. */
+export interface NormBox { x0: number; y0: number; x1: number; y1: number }
+
+/** The box around every point of a markup's rings, or null when it has none. */
+export function boundsOfRings(rings: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>): NormBox | null {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const ring of rings) {
+    for (const p of ring) {
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue
+      if (p.x < x0) x0 = p.x
+      if (p.x > x1) x1 = p.x
+      if (p.y < y0) y0 = p.y
+      if (p.y > y1) y1 = p.y
+    }
+  }
+  return x0 <= x1 && y0 <= y1 ? { x0, y0, x1, y1 } : null
+}
+
+/**
+ * The view that brings a markup to the middle of the stage.
+ *
+ * Clicking a markup in a scope's list should land on the markup, not on the
+ * sheet's top-left corner (Aaron, 2026-11-26). The zoom you are at is kept
+ * when the markup, with a little room around it, already fits; otherwise the
+ * view zooms out just enough to show all of it. It never zooms IN: someone
+ * looking at a whole sheet who clicks a count keeps seeing the sheet, with the
+ * count in the middle.
+ */
+export function frameBox(
+  v: Viewport, box: NormBox, page: { width: number; height: number },
+  stage: { width: number; height: number }, maxZoom: number, margin = 0.15,
+): Viewport {
+  const x0 = Math.min(box.x0, box.x1) * page.width, x1 = Math.max(box.x0, box.x1) * page.width
+  const y0 = Math.min(box.y0, box.y1) * page.height, y1 = Math.max(box.y0, box.y1) * page.height
+  const bw = (x1 - x0) * (1 + 2 * margin), bh = (y1 - y0) * (1 + 2 * margin)
+  const fits = Math.min(
+    bw > 0 ? stage.width / bw : Infinity,
+    bh > 0 ? stage.height / bh : Infinity,
+  )
+  const zoom = Math.min(maxZoom, v.zoom > 0 && v.zoom <= fits ? v.zoom : fits)
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+  return { ...v, zoom, ox: cx * zoom - stage.width / 2, oy: cy * zoom - stage.height / 2 }
+}

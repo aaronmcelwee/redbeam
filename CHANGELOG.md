@@ -17,6 +17,22 @@ All are unsigned; SmartScreen will ask once.
 - **Beams told from slabs.** When an agent reads a drawn pattern where some members are drawn differently (beams as double lines, slabs as single ones), it is told which is which and how often each repeats, instead of a wrong spacing.
 - **Hatched fields traced from the right lines.** Tracing a hatched ceiling follows the hatch under the point the agent gave, not a denser hatch next to it, and tells the agent what else it saw so it can try again.
 
+## 0.3.100 — 2026-11-26
+
+### You and an agent in the same set, each with your own view
+
+- **An agent no longer moves your screen.** When Claude or ChatGPT worked in a set you had open, it worked through the sheet on your screen: it turned your page and zoomed your view to wherever it was working. Each AI session now has a view of its own inside the PDF, with its own sheet, zoom and selection. It turns its own pages and draws, sets scales and deletes on any sheet while you stay exactly where you are, on a different sheet or the same one.
+- **Agents no longer ask to work in your PDF.** The "Let it work there / Not now" question is gone. A session starts working in your open set straight away, and nothing waits on you.
+- **Your tool, selection, panels and layout preview are yours.** An agent picking a tool, selecting markups, hiding markups for a clean screenshot or asking for a panel changes only its own view.
+- **Go to where an agent is working when you want to.** Click its PDF in the Agents list and you land on the sheet it is on, with its cursor and what it is doing. Nothing takes you there unless you click.
+
+## 0.3.99 — 2026-11-26
+
+### Clicking a markup takes you to it
+
+- **The view lands on the markup.** In a scope's Markups list, clicking a markup while zoomed in used to show the top-left corner of its sheet. It now centres the markup on screen, on another sheet or the one you are on.
+- **Your zoom is kept when the markup fits.** If it would not fit at your zoom (zoomed all the way in on a large area), the view zooms out just enough to show all of it. It never zooms in on you.
+
 ## 0.3.98 — 2026-11-26
 
 ### Agents work better on big sets

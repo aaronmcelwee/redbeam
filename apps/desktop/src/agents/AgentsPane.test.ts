@@ -8,9 +8,8 @@ const agent = (over: Partial<Agent> = {}): Agent => ({
   state: 'idle', waitingFor: null, ended: null, wrote: [], guestIn: [], activity: null, current: null,
   since: 0, seenAt: 0, collapsed: true, ...over,
 })
-const group = (a: Agent, asks = 0): AgentGroup => ({
+const group = (a: Agent): AgentGroup => ({
   agent: a, tabs: [{ file: 'C:\\a.pdf', name: 'a.pdf', owner: a.id }],
-  asks: Array.from({ length: asks }, () => ({ file: 'C:\\mine.pdf', name: 'mine.pdf' })),
 })
 
 describe('the Agents list', () => {
@@ -20,8 +19,8 @@ describe('the Agents list', () => {
     expect(summaryLine(0, 0, 2)).toBe('2 finished AI sessions')
   })
 
-  it('counts a session that asked and a session waiting in its chat as needing the person', () => {
-    expect(needingYou([group(agent()), group(agent({ state: 'waiting' })), group(agent(), 1)])).toBe(2)
+  it('counts a session waiting in its chat as needing the person, and no other', () => {
+    expect(needingYou([group(agent()), group(agent({ state: 'waiting' })), group(agent({ state: 'working' }))])).toBe(1)
   })
 
   it('lists every session\'s PDFs while they all fit, and folds the quiet ones once there are many', () => {
@@ -30,10 +29,9 @@ describe('the Agents list', () => {
     expect(sessionOpen(group(agent({ state: 'waiting' })), 10, false, undefined)).toBe(true)
   })
 
-  it('keeps what the person chose, but never folds a question or the PDF on screen out of sight', () => {
+  it('keeps what the person chose, but never folds the PDF on screen out of sight', () => {
     expect(sessionOpen(group(agent()), 2, false, false)).toBe(false)
     expect(sessionOpen(group(agent()), 10, false, true)).toBe(true)
-    expect(sessionOpen(group(agent(), 1), 10, false, false)).toBe(true)
     expect(sessionOpen(group(agent()), 10, true, false)).toBe(true)
   })
 
@@ -47,10 +45,10 @@ describe('the Agents list', () => {
     expect(fileNote({ ...busy, state: 'idle' }, 'C:\\a.pdf', false)).toBe('read')
   })
 
-  it('puts a question first, then a session waiting in its chat, then the rest as they arrived', () => {
+  it('puts a session waiting in its chat first, then the rest as they arrived', () => {
     const quiet = group(agent({ id: 'q' })), other = group(agent({ id: 'o' }))
-    const waiting = group(agent({ id: 'w', state: 'waiting' })), asking = group(agent({ id: 'k' }), 1)
-    expect(needingFirst([quiet, waiting, other, asking]).map((g) => g.agent.id)).toEqual(['k', 'w', 'q', 'o'])
+    const waiting = group(agent({ id: 'w', state: 'waiting' }))
+    expect(needingFirst([quiet, other, waiting]).map((g) => g.agent.id)).toEqual(['w', 'q', 'o'])
   })
 
   it('keeps the agents between a sliver and most of the sidebar, however far the divider is dragged', () => {
