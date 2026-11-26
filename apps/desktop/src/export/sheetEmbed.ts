@@ -1329,7 +1329,7 @@ function embedInto(
   //    outline is rewritten before the labels change, because REDBEAM's old
   //    bookmarks are recognised by the labels they were written with.
   if (labels !== null) {
-    changed.push(...writeSheetOutline(doc, labels))
+    for (const r of writeSheetOutline(doc, labels)) changed.push(r)
     doc.catalog.set(PDFName.of('PageLabels'), pageLabelTree(ctx, labels, pages.length))
   }
 
@@ -1339,7 +1339,8 @@ function embedInto(
     ;(a.lookup(PDFName.of(KEY)) as PDFDict).set(PDFName.of('Slice'), sliceRef)
   }
 
-  changed.push(...newRefsSince(doc, largestBefore))
+  // Pushed one by one: a spread of every new object overflows the stack on a big set.
+  for (const r of newRefsSince(doc, largestBefore)) changed.push(r)
   return {
     result: { bytes: null, editedElsewhere, foreignKept: before.foreignAnnots, stamp: sliceStamp(slice) },
     tail: incrementalTail(base, doc, changed),

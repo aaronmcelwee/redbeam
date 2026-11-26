@@ -204,7 +204,10 @@ export function openLazyPdf(src: ByteSource): LazyPdf {
   ;(context as unknown as { indirectObjects: Map<PDFRef, PDFObject> }).indirectObjects = lazy
 
   const size = trailer.get(PDFName.of('Size'))
-  const largest = Math.max(size instanceof PDFNumber ? size.asNumber() - 1 : 0, ...entries.keys())
+  // A loop, not Math.max(...keys): a spec book can hold hundreds of thousands
+  // of objects, and spreading them as arguments overflows the call stack.
+  let largest = size instanceof PDFNumber ? size.asNumber() - 1 : 0
+  for (const n of entries.keys()) if (n > largest) largest = n
   context.largestObjectNumber = largest
   const ref = (k: string) => { const v = trailer!.get(PDFName.of(k)); return v instanceof PDFRef ? v : undefined }
   const info: PDFContext['trailerInfo'] = {}

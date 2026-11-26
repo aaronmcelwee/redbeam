@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.95 — 2026-11-26
+
+### Saving a big spec book works again
+
+- **Takeoffs save into very large PDFs.** On a big set or spec book (over 128 MB, read in pieces rather than whole), saving stopped with "Maximum call stack size exceeded", and Save a copy failed the same way. REDBEAM was counting every object in the file in one step, and a spec book can hold hundreds of thousands of them. It now counts them one at a time, with no limit on the size of the file.
+- **The same fix covers estimate exports** from those PDFs, and writing sheet bookmarks into a set with a very large number of sheets.
+
 ## 0.3.94 — 2026-11-26
 
 ### Updates wait beside Settings
