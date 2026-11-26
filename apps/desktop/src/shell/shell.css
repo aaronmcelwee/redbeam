@@ -388,22 +388,30 @@
    already said the panel's name. */
 .side > .paneactions { justify-content: flex-end; }
 
+/* The sidebar's foot: Settings, and beside it the update chip when there is
+   one (update/UpdateChip.tsx). */
+.sidefoot {
+  display: flex;
+  align-items: center;
+  gap: var(--ads-sp-2);
+  flex: none;
+  margin-block: var(--ads-sp-1);
+  border-top: 1px solid var(--ads-line);
+}
 .sidesettings {
   display: flex;
   align-items: center;
   gap: var(--ads-sp-3);
   height: var(--rb-rail-btn);
   padding-inline: var(--ads-sp-3);
-  margin-block: var(--ads-sp-1);
-  flex: none;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 0;
-  border-radius: var(--ads-radius-s);
+  border-radius: 0;
   background: transparent;
   color: var(--ads-ink-2);
   font: inherit;
   cursor: pointer;
-  border-top: 1px solid var(--ads-line);
-  border-radius: 0;
 }
 .sidesettings:hover { background: var(--ads-inset); color: var(--ads-ink); }
 .sidesettings > span { font-size: var(--rb-text-body); }
@@ -413,6 +421,11 @@
 .shellapp[data-pane="closed"] .sidetablabel,
 .shellapp[data-pane="closed"] .sidesettings > span { display: none; }
 .shellapp[data-pane="closed"] .sidetab { padding-inline: 0; justify-content: center; }
+/* Collapsed: the chip shrinks to its icon and sits above the gear. */
+.shellapp[data-pane="closed"] .sidefoot { flex-direction: column-reverse; gap: var(--ads-sp-1); padding-top: var(--ads-sp-1); }
+.shellapp[data-pane="closed"] .sidesettings { width: 100%; justify-content: center; padding-inline: 0; }
+.shellapp[data-pane="closed"] .updatechiplabel { display: none; }
+.shellapp[data-pane="closed"] .updatechip { width: 24px; padding-inline: 0; justify-content: center; margin-right: 0; }
 .shellapp[data-pane="closed"] .side > .panehead { display: none; }
 
 

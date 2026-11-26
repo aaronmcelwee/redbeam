@@ -88,6 +88,17 @@
       }
       if (cmd === 'plugin:window|is_maximized') return false
       if (cmd === 'plugin:app|version') return '0.0.0-sweep'
+      // The update chip: a step sets __sweepUpdate to a version to offer one.
+      // The download holds until __sweepUpdateGo() lets it finish.
+      if (cmd === 'plugin:updater|check') {
+        return typeof window.__sweepUpdate === 'string'
+          ? { rid: 1, currentVersion: '0.0.0-sweep', version: window.__sweepUpdate, date: null, body: null, rawJson: {} }
+          : null
+      }
+      if (cmd === 'plugin:updater|download_and_install') {
+        await new Promise((go) => { window.__sweepUpdateGo = go })
+        return null
+      }
       return null
     },
   }
