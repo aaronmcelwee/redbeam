@@ -66,6 +66,17 @@ export interface BridgeActions {
    * execute_query answer from it (bridge/methods.rs `light_query`).
    */
   query?: (sql: string, params: unknown[]) => Promise<Record<string, unknown>[]>
+  /** Write bytes to a path the agent chose (never replacing a PDF); resolves to the path written. */
+  saveFile?: ((path: string, bytes: Uint8Array, overwrite: boolean) => Promise<string>) | undefined
+}
+
+/** The bytes of a base64 data URL. */
+export function dataUrlBytes(dataUrl: string): Uint8Array {
+  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
 }
 
 /**
@@ -215,9 +226,22 @@ export async function runOnHost(
         return host.uiState()
       case 'screenshot': {
         const dataUrl = await host.screenshot(params, ctx)
-        return dataUrl === null
-          ? { error: 'no canvas is mounted yet; the PDF is still opening. Poll redbeam_get_ui_state until pageCount > 0.' }
-          : { dataUrl, bytes: dataUrl.length }
+        if (dataUrl === null) return { error: 'no canvas is mounted yet; the PDF is still opening. Poll redbeam_get_ui_state until pageCount > 0.' }
+        /*
+         * Saved to a file instead of sent back (NOIC report, 2026-11-26:
+         * "export a sheet image with the layout drawn on it, so check images
+         * can go to you without driving the live window"). The picture is the
+         * same one the reply would carry; only where it goes differs.
+         */
+        const path = typeof params['path'] === 'string' ? params['path'].trim() : ''
+        if (path !== '') {
+          if (!/\.png$/i.test(path)) return { error: 'path must end in .png' }
+          if (host.saveFile === undefined) return { error: 'this build cannot write files' }
+          const bytes = dataUrlBytes(dataUrl)
+          const written = await host.saveFile(path, bytes, params['overwrite'] === true)
+          return { saved: true, path: written, bytes: bytes.length }
+        }
+        return { dataUrl, bytes: dataUrl.length }
       }
       case 'invoke_ui_action': {
         const name = typeof params['action'] === 'string' ? params['action'] : ''

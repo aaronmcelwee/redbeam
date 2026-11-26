@@ -222,6 +222,7 @@ export function describeCall(method: string, params: Record<string, unknown>): s
     case 'trace_area': return 'Tracing an outline'
     case 'trace_field': return 'Tracing a hatched field'
     case 'detect_pattern': return 'Reading the drawn pattern'
+    case 'detect_grid': return 'Reading the drawn grid'
     case 'read_scale': return 'Reading the scale'
     case 'set_page_scale': case 'set_calibration': case 'set_region_scale': return 'Setting the scale'
     case 'begin_scale_region': return 'Marking a scale region'

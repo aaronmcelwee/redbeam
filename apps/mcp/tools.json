@@ -25,6 +25,7 @@
     "redbeam_trace_area": "invoke_ui_action",
     "redbeam_trace_field": "invoke_ui_action",
     "redbeam_detect_pattern": "invoke_ui_action",
+    "redbeam_detect_grid": "invoke_ui_action",
     "redbeam_read_scale": "invoke_ui_action",
     "redbeam_track_addenda": "invoke_ui_action",
     "redbeam_create_markups": "invoke_ui_action",
@@ -95,6 +96,7 @@
     "redbeam_trace_area": "trace_area",
     "redbeam_trace_field": "trace_field",
     "redbeam_detect_pattern": "detect_pattern",
+    "redbeam_detect_grid": "detect_grid",
     "redbeam_read_scale": "read_scale",
     "redbeam_track_addenda": "track_addenda",
     "redbeam_create_markups": "create_markups",
@@ -333,7 +335,7 @@
     },
     {
       "name": "redbeam_screenshot",
-      "description": "PNG of a sheet. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning the window to it, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. With neither `page` nor `region`: the window's canvas as it is, raster and markup overlay composited. Needs a window with a document open.",
+      "description": "PNG of a sheet. Name the PDF with `file` and the sheet with `page` and that sheet is rendered on its own, sharp, without turning the window to it, so several can be asked for at once and none waits on another. With `region`: a close-up of that box of the sheet rendered fresh by PDFium at `width` pixels, sharp at any zoom — use it to read a tag, a note or a dimension rather than cropping a whole-sheet screenshot. Find the box with find_text or get_words. With neither `page` nor `region`: the window's canvas as it is, raster and markup overlay composited. Needs a window with a document open. With `path` (ending .png) the picture is written to that file instead of sent back, and the answer is only {saved, path}: a check image with the layout on it, kept without filling your context.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -363,6 +365,14 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "path": {
+            "type": "string",
+            "description": "Write the PNG to this absolute path (its folder must exist) instead of returning it."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "With path: replace a file already there."
           }
         }
       },
@@ -733,10 +743,33 @@
     },
     {
       "name": "redbeam_get_bom",
-      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated.",
+      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room.",
       "inputSchema": {
         "type": "object",
         "properties": {
+          "scope": {
+            "type": "string",
+            "description": "Only the scopes with this name (whole name first, else any name containing it)."
+          },
+          "scopeId": {
+            "type": "string",
+            "description": "Only this scope."
+          },
+          "scopeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only these scopes."
+          },
+          "perArea": {
+            "type": "boolean",
+            "description": "Also count every area on its own (`areas`)."
+          },
+          "brief": {
+            "type": "boolean",
+            "description": "Each scope's note once, in `notes`, not on every line."
+          },
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
@@ -814,7 +847,7 @@
     },
     {
       "name": "redbeam_set_pattern_origin",
-      "description": "Set where an area's pattern starts: at a point, a corner, the nearest point on an edge or line, the centre, or back to automatic. Applies to the area at `point`, to markupId(s), or to every area of the scope on the sheet showing. Read it back with redbeam_get_pattern. Needs a window.",
+      "description": "Set where an area's pattern starts: at a point, a corner, the nearest point on an edge or line, the centre, the nearest crossing of the grid drawn in the area (mode grid), or back to automatic. Applies to the area at `point`, to markupId(s), or to every area of the scope on the sheet showing. Read it back with redbeam_get_pattern. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -837,9 +870,10 @@
               "corner",
               "edge",
               "center",
+              "grid",
               "auto"
             ],
-            "description": "For set_pattern_origin: point (start exactly at `point`, inside the area), corner (the area's corner named by `corner`, or the one nearest `point`), edge (the point on the area's edge nearest `point`, so the first member sits on that edge or line), center (the middle of the area), auto (clear it; the layout chooses the best start)."
+            "description": "For set_pattern_origin: point (start exactly at `point`, inside the area), corner (the area's corner named by `corner`, or the one nearest `point`), edge (the point on the area's edge nearest `point`, so the first member sits on that edge or line), center (the middle of the area), grid (the crossing of the grid DRAWN in the area nearest `point`, else nearest the corner the layout starts from or `corner`; the answer gives the grid's angle and module and how far the start moved), auto (clear it; the layout chooses the best start)."
           },
           "point": {
             "type": "object",
@@ -858,6 +892,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "angle": {
+            "type": "number",
+            "description": "For set_pattern_origin mode grid and detect_grid: read only grid lines at this angle (degrees, y down) and at right angles to it. Default: the strongest angle drawn."
           }
         }
       },
@@ -1187,6 +1225,42 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_detect_grid",
+      "description": "Read a drawn panel or tile grid: its angle, its module both ways (points, and feet and inches at the sheet's scale), how many lines and so rows and columns, whether it is drawn in double lines (read at their centres, with the band width), the number of crossings and the first one (top-left). Give an area (`markupId`) or a box (`rect`). Lines count as grid lines when their pieces cover a good part of the area, so fixtures and tags are left out. Use set_pattern_origin with mode grid to start an area on a crossing. Needs a window; the sheet must be showing (or pass `page`).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "markupId": {
+            "type": "string",
+            "description": "An area: read the grid inside it."
+          },
+          "rect": {
+            "type": "object",
+            "description": "{x0,y0,x1,y1} normalized, y down: read the grid in this box when there is no area."
+          },
+          "page": {
+            "type": "integer",
+            "description": "ZERO-based page to show first."
+          },
+          "angle": {
+            "type": "number",
+            "description": "For set_pattern_origin mode grid and detect_grid: read only grid lines at this angle (degrees, y down) and at right angles to it. Default: the strongest angle drawn."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Also list up to this many crossings, normalized. Default 0 (count only)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
       }
     },
     {
@@ -2451,7 +2525,7 @@
     },
     {
       "name": "redbeam_invoke_ui_action",
-      "description": "Drive the app the way a person would. Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page, and where each came from), set_title_blocks (name every sheet from a number box and a title box on the title block), rename_sheets (name pages yourself), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: set_title_blocks and rename_sheets are not undone (call them again to change a name); commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
+      "description": "Drive the app the way a person would. Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page, and where each came from), set_title_blocks (name every sheet from a number box and a title box on the title block), rename_sheets (name pages yourself), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), detect_grid (module, rows, columns and first crossing of a drawn panel or tile grid), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: set_title_blocks and rename_sheets are not undone (call them again to change a name); commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2495,6 +2569,7 @@
               "get_pattern",
               "trace_area",
               "trace_field",
+              "detect_grid",
               "detect_pattern",
               "read_scale",
               "track_addenda",
@@ -2982,6 +3057,25 @@
           "withRecipes": {
             "type": "boolean",
             "description": "For list_patterns: include each recipe in full."
+          },
+          "scope": {
+            "type": "string",
+            "description": "For get_bom: only the scopes with this name."
+          },
+          "scopeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For get_bom: only these scopes."
+          },
+          "perArea": {
+            "type": "boolean",
+            "description": "For get_bom: also count every area on its own."
+          },
+          "brief": {
+            "type": "boolean",
+            "description": "For get_bom: each scope's note once, in `notes`."
           }
         },
         "required": [
@@ -3034,7 +3128,7 @@
       }
     }
   ],
-  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. THE TAKEOFF SKILL: redbeam_start_session hands you the Maxxit precon-takeoff skill (also the resource redbeam://skill/precon-takeoff). Follow it for any takeoff: scope definition for approval first, then the takeoff. A TAKEOFF, START TO FINISH: 0. redbeam_start_session, once per chat. 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area (a room or a field with a line around it), redbeam_trace_field (a hatched or slatted field whose edge is where the hatch stops) or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn; redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 6b. A product REDBEAM does not have (triangle panels, a repeating 'random' baffle module, panels on rails, an open cell with coffers, any hardware): with Settings › Beta › Custom patterns on, redbeam_describe_product {productType:\"custom_pattern\"} gives the recipe format and examples; redbeam_list_patterns shows what the person already has; redbeam_preview_pattern shows a recipe on the sheet, redbeam_save_pattern keeps it on the scope as a draft for the person to approve. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom, redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on your session's own undo (redbeam_undo takes back your last change and never the person's; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`. WORKING BESIDE A PERSON AND OTHER AGENTS: the person is usually working in REDBEAM too, in tabs of their own, and other agents may be working in theirs. Nothing you do moves the person's view, takes the keyboard, or brings REDBEAM to the front. A PDF you open is YOUR tab, behind theirs; there you turn pages, zoom and pick tools freely, and the person can look in on you (they see your cursor and a line saying what you are doing). In a tab that is NOT yours (the person's, or another agent's) you can read its sheet list, text, scopes and markups on any sheet, look at, measure and trace the sheet it is showing, and draw on that sheet (leave `page` out), but a call that needs another sheet shown, or would zoom it, change its tool, selection or panels, or undo, is not done: the person is asked instead, and the answer says `handover: asked` or `handover: refused`. Do not retry in a loop; either wait, or redbeam_save_copy and open the copy, which is yours. redbeam_get_ui_state lists `tabOwners` and whether you drive the PDF. SESSIONS: call redbeam_start_session once at the start of every chat, with a short name for the job, and pass the `session` it returns on every other call. REDBEAM shows the person your app and that name on your group of tabs and beside your cursor. Each chat, and each sub-agent or parallel worker, starts its own session and so gets its own tabs, colour and cursor; never use a session another chat was given. THE LIFE OF A SESSION, and keeping what the person sees true: the person sees your session as Working, Waiting for you, or Finished, and sees beside your cursor what your call in flight is doing. That line comes from your calls, so it is only as true as you keep it. (a) When you stop for the person, at a question or an approval gate, call redbeam_wait_for_person with what you need. Otherwise your group just goes quiet and the person cannot tell paused from stuck. (b) When the job is done, or the person calls it off, call redbeam_end_session with a one-line summary. REDBEAM hands the PDFs you changed to the person as their own tabs and closes the ones you only read. Do not leave a session open after your final message, and do not end it at a gate. (c) Work in few, purposeful calls. Do not poll redbeam_get_ui_state in a loop to look busy, and do not leave a session with nothing to do. (d) One session does one job. A new job in the same chat ends the old session and starts a new one, named for the new job. redbeam_close_tab closes a single tab of yours early; redbeam_end_session settles all of them. The guide at redbeam://guide/working-beside-a-person repeats this section.",
+  "instructions": "REDBEAM is a PDF takeoff app. There are no projects: each PDF holds its own takeoff, and saving writes it into the PDF. THE TAKEOFF SKILL: redbeam_start_session hands you the Maxxit precon-takeoff skill (also the resource redbeam://skill/precon-takeoff). Follow it for any takeoff: scope definition for approval first, then the takeoff. A TAKEOFF, START TO FINISH: 0. redbeam_start_session, once per chat. 1. redbeam_open_file with wait:true. Work on a copy when asked to (redbeam_save_copy, then open the copy). 2. redbeam_list_sheets to find the sheets; redbeam_screenshot to look (with `region` for a sharp close-up); redbeam_find_text for tags and notes. 3. Scale first: redbeam_read_scale reads the scale each sheet states; redbeam_set_page_scale sets it (not undoable, so read what is there first); check it against a written dimension with redbeam_read_scale or redbeam_measure. 4. redbeam_describe_product, then redbeam_create_scope with productType and specifications. The answer's `needs` lists what is still missing. 5. Draw: redbeam_trace_area (a room or a field with a line around it), redbeam_trace_field (a hatched or slatted field whose edge is where the hatch stops) or redbeam_get_lines to find an outline, then redbeam_create_markup (or redbeam_create_markups for many, one undo step). Always pass `page`. Coordinates are normalized 0..1, y down. Read the answer: it carries the id, the measure and any warning. 6. Patterns: redbeam_detect_pattern reads what is drawn (redbeam_detect_grid a drawn panel or tile grid; set_pattern_origin mode grid starts an area on its nearest crossing); redbeam_set_pattern_origin and redbeam_set_pattern_direction set it; redbeam_get_pattern reads it back. 6b. A product REDBEAM does not have (triangle panels, a repeating 'random' baffle module, panels on rails, an open cell with coffers, any hardware): with Settings › Beta › Custom patterns on, redbeam_describe_product {productType:\"custom_pattern\"} gives the recipe format and examples; redbeam_list_patterns shows what the person already has; redbeam_preview_pattern shows a recipe on the sheet, redbeam_save_pattern keeps it on the scope as a draft for the person to approve. 7. Check: redbeam_list_markups (quantities per markup), redbeam_get_bom (pass `scope` to keep it small, `perArea` for counts per area), redbeam_get_piece_list, and a screenshot. 8. redbeam_save, and read how it went. redbeam_export writes a file when a path is given. Every write lands on your session's own undo (redbeam_undo takes back your last change and never the person's; redbeam_get_history shows who changed what), except scales. Pass `file` when more than one PDF is open, so a write cannot land in the wrong one. redbeam_get_ui_state reports `saved` and `warnings`. WORKING BESIDE A PERSON AND OTHER AGENTS: the person is usually working in REDBEAM too, in tabs of their own, and other agents may be working in theirs. Nothing you do moves the person's view, takes the keyboard, or brings REDBEAM to the front. A PDF you open is YOUR tab, behind theirs; there you turn pages, zoom and pick tools freely, and the person can look in on you (they see your cursor and a line saying what you are doing). In a tab that is NOT yours (the person's, or another agent's) you can read its sheet list, text, scopes and markups on any sheet, look at, measure and trace the sheet it is showing, and draw on that sheet (leave `page` out), but a call that needs another sheet shown, or would zoom it, change its tool, selection or panels, or undo, is not done: the person is asked instead, and the answer says `handover: asked` or `handover: refused`. Do not retry in a loop; either wait, or redbeam_save_copy and open the copy, which is yours. redbeam_get_ui_state lists `tabOwners` and whether you drive the PDF. SESSIONS: call redbeam_start_session once at the start of every chat, with a short name for the job, and pass the `session` it returns on every other call. REDBEAM shows the person your app and that name on your group of tabs and beside your cursor. Each chat, and each sub-agent or parallel worker, starts its own session and so gets its own tabs, colour and cursor; never use a session another chat was given. THE LIFE OF A SESSION, and keeping what the person sees true: the person sees your session as Working, Waiting for you, or Finished, and sees beside your cursor what your call in flight is doing. That line comes from your calls, so it is only as true as you keep it. (a) When you stop for the person, at a question or an approval gate, call redbeam_wait_for_person with what you need. Otherwise your group just goes quiet and the person cannot tell paused from stuck. (b) When the job is done, or the person calls it off, call redbeam_end_session with a one-line summary. REDBEAM hands the PDFs you changed to the person as their own tabs and closes the ones you only read. Do not leave a session open after your final message, and do not end it at a gate. (c) Work in few, purposeful calls. Do not poll redbeam_get_ui_state in a loop to look busy, and do not leave a session with nothing to do. (d) One session does one job. A new job in the same chat ends the old session and starts a new one, named for the new job. redbeam_close_tab closes a single tab of yours early; redbeam_end_session settles all of them. The guide at redbeam://guide/working-beside-a-person repeats this section.",
   "sessions": {
     "tool": {
       "name": "redbeam_start_session",
