@@ -13,6 +13,13 @@ All are unsigned; SmartScreen will ask once.
 - **Nothing of your work is sent.** No drawing, markup, quantity, screenshot or anything you typed, and file, project and scope names are taken out before anything leaves your PC. What goes is the app version, Windows 10 or 11, a random id for this copy and the counts.
 - **You can turn it off.** Settings › General › Privacy › **Send anonymous error and usage signals**. Off, nothing is sent and anything not yet sent is thrown away.
 
+## 0.3.95 — 2026-11-26
+
+### Saving a big spec book works again
+
+- **Takeoffs save into very large PDFs.** On a big set or spec book (over 128 MB, read in pieces rather than whole), saving stopped with "Maximum call stack size exceeded", and Save a copy failed the same way. REDBEAM was counting every object in the file in one step, and a spec book can hold hundreds of thousands of them. It now counts them one at a time, with no limit on the size of the file.
+- **The same fix covers estimate exports** from those PDFs, and writing sheet bookmarks into a set with a very large number of sheets.
+
 ## 0.3.94 — 2026-11-26
 
 ### Updates wait beside Settings
