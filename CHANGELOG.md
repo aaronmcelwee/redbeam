@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.111 — 2026-11-26
+
+### Cloud slope and upturn taken back out
+
+- **Clouds are counted flat again.** The slope and upturn settings added in 0.3.110 have been removed for now. Scopes count as they did before, and a scope that had them set simply ignores them.
+
 ## 0.3.110 — 2026-11-26
 
 ### Agents count clouds from the plan
