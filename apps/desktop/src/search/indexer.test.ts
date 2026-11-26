@@ -38,6 +38,7 @@ function fakeOpener(texts: Record<string, string[]>) {
       pageCount: pages.length,
       sizes: pages.map(() => ({ width: 3456, height: 2592 })),
       text: async (i) => ({ text: pages[i]!, scanned: pages[i] === '' }),
+      textLayer: async () => { throw new Error('not used') },
       raster: async () => { throw new Error('not rendered here') },
       close: () => { closed.push(url) },
     }
@@ -145,6 +146,7 @@ describe('indexProject', () => {
       pageCount: 2,
       sizes: [{ width: 1, height: 1 }, { width: 1, height: 1 }],
       text: async (i) => { if (i === 1) throw new Error('bad xref'); return { text: 'one', scanned: false } },
+      textLayer: async () => { throw new Error('not used') },
       raster: async () => { throw new Error('no') },
       close: () => {},
     })

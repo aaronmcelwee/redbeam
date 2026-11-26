@@ -15,7 +15,7 @@
 import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
   PRIORITY_TEXT, PRIORITY_THUMBNAIL,
-  type PageInfo, type WorkerRequest, type WorkerResponse,
+  type PageInfo, type PageText, type WorkerRequest, type WorkerResponse,
 } from '@redbeam/viewer'
 
 export interface HeadlessPageText {
@@ -30,6 +30,8 @@ export interface HeadlessDocument {
   sizes: readonly PageInfo[]
   /** The page's text layer. */
   text(page: number): Promise<HeadlessPageText>
+  /** The page's text layer with every run's box, as the viewer's own requestText gives it. */
+  textLayer(page: number): Promise<PageText>
   /** The page rendered `width` pixels wide, the height following the page box. */
   raster(page: number, width: number): Promise<ImageBitmap>
   /** Terminate the worker. Anything still pending rejects. */
@@ -95,6 +97,13 @@ export function openHeadlessDocument(
               if (r.type !== 'text') throw new Error(`unexpected ${r.type} for a text request`)
               if (r.error !== undefined) throw new Error(r.error)
               return { text: r.text, scanned: r.scanned }
+            },
+            async textLayer(page) {
+              const key = `text-${page}-${seq++}`
+              const r = await ask(key, { type: 'text', key, page, priority: PRIORITY_TEXT })
+              if (r.type !== 'text') throw new Error(`unexpected ${r.type} for a text request`)
+              if (r.error !== undefined) throw new Error(r.error)
+              return { page: r.page, text: r.text, runs: r.runs, box: r.box, charCount: r.charCount, scanned: r.scanned, ms: r.ms }
             },
             async raster(page, width) {
               const key = `thumb-${page}-${width}-${seq++}`

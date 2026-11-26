@@ -62,6 +62,20 @@ export interface ViewerOptions {
   onTile?: (ms: number) => void
   onThumbnail?: (index: number, bmp: ImageBitmap) => void
   onError?: (message: string) => void
+  /**
+   * The worker died: PDFium aborted (out of memory on a monstrous page, a
+   * corrupt stream) or the worker thread itself was killed. Everything that
+   * was waiting on it has been rejected; the viewer is unusable and should be
+   * replaced. Without this a close-up of NOIC spec page 1968 waited for an
+   * answer that could never come, and every later call on the PDF queued
+   * behind it (2026-11-26).
+   */
+  onWorkerLost?: (message: string) => void
+}
+
+/** Errors that mean PDFium itself is gone, not that one job failed. */
+export function isFatalWorkerError(message: string): boolean {
+  return /\bAborted\b|RuntimeError|out of memory|memory access out of bounds|unreachable|Cannot enlarge memory|Array buffer allocation failed/i.test(message)
 }
 
 export interface PaintStats {
@@ -222,6 +236,8 @@ export class Viewer {
     this.tiles = new TileCache<ImageBitmap>({ max: opts.maxTiles ?? 400, dispose: (b) => b.close() })
     this.thumbs = new TileCache<ImageBitmap>({ max: opts.maxThumbnails ?? 64, dispose: (b) => b.close() })
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => this.onMessage(e.data)
+    this.worker.onerror = (e: ErrorEvent) => { e.preventDefault?.(); this.lose(e.message || 'the PDF worker stopped') }
+    this.worker.onmessageerror = () => this.lose('the PDF worker sent a message that could not be read')
 
     // exactOptionalPropertyTypes: only send the keys we actually have.
     if (opts.maxOpenPages !== undefined || opts.quietMs !== undefined) {
@@ -233,6 +249,13 @@ export class Viewer {
   }
 
   private send(msg: WorkerRequest, transfer?: Transferable[]) {
+    if (this.lostWhy !== null) {
+      // Nothing will answer. A request someone awaits fails now; a tile is dropped.
+      if (msg.type === 'region' || msg.type === 'text' || msg.type === 'annots' || msg.type === 'geometry' || msg.type === 'index') {
+        throw new Error(`the PDF reader stopped: ${this.lostWhy}`)
+      }
+      return
+    }
     this.worker.postMessage(msg, transfer ?? [])
   }
 
@@ -431,8 +454,39 @@ export class Viewer {
       this.statsWaiters = []
       for (const w of waiters) w({ opened: m.opened, closed: m.closed, open: m.open, pages: m.pages, queued: m.queued })
     } else if (m.type === 'error') {
-      this.opts.onError?.(m.message)
+      if (isFatalWorkerError(m.message)) this.lose(m.message)
+      else this.opts.onError?.(m.message)
     }
+    // A job that failed because PDFium is gone fails every job after it.
+    const jobError = (m as { error?: unknown }).error
+    if (typeof jobError === 'string' && isFatalWorkerError(jobError)) this.lose(jobError)
+  }
+
+  /** True once the worker has died; see `onWorkerLost`. */
+  get lost(): boolean { return this.lostWhy !== null }
+  private lostWhy: string | null = null
+
+  private lose(why: string): void {
+    if (this.lostWhy !== null) return
+    this.lostWhy = why
+    this.failWaiters(`the PDF reader stopped: ${why}`)
+    this.opts.onWorkerLost?.(why)
+  }
+
+  /** Reject everything waiting on the worker, so no caller waits for ever. */
+  private failWaiters(why: string): void {
+    const err = () => new Error(why)
+    for (const w of this.regionWaiters.values()) w.reject(err())
+    this.regionWaiters.clear()
+    for (const list of this.textWaiters.values()) for (const w of list) w.reject(err())
+    this.textWaiters.clear()
+    for (const list of this.annotWaiters.values()) for (const w of list) w.reject(err())
+    this.annotWaiters.clear()
+    for (const list of this.geometryWaiters.values()) for (const w of list) w.reject(err())
+    this.geometryWaiters.clear()
+    for (const w of this.indexWaiters) w.reject(err())
+    this.indexWaiters = []
+    this.indexPending = null
   }
 
   private cancelPending(pred: (key: string, p: PendingTile) => boolean): string[] {
@@ -552,15 +606,23 @@ export class Viewer {
   async renderRegion(
     box: { x0: number; y0: number; x1: number; y1: number },
     width: number,
-    opts: { annots?: boolean; overlay?: boolean } = {},
+    opts: { annots?: boolean; overlay?: boolean; page?: number; overlaySet?: OverlaySet } = {},
   ): Promise<{ canvas: HTMLCanvasElement; width: number; height: number; pointsPerPixel: number }> {
-    const page = this.activeIndex
-    if (page < 0 || this.page.width === 0) throw new Error('no page is showing')
+    /*
+     * Any page, not only the one showing (NOIC intake, 2026-11-26): an agent
+     * looking at sheet 1968 of a 4,382-page spec turned the window to it
+     * first, and four close-ups at once raced each other's page turns. The
+     * worker renders any page it is asked for; the box only needs its size.
+     */
+    const page = opts.page ?? this.activeIndex
+    const size = page === this.activeIndex && this.page.width > 0 ? this.page : this.sizes[page]
+    if (page < 0 || (this.count > 0 && page >= this.count)) throw new Error(`page ${page} out of range`)
+    if (size === undefined || size.width === 0) throw new Error(page === this.activeIndex ? 'no page is showing' : `the size of page ${page} is not known yet`)
     const x0 = clamp01(Math.min(box.x0, box.x1)), x1 = clamp01(Math.max(box.x0, box.x1))
     const y0 = clamp01(Math.min(box.y0, box.y1)), y1 = clamp01(Math.max(box.y0, box.y1))
     if (!(x1 - x0 > 0) || !(y1 - y0 > 0)) throw new Error('the region has no area')
-    const regionW = (x1 - x0) * this.page.width
-    const regionH = (y1 - y0) * this.page.height
+    const regionW = (x1 - x0) * size.width
+    const regionH = (y1 - y0) * size.height
     const w = Math.max(16, Math.round(width))
     const h = Math.max(16, Math.round((w * regionH) / regionW))
     const annots = opts.annots ?? this.annotsOn
@@ -582,8 +644,9 @@ export class Viewer {
     bmp.close()
     const zoom = w / regionW
     if (opts.overlay ?? this.overlayOn) {
-      const view: Viewport = { zoom, ox: x0 * this.page.width * zoom, oy: y0 * this.page.height * zoom, vw: w, vh: h }
-      drawOverlay(ctx, this.overlaySet, view, this.page.width, this.page.height, this.opts.overlay)
+      const view: Viewport = { zoom, ox: x0 * size.width * zoom, oy: y0 * size.height * zoom, vw: w, vh: h }
+      const set = opts.overlaySet ?? (page === this.activeIndex ? this.overlaySet : null)
+      if (set !== null) drawOverlay(ctx, set, view, size.width, size.height, this.opts.overlay)
     }
     return { canvas, width: w, height: h, pointsPerPixel: 1 / zoom }
   }
@@ -791,6 +854,21 @@ export class Viewer {
       this.textWaiters.set(key, [{ resolve, reject }])
       this.send({ type: 'text', key, page: index, priority })
     })
+  }
+
+  /**
+   * Text read elsewhere (apps/desktop search/textPool.ts reads a big set
+   * with readers of its own): cached here as if this worker had read it,
+   * and handed to anyone already waiting on the page.
+   */
+  primeText(index: number, text: PageText): void {
+    if (this.texts.has(index)) return
+    this.texts.set(index, text)
+    const key = textKey(index)
+    const waiters = this.textWaiters.get(key)
+    if (waiters === undefined) return
+    this.textWaiters.delete(key)
+    for (const w of waiters) w.resolve(text)
   }
 
   /** The cached text layer for a page, if it has been extracted. Never blocks. */
@@ -1149,16 +1227,10 @@ export class Viewer {
     this.pending.clear()
     this.pendingThumbs.clear()
     this.statsWaiters = []
-    // A pending text request outlives the worker as a promise nobody will ever
+    // A pending request outlives the worker as a promise nobody will ever
     // settle. Reject them rather than leaving awaiters hanging forever.
-    for (const waiters of this.textWaiters.values()) {
-      for (const w of waiters) w.reject(new Error('viewer destroyed'))
-    }
-    this.textWaiters.clear()
+    this.failWaiters('viewer destroyed')
     this.texts.clear()
-    for (const w of this.indexWaiters) w.reject(new Error('viewer destroyed'))
-    this.indexWaiters = []
-    this.indexPending = null
     this.worker.terminate()
   }
 }

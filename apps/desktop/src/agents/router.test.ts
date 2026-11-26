@@ -78,7 +78,8 @@ function world(opts: { isMain?: boolean; showing?: string | null; tabs?: LightFi
       return true
     },
     setOwner: (file, owner) => { w.tabs = withOwner(w.tabs, file, owner) },
-    handBack: (file, agent) => { w.tabs = withHanded(withOwner(w.tabs, file, null), file, { by: agent.name, color: agent.color.bright }) },
+    handBack: (file, agent) => { w.tabs = withHanded(withOwner(w.tabs, file, null), file, { by: agent.name, color: agent.color.bright, agentId: agent.id }) },
+    reclaim: (file, agentId) => { w.tabs = withHanded(withOwner(w.tabs, file, agentId), file, null) },
     roster: w.roster,
     handovers: w.handovers,
     appVersion: '0.0.0-test',
@@ -188,11 +189,24 @@ describe('where a call lands', () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Shared.pdf', wait: true })
     w.delay = 5
-    await Promise.all([act(A, 'create_markup'), act(B, 'list_scopes', { file: 'Shared.pdf' }), act(A, 'create_markup')])
+    await Promise.all([act(A, 'create_markup'), act(B, 'create_scope', { file: 'Shared.pdf' }), act(A, 'create_markup')])
     expect(w.overlapped).toBe(false)
     await call(B, 'open_file', { path: 'C:\\Jobs\\Second.pdf', wait: true })
     await Promise.all([act(A, 'create_markup', { file: 'Shared.pdf' }), act(B, 'create_markup', { file: 'Second.pdf' })])
     expect(w.overlapped).toBe(true)
+  })
+  it('answers a read at once, even while a call on the same PDF never comes back', async () => {
+    // NOIC spec, 2026-11-26: a close-up that never came back held up the get_state and get_words after it.
+    const { w, call, act } = world()
+    await call(A, 'open_file', { path: 'C:\\Jobs\\Spec.pdf', wait: true })
+    const host = w.hosts.get('c:\\jobs\\spec.pdf')!
+    const invoke = host.invoke
+    host.invoke = async (name, params, ctx) => (name === 'trace_area' ? new Promise(() => {}) : invoke(name, params, ctx))
+    void act(A, 'trace_area')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(await act(A, 'get_words', { page: 1968 })).toMatchObject({ ok: true })
+    expect(await act(A, 'find_text', { query: 'FS2' })).toMatchObject({ ok: true })
+    expect(await call(A, 'screenshot', { page: 1968 })).toBeDefined()
   })
   it('counts every call as use, so the PDF is kept live', async () => {
     const { w, act } = world()
@@ -405,6 +419,37 @@ describe('how a session ends', () => {
     router.sweep()
     await new Promise((r) => setTimeout(r, 0))
     expect(w.roster.agent('srv2/AAA')).toMatchObject({ state: 'gone', ended: { by: 'lost' } })
+  })
+
+  it('does not count a stall of the window itself against an AI app', async () => {
+    const { w, router, call, tick } = world()
+    await call({ id: 'srv3/AAA', client: 'claude', label: 'Spec read' }, 'open_file', { path: SPEC, wait: true })
+    await call(null, 'agent_alive', { server: 'srv3' })
+    router.sweep()
+    // The window did nothing for two minutes: no "still here" could reach it.
+    tick(120_000)
+    router.sweep()
+    expect(w.roster.agent('srv3/AAA')!.state).not.toBe('gone')
+  })
+
+  it('gives a session its tabs back when its app comes back after a restart', async () => {
+    const { w, router, call, act, tick } = world()
+    const who = { id: 'srv4/AAA', client: 'claude', label: 'Spec read' }
+    await call(who, 'open_file', { path: SPEC, wait: true })
+    await act(who, 'create_markup')
+    await call(null, 'agent_alive', { server: 'srv4' })
+    // The window's tick runs every five seconds; the server has stopped saying it is alive.
+    for (let t = 0; t <= LOST_AFTER_MS; t += 5000) { router.sweep(); tick(5000) }
+    router.sweep()
+    await new Promise((r) => setTimeout(r, 0))
+    // It wrote, so its PDF went to the person's strip, marked as from it.
+    expect(tabFor(w.tabs, SPEC)).toMatchObject({ handed: { agentId: 'srv4/AAA' } })
+    expect(tabFor(w.tabs, SPEC)!.owner).toBeUndefined()
+    // The restarted server carries on as the same session (mcp.rs): the tab is its own again.
+    const out = await call(who, 'open_file', { path: SPEC, wait: true })
+    expect(out).toMatchObject({ yours: true })
+    expect(tabFor(w.tabs, SPEC)).toMatchObject({ owner: 'srv4/AAA' })
+    expect(tabFor(w.tabs, SPEC)!.handed).toBeUndefined()
   })
 
   it('keeps what a session said when it finished, if it only looks around before its app closes', async () => {

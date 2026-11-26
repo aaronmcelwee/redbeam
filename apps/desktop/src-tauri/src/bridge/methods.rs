@@ -35,6 +35,8 @@ const LIGHT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5
 
 /// Route one bridge call.
 pub fn dispatch(app: &AppHandle, method: &str, params: &Value) -> Result<Value, String> {
+    // The PDF the call named, for the reads below that ask the window.
+    NAMED_FILE.with(|f| *f.borrow_mut() = str_param(params, "file").filter(|s| !s.trim().is_empty()));
     match method {
         "ping" => Ok(json!({ "ok": true, "protocolVersion": super::PROTOCOL_VERSION })),
         "get_capabilities" => Ok(capabilities()),
@@ -84,6 +86,24 @@ fn capabilities() -> Value {
 // ------------------------------------------------------------------ helpers --
 
 
+thread_local! {
+    /// The `file` the call being served on this thread named, if any.
+    ///
+    /// NOIC intake, 2026-11-26: these reads went to whichever PDF the agent
+    /// named last, with no way to name another, so a read meant for one set
+    /// answered for the other. The window's router sends a call that names a
+    /// file to that file's tab (agents/router.ts).
+    static NAMED_FILE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// `{ ...body, file }` when the call named a file.
+fn with_named_file(mut body: Value) -> Value {
+    if let Some(file) = NAMED_FILE.with(|f| f.borrow().clone()) {
+        body["file"] = json!(file);
+    }
+    body
+}
+
 fn query(app: &AppHandle, sql: &str, params: Vec<Value>) -> Result<Vec<Map<String, Value>>, String> {
     light_query(app, sql, params)
 }
@@ -96,7 +116,7 @@ fn light_query(app: &AppHandle, sql: &str, params: Vec<Value>) -> Result<Vec<Map
     let reply = super::ui::request_within(
         app,
         "query",
-        &json!({ "sql": sql, "params": params }),
+        &with_named_file(json!({ "sql": sql, "params": params })),
         LIGHT_READ_TIMEOUT,
     )?;
     light_rows(&reply)
@@ -163,7 +183,7 @@ fn get_state(app: &AppHandle) -> Result<Value, String> {
 /// What the window has open, asked of it. Never an error: "nothing is
 /// open" is an answer, and the note says what to do about it.
 fn light_state(app: &AppHandle) -> Value {
-    let ui = super::ui::request_within(app, "get_ui_state", &json!({}), LIGHT_READ_TIMEOUT).ok();
+    let ui = super::ui::request_within(app, "get_ui_state", &with_named_file(json!({})), LIGHT_READ_TIMEOUT).ok();
     let file = ui
         .as_ref()
         .and_then(|u| u.get("file"))

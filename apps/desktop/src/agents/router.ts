@@ -50,6 +50,8 @@ export interface RouterDeps {
   setOwner: (file: string, owner: string | null) => void
   /** Move a finished session's tab to the person's strip, marked as come from `agent` until they open it. */
   handBack: (file: string, agent: Agent) => void
+  /** Give a tab handed back from `agentId` (and not yet opened by the person) back to it. */
+  reclaim?: (file: string, agentId: string) => void
   roster: RosterStore
   handovers: HandoverStore
   appVersion: string
@@ -71,8 +73,44 @@ export const HANDOVER_WAIT_MS = 12_000
  */
 export const LOST_AFTER_MS = 20_000
 
+/**
+ * Calls that only read, and never move a view: answered at once rather than
+ * queued behind the PDF's other calls. NOIC spec, 2026-11-26: a close-up of
+ * page 1968 that never came back held the PDF's queue, so the get_state and
+ * get_words after it waited too, and the AI app gave up on the whole
+ * connector after 140 s. A read may see a write half done; it never blocks one.
+ */
+const READ_ACTIONS = new Set([
+  'get_ui_state', 'query', 'get_state', 'screenshot',
+])
+const READ_UI_ACTIONS = new Set([
+  'find_text', 'get_words', 'list_sheets', 'list_markups', 'list_scopes', 'get_bom', 'get_history',
+  'get_settings', 'list_bookmarks', 'list_links', 'list_annotations', 'get_piece_list', 'get_pattern',
+  'list_patterns', 'get_scale_presets', 'describe_product', 'get_lines', 'read_scale', 'measure',
+])
+
+/** Whether a call only reads: see READ_ACTIONS. A screenshot of the canvas as it is, or of a named sheet, reads. */
+export function readsOnly(action: string, params: Record<string, unknown>): boolean {
+  if (READ_ACTIONS.has(action)) return true
+  if (action !== 'invoke_ui_action') return false
+  const what = typeof params['action'] === 'string' ? params['action'] : ''
+  if (!READ_UI_ACTIONS.has(what)) return false
+  // Some reads turn the window to the sheet they name first; those wait their turn.
+  return params['page'] === undefined || READS_ANY_SHEET.has(what)
+}
+/** Reads that answer for any sheet without showing it. */
+const READS_ANY_SHEET = new Set(['find_text', 'get_words', 'list_sheets', 'list_markups', 'get_bom', 'get_piece_list', 'get_history'])
+
+/**
+ * A window that did not run its tick for this long was itself stalled (a
+ * long render on the main thread, a laptop asleep): no AI app's server could
+ * reach it meanwhile, so silence over that stretch says nothing about them.
+ */
+export const STALL_MS = 10_000
+
 export class BridgeRouter {
   private readonly queues = new Map<string, Promise<unknown>>()
+  private lastSweep: number | null = null
   /** When each AI app's server last said it was alive, by the part of an agent's id before the last "/". */
   private readonly aliveAt = new Map<string, number>()
   private readonly now: () => number
@@ -87,7 +125,17 @@ export class BridgeRouter {
   async answer(req: BridgeRequest): Promise<Record<string, unknown> | null> {
     const params = req.params ?? {}
     const who = identityOf(req.agent)
+    const before = who === null ? undefined : this.deps.roster.agent(who.id)
     const agent = who === null ? null : this.deps.roster.see(who)
+    /*
+     * A session coming back after its app's server was lost or restarted
+     * (mcp.rs keeps sessions across a restart): the tabs it was handed back
+     * and that the person has not opened since are its own again. NOIC
+     * intake, 2026-11-26: after a restart the spec answered yours:false.
+     */
+    if (agent !== null && before?.state === 'gone' && (before.ended?.by === 'lost' || before.ended?.by === 'app')) {
+      this.reclaimTabs(agent)
+    }
     /*
      * A server is on the clock from its first call, not from its first "still
      * here". One that was killed in its first five seconds never said so, and
@@ -158,8 +206,9 @@ export class BridgeRouter {
         : { text, file: tab.file, page: callPage(params), point: callPoint(params) })
     }
     let result: Record<string, unknown>
+    const turn = <T,>(run: () => Promise<T>): Promise<T> => (readsOnly(action, params) ? run() : this.inTurn(tab.file, run))
     try {
-      result = await this.inTurn(tab.file, async () => {
+      result = await turn(async () => {
         const host = await this.ready(tab.file, Math.min(12_000, left() - 1500))
         if (host === undefined) {
           return { error: `${nameOf(tab.file)} is still opening in the background. Try again in a few seconds.`, opening: true }
@@ -421,7 +470,10 @@ export class BridgeRouter {
       const showing = this.deps.showing()
       const watched = showing !== null && samePath(showing, tab.file)
       if (!wrote(tab.file) && !kept(tab.file) && !watched) {
-        const shut = await this.inTurn(tab.file, () => this.deps.closeTab(tab.file)).catch(() => false)
+        // A session whose app is gone has no calls of its own to wait for, and
+        // one stuck call must not keep its tab owned by nobody for ever.
+        const close = () => this.deps.closeTab(tab.file)
+        const shut = await (by === 'lost' || by === 'app' ? close() : this.inTurn(tab.file, close)).catch(() => false)
         if (shut) { closed.push(tab.file); continue }
       }
       this.deps.handBack(tab.file, agent)
@@ -434,11 +486,25 @@ export class BridgeRouter {
     }
   }
 
-  /** An AI app's server saying it is still there. */
+  /**
+   * An AI app's server saying it is still there. `servers` adds the earlier
+   * servers whose sessions it took over after a restart (mcp.rs).
+   */
   private alive(params: Record<string, unknown>): Record<string, unknown> | null {
     const server = line(params['server'])
     if (server !== null) this.aliveAt.set(server, this.now())
+    if (Array.isArray(params['servers'])) {
+      for (const s of params['servers']) { const one = line(s); if (one !== null) this.aliveAt.set(one, this.now()) }
+    }
     return this.deps.isMain ? { ok: true } : null
+  }
+
+  /** Tabs handed back from `agent` that the person has not opened: its own again. */
+  private reclaimTabs(agent: Agent): void {
+    if (this.deps.reclaim === undefined) return
+    for (const t of this.deps.tabs()) {
+      if (t.owner === undefined && t.handed?.agentId === agent.id) this.deps.reclaim(t.file, agent.id)
+    }
   }
 
   /**
@@ -447,6 +513,11 @@ export class BridgeRouter {
    */
   sweep(): void {
     const now = this.now()
+    // The window itself was stalled: nobody could have reached it, so start everyone's clock again.
+    if (this.lastSweep !== null && now - this.lastSweep > STALL_MS) {
+      for (const server of this.aliveAt.keys()) this.aliveAt.set(server, now)
+    }
+    this.lastSweep = now
     for (const [server, at] of [...this.aliveAt]) {
       if (now - at < LOST_AFTER_MS) continue
       this.aliveAt.delete(server)

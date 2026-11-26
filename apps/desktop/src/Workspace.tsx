@@ -153,6 +153,7 @@ import { expandRing } from './agent/arcs.js'
 import { checkScale, statedScales } from './agent/statedScale.js'
 import { pieceList } from './agent/pieceList.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
+import { laneCount, PageTextPool } from './search/textPool.js'
 import { hitTestDimension } from './tools/dimension.js'
 import { drawPatternItems, type PatternOriginItem } from './tools/pattern.js'
 import { pickOriginArea } from './tools/origin.js'
@@ -523,9 +524,11 @@ const SLOW_SAVE_MS = 15000
  * before it reports what it has and where to carry on. It is NOT a limit on
  * the work (Aaron, 2026-11-24: no arbitrary caps; sets pass a thousand
  * sheets): the reading goes on in the background until it is finished, and
- * the next call picks up where this one stopped. Under ui.rs UI_TIMEOUT.
+ * the next call picks up where this one stopped. The window says it is
+ * still working every two seconds meanwhile, so ui.rs UI_TIMEOUT never
+ * trips. 8 s made a 257-sheet set take four calls (NOIC intake, 2026-11-26).
  */
-const AGENT_REPLY_MS = 8000
+const AGENT_REPLY_MS = 30_000
 const SLOW_SAVE_WHY = 'The save has not finished after a few seconds. The PDF may be busy in another app, or on a slow or syncing drive.'
 
 export default function Workspace({
@@ -2454,6 +2457,32 @@ export default function Workspace({
     requestPaint()
   }, [goToPage, requestPaint])
 
+  /*
+   * Bumped when the PDF reader (the viewer's worker) dies, to build a fresh
+   * one on the same document at the same sheet. NOIC spec, 2026-11-26: a
+   * reader that stopped on page 1968 left the tab showing a blank sheet and
+   * every agent call on it waiting for ever.
+   */
+  const [readerGen, setReaderGen] = useState(0)
+  /*
+   * Readers of their own for a whole set's text (search/textPool.ts), made
+   * the first time an agent searches the PDF and kept while it is open.
+   */
+  const textPoolRef = useRef<PageTextPool | null>(null)
+  useEffect(() => () => { textPoolRef.current?.close(); textPoolRef.current = null }, [docUrl])
+  const textPool = (): PageTextPool | null => {
+    if (textPoolRef.current !== null) return textPoolRef.current
+    if (docUrl === null) return null
+    const url = docUrl
+    textPoolRef.current = new PageTextPool({
+      open: () => openHeadlessDocument(url),
+      lanes: laneCount(typeof navigator === 'undefined' ? undefined : navigator.hardwareConcurrency),
+      onText: (page, text) => { viewerRef.current?.primeText(page, text) },
+    })
+    return textPoolRef.current
+  }
+  const readerLostRef = useRef<{ at: number; count: number }>({ at: 0, count: 0 })
+
   // ---------------------------------------------------------------- viewer --
   useEffect(() => {
     if (!rasterRef.current || !overlayRef.current || !docUrl) return
@@ -2572,6 +2601,23 @@ export default function Workspace({
         }
         setStatus(`error: ${m}`)
       },
+      onWorkerLost: (why) => {
+        // Start a fresh reader on the sheet that was showing. A reader that
+        // dies again at once (three times in a minute) is left down, and says so.
+        const lost = readerLostRef.current
+        const now = Date.now()
+        lost.count = now - lost.at < 60_000 ? lost.count + 1 : 1
+        lost.at = now
+        console.error('PDF reader stopped:', why)
+        if (lost.count > 3) {
+          setStatus(`The PDF reader keeps stopping (${why}). Close and reopen this PDF.`)
+          return
+        }
+        setStatus('The PDF reader stopped and is restarting…')
+        // Back to the same sheet, unless that sheet is what keeps stopping it.
+        if (lost.count === 1 && pendingPageRef.current === null && pageIndexRef.current >= 0) pendingPageRef.current = pageIndexRef.current
+        setTimeout(() => setReaderGen((g) => g + 1), 0)
+      },
     })
     viewerRef.current = viewer
     // Markups switched off stay off across a document switch.
@@ -2589,7 +2635,7 @@ export default function Workspace({
       viewerRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docUrl])
+  }, [docUrl, readerGen])
 
   // Push committed markups into the viewer overlay.
   useEffect(() => {
@@ -6448,12 +6494,35 @@ export default function Workspace({
        */
       const region = bridgeRect(params['region'] ?? params['rect'])
       if (region === null) throw new Error('region must be {x0,y0,x1,y1} in normalized [0,1] page coordinates')
-      if (region !== undefined) {
+      /*
+       * A sheet named by `page` is rendered on its own, at any page, without
+       * turning the window to it (NOIC intake, 2026-11-26). Turning first
+       * meant four close-ups sent at once raced one another's page turns
+       * ("page did not show within 10s"), and a screenshot of a PDF someone
+       * else is looking at had to ask them to hand it over.
+       */
+      let page: number | undefined
+      const given = params['page']
+      if (given !== undefined && given !== null && given !== '') {
+        const at = typeof given === 'string' && !/^\d+$/.test(given.trim())
+          ? pageForSheet(sheetGroups.flatMap((g) => g.rows), given)
+          : Number(given)
+        if (at === null || !Number.isInteger(at)) throw new Error(`no single sheet is called ${String(given)} in this document; redbeam_list_sheets has every sheet`)
+        if (at < 0 || at >= pageCount) throw new Error(`page ${at} out of range (0..${pageCount - 1})`)
+        page = at
+      }
+      if (region !== undefined || (page !== undefined && page !== pageIndexRef.current)) {
         const v = viewerRef.current
         if (!v) return null
-        if (params['page'] !== undefined) await showPageForAgent(Number(params['page']))
-        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? 1200) || 1200))
-        const out = await v.renderRegion(region, width, {
+        const box = region ?? { x0: 0, y0: 0, x1: 1, y1: 1 }
+        const width = Math.min(6000, Math.max(64, Number(params['width'] ?? (region === undefined ? 1600 : 1200)) || 1200))
+        const targetPage = page ?? v.currentPageIndex
+        const elsewhere = targetPage !== v.currentPageIndex
+        const out = await v.renderRegion(box, width, {
+          page: targetPage,
+          ...(elsewhere ? {
+            overlaySet: toOverlay(docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, targetPage) && !isCutId(m.id)), scopes, pendingIdsRef.current),
+          } : {}),
           ...(typeof params['annotations'] === 'boolean' ? { annots: params['annotations'] } : {}),
           ...(typeof params['overlay'] === 'boolean' ? { overlay: params['overlay'] } : {}),
         })
@@ -6781,7 +6850,17 @@ export default function Workspace({
             fromPage = Number(c[1]); fromMatch = Number(c[2])
           }
           const todo = [...candidates].sort((x, y) => x - y).filter((p) => p >= fromPage)
-          const read = (p: number): Promise<PageText | null> => v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null)
+          /*
+           * Read by readers of their own, several at once, in page order
+           * (search/textPool.ts), rather than one at a time by the worker
+           * drawing the sheet. A page that kills or stalls a reader comes
+           * back unreadable, with why, instead of holding the search.
+           */
+          const pool = textPool()
+          if (pool !== null) pool.want(todo.filter((p) => v.getText(p) === undefined))
+          const read = (p: number): Promise<PageText | null> => (pool !== null
+            ? pool.text(p)
+            : v.requestText(p, { priority: PRIORITY_THUMBNAIL }).catch(() => null))
           const reads = new Map<number, Promise<PageText | null>>()
           for (const p of todo) if (v.getText(p) === undefined) reads.set(p, read(p))
           const replyBy = performance.now() + AGENT_REPLY_MS
@@ -6830,7 +6909,11 @@ export default function Workspace({
             } : {}),
             sheetsRead,
             sheets: wanted.length,
-            ...(unreadable.length > 0 ? { unreadable, unreadableNote: 'these sheets could not be read' } : {}),
+            ...(unreadable.length > 0 ? {
+              unreadable,
+              unreadableNote: 'these sheets could not be read',
+              ...(pool !== null && pool.unreadable().length > 0 ? { why: pool.unreadable().filter((u) => unreadable.includes(u.page)) } : {}),
+            } : {}),
           }
         }
         /* Every word on a page with its box, or only those inside `rect`. */
@@ -6841,7 +6924,9 @@ export default function Workspace({
           if (!Number.isInteger(p) || p < 0 || p >= pageCount) return { error: `page ${params['page']} out of range (0..${pageCount - 1})` }
           const within = bridgeRect(params['rect'])
           if (within === null) return { error: 'rect must be {x0,y0,x1,y1} in normalized [0,1] page coordinates' }
-          const pt = await v.requestText(p, { priority: PRIORITY_THUMBNAIL })
+          // Any sheet, without showing it; a big set's own readers when there are any.
+          const pool = textPoolRef.current
+          const pt = v.getText(p) ?? (pool !== null ? await pool.text(p) : null) ?? await v.requestText(p, { priority: PRIORITY_THUMBNAIL })
           const all = wordsOnPage(pt, within)
           const limit = Math.max(1, Math.min(20_000, Number(params['limit'] ?? 3000) || 3000))
           const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
@@ -12381,7 +12466,7 @@ const VIEW_ACTIONS = new Set([
 /** Writes that act on the sheet showing: a `page` input shows that sheet first. */
 const PAGE_BOUND = new Set([
   'create_markup', 'set_calibration', 'set_scope_direction', 'set_pattern_origin', 'set_pattern_direction',
-  'begin_scale_region', 'zoom_to_region', 'get_words',
+  'begin_scale_region', 'zoom_to_region',
 ])
 
 /** A normalized point from a bridge argument, or null. */
