@@ -37,7 +37,7 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { SqlDriver } from './index.js'
 import { isTauriAvailable, type TauriInvokeFn } from './tauri-driver.js'
 import {
-  insertMarkup, updateMarkupGeometry, deleteMarkup, restoreMarkup, assignMarkupScope,
+  insertMarkup, updateMarkupGeometry, deleteMarkup, restoreMarkup, assignMarkupScope, updateMarkupContent,
   saveCalibration, deleteCalibration, logActivity, markupExists,
   type MarkupRow,
 } from './repo.js'
@@ -51,6 +51,7 @@ export type UndoOpKind =
   | 'edit_geometry'
   | 'reassign_scope'
   | 'set_calibration'
+  | 'edit_annot_color'
   | 'batch'
 
 /**
@@ -260,6 +261,52 @@ export function reassignScope(
     },
     async revert(db) {
       await assignMarkupScope(db, id, before)
+    },
+  }
+}
+
+/**
+ * Recolour another app's annotation held as an `annot` markup (export/adopt.ts):
+ * `content.annot.color`, and nothing else of the content, so an undo cannot
+ * put back a stale record of what the file holds. Light windows only: their
+ * undo stack is in memory, and the core's stack does not know this op.
+ */
+export function editAnnotColor(
+  id: string,
+  before: string | null,
+  after: string | null,
+  where?: EntityLocation,
+  origin: string = USER,
+): Command {
+  const record: UndoRecord = {
+    op: 'edit_annot_color',
+    label: 'change colour',
+    entityType: 'markup',
+    entityId: id,
+    ...locate(where),
+    before,
+    after,
+    origin,
+  }
+  const set = async (db: SqlDriver, color: string | null) => {
+    const [row] = await db.all<{ content_json: string | null }>('SELECT content_json FROM markups WHERE id = ?', [id])
+    let content: Record<string, unknown> = {}
+    try { content = JSON.parse(row?.content_json ?? '{}') as Record<string, unknown> } catch { content = {} }
+    const annot = { ...((content['annot'] as Record<string, unknown> | undefined) ?? {}), color }
+    await updateMarkupContent(db, id, { ...content, annot })
+  }
+  return {
+    label: record.label,
+    record,
+    async apply(db) {
+      await set(db, after)
+      await logActivity(db, {
+        eventType: 'markup.color_changed', entityType: 'markup', entityId: id,
+        origin, details: { from: before, to: after },
+      })
+    },
+    async revert(db) {
+      await set(db, before)
     },
   }
 }

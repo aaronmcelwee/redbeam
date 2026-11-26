@@ -54,6 +54,7 @@ import { areaRegion } from '@redbeam/domain'
 import { openLazyPdf } from './lazyPdf.js'
 import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
 import { sheetOutlineCurrent, writeSheetOutline } from './sheetOutline.js'
+import { annotColor, appearanceInfo, recolorAnnot, rectOf, rewriteNeeds, translateAnnot, type AnnotRewrite } from './annotRewrite.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, pdfText, regionAt, shapeForKind,
@@ -160,6 +161,12 @@ export interface EmbedInput {
    * RedBeam"). Never used on a save to the original.
    */
   retireForeign?: boolean
+  /**
+   * Other apps' annotations REDBEAM has moved or recoloured (`annot`
+   * markups), as each should now stand, and deleted ones whose delete was
+   * undone after a save (annotRewrite.ts). Each is rewritten in place.
+   */
+  rewrite?: readonly AnnotRewrite[]
   /** For tests; defaults to the clock. */
   now?: () => Date
 }
@@ -175,6 +182,11 @@ export interface EmbedResult {
   stamp: string | null
   /** Another writer's takeoff is in the file; see `EmbedInput.expectStamp`. */
   conflict?: true
+  /**
+   * By /NM, the objects this save took off the sheet for `retire` (the
+   * annotation, then its popup), as "12 0 R". An undone delete puts them back.
+   */
+  retired?: Record<string, string[]>
 }
 
 /** Names one save of a takeoff: no two saves share it, even of the same content. */
@@ -500,8 +512,18 @@ export interface ForeignAnnot {
   pageIndex: number
   /** The annotation's /NM, its identity across saves in either app. */
   nm: string
+  /**
+   * What REDBEAM knows it by: the /NM, or, where Revu gave copies on several
+   * pages the same /NM, the /NM and its page (`heldKey`).
+   */
+  key: string
   subtype: string
-  kind: 'area' | 'polyline'
+  /**
+   * `annot`: anything else with an /NM (a cloud, a text box, an arrow, a
+   * dimension, a stamp), held where it is and drawn by the PDF; its ring is
+   * its /Rect.
+   */
+  kind: 'area' | 'polyline' | 'annot'
   /** Normalized like `RedbeamAnnot.rings`: the outline, then each cutout. */
   rings: Array<Array<{ x: number, y: number }>>
   color: string | null
@@ -509,6 +531,8 @@ export interface ForeignAnnot {
   label: string
   contents: string
   author: string
+  /** For `annot`: its appearance's box and matrix and fill opacity, for a recolour on screen. */
+  ap?: { bbox: number[], matrix: number[] | null, alpha: number } | null
   /** The sheet's size in points as displayed, for a page row. */
   width: number
   height: number
@@ -596,6 +620,9 @@ const numsOf = (a: PDFDict, key: string): number[] => {
   return out
 }
 
+const hexOf = (c: [number, number, number] | null): string | null =>
+  c === null ? null : `#${c.map((n) => Math.round(n * 255).toString(16).padStart(2, '0')).join('')}`
+
 function colorOf(a: PDFDict): string | null {
   const c = numsOf(a, 'C')
   if (c.length !== 3 || !c.every((n) => Number.isFinite(n) && n >= 0 && n <= 1)) return null
@@ -660,14 +687,38 @@ function hasArrows(a: PDFDict): boolean {
   return false
 }
 
+/**
+ * A Bluebeam dimension: a measured line drawn to annotate, not a length to
+ * take off. Revu's Dimension tool writes /IT LineDimension like its Length
+ * measurement does, but with leader lines (/LL) or its own subject.
+ */
+function isDimension(a: PDFDict): boolean {
+  const ll = a.lookup(PDFName.of('LL'))
+  if (ll instanceof PDFNumber && ll.asNumber() !== 0) return true
+  const subject = textOf(a, 'Subj').toLowerCase()
+  return subject.includes('dimension') && !subject.includes('measurement')
+}
+
+/** The annotation's /Rect as a ring of corners, user space; null when it has none. */
+function annotRectRing(a: PDFDict): number[] | null {
+  const r = rectOf(a)
+  if (r === null || !(r[2] > r[0]) || !(r[3] > r[1])) return null
+  return [r[0], r[1], r[2], r[1], r[2], r[3], r[0], r[3]]
+}
+
 /** What a foreign annotation becomes in REDBEAM, and its user-space outline; null to leave it. */
-function adoptShape(a: PDFDict): { kind: 'area' | 'polyline', flat: number[] } | null {
-  if (textOf(a, 'NM') === '' || isCloud(a)) return null
+function adoptShape(a: PDFDict): { kind: 'area' | 'polyline' | 'annot', flat: number[] } | null {
+  if (textOf(a, 'NM') === '') return null
+  const held = (): { kind: 'annot', flat: number[] } | null => {
+    const ring = annotRectRing(a)
+    return ring === null ? null : { kind: 'annot', flat: ring }
+  }
+  if (isCloud(a)) return held()
   const subtype = subtypeOf(a)
   const intent = (() => { const it = a.lookup(PDFName.of('IT')); return it instanceof PDFName ? it.decodeText() : '' })()
   if (subtype === 'Polygon') {
     const v = vertsOf(a)
-    return v.length >= 6 && v.every(Number.isFinite) ? { kind: 'area', flat: v } : null
+    return v.length >= 6 && v.every(Number.isFinite) ? { kind: 'area', flat: v } : held()
   }
   if (subtype === 'Square') {
     const r = numsOf(a, 'Rect')
@@ -677,19 +728,19 @@ function adoptShape(a: PDFDict): { kind: 'area' | 'polyline', flat: number[] } |
     const [l, b, rr, t] = rd.length === 4 && rd.every(Number.isFinite) ? rd : [0, 0, 0, 0]
     const x0 = Math.min(r[0]!, r[2]!) + l!, x1 = Math.max(r[0]!, r[2]!) - rr!
     const y0 = Math.min(r[1]!, r[3]!) + b!, y1 = Math.max(r[1]!, r[3]!) - t!
-    if (!(x1 > x0) || !(y1 > y0)) return null
+    if (!(x1 > x0) || !(y1 > y0)) return held()
     return { kind: 'area', flat: [x0, y0, x1, y0, x1, y1, x0, y1] }
   }
-  if (hasArrows(a)) return null
+  if (hasArrows(a)) return held()
   if (subtype === 'PolyLine') {
     const v = vertsOf(a)
-    return v.length >= 4 && v.every(Number.isFinite) ? { kind: 'polyline', flat: v } : null
+    return v.length >= 4 && v.every(Number.isFinite) ? { kind: 'polyline', flat: v } : held()
   }
-  if (subtype === 'Line' && intent === 'LineDimension') {
+  if (subtype === 'Line' && intent === 'LineDimension' && !isDimension(a)) {
     const l = numsOf(a, 'L')
-    return l.length === 4 && l.every(Number.isFinite) ? { kind: 'polyline', flat: l } : null
+    return l.length === 4 && l.every(Number.isFinite) ? { kind: 'polyline', flat: l } : held()
   }
-  return null
+  return held()
 }
 
 /** The object number of the slice stream a PieceInfo points at, to read each stream once. */
@@ -748,10 +799,11 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
         if (shape !== null) {
           const turned = Math.abs(Math.round(rotation / 90)) % 2 === 1
           adoptable.push({
-            pageIndex, nm: textOf(a, 'NM'), subtype: subtypeOf(a), kind: shape.kind,
+            pageIndex, nm: textOf(a, 'NM'), key: textOf(a, 'NM'), subtype: subtypeOf(a), kind: shape.kind,
             rings: [toRing(shape.flat), ...(shape.kind === 'area' ? cutoutsOf(a).filter((c) => c.length >= 6 && c.every(Number.isFinite)).map(toRing) : [])],
-            color: colorOf(a), subject: textOf(a, 'Subj'), label: textOf(a, 'Label'),
+            color: shape.kind === 'annot' ? hexOf(annotColor(a)) : colorOf(a), subject: textOf(a, 'Subj'), label: textOf(a, 'Label'),
             contents: textOf(a, 'Contents'), author: textOf(a, 'T'),
+            ...(shape.kind === 'annot' ? { ap: appearanceInfo(a) } : {}),
             width: turned ? box.height : box.width, height: turned ? box.width : box.height,
           })
         }
@@ -799,6 +851,11 @@ function readDoc(doc: PDFDocument): SheetEmbedReading {
     allSheets.push(facts)
     if (redbeamAnnots.length > oursBefore || scales.length > 0) sheets.push({ pageIndex, ...facts })
   })
+  // Revu copies a markup to other pages under the same /NM: each page's copy
+  // is its own markup here.
+  const pagesOfNm = new Map<string, Set<number>>()
+  for (const f of adoptable) (pagesOfNm.get(f.nm) ?? pagesOfNm.set(f.nm, new Set()).get(f.nm)!).add(f.pageIndex)
+  for (const f of adoptable) if ((pagesOfNm.get(f.nm)?.size ?? 0) > 1) f.key = heldKey(f.nm, f.pageIndex)
   // An annotation that does not name its markup is named by whichever slice wrote it.
   for (const r of redbeamAnnots) {
     if (r.markupId !== null) continue
@@ -1117,6 +1174,87 @@ export function embedSheetTail(
   return embedInto(doc, doc.context.largestObjectNumber, input, base)
 }
 
+interface PlannedRewrite {
+  pageIndex: number
+  rewrite: AnnotRewrite
+  annot: PDFDict
+  /** The annotation's own object, or null when it sits directly in /Annots. */
+  ref: PDFRef | null
+  /** Objects to put back on the sheet first. */
+  restore: PDFRef[]
+}
+
+/** A reference written as "12 0 R", or null. */
+function parseRef(text: string): PDFRef | null {
+  const m = /^(\d+) (\d+) R$/.exec(text.trim())
+  return m === null ? null : PDFRef.of(Number(m[1]), Number(m[2]))
+}
+
+/**
+ * The rewrites that change something in this file: the annotation is on its
+ * sheet (or can be put back) and stands somewhere else, or in another colour.
+ * One being retired in the same save is left to the retire.
+ */
+/** The key a repeated /NM's copy on one page goes by. */
+export function heldKey(nm: string, pageIndex: number): string {
+  return `${nm}@p${pageIndex}`
+}
+
+/** The /NM a key stands for. */
+export function nmOfKey(key: string): string {
+  return key.replace(/@p\d+$/, '')
+}
+
+/** Which retire entry, if any, takes this /NM off this page. */
+function retiredAs(retire: ReadonlySet<string>, nm: string, pageIndex: number): string | null {
+  if (nm === '') return null
+  if (retire.has(nm)) return nm
+  const k = heldKey(nm, pageIndex)
+  return retire.has(k) ? k : null
+}
+
+function planRewrites(doc: PDFDocument, rewrites: readonly AnnotRewrite[], retire: ReadonlySet<string>): PlannedRewrite[] {
+  if (rewrites.length === 0) return []
+  const pages = doc.getPages()
+  const out: PlannedRewrite[] = []
+  for (const rw of rewrites) {
+    if (retiredAs(retire, rw.nm, rw.pageIndex) !== null) continue
+    const page = pages[rw.pageIndex]
+    if (page === undefined) continue
+    let annot: PDFDict | null = null
+    let ref: PDFRef | null = null
+    const arr = page.node.lookup(PDFName.of('Annots'))
+    if (arr instanceof PDFArray) {
+      for (let i = 0; i < arr.size(); i++) {
+        const a = arr.lookup(i)
+        if (a instanceof PDFDict && !isOurs(a) && textOf(a, 'NM') === rw.nm) {
+          annot = a
+          const e = arr.get(i)
+          ref = e instanceof PDFRef ? e : null
+          break
+        }
+      }
+    }
+    const restore: PDFRef[] = []
+    if (annot === null) {
+      // Taken off by an earlier save and since restored here: its objects
+      // are still in the file, unreferenced, and go back on the sheet.
+      const refs = (rw.restore ?? []).map(parseRef).filter((r): r is PDFRef => r !== null)
+      const first = refs[0]
+      const found = first === undefined ? undefined : doc.context.lookup(first)
+      if (!(found instanceof PDFDict) || textOf(found, 'NM') !== rw.nm) continue
+      annot = found
+      ref = first!
+      restore.push(...refs.filter((r) => doc.context.lookup(r) instanceof PDFDict))
+    }
+    const box = page.getCropBox() as PageBox
+    const need = rewriteNeeds(annot, rw, box, page.getRotation().angle)
+    if (restore.length === 0 && need.dx === 0 && need.dy === 0 && need.to === null) continue
+    out.push({ pageIndex: rw.pageIndex, rewrite: rw, annot, ref, restore })
+  }
+  return out
+}
+
 function embedInto(
   doc: PDFDocument,
   largestBefore: number,
@@ -1158,7 +1296,8 @@ function embedInto(
     const st = a.lookup(PDFName.of('Subtype'))
     return !(st instanceof PDFName && KEEP_SUBTYPES.has(st.decodeText()))
   }
-  const retiring = (retire.size > 0 && doc.getPages().some((p) => annotsOn(p).some((a) => !isOurs(a) && retire.has(textOf(a, 'NM')))))
+  const rewrites = planRewrites(doc, input.rewrite ?? [], retire)
+  const retiring = rewrites.length > 0 || (retire.size > 0 && doc.getPages().some((p, i) => annotsOn(p).some((a) => !isOurs(a) && retiredAs(retire, textOf(a, 'NM'), i) !== null)))
     || (input.retireForeign === true && doc.getPages().some((p) => annotsOn(p).some((a) => foreignMarkup(a))))
   // Sheet names: a file saved before they became bookmarks is written once more.
   const labels = sheetLabelsFrom(input.tables)
@@ -1179,10 +1318,11 @@ function embedInto(
   const changed: PDFRef[] = []
   const editedElsewhere: string[] = []
   const keptNms = new Set<string>()
+  const retired: Record<string, string[]> = {}
 
   // 1. Take REDBEAM's previous annotations off, keeping everything else and
   //    any of ours that somebody edited.
-  pages.forEach((page) => {
+  pages.forEach((page, pageIndex) => {
     const arr = page.node.lookup(PDFName.of('Annots'))
     if (!(arr instanceof PDFArray)) return
     const keep: unknown[] = []
@@ -1205,7 +1345,10 @@ function embedInto(
       if (a instanceof PDFDict && retire.size > 0) {
         // The retired markup, and the note popup that belongs to it.
         const parent = a.lookup(PDFName.of('Parent'))
-        if (retire.has(textOf(a, 'NM')) || (parent instanceof PDFDict && retire.has(textOf(parent, 'NM')))) {
+        const owner = retiredAs(retire, textOf(a, 'NM'), pageIndex)
+          ?? (parent instanceof PDFDict ? retiredAs(retire, textOf(parent, 'NM'), pageIndex) : null)
+        if (owner !== null) {
+          if (entry instanceof PDFRef) (retired[owner] ??= []).push(entry.toString())
           removed = true
           continue
         }
@@ -1218,6 +1361,31 @@ function embedInto(
     page.node.set(PDFName.of('Annots'), ctx.obj(keep as never[]))
     changed.push(page.ref)
   })
+
+  // 1b. Other apps' annotations moved, recoloured, or put back (annotRewrite.ts).
+  //     Before any rotation of the page below: their targets were measured on
+  //     the page as it was read.
+  for (const r of rewrites) {
+    const page = pages[r.pageIndex]!
+    if (r.restore.length > 0) {
+      const arr = page.node.lookup(PDFName.of('Annots'))
+      const copy = ctx.obj([]) as PDFArray
+      if (arr instanceof PDFArray) for (let i = 0; i < arr.size(); i++) copy.push(arr.get(i))
+      for (const ref of r.restore) copy.push(ref)
+      page.node.set(PDFName.of('Annots'), copy)
+      changed.push(page.ref)
+    }
+    const box = page.getCropBox() as PageBox
+    const need = rewriteNeeds(r.annot, r.rewrite, box, page.getRotation().angle)
+    let touched = r.restore.length > 0
+    for (const ref of translateAnnot(ctx, r.annot, need.dx, need.dy)) changed.push(ref)
+    if (need.dx !== 0 || need.dy !== 0) touched = true
+    if (need.from !== null && need.to !== null && recolorAnnot(ctx, r.annot, need.from, need.to)) touched = true
+    if (!touched) continue
+    r.annot.set(PDFName.of('M'), PDFString.of(when))
+    if (r.ref !== null) changed.push(r.ref)
+    else changed.push(page.ref)
+  }
 
   // 2. Rotation, then scales, then this save's annotations: all three are
   //    placed through the page's rotation, so it has to be the new one.
@@ -1357,7 +1525,10 @@ function embedInto(
   // Pushed one by one: a spread of every new object overflows the stack on a big set.
   for (const r of newRefsSince(doc, largestBefore)) changed.push(r)
   return {
-    result: { bytes: null, editedElsewhere, foreignKept: before.foreignAnnots, stamp: sliceStamp(slice) },
+    result: {
+      bytes: null, editedElsewhere, foreignKept: before.foreignAnnots, stamp: sliceStamp(slice),
+      ...(Object.keys(retired).length === 0 ? {} : { retired }),
+    },
     tail: incrementalTail(base, doc, changed),
   }
 }

@@ -30,7 +30,7 @@ import {
   pageIdFor, pageNumberFrom, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
   type DocumentRow, type SearchHit, type NormBox,
   UndoStack, PERSON as UNDO_PERSON, createMarkup as cmdCreate, removeMarkup as cmdRemove,
-  editGeometry as cmdEditGeometry, setCalibration as cmdCalibrate, batch as cmdBatch,
+  editGeometry as cmdEditGeometry, editAnnotColor as cmdEditAnnotColor, setCalibration as cmdCalibrate, batch as cmdBatch,
   reassignScope as cmdReassign,
   type UndoState,
   recordFrozenCalculation, latestFrozenCalculation, frozenCalculationBefore,
@@ -163,6 +163,7 @@ import {
   hiddenOnPage, hiddenStorageKey, hideAll, hideAnnotation, parseHiddenBook, showHidden,
   visibleAnnotations, type HiddenBook,
 } from './tools/foreignMarkups.js'
+import { HELD_COLORS, heldColorOf, heldEditsFor, heldLabelOf, heldNmOf, heldStateKey } from './tools/heldAnnots.js'
 import { drawPanelLayout, drawPatternShapes, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { libraryEntry, readLibrary, saveToLibrary, newerInLibrary } from './patterns/library.js'
 import type { PatternControls } from './shell/PatternCard.js'
@@ -1188,19 +1189,36 @@ export default function Workspace({
    * stand for (export/adopt.ts). Hidden like REDBEAM's own: the markup is drawn.
    */
   const adoptedNmsRef = useRef(new Map<string, Set<string>>())
-  /** The page's own and adopted annotations hidden, and the rest offered to Select. */
+  /**
+   * Per document, the /NMs of other apps' annotations held as `annot`
+   * markups (clouds, text, arrows, dimensions). The PDF still draws them;
+   * a deleted one is hidden, a moved or recoloured one is redrawn there by
+   * the viewer's own copy of the PDF (annotEdit.ts).
+   */
+  const heldNmsRef = useRef(new Map<string, Set<string>>())
+  /** Each held markup's rectangle and colour as the file had them when opened, and which have been changed since. */
+  const heldOpenRef = useRef(new Map<string, string>())
+  const heldChangedRef = useRef(new Set<string>())
+  /** The page's own and adopted annotations hidden, held ones placed, and the rest offered to Select. */
   const hideOwnAnnots = useCallback((viewer: Viewer, index: number) => {
     void viewer.requestAnnotations(index)
       .then((list) => {
         if (viewerRef.current !== viewer) return
         const adopted = adoptedNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+        const held = heldNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+        const live = markupsRef.current.filter((m) => m.kind === 'annot')
+        const liveNms = new Set(live.map((m) => heldNmOf(m)).filter((nm): nm is string => nm !== null))
         const standsIn = (a: PageAnnotation) => isRedbeamNm(a.name) || adopted.has(a.name)
-        const own = list.filter(standsIn).map((a) => a.index)
+        // A held markup deleted here: off the sheet until an undo brings it back.
+        const gone = (a: PageAnnotation) => held.has(a.name) && !liveNms.has(a.name)
+        const own = list.filter((a) => standsIn(a) || gone(a)).map((a) => a.index)
+        const changedOwn = own.length !== ownAnnotsRef.current.size || own.some((i) => !ownAnnotsRef.current.has(i))
         ownAnnotsRef.current = new Set(own)
-        if (own.length > 0 && viewer.setHiddenAnnotations(index, [...hiddenAnnotsRef.current, ...own])) {
-          viewer.requestVisible(viewRef.current)
-        }
-        annotsRef.current = list.filter((a) => a.shape !== 'other' && !standsIn(a))
+        let redraw = changedOwn && viewer.setHiddenAnnotations(index, [...hiddenAnnotsRef.current, ...own])
+        const edits = heldEditsFor(live, heldOpenRef.current, heldChangedRef.current)
+        if (viewer.setAnnotationEdits(index, edits)) redraw = true
+        if (redraw) viewer.requestVisible(viewRef.current)
+        annotsRef.current = list.filter((a) => a.shape !== 'other' && !standsIn(a) && !held.has(a.name))
       })
       .catch(() => { /* a sheet with no readable annotations has none to select */ })
   }, [])
@@ -1896,7 +1914,8 @@ export default function Workspace({
     pendingIdsRef.current = new Set(allRows.filter((r) => r.reviewState === 'proposed').map((r) => r.id))
     const shown = allRows.map(toMarkup)
     // Totals see accepted markups only; the sheet shows pending ones too.
-    const all = shown.filter((m) => !pendingIdsRef.current.has(m.id))
+    // Other apps' markups held in place are on the sheet and nowhere else.
+    const all = shown.filter((m) => !pendingIdsRef.current.has(m.id) && m.kind !== 'annot')
     const doc = all.filter((m) => m.documentId === docId)
     // The cuts in this sheet's areas, as cutouts to select (cutouts.ts).
     setMarkups(withCutouts(shown.filter((m) => m.documentId === docId && m.pageId === pageId)))
@@ -3719,7 +3738,9 @@ export default function Workspace({
    */
   const copySelection = useCallback(() => {
     const ids = new Set(selectedRef.current)
-    const picked = markupsRef.current.filter((m) => ids.has(m.id) && !isCutId(m.id))
+    // Another app's markup held in place is that app's annotation: there is
+    // no second one to paste.
+    const picked = markupsRef.current.filter((m) => ids.has(m.id) && !isCutId(m.id) && m.kind !== 'annot')
     if (picked.length === 0) return
     const size = pageSizeRef.current
     if (size.width <= 0 || size.height <= 0) return
@@ -3769,9 +3790,20 @@ export default function Workspace({
     setStatus(pasteStatus(plan, clip.documentId !== docId))
   }, [runCommand])
 
+  /** Recolour other apps' markups held in place, as one undo step (tools/heldAnnots.ts). */
+  const recolorHeld = useCallback(async (picked: readonly Markup[], hex: string) => {
+    const cmds = picked
+      .filter((m) => m.kind === 'annot' && heldColorOf(m) !== hex)
+      .map((m) => cmdEditAnnotColor(m.id, heldColorOf(m), hex, { documentId: m.documentId, pageId: m.pageId }))
+    if (cmds.length === 0) return
+    if (await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`recolour ${cmds.length} markups`, cmds))) {
+      setStatus(`recoloured ${cmds.length} markup${cmds.length === 1 ? '' : 's'}`)
+    }
+  }, [runCommand])
+
   /** Move markups to another scope (or none), as one undo step. Any sheet, any drawing. */
   const reassignMarkups = useCallback(async (ids: readonly string[], scopeId: string | null) => {
-    const present = markupsFor(ids)
+    const present = markupsFor(ids).filter((m) => m.kind !== 'annot')
     const cmd = rescopeMarkupsCommand(present, scopeId)
     if (cmd === null) return
     const moved = present.filter((m) => m.scopeId !== scopeId).length
@@ -3796,7 +3828,7 @@ export default function Workspace({
    * Duplicate both land here.
    */
   const duplicateMarkups = useCallback(async (ids: readonly string[]) => {
-    const present = markupsFor(ids)
+    const present = markupsFor(ids).filter((m) => m.kind !== 'annot')
     const { command, ids: made } = duplicateMarkupsCommand(present, uid)
     if (command === null) return
     if (await runCommand(command)) {
@@ -4042,7 +4074,14 @@ export default function Workspace({
   docMarkupsRef.current = docMarkups
   quantitiesRef.current = quantities
   docIdRef.current = activeDocId ?? FALLBACK_DOC.id
-  useEffect(() => { markupsRef.current = markups }, [markups])
+  useEffect(() => {
+    markupsRef.current = markups
+    // A held markup moved, recoloured, deleted or put back: the viewer's copy
+    // follows. Not mid-drag: that redraws the sheet per pointer move, and the
+    // selection outline already shows where it is going.
+    const v = viewerRef.current
+    if (v !== null && editRef.current === null && (heldNmsRef.current.get(docIdRef.current)?.size ?? 0) > 0) hideOwnAnnots(v, pageIndexRef.current)
+  }, [markups, hideOwnAnnots])
 
   // Dev-only inspection hook. Lets a test read the real geometry and calibration
   // instead of inferring them from rendered text. Stripped from production builds.
@@ -6002,12 +6041,28 @@ export default function Workspace({
           if (!light || !firstLook || fileLoadRef.current.get(doc.id)?.state === 'blocked') return
           let result: Awaited<ReturnType<typeof adoptForeignAnnots>>
           try { result = await adoptForeignAnnots(db, doc.id, found) } catch { return }
-          if (result.nms.length === 0) return
+          if (result.nms.length === 0 && result.heldNms.length === 0) return
           adoptedNmsRef.current.set(doc.id, new Set(result.nms))
+          heldNmsRef.current.set(doc.id, new Set(result.heldNms))
+          if (result.heldNms.length > 0) {
+            // Where each held markup sits in the file as opened: what the
+            // viewer draws until one is moved or recoloured here.
+            try {
+              const rows = await listMarkups(db, { documentId: doc.id, reviewStates: ['accepted'] })
+              for (const r of rows) {
+                if (r.kind !== 'annot') continue
+                const m = { id: r.id, scopeId: null, documentId: r.documentId, pageId: r.pageId, kind: 'annot', rings: r.rings, content: r.content } as Markup
+                heldOpenRef.current.set(r.id, heldStateKey(m))
+              }
+            } catch { /* each is recorded when its sheet is first shown */ }
+          }
+          if (result.added > 0) await syncMarkups()
           if (docIdRef.current === doc.id && viewerRef.current !== null) hideOwnAnnots(viewerRef.current, pageIndexRef.current)
-          if (result.added > 0) {
-            await syncMarkups()
-            setStatus(`${result.added} Bluebeam markup${result.added === 1 ? '' : 's'} in ${name} came in pending, dashed and counted nowhere. Give one a scope, or use Accept imported markups, to count it.`)
+          const taken = result.added - result.held
+          if (taken > 0) {
+            setStatus(`${taken} Bluebeam markup${taken === 1 ? '' : 's'} in ${name} came in pending, dashed and counted nowhere. Give one a scope, or use Accept imported markups, to count it.`)
+          } else if (result.held > 0) {
+            setStatus(`${result.held} markup${result.held === 1 ? '' : 's'} from Bluebeam or another app in ${name} can be selected, moved, recoloured and deleted here. Saving writes the change into the PDF.`)
           }
         }
         if (reading.slice === null && !reading.privateDataLost && !reading.sliceTooNew) {
@@ -12722,6 +12777,66 @@ export default function Workspace({
           }
           const count = selectedIds.length > 1 ? selectedIds.length : 1
           const plural = count === 1 ? '' : 's'
+          if (m.kind === 'annot') {
+            /*
+              Another app's markup held in place (a Bluebeam cloud, text box,
+              arrow or dimension): it moves, recolours and deletes, and the
+              save writes that into the annotation itself. No scope, no
+              copy: it is that app's markup, not takeoff.
+            */
+            const picked = markupsRef.current.filter((x) => x.kind === 'annot' && (selectedRef.current.includes(x.id) || x.id === m.id))
+            const current = heldColorOf(m)
+            return (
+              <>
+                <div
+                  className="menuscrim"
+                  onPointerDown={(e) => { e.stopPropagation(); setMarkupMenu(null) }}
+                  onContextMenu={(e) => { e.preventDefault(); setMarkupMenu(null) }}
+                />
+                <div
+                  ref={markupMenuClamp.ref}
+                  className="dockmenu markupmenu"
+                  role="menu"
+                  style={{ left: markupMenu.x, top: markupMenu.y, ...markupMenuClamp.style }}
+                >
+                  <div className="menuhead">
+                    {picked.length > 1 ? `${picked.length} PDF markups` : heldLabelOf(m)}
+                  </div>
+                  <div className="menunote"><span>Made in Bluebeam or another app. Saving writes changes into the PDF.</span></div>
+                  <div className="menuhead">Colour</div>
+                  <div className="palette" role="group" aria-label="Colour" style={{ padding: '2px 10px 6px' }}>
+                    {HELD_COLORS.map((c) => (
+                      <button
+                        key={c.hex}
+                        type="button"
+                        className={`chip${current === c.hex ? ' on' : ''}`}
+                        role="menuitemradio"
+                        aria-checked={current === c.hex}
+                        aria-label={c.name}
+                        title={c.name}
+                        style={{ backgroundColor: c.hex }}
+                        onClick={() => { void recolorHeld(picked, c.hex); setMarkupMenu(null) }}
+                      />
+                    ))}
+                  </div>
+                  <div className="menusep" />
+                  <button
+                    className="menuitem danger"
+                    role="menuitem"
+                    onClick={() => {
+                      const ids = selectedRef.current.length > 0 ? selectedRef.current : [m.id]
+                      setSelectedIds([]); selectedRef.current = []
+                      void removeMarkups(ids)
+                      setMarkupMenu(null)
+                    }}
+                  >
+                    <Glyph icon={Trash2} role="row" />
+                    <span className="grow">Delete markup{plural}</span>
+                  </button>
+                </div>
+              </>
+            )
+          }
           return (
             <>
               {/*
