@@ -22,7 +22,6 @@
 import { useMemo, useSyncExternalStore, type CSSProperties } from 'react'
 import { FileText, Glyph, X } from '../shell/icons.js'
 import { samePath } from '../lightTabs.js'
-import { handovers, type HandoverAsk } from './handover.js'
 import { roster, type Agent } from './roster.js'
 import './agents.css'
 
@@ -33,37 +32,26 @@ export function useAgents(): readonly Agent[] {
   return useSyncExternalStore(roster.subscribe, () => roster.get().agents, () => roster.get().agents)
 }
 
-/** The handover questions waiting for the person. */
-export function useHandoverAsks(): readonly HandoverAsk[] {
-  return useSyncExternalStore(handovers.subscribe, handovers.get, handovers.get)
-}
-
 export interface AgentGroup {
   agent: Agent
   tabs: AgentTabItem[]
-  /** The person's PDFs this agent has asked to work in. */
-  asks: AgentTabItem[]
 }
 
 /**
  * Each live session with the tabs it drives, in the order the sessions
- * arrived. One with no tab, nothing asked, no PDF of the person's it is a
+ * arrived. One with no tab, no PDF of the person's it is a
  * guest in and nothing happening is left out: a card is for something the
  * person can look at or answer. Finished sessions are not groups
  * (`finishedSessions`).
  */
-export function agentGroups(agents: readonly Agent[], tabs: readonly AgentTabItem[], asks: readonly HandoverAsk[]): AgentGroup[] {
+export function agentGroups(agents: readonly Agent[], tabs: readonly AgentTabItem[]): AgentGroup[] {
   const out: AgentGroup[] = []
   for (const agent of agents) {
     if (agent.state === 'gone') continue
     const own = tabs.filter((t) => t.owner === agent.id)
-    const asked = asks
-      .filter((a) => a.agentId === agent.id)
-      .map((a) => tabs.find((t) => samePath(t.file, a.file)))
-      .filter((t): t is AgentTabItem => t !== undefined)
     const guest = agent.guestIn.some((f) => tabs.some((t) => samePath(t.file, f)))
-    if (own.length === 0 && asked.length === 0 && !guest && agent.state === 'idle') continue
-    out.push({ agent, tabs: own, asks: asked })
+    if (own.length === 0 && !guest && agent.state === 'idle') continue
+    out.push({ agent, tabs: own })
   }
   return out
 }
@@ -75,8 +63,7 @@ export function finishedSessions(agents: readonly Agent[]): Agent[] {
 
 export function useAgentTabGroups(tabs: readonly AgentTabItem[]): AgentGroup[] {
   const agents = useAgents()
-  const asks = useHandoverAsks()
-  return useMemo(() => agentGroups(agents, tabs, asks), [agents, tabs, asks])
+  return useMemo(() => agentGroups(agents, tabs), [agents, tabs])
 }
 
 const plainName = (name: string): string => name.replace(/\.pdf$/i, '')

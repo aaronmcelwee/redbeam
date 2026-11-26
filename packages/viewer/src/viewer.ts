@@ -552,15 +552,22 @@ export class Viewer {
   async renderRegion(
     box: { x0: number; y0: number; x1: number; y1: number },
     width: number,
-    opts: { annots?: boolean; overlay?: boolean } = {},
+    opts: { annots?: boolean; overlay?: boolean; page?: number; overlaySet?: OverlaySet } = {},
   ): Promise<{ canvas: HTMLCanvasElement; width: number; height: number; pointsPerPixel: number }> {
-    const page = this.activeIndex
-    if (page < 0 || this.page.width === 0) throw new Error('no page is showing')
+    /*
+     * `page` renders a sheet other than the one showing, with nothing on
+     * screen changing: an AI session looks at its own sheet while the person
+     * looks at theirs. The overlay drawn is then `overlaySet`, that sheet's
+     * markups, since the viewer's own set is the showing sheet's.
+     */
+    const page = opts.page ?? this.activeIndex
+    const size = opts.page === undefined ? this.page : (this.sizes[page] ?? { width: 0, height: 0 })
+    if (page < 0 || size.width === 0) throw new Error(opts.page === undefined ? 'no page is showing' : `page ${page} has no size yet`)
     const x0 = clamp01(Math.min(box.x0, box.x1)), x1 = clamp01(Math.max(box.x0, box.x1))
     const y0 = clamp01(Math.min(box.y0, box.y1)), y1 = clamp01(Math.max(box.y0, box.y1))
     if (!(x1 - x0 > 0) || !(y1 - y0 > 0)) throw new Error('the region has no area')
-    const regionW = (x1 - x0) * this.page.width
-    const regionH = (y1 - y0) * this.page.height
+    const regionW = (x1 - x0) * size.width
+    const regionH = (y1 - y0) * size.height
     const w = Math.max(16, Math.round(width))
     const h = Math.max(16, Math.round((w * regionH) / regionW))
     const annots = opts.annots ?? this.annotsOn
@@ -581,9 +588,9 @@ export class Viewer {
     ctx.drawImage(bmp, 0, 0)
     bmp.close()
     const zoom = w / regionW
-    if (opts.overlay ?? this.overlayOn) {
-      const view: Viewport = { zoom, ox: x0 * this.page.width * zoom, oy: y0 * this.page.height * zoom, vw: w, vh: h }
-      drawOverlay(ctx, this.overlaySet, view, this.page.width, this.page.height, this.opts.overlay)
+    if ((opts.overlay ?? this.overlayOn) && (opts.page === undefined || opts.page === this.activeIndex || opts.overlaySet !== undefined)) {
+      const view: Viewport = { zoom, ox: x0 * size.width * zoom, oy: y0 * size.height * zoom, vw: w, vh: h }
+      drawOverlay(ctx, opts.overlaySet ?? this.overlaySet, view, size.width, size.height, this.opts.overlay)
     }
     return { canvas, width: w, height: h, pointsPerPixel: 1 / zoom }
   }

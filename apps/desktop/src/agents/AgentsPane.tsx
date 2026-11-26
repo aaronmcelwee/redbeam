@@ -61,7 +61,7 @@ function choose(id: string, open: boolean): void {
  * there are few enough sessions that all of them fit.
  */
 export function sessionOpen(group: AgentGroup, count: number, showing: boolean, choice: boolean | undefined): boolean {
-  if (group.asks.length > 0 || showing) return true
+  if (showing) return true
   if (choice !== undefined) return choice
   return group.agent.state === 'waiting' || count <= OPEN_UP_TO
 }
@@ -82,7 +82,7 @@ export function summaryLine(live: number, needing: number, finished: number): st
 
 /** How many sessions want something from the person: a question, or an answer in their chat. */
 export const needingYou = (groups: readonly AgentGroup[]): number =>
-  groups.filter((g) => g.asks.length > 0 || g.agent.state === 'waiting').length
+  groups.filter((g) => g.agent.state === 'waiting').length
 
 /**
  * The sessions that need the person first: a question, then one waiting in
@@ -90,7 +90,7 @@ export const needingYou = (groups: readonly AgentGroup[]): number =>
  * of the sidebar, and what he has to answer must not start below the fold.
  */
 export function needingFirst(groups: readonly AgentGroup[]): AgentGroup[] {
-  const rank = (g: AgentGroup) => (g.asks.length > 0 ? 0 : g.agent.state === 'waiting' ? 1 : 2)
+  const rank = (g: AgentGroup) => (g.agent.state === 'waiting' ? 0 : 1)
   return groups.map((g, i) => ({ g, i })).sort((a, b) => rank(a.g) - rank(b.g) || a.i - b.i).map((x) => x.g)
 }
 
@@ -152,14 +152,29 @@ export function AgentSummary({ tabs, onShow }: { tabs: readonly AgentTabItem[]; 
   )
 }
 
+/**
+ * "Look in on this session": the person clicked a session's row for a PDF
+ * that is not the one showing. The workspace of that PDF takes the note when
+ * it comes on screen and goes to the sheet the session is on. A person's
+ * click is the only thing that sends their view to where a session works.
+ */
+const lookIns = new Map<string, string>()
+const fold = (file: string): string => file.replace(/\//g, '\\').toLowerCase()
+export const askLookIn = (file: string, agentId: string): void => { lookIns.set(fold(file), agentId) }
+export const takeLookIn = (file: string): string | undefined => {
+  const who = lookIns.get(fold(file))
+  lookIns.delete(fold(file))
+  return who
+}
+
 export function AgentsPane({
-  tabs, activeFile, onSelect, onHandOver, onEndSession, onDismissSession, onReopenFile,
+  tabs, activeFile, onSelect, onEndSession, onDismissSession, onReopenFile,
 }: {
   tabs: readonly AgentTabItem[]
   /** The PDF showing, to mark its row. */
   activeFile: string | null
-  onSelect: (file: string) => void
-  onHandOver?: ((file: string, agentId: string, yes: boolean) => void) | undefined
+  /** Show a PDF. With `agentId`, the click was on that session's row: for the PDF already showing, go to the sheet it is on. */
+  onSelect: (file: string, agentId?: string) => void
   onEndSession?: ((agentId: string) => void) | undefined
   onDismissSession?: ((agentId: string) => void) | undefined
   onReopenFile?: ((file: string) => void) | undefined
@@ -180,7 +195,7 @@ export function AgentsPane({
           </div>
         )}
         {groups.map((group) => {
-          const { agent, tabs: own, asks } = group
+          const { agent, tabs: own } = group
           const guest = tabs.filter((t) => t.owner === undefined && agent.guestIn.some((f) => samePath(f, t.file)))
           const showing = own.some((t) => isShowing(t.file))
           const open = sessionOpen(group, groups.length, showing, chosen.get(agent.id))
@@ -188,34 +203,25 @@ export function AgentsPane({
           return (
             <section
               key={agent.id} role="listitem" className="agentcard" style={tint(agent)}
-              data-agent={agent.name} data-state={agent.state} data-open={open ? 'true' : 'false'} data-asking={asks.length > 0 ? 'true' : 'false'}
+              data-agent={agent.name} data-state={agent.state} data-open={open ? 'true' : 'false'}
             >
               <button type="button" className="agentcard-head" aria-expanded={open} onClick={() => choose(agent.id, !open)}>
                 <span className="agentcard-twisty"><Glyph icon={ChevronRight} role="small" /></span>
                 <span className="agentdot" aria-hidden="true" data-state={agent.state} />
                 <span className="agentcard-name"><strong>{agent.app}</strong>{agent.task !== null ? ` · ${agent.task}` : ''}</span>
-                {asks.length > 0 || agent.state === 'waiting'
+                {agent.state === 'waiting'
                   ? <span className="agentcount attention" aria-label="Needs you">!</span>
                   : files > 0 && <span className="agentcount" aria-label={`${files} PDF${files === 1 ? '' : 's'}`}>{files}</span>}
               </button>
               <div className="agentcard-status">{agentStatus(agent)}</div>
               {agent.state === 'waiting' && <div className="agentcard-hint">Answer it in its chat. Its PDFs stay open.</div>}
-              {onHandOver !== undefined && asks.map((t) => (
-                <div key={`ask:${t.file}`} className="agentcard-ask" role="group" aria-label={`${agent.name} asks to work in ${plainName(t.name)}`}>
-                  <span>Wants to turn pages and zoom in your PDF <strong>{plainName(t.name)}</strong>.</span>
-                  <span className="agentcard-askbtns">
-                    <button type="button" className="primarybtn small" onClick={() => onHandOver(t.file, agent.id, true)}>Let it work there</button>
-                    <button type="button" className="ghostbtn small" onClick={() => onHandOver(t.file, agent.id, false)}>Not now</button>
-                  </span>
-                </div>
-              ))}
               {open && (
                 <>
                   {own.map((t) => (
                     <button
                       key={t.file} type="button" className={`agentfile${isShowing(t.file) ? ' active' : ''}`}
-                      aria-current={isShowing(t.file) ? 'true' : undefined} title={`${t.file}\nLook in on this PDF beside ${agent.name}`}
-                      onClick={() => onSelect(t.file)}
+                      aria-current={isShowing(t.file) ? 'true' : undefined} title={isShowing(t.file) ? `${t.file}\nGo to the sheet ${agent.name} is working on` : `${t.file}\nLook in on this PDF beside ${agent.name}`}
+                      onClick={() => onSelect(t.file, agent.id)}
                     >
                       <Glyph icon={FileText} role="inline" />
                       <span className="agentfile-name">{plainName(t.name)}</span>
@@ -225,8 +231,8 @@ export function AgentsPane({
                   {guest.map((t) => (
                     <button
                       key={`guest:${t.file}`} type="button" className={`agentfile${isShowing(t.file) ? ' active' : ''}`}
-                      aria-current={isShowing(t.file) ? 'true' : undefined} title={`${t.file}\nYour PDF. ${agent.name} is working in it with you.`}
-                      onClick={() => onSelect(t.file)}
+                      aria-current={isShowing(t.file) ? 'true' : undefined} title={isShowing(t.file) ? `${t.file}\nYour PDF. ${agent.name} is working in it with you. Click to go to the sheet it is on.` : `${t.file}\nYour PDF. ${agent.name} is working in it with you.`}
+                      onClick={() => onSelect(t.file, agent.id)}
                     >
                       <Glyph icon={FileText} role="inline" />
                       <span className="agentfile-name">{plainName(t.name)}</span>

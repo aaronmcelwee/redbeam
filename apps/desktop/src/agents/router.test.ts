@@ -9,9 +9,8 @@
  * drive it, as Workspace.tsx does.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type BridgeActions, type CallContext, HandoverNeeded } from '../bridge/useBridgeRequests.js'
+import { type BridgeActions, type CallContext } from '../bridge/useBridgeRequests.js'
 import { agentTabs, lightFileOf, samePath, tabFor, withHanded, withOwner, type LightFile } from '../lightTabs.js'
-import { HandoverStore } from './handover.js'
 import { RosterStore } from './roster.js'
 import { BridgeRouter, LOST_AFTER_MS } from './router.js'
 
@@ -31,7 +30,6 @@ function world(opts: { isMain?: boolean; showing?: string | null; tabs?: LightFi
     woken: [] as string[],
     openedForPerson: [] as string[],
     roster: new RosterStore(() => now),
-    handovers: new HandoverStore(() => now),
     /** How long each host takes to answer. */
     delay: 0,
     running: 0,
@@ -47,7 +45,6 @@ function world(opts: { isMain?: boolean; showing?: string | null; tabs?: LightFi
           if (w.running > 1) w.overlapped = true
           try {
             if (w.delay > 0) await new Promise((r) => setTimeout(r, w.delay))
-            if (MOVES.has(name) && !ctx.drives) throw new HandoverNeeded(`${name} would move a view its caller does not drive`)
             record(name, ctx)
             if (name === 'go_to_page') page.n = Number(params['page'])
             return { ok: true, page: page.n }
@@ -80,7 +77,6 @@ function world(opts: { isMain?: boolean; showing?: string | null; tabs?: LightFi
     setOwner: (file, owner) => { w.tabs = withOwner(w.tabs, file, owner) },
     handBack: (file, agent) => { w.tabs = withHanded(withOwner(w.tabs, file, null), file, { by: agent.name, color: agent.color.bright }) },
     roster: w.roster,
-    handovers: w.handovers,
     appVersion: '0.0.0-test',
     now: () => now,
     sleep: async (ms) => { now += ms },
@@ -216,57 +212,30 @@ describe('where a call lands', () => {
 })
 
 describe('the person\'s own tab', () => {
-  it('does not move its view for an agent: the person is asked, and a yes hands the tab over', async () => {
+  /*
+   * Aaron, 2026-11-26: "the agent should also not need to request approval
+   * to work within a sheet. It should be able to just jump in and make
+   * changes." A session works through a view of its own (Workspace.tsx
+   * `agentViewsRef`), so every call goes straight to the PDF and nothing is
+   * asked of the person.
+   */
+  it('takes an agent\'s page turn, zoom and tool straight to the PDF, asking nobody', async () => {
     const { w, act } = world()
-    const going = act(A, 'go_to_page', { page: 4 })
-    await vi.waitFor(() => expect(w.handovers.get()).toHaveLength(1))
-    expect(w.log).toEqual([])
-    // What App.tsx does on "Let it work here".
-    w.tabs = withOwner(w.tabs, MINE, 'a')
-    w.handovers.answer(MINE, 'a', true)
-    expect(await going).toMatchObject({ ok: true, page: 4 })
-    expect(w.log).toEqual([{ file: MINE, action: 'go_to_page', agent: 'Claude', drives: true }])
+    expect(await act(A, 'go_to_page', { page: 4 })).toMatchObject({ ok: true })
+    expect(await act(A, 'zoom_to_region', {})).toMatchObject({ ok: true })
+    expect(await act(A, 'set_tool', { tool: 'select' })).toMatchObject({ ok: true })
+    expect(w.log.map((l) => `${l.action} ${l.agent} ${l.drives}`)).toEqual([
+      'go_to_page Claude false', 'zoom_to_region Claude false', 'set_tool Claude false',
+    ])
+    // The tab stays the person's.
+    expect(w.tabs).toEqual([lightFileOf(MINE)])
   })
-  it('tells the agent the person said not now, and does not ask again', async () => {
-    const { w, act } = world()
-    const going = act(A, 'go_to_page', { page: 4 })
-    await vi.waitFor(() => expect(w.handovers.get()).toHaveLength(1))
-    w.handovers.answer(MINE, 'a', false)
-    const out = await going
-    expect(out).toMatchObject({ handover: 'refused', file: MINE })
-    expect(String(out['error'])).toMatch(/save_copy/)
-    expect(await act(A, 'zoom_to_region', {})).toMatchObject({ handover: 'refused' })
-    expect(w.handovers.get()).toHaveLength(0)
-    expect(w.log).toEqual([])
-    // Reading and drawing there still work.
-    expect(await act(A, 'create_markup')).toMatchObject({ ok: true })
-  })
-  it('answers "asked" when the person has not answered in time, with the question left up', async () => {
-    vi.useFakeTimers()
-    const { w, act } = world()
-    const going = act(A, 'set_tool', { tool: 'select' })
-    await vi.advanceTimersByTimeAsync(13_000)
-    const out = await going
-    expect(out).toMatchObject({ handover: 'asked' })
-    expect(String(out['error'])).toMatch(/has been asked/)
-    expect(w.handovers.get()).toHaveLength(1)
-  })
-  it('keeps one agent out of another agent\'s view, without asking the person', async () => {
+  it('lets one agent work in a PDF another agent opened, with no refusal', async () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
-    const told = await act(B, 'go_to_page', { page: 2, file: 'Tower A.pdf' })
-    expect(String(told['error'])).toMatch(/Claude's tab/)
-    expect(told['handover']).toBe('refused')
-    // And the person is not asked to referee between them.
-    expect(w.handovers.get()).toHaveLength(0)
-  })
-  it('marks a refused call as not done on the agent\'s cursor', async () => {
-    const { w, act } = world()
-    const going = act(A, 'go_to_page', { page: 4 })
-    await vi.waitFor(() => expect(w.handovers.get()).toHaveLength(1))
-    w.handovers.answer(MINE, 'a', false)
-    await going
-    expect(w.roster.agent('a')!.activity).toMatchObject({ failed: true, busy: false, text: 'Turning to another sheet' })
+    const out = await act(B, 'go_to_page', { page: 2, file: 'Tower A.pdf' })
+    expect(out['error']).toBeUndefined()
+    expect(w.log.at(-1)).toMatchObject({ action: 'go_to_page', agent: 'Claude Code', drives: false })
   })
 })
 
@@ -314,10 +283,8 @@ describe('what an agent is told about the window', () => {
       state: 'working',
       activity: { text: 'Drawing an area', file: MINE, page: 0, point: { x: 0.6, y: 0.4 }, busy: false },
     })
-    const ask = w.handovers.ask(MINE, 'a', 10)
     expect(await call(A, 'agent_bye')).toEqual({ ok: true })
     expect(w.roster.agent('a')!.state).toBe('gone')
-    expect(await ask).toBe('no')
   })
 })
 
@@ -366,13 +333,11 @@ describe('how a session ends', () => {
     expect(w.showing).toBe(ADDENDUM)
   })
 
-  it('leaves the person\'s own PDF alone when a guest session ends, and drops what it was asking', async () => {
+  it('leaves the person\'s own PDF alone when a guest session ends', async () => {
     const { w, act } = world()
     await act(A, 'create_markup', area)
     expect(w.roster.agent('a')!.guestIn).toEqual([MINE])
-    const ask = w.handovers.ask(MINE, 'a', 10)
     await act(A, 'end_session')
-    expect(await ask).toBe('no')
     expect(w.tabs).toEqual([lightFileOf(MINE)])
     expect(w.roster.agent('a')).toMatchObject({ state: 'gone', guestIn: [], ended: { handedBack: [], closed: [] } })
   })

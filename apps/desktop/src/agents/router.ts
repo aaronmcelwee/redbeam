@@ -8,9 +8,9 @@
  *  - WHERE it goes. The file the call names; else the agent's own current
  *    PDF (the one it opened or addressed last); else, for an agent with no
  *    PDF yet, the one the person is looking at.
- *  - WHAT it may do there. In a tab the agent drives, anything. In the
- *    person's tab it reads and writes, but a call that would move the view
- *    asks the person first (handover.ts).
+ *  - WHAT it may do there. Read and write, in its own tab or the person's,
+ *    through a view of its own (Workspace.tsx `agentViewsRef`). Nothing is
+ *    asked of the person and nothing on screen moves.
  *  - That NOTHING the person is doing moves. An agent's open_file adds a tab
  *    to its own group behind the tab showing; its close_tab closes only its
  *    own tabs.
@@ -23,7 +23,6 @@
  */
 import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
 import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
-import { type HandoverStore } from './handover.js'
 import { signal } from '../signals/install.js'
 import { type Agent, type AgentIdentity, callPage, callPoint, callWrites, describeCall, type EndedBy, identityOf, type RosterStore } from './roster.js'
 
@@ -52,7 +51,6 @@ export interface RouterDeps {
   /** Move a finished session's tab to the person's strip, marked as come from `agent` until they open it. */
   handBack: (file: string, agent: Agent) => void
   roster: RosterStore
-  handovers: HandoverStore
   appVersion: string
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -62,8 +60,6 @@ export interface RouterDeps {
 export const CALL_BUDGET_MS = 17_500
 /** How long open_file with `wait` waits for the PDF, under the bridge's 22 s for it. */
 export const OPEN_WAIT_MS = 20_000
-/** How long a call waits for the person to answer a handover question. */
-export const HANDOVER_WAIT_MS = 12_000
 /**
  * An AI app's server says it is alive every few seconds (mcp.rs `ALIVE_EVERY`).
  * One that has said so before and then says nothing for this long was killed
@@ -176,24 +172,7 @@ export class BridgeRouter {
         if (host === undefined) {
           return { error: `${nameOf(tab.file)} is still opening in the background. Try again in a few seconds.`, opening: true }
         }
-        let ctx = this.context(agent, tab.file)
-        let out = await runOnHost(host, action, params, ctx)
-        const now = tabFor(this.deps.tabs(), tab.file)
-        if (out['handover'] === true && agent !== null && !ctx.drives && now?.owner !== undefined) {
-          // Another session's PDF: refused there and then. The person is
-          // never asked to referee between two agents (Aaron, 2026-11-24).
-          out = this.notYours(now, agent, true)
-        } else if (out['handover'] === true && agent !== null && !ctx.drives) {
-          const answer = await this.deps.handovers.ask(tab.file, agent.id, Math.min(HANDOVER_WAIT_MS, left() - 1500))
-          if (answer === 'yes') {
-            ctx = this.context(agent, tab.file)
-            const again = this.deps.host(tab.file)
-            if (ctx.drives && again !== undefined) out = await runOnHost(again, action, params, ctx)
-          } else {
-            out = this.notYours(tab, agent, answer === 'no')
-          }
-        }
-        return out
+        return await runOnHost(host, action, params, this.context(agent, tab.file))
       })
     } catch (e) {
       result = { error: e instanceof Error ? e.message : String(e) }
@@ -260,29 +239,6 @@ export class BridgeRouter {
     this.queues.set(k, tail)
     void tail.then(() => { if (this.queues.get(k) === tail) this.queues.delete(k) })
     return mine
-  }
-
-  private notYours(tab: LightFile, agent: Agent, refused: boolean): Record<string, unknown> {
-    const whose = tab.owner === undefined ? 'the person\'s own tab' : `${this.deps.roster.agent(tab.owner)?.name ?? 'another agent'}'s tab`
-    const name = nameOf(tab.file)
-    if (tab.owner !== undefined) {
-      return {
-        error: `${name} is ${whose}. One session does not move another session's view or draw away from the sheet it is showing. `
-          + 'Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy. Reading it works as it is.',
-        handover: 'refused',
-        file: tab.file,
-      }
-    }
-    return {
-      error: refused
-        ? `${name} is ${whose}, and the person said not now to ${agent.name} working in it. `
-          + 'REDBEAM does not move a view someone else is using. Work in a copy instead: redbeam_save_copy, then redbeam_open_file on the copy.'
-        : `${name} is ${whose}. REDBEAM does not move a view someone else is using, so the person has been asked whether ${agent.name} may work in it; they have not answered yet. `
-          + 'Call again in a little while, or work in a copy now: redbeam_save_copy, then redbeam_open_file on the copy. '
-          + 'Reading works without asking, and so does adding markups on any sheet: redbeam_create_markup or redbeam_create_markups with `page` writes there in the background.',
-      handover: refused ? 'refused' : 'asked',
-      file: tab.file,
-    }
   }
 
   // ---------------------------------------------------------- open_file --
@@ -428,7 +384,6 @@ export class BridgeRouter {
     const closed: string[] = []
     // Finished first: from here it has no cursor, no call in flight, and asks nothing.
     this.deps.roster.finish(agentId, { by, summary, handedBack: [], closed: [] })
-    this.deps.handovers.dropAgent(agentId)
     for (const tab of own) {
       const showing = this.deps.showing()
       const watched = showing !== null && samePath(showing, tab.file)
