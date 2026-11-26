@@ -1238,7 +1238,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
     clip.writeText(text).then(() => setCopied('copied'), () => setCopied('failed'))
   }
 
-  const setupSummary = setupLine(product, scope.specifications, p.lengthDenominator ?? 16)
+  const setupSummary = setupLine(product, scope.specifications, p.lengthDenominator ?? 16, scope.scopeType)
   const markupSummary = markups.length === 0
     ? 'None yet'
     : `${markups.length} on ${sheets} sheet${sheets === 1 ? '' : 's'}`
@@ -1520,13 +1520,14 @@ function Expander({ id, title, summary, count, open, onToggle, children }: {
 }
 
 /** Setup in one line, for when it is folded: the product, its measures, yield and seams. */
-function setupLine(product: ProductType, specs: Specifications, denominator: number): string {
+function setupLine(product: ProductType, specs: Specifications, denominator: number, scopeType: ScopeType = 'area'): string {
   if (product === 'custom_pattern') {
     const raw = readPatternRecipe(specs) as { layers?: unknown[]; status?: string } | null
     const n = Array.isArray(raw?.layers) ? raw!.layers.length : 0
     return [productLabelFor(specs), `${n} layer${n === 1 ? '' : 's'}`, raw?.status === 'approved' ? 'approved' : 'draft'].join(' · ')
   }
-  const bits: string[] = [PRODUCT_TYPE_LABEL[product]]
+  // Count and Length by name, not as the custom assembly they are underneath.
+  const bits: string[] = [scopeProductLabel({ scopeType, specifications: specs })]
   const sizes = editableMeasures(product)
     .map((f) => {
       const value = readString(specs, f.valueKey) ?? ''

@@ -10416,19 +10416,22 @@ export default function Workspace({
       if (here !== undefined && wants !== null) {
         const word = wants === 'count' ? 'Count' : 'Length'
         const other = scopes.find((sc) => sc.scopeType === wants)
-        out.push({
-          text: toolWarning,
+        // First after a file that cannot save: it is about the markup about to
+        // be drawn, and the banner shows one warning at a time.
+        out.splice(loadBlock !== null ? 1 : 0, 0, {
+          text: `${word === 'Count' ? 'Counts' : 'Lengths'} drawn in ${here.label}, an area scope, reach no total. Draw them in a ${word.toLowerCase()} scope.`,
           action: other !== undefined
-            ? { label: `Draw in ${other.label}`, run: () => setActiveScope(other.id) }
+            ? { label: `Draw in ${other.label}`, run: () => { setActiveScope(other.id); setOpenScopeId(other.id) } }
             : {
                 label: `New ${word.toLowerCase()} scope`,
                 run: () => {
                   const made = newScope(`${here.label} ${wants === 'count' ? 'counts' : 'lengths'}`, scopesRef.current)
                   void createScope({ ...made, scopeType: wants, specifications: { productType: 'custom_assembly' } })
+                    .then(() => setOpenScopeId(made.id))
                 },
               },
         })
-      } else out.push(toolWarning)
+      } else out.splice(loadBlock !== null ? 1 : 0, 0, toolWarning)
     }
     if (embeddedHidden || redbeamHidden) {
       const which = embeddedHidden && redbeamHidden ? 'All markups are'
