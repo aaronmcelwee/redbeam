@@ -41,9 +41,11 @@ export function hitTest(
 ): Hit | null {
   const p = { x: sx, y: sy }
 
-  // pass 1: vertices, newest first
+  // pass 1: vertices, newest first. Another app's markup held in place
+  // (`annot`) is moved whole, never reshaped: its ring is only its box.
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
+    if (m.kind === 'annot') continue
     const ring = toScreenRing(m.rings[0] ?? [], view, pageW, pageH)
     for (let vi = 0; vi < ring.length; vi++) {
       const v = ring[vi]!
@@ -56,7 +58,7 @@ export function hitTest(
   // pass 2: edges
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
-    if (m.kind === 'count') continue
+    if (m.kind === 'count' || m.kind === 'annot') continue
     const ring = toScreenRing(m.rings[0] ?? [], view, pageW, pageH)
     if (ring.length < 2) continue
     const closed = m.kind === 'area' || m.kind === 'cutout' || m.kind === 'shape' || m.kind === 'link'
@@ -69,6 +71,10 @@ export function hitTest(
   // pass 3: interiors (closed shapes only)
   for (let i = markups.length - 1; i >= 0; i--) {
     const m = markups[i]!
+    if (m.kind === 'annot') {
+      if (pointInPolygon(p, toScreenRing(m.rings[0] ?? [], view, pageW, pageH))) return { markupId: m.id, part: 'inside', index: -1 }
+      continue
+    }
     if (m.kind !== 'area' && m.kind !== 'cutout' && m.kind !== 'shape' && m.kind !== 'link') continue
     // Even-odd over the area as cut (cuts.ts), so a click in a cut is not a
     // click on the area: the cut is the sheet, or the cutout drawn over it.
@@ -132,7 +138,7 @@ function drawOne(
   // halo so the selection reads against any drawing; an area's holes too
   if (ring.length >= 2) {
     ctx.beginPath()
-    const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape' || markup.kind === 'link'
+    const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape' || markup.kind === 'annot' || markup.kind === 'link'
     const outlined = markup.kind === 'area' && markup.rings.length > 1
       ? areaRegion(markup.rings).map((r) => toScreenRing(r, view, pageW, pageH))
       : [ring]
@@ -148,7 +154,7 @@ function drawOne(
 
   // vertex handles
   ctx.setLineDash([])
-  if (!withHandles) { ctx.restore(); return }
+  if (!withHandles || markup.kind === 'annot') { ctx.restore(); return }
   for (let i = 0; i < ring.length; i++) {
     const p = ring[i]!
     const active = hoverVertex === i

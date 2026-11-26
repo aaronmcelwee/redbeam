@@ -1,3 +1,4 @@
+import type { AnnotEdit } from './annotEdit.js'
 import type { NormClip } from './geometry.js'
 import type { OutlineNode, OutlineShape } from './outline.js'
 import type { PageBox, TextRun } from './text.js'
@@ -47,7 +48,7 @@ export function tileKey(page: number, zoom: number, tx: number, ty: number, visi
 }
 
 export function parseTileKey(key: TileKey): { page: number; zoom: number; tx: number; ty: number } | null {
-  const m = /^p(-?\d+)\/(-?[\d.]+)\/(-?\d+)\/(-?\d+)(?:![0-9,]*|!off)?$/.exec(key)
+  const m = /^p(-?\d+)\/(-?[\d.]+)\/(-?\d+)\/(-?\d+)(?:![0-9,]*(?:~e[0-9a-z]+)?|!off)?$/.exec(key)
   if (!m) return null
   return { page: Number(m[1]), zoom: Number(m[2]), tx: Number(m[3]), ty: Number(m[4]) }
 }
@@ -280,6 +281,8 @@ export type WorkerRequest =
       annots?: false
     }
   | { type: 'thumb'; key: string; page: number; width: number; priority: number }
+  /** Other apps' annotations REDBEAM has moved or recoloured on this page, as they should now look (annotEdit.ts). */
+  | { type: 'annotEdits'; page: number; edits: AnnotEdit[] }
   /** Render a normalized box of a page at `width` x `height` pixels. */
   | {
       type: 'region'

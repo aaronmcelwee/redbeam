@@ -33,6 +33,11 @@ export type MarkupKind =
   // A box that jumps to another sheet (apps/desktop/src/tools/links.ts). Not
   // takeoff either; `content.toPage` is where it goes.
   | 'link'
+  // Another app's annotation (a Bluebeam cloud, text box, arrow, dimension)
+  // held in place: the PDF draws it, the markup holds where it sits (its
+  // /Rect, as rings[0]) and its colour, so it can be moved, recoloured and
+  // deleted, and the save rewrites the annotation itself (export/adopt.ts).
+  | 'annot'
 
 export interface Calibration {
   /** Drawing feet represented by one PDF point on this page. */

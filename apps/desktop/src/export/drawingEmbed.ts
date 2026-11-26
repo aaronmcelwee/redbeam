@@ -16,7 +16,8 @@ import { cutAreas, polylineLength, regionArea, ringsOverlap, squarePointsToSquar
 import {
   embedSheet, hash53, readSheetEmbed, type EmbedInput, type EmbedMarkup, type EmbedResult, type SheetEmbedReading, type SheetSlice, type SliceTables,
 } from './sheetEmbed.js'
-import { adoptedTables } from './adopt.js'
+import { adoptedTables, rebaseAdopted } from './adopt.js'
+import type { AnnotRewrite } from './annotRewrite.js'
 import type { WritableScaleRegion } from './pdfMarkup.js'
 
 /**
@@ -373,7 +374,7 @@ const embedHere: SheetEmbedder = async (source, input) => ({ result: await embed
 export type EmbedOutcome =
   /** Light: not attempted, because the file's own takeoff is not (yet) in the window. */
   | { kind: 'held', reason: string | null }
-  | { kind: 'written', editedElsewhere: string[], foreignKept: number, stamp?: string | null }
+  | { kind: 'written', editedElsewhere: string[], foreignKept: number, stamp?: string | null, retired?: Record<string, string[]> }
   | { kind: 'unchanged', stamp?: string | null }
   /** Light: the PDF now carries a takeoff someone else saved since this window read it. Not written. */
   | { kind: 'elsewhere' }
@@ -413,10 +414,30 @@ export interface EmbedDrawingOptions {
 }
 
 async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome> {
-  const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
+  const { tables, retire, rewrite, rebase } = await adoptedTables(opts.db, opts.documentId,
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
+  const outcome = await embedWith(opts, { tables, retire, rewrite, markups, pageScales, pageRegions })
+  // The file holds what was written: the held markups' record of it follows.
+  const retired = outcome.kind === 'written' ? outcome.retired : undefined
+  if (outcome.kind === 'written' || outcome.kind === 'unchanged') {
+    try { await rebaseAdopted(opts.db, opts.documentId, rebase, retired) } catch { /* the next save writes it again */ }
+  }
+  return outcome
+}
 
+async function embedWith(
+  opts: EmbedDrawingOptions,
+  got: {
+    tables: SliceTables
+    retire: string[]
+    rewrite: AnnotRewrite[]
+    markups: EmbedMarkup[]
+    pageScales: Map<number, number>
+    pageRegions: EmbedInput['pageRegions']
+  },
+): Promise<EmbedOutcome> {
+  const { tables, retire, rewrite, markups, pageScales, pageRegions } = got
   let ranged: RangedSave | null = null
   try {
     ranged = (await opts.file.ranged?.()) ?? null
@@ -425,7 +446,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
   }
   if (ranged !== null) {
     try {
-      return await embedRanged(opts, ranged, { tables, retire, markups, pageScales, pageRegions })
+      return await embedRanged(opts, ranged, { tables, retire, rewrite, markups, pageScales, pageRegions })
     } finally {
       ranged.release()
     }
@@ -442,7 +463,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
     // The file's own notes (hand-made addenda links) are worth a save with no takeoff at all.
     const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
       .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && rewrite.length === 0 && !fileNotes) {
       // Nothing of ours to show; only write if the file still shows OLD ours.
       const before = await readSheetEmbed(current.bytes)
       if (before.slice === null && before.redbeamAnnots.length === 0) {
@@ -458,8 +479,9 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
       tables,
       markups,
       pageScales,
-      pageRegions,
+      ...(pageRegions === undefined ? {} : { pageRegions }),
       ...(retire.length === 0 ? {} : { retire }),
+      ...(rewrite.length === 0 ? {} : { rewrite }),
       ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
       ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
     })
@@ -468,7 +490,7 @@ async function embedDrawingOnce(opts: EmbedDrawingOptions): Promise<EmbedOutcome
     if (result.bytes === null) return { kind: 'unchanged', stamp: result.stamp }
     const ok = await opts.file.write(result.bytes, current.version, appendsAt)
     if (!ok) return { kind: 'busy' }
-    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp }
+    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp, ...(result.retired === undefined ? {} : { retired: result.retired }) }
   } catch (err) {
     return { kind: 'failed', message: err instanceof Error ? err.message : String(err) }
   }
@@ -481,16 +503,17 @@ async function embedRanged(
   got: {
     tables: Awaited<ReturnType<typeof adoptedTables>>['tables']
     retire: string[]
+    rewrite: AnnotRewrite[]
     markups: EmbedMarkup[]
     pageScales: Map<number, number>
     pageRegions: EmbedInput['pageRegions']
   },
 ): Promise<EmbedOutcome> {
-  const { tables, retire, markups, pageScales, pageRegions } = got
+  const { tables, retire, rewrite, markups, pageScales, pageRegions } = got
   try {
     const fileNotes = ((tables as Record<string, unknown[] | undefined>)['redbeam_meta'] ?? [])
       .some((r) => { const v = (r as { value?: unknown }).value; return typeof v === 'string' && v !== '' && v !== '[]' })
-    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && !fileNotes) {
+    if (markups.length === 0 && (tables.scopes ?? []).length === 0 && (opts.pageRotations?.size ?? 0) === 0 && retire.length === 0 && rewrite.length === 0 && !fileNotes) {
       const before = await ranged.readEmbed()
       if (before.slice === null && before.redbeamAnnots.length === 0) return { kind: 'nothing-to-embed' }
     }
@@ -504,13 +527,14 @@ async function embedRanged(
       pageScales,
       ...(pageRegions === undefined ? {} : { pageRegions }),
       ...(retire.length === 0 ? {} : { retire }),
+      ...(rewrite.length === 0 ? {} : { rewrite }),
       ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
       ...(opts.expectStamp === undefined ? {} : { expectStamp: opts.expectStamp }),
     })
     if (result.conflict === true) return { kind: 'elsewhere' }
     if (tail === null) return { kind: 'unchanged', stamp: result.stamp }
     if (!(await ranged.append(tail))) return { kind: 'busy' }
-    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp }
+    return { kind: 'written', editedElsewhere: result.editedElsewhere, foreignKept: result.foreignKept, stamp: result.stamp, ...(result.retired === undefined ? {} : { retired: result.retired }) }
   } catch (err) {
     return { kind: 'failed', message: err instanceof Error ? err.message : String(err) }
   }
@@ -539,13 +563,14 @@ export interface CopyOptions {
 
 /** What `embedCopy` writes into the copy: for a big drawing, handed to rangedPdf.ts instead. */
 export async function copyInput(opts: CopyOptions): Promise<EmbedInput> {
-  const { tables, retire } = await adoptedTables(opts.db, opts.documentId,
+  const { tables, retire, rewrite } = await adoptedTables(opts.db, opts.documentId,
     await sliceTables(opts.db, opts.documentId, { allScopes: opts.allScopes === true }))
   const { markups, pageScales, pageRegions } = embedMarkupsFor(tables, opts.documentId)
   return {
     documentId: opts.documentId, relativePath: opts.relativePath, displayName: opts.displayName,
     appVersion: opts.appVersion, tables, markups, pageScales, pageRegions,
     ...(retire.length === 0 ? {} : { retire }),
+    ...(rewrite.length === 0 ? {} : { rewrite }),
     ...(opts.pageRotations === undefined ? {} : { pageRotations: opts.pageRotations }),
     ...(opts.withoutForeign === true ? { retireForeign: true } : {}),
   }

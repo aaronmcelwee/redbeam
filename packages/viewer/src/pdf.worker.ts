@@ -39,6 +39,7 @@ import { extractPageText, type PageBox, type TextBackend } from './text.js'
 import { extractPageAnnotations, type AnnotBackend, type AnnotPoint } from './annots.js'
 import { rotateFlatPoints, rotateNormBox, rotateNormPoint, wrapTurns } from './rotation.js'
 import { createPdfiumLinkBackend, extractPageLinks, type PageLink, type PdfiumLinkLike } from './links.js'
+import { daColor, hexToRgb, previewAppearance, sameColor, type AnnotEdit, type Rgb } from './annotEdit.js'
 import {
   INDEX_KEY, PRIORITY_INDEX, PRIORITY_VISIBLE, tileExtent,
   type PageInfo, type WorkerRequest, type WorkerResponse,
@@ -262,6 +263,179 @@ function readAllPageSizes(count: number): PageInfo[] {
 function turnsOf(handle: number): 0 | 1 | 2 | 3 {
   const r = typeof pdfium?.FPDFPage_GetRotation === 'function' ? pdfium.FPDFPage_GetRotation(handle) as number : 0
   return wrapTurns(Number.isFinite(r) ? r : 0)
+}
+
+// ------------------------------------------------------------ annot edits --
+
+/**
+ * How the file drew each annotation REDBEAM has changed on screen, so every
+ * state sent is applied from the same start (annotEdit.ts). Keyed page:/NM.
+ */
+interface AnnotOriginal {
+  rect: { left: number, top: number, right: number, bottom: number }
+  ap: string | null
+  color: Rgb | null
+  ca: number | null
+  /** The appearance has been replaced with a recoloured copy. */
+  replaced: boolean
+}
+const annotOriginals = new Map<string, AnnotOriginal>()
+/** Per page, the /NMs whose state was last set, so a dropped edit puts its annotation back. */
+const editedOnPage = new Map<number, Set<string>>()
+
+function wideToHeap(s: string): number {
+  const P = pdfium
+  const ptr = P.pdfium.wasmExports.malloc((s.length + 1) * 2) as number
+  const heap: Uint8Array = P.pdfium.HEAPU8
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    heap[ptr + i * 2] = c & 255
+    heap[ptr + i * 2 + 1] = c >> 8
+  }
+  heap[ptr + s.length * 2] = 0
+  heap[ptr + s.length * 2 + 1] = 0
+  return ptr
+}
+
+function readAp(annot: number): string | null {
+  const P = pdfium
+  if (typeof P.FPDFAnnot_GetAP !== 'function') return null
+  const len = P.FPDFAnnot_GetAP(annot, 0, 0, 0) as number
+  if (!(len > 2)) return null
+  const ptr = P.pdfium.wasmExports.malloc(len) as number
+  try {
+    P.FPDFAnnot_GetAP(annot, 0, ptr, len)
+    const heap: Uint8Array = P.pdfium.HEAPU8
+    return new TextDecoder('utf-16le').decode(heap.subarray(ptr, ptr + len - 2))
+  } finally {
+    P.pdfium.wasmExports.free(ptr)
+  }
+}
+
+function annotString(annot: number, key: string): string {
+  return annotBackend().stringValue(annot, key)
+}
+
+function readOriginal(annot: number): AnnotOriginal | null {
+  const r = annotBackend().rect(annot)
+  if (r === null) return null
+  const sub = pdfium.FPDFAnnot_GetSubtype(annot) as number
+  // FPDFAnnot_GetColor refuses once an annotation has an appearance, which
+  // every Bluebeam markup has; EPDFAnnot_GetColor reads /C itself.
+  let stroke: Rgb | null = null
+  if (typeof pdfium.EPDFAnnot_GetColor === 'function') {
+    const ptr = pdfium.pdfium.wasmExports.malloc(12) as number
+    try {
+      if (pdfium.EPDFAnnot_GetColor(annot, 0, ptr, ptr + 4, ptr + 8)) {
+        const u32: Uint32Array = pdfium.pdfium.HEAPU32.subarray(ptr >> 2, (ptr >> 2) + 3)
+        stroke = [u32[0]! / 255, u32[1]! / 255, u32[2]! / 255]
+      }
+    } finally {
+      pdfium.pdfium.wasmExports.free(ptr)
+    }
+  }
+  if (stroke === null) {
+    const c = annotBackend().color(annot)
+    stroke = c === null ? null : [c.r / 255, c.g / 255, c.b / 255]
+  }
+  let ca: number | null = null
+  if (typeof pdfium.FPDFAnnot_GetNumberValue === 'function') {
+    const ptr = pdfium.pdfium.wasmExports.malloc(4) as number
+    try {
+      if (pdfium.FPDFAnnot_GetNumberValue(annot, 'CA', ptr)) ca = (pdfium.pdfium.HEAPF32 as Float32Array)[ptr >> 2]!
+    } finally {
+      pdfium.pdfium.wasmExports.free(ptr)
+    }
+  }
+  // FreeText: the colour is the text's, which /DA sets.
+  const color = sub === 3 ? (daColor(annotString(annot, 'DA')) ?? stroke) : stroke
+  return { rect: r, ap: readAp(annot), color, ca, replaced: false }
+}
+
+function setRect(annot: number, r: AnnotOriginal['rect']): void {
+  const ptr = pdfium.pdfium.wasmExports.malloc(16) as number
+  try {
+    const f32: Float32Array = pdfium.pdfium.HEAPF32
+    const i = ptr >> 2
+    f32[i] = r.left; f32[i + 1] = r.top; f32[i + 2] = r.right; f32[i + 3] = r.bottom
+    pdfium.FPDFAnnot_SetRect(annot, ptr)
+  } finally {
+    pdfium.pdfium.wasmExports.free(ptr)
+  }
+}
+
+/**
+ * Put the page's changed annotations where REDBEAM has them, in this
+ * worker's copy of the PDF only: the file is written by the app's save.
+ * Moving shifts /Rect, which carries the appearance with it. A recolour
+ * replaces the appearance with a recoloured copy (`previewAppearance`).
+ */
+function applyAnnotEdits(handle: number, page: number, edits: readonly AnnotEdit[]): void {
+  const P = pdfium
+  if (typeof P.FPDFAnnot_SetRect !== 'function') return
+  const want = new Map(edits.map((e) => [e.nm, e]))
+  const before = editedOnPage.get(page) ?? new Set<string>()
+  if (want.size === 0 && before.size === 0) return
+  const box = readPageBox(handle)
+  const turns = turnsOf(handle)
+  const w = box.right - box.left, h = box.top - box.bottom
+  const toUser = (x: number, y: number) => {
+    // Displayed (turned) back to the page's own frame, then to page space.
+    const p = rotateNormPoint({ x, y }, 4 - turns)
+    return { x: box.left + p.x * w, y: box.top - p.y * h }
+  }
+  const count = P.FPDFPage_GetAnnotCount(handle) as number
+  for (let i = 0; i < count; i++) {
+    const annot = P.FPDFPage_GetAnnot(handle, i) as number
+    if (!annot) continue
+    try {
+      const nm = annotString(annot, 'NM')
+      if (nm === '' || (!want.has(nm) && !before.has(nm))) continue
+      const key = `${page}:${nm}`
+      let orig = annotOriginals.get(key)
+      if (orig === undefined) {
+        const read = readOriginal(annot)
+        if (read === null) continue
+        orig = read
+        annotOriginals.set(key, orig)
+      }
+      const edit = want.get(nm)
+      let rect = orig.rect
+      if (edit !== undefined && w > 0 && h > 0) {
+        const a = toUser(edit.rect.x0, edit.rect.y0), b = toUser(edit.rect.x1, edit.rect.y1)
+        rect = { left: Math.min(a.x, b.x), right: Math.max(a.x, b.x), bottom: Math.min(a.y, b.y), top: Math.max(a.y, b.y) }
+      }
+      setRect(annot, rect)
+      const to = edit === undefined ? null : hexToRgb(edit.color)
+      const recolour = to !== null && orig.color !== null && !sameColor(to, orig.color)
+      if ((recolour || orig.replaced) && orig.ap !== null && orig.color !== null && typeof P.FPDFAnnot_SetAP === 'function') {
+        const ap = edit?.ap
+        const content = previewAppearance({
+          content: orig.ap,
+          bbox: ap?.bbox ?? [orig.rect.left, orig.rect.bottom, orig.rect.right, orig.rect.top],
+          matrix: ap?.matrix ?? null,
+          rect: [rect.left, rect.bottom, rect.right, rect.top],
+          from: [orig.color],
+          to: recolour ? to! : orig.color,
+          alpha: ap?.alpha ?? 1,
+        })
+        if (content !== null) {
+          const alpha = ap?.alpha ?? 1
+          if (typeof P.EPDFAnnot_SetOpacity === 'function' && alpha < 0.999) P.EPDFAnnot_SetOpacity(annot, Math.round(alpha * 255))
+          const ptr = wideToHeap(content)
+          try { P.FPDFAnnot_SetAP(annot, 0, ptr) } finally { P.pdfium.wasmExports.free(ptr) }
+          if (typeof P.EPDFAnnot_SetOpacity === 'function' && alpha < 0.999) {
+            P.EPDFAnnot_SetOpacity(annot, orig.ca === null ? 255 : Math.round(Math.max(0, Math.min(1, orig.ca)) * 255))
+          }
+          orig.replaced = true
+        }
+      }
+    } finally {
+      P.FPDFPage_CloseAnnot(annot)
+    }
+  }
+  if (want.size === 0) editedOnPage.delete(page)
+  else editedOnPage.set(page, new Set(want.keys()))
 }
 
 // ------------------------------------------------------------------ render --
@@ -832,6 +1006,13 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         const fresh = pool!.acquire(m.page)
         pageSizes[m.page] = { width: fresh.width, height: fresh.height }
         post({ type: 'rotated', page: m.page, width: fresh.width, height: fresh.height, rotation: turnsOf(fresh.handle) * 90 })
+        break
+      }
+
+      case 'annotEdits': {
+        await booted
+        const entry = pool!.acquire(m.page)
+        applyAnnotEdits(entry.handle, m.page, m.edits)
         break
       }
 
