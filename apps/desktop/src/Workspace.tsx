@@ -108,7 +108,7 @@ import { embedWhenQuiet } from './autoEmbed.js'
 import { parsePageRange, printPdf, printedWhat, sheetsPdf } from './print.js'
 import { PerfRegistry } from './perf.js'
 import { isTextEntry, survivesTextEntry } from './keys.js'
-import { historyStepForButton, historyStepForKey, ViewHistory, zoomToBox, type ScreenBox, type ViewPlace } from './viewNav.js'
+import { boundsOfRings, frameBox, historyStepForButton, historyStepForKey, ViewHistory, zoomToBox, type ScreenBox, type ViewPlace } from './viewNav.js'
 import { wordsAsText, wordsInBox, type PickedWord } from './textSelect.js'
 import { openWebLink } from './tauri/openWith.js'
 import { readSession, writeSession } from './session.js'
@@ -558,6 +558,9 @@ export default function Workspace({
   const viewRef = useRef<Viewport>({ ox: 0, oy: 0, zoom: 0.35, vw: VW, vh: VH })
   /** Live stage size in CSS pixels plus the display's device-pixel ratio. */
   const stage = useStageSize(stageRef)
+  /** The stage size for callbacks that outlive a render (the viewer's onPage). */
+  const stageSizeRef = useRef(stage)
+  stageSizeRef.current = stage
   const dragRef = useRef<{ x: number; y: number } | null>(null)
   const dbRef = useRef<SqlDriver | null>(null)
   const saveRef = useRef<() => void>(() => {})
@@ -2505,6 +2508,13 @@ export default function Workspace({
    * The page waits here and the new viewer's onReady takes it.
    */
   const pendingPageRef = useRef<number | null>(null)
+  /**
+   * A markup to centre once its sheet is showing: set when a markup row is
+   * clicked for another sheet or document, and applied in onPage, after the
+   * new sheet's offsets are reset (which is what used to leave the view on
+   * the sheet's top-left corner).
+   */
+  const pendingFrameRef = useRef<{ documentId: string; page: number; box: NormBox } | null>(null)
   const goToHit = useCallback((hit: SearchHit) => {
     // pageNumber is ZERO-based, straight from pages.page_number — the same
     // space as the viewer's index. Adding one here would land a sheet past
@@ -2627,10 +2637,27 @@ export default function Workspace({
         }
         shownPage = info.index
         if (historyNavRef.current !== null && historyNavRef.current.page === info.index) setFitMode(null)
+        /*
+         * A markup row clicked for this sheet: centre the markup, keeping the
+         * zoom unless it does not fit. Leaving fit stops the fit effect
+         * re-framing the whole sheet straight after, and `framed` stops the
+         * reset below, which React may run later than this line.
+         */
+        let framed = false
+        const frame = pendingFrameRef.current
+        if (frame !== null && frame.page === info.index && frame.documentId === docIdRef.current) {
+          pendingFrameRef.current = null
+          const st = stageSizeRef.current
+          if (st.width > 0 && st.height > 0) {
+            framed = true
+            setFitMode(null)
+            viewRef.current = clampViewport(frameBox(viewRef.current, frame.box, info, st, MAX_ZOOM), info)
+          }
+        }
         setPageIndex((prev) => {
           // A different sheet is framed fresh rather than inheriting the last
           // one's scroll; a re-report of the same page keeps the user's view.
-          if (prev !== info.index) { viewRef.current.ox = 0; viewRef.current.oy = 0 }
+          if (prev !== info.index && !framed) { viewRef.current.ox = 0; viewRef.current.oy = 0 }
           return info.index
         })
         /*
@@ -9453,15 +9480,6 @@ export default function Workspace({
     return shown === null ? [] : markupRowsFor(shown)
   }, [openScopeId, activeScope, markupRowsFor])
 
-  /** Go to a scope's markup: its sheet, opening its document first when that is not the open one. */
-  const goToMarkup = useCallback((m: ScopeMarkup) => {
-    if (m.documentId !== docIdRef.current) {
-      pendingPageRef.current = m.page
-      openDocument(m.documentId)
-      return
-    }
-    goToPage(m.page)
-  }, [openDocument, goToPage])
 
   const openEstimate = estimates.find((e) => e.id === openEstimateId) ?? null
 
@@ -9876,6 +9894,24 @@ export default function Workspace({
     forceRender((n) => n + 1)
     requestPaint()
   }, [requestPaint])
+
+  /** Go to a scope's markup: its sheet, opening its document first when that is not the open one. */
+  const goToMarkup = useCallback((m: ScopeMarkup) => {
+    // Land ON the markup, centred, not on the sheet's top-left corner.
+    const rings = projectMarkupsRef.current.find((x) => x.id === m.id)?.rings
+    const box = rings === undefined ? null : boundsOfRings(rings)
+    pendingFrameRef.current = box === null ? null : { documentId: m.documentId, page: m.page, box }
+    if (m.documentId !== docIdRef.current) {
+      pendingPageRef.current = m.page
+      openDocument(m.documentId)
+      return
+    }
+    const v = viewerRef.current
+    if (m.page !== pageIndexRef.current || !v || v.pageInfo.width === 0) { goToPage(m.page); return }
+    // Already on its sheet: frame it now.
+    pendingFrameRef.current = null
+    if (box !== null) showView(frameBox(viewRef.current, box, v.pageInfo, stage, MAX_ZOOM))
+  }, [openDocument, goToPage, showView, stage])
 
   const armZoomBox = useCallback(() => {
     if (page.width === 0) return
