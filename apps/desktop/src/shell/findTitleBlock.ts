@@ -128,7 +128,8 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
     }
     const n = onPage.size
     const distinct = new Set([...onPage.values()].map((v) => v.code)).size
-    if (n < Math.max(2, Math.ceil(P * 0.3))) continue
+    // On most sheets: a spec's schedule pages put finish codes (TL105, MT101) in one spot on 4 of 10.
+    if (n < Math.max(2, Math.ceil(P * 0.5))) continue
     // A project number or a fixed label repeats; a sheet number does not.
     if (distinct / n < 0.6) continue
     // Ties go to the lower right, where title blocks sit.
@@ -172,12 +173,20 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
    * (NOIC Interior Fit-Up, 2026-11-26).
    */
   const bar = Math.max(2, Math.ceil(P * 0.3))
+  // A title is on every sheet: where it starts, words are on most of them.
+  // A drawing's labels beside the block are on some; on a set of elevations
+  // they joined the title into one box over the block's furniture (NOIC, 40 sheets).
+  const strong = Math.max(2, Math.ceil(P * 0.6))
   const good = new Map<string, NormBox>()
-  for (const [k, c] of titleCells) if (c.pages.size >= bar && c.box !== null) good.set(k, c.box)
+  const sure = new Set<string>()
+  for (const [k, c] of titleCells) {
+    if (c.pages.size >= bar && c.box !== null) good.set(k, c.box)
+    if (c.pages.size >= strong && c.box !== null) sure.add(k)
+  }
   const seen = new Set<string>()
   let title: NormBox | null = null
   let nearest = Infinity
-  for (const start of good.keys()) {
+  for (const start of sure) {
     if (seen.has(start)) continue
     let box: NormBox | null = null
     const todo = [start]
@@ -189,7 +198,8 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           const n = `${ix + dx},${iy + dy}`
-          if (!seen.has(n) && good.has(n)) { seen.add(n); todo.push(n) }
+          // Sideways only into cells most sheets reach; a shorter title's lines go down the same column.
+          if (!seen.has(n) && (sure.has(n) || (dx === 0 && good.has(n)))) { seen.add(n); todo.push(n) }
         }
       }
     }
@@ -207,7 +217,7 @@ export function findTitleBlock(pages: ReadonlyArray<Page | null | undefined>): F
   if (title !== null) {
     // Never far: a line of the drawing at the same height is not the title (NOIC, 2026-11-26).
     const core: NormBox = title
-    const reach: NormBox = { x0: core.x0 - 0.06, y0: core.y0, x1: core.x1 + 0.06, y1: core.y1 }
+    const reach: NormBox = { x0: core.x0 - 0.15, y0: core.y0, x1: core.x1 + 0.15, y1: core.y1 }
     /*
      * Each sheet grows its own line from the core by its own words, a word's
      * gap at a time, and the box takes an end that two sheets reach: one

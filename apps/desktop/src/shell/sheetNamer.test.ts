@@ -98,6 +98,21 @@ describe('naming a set sheet by sheet', () => {
   })
 })
 
+describe('a spec book', () => {
+  it('takes no block from finish codes on a third of its pages, and names its sections', () => {
+    // NOIC spec, pages 1900-2100: schedules list TL105, MT101 in one spot on 84 of 200 pages.
+    const pages = Array.from({ length: 200 }, (_, i) => sheet(i, [
+      ...(i % 20 === 0 ? [['SECTION 08 71 00', 0.1, 0.05] as W, ['DOOR HARDWARE', 0.1, 0.07] as W] : []),
+      ['PART 2 PRODUCTS', 0.1, 0.12],
+      ...(i % 5 === 1 || i % 5 === 2 ? [[`TL${100 + i}`, 0.5, 0.4] as W] : []),
+    ], true))
+    const n = new SheetNamer(pages.length)
+    pages.forEach((p, i) => n.add(i, p, i === pages.length - 1))
+    expect(n.titleBlock()).toBeNull()
+    expect(n.names()[20]).toBe('08 71 00 DOOR HARDWARE')
+  })
+})
+
 describe('sheet codes', () => {
   it('takes the levels some sets write after the dot', () => {
     for (const c of ['IB4.LL1', 'IC8.0L1B', 'IC8.2L01', 'IC2.001A', 'A-101', 'A1.01', 'S2.1A']) expect(codeOf(c)).toBe(c)

@@ -139,7 +139,9 @@ export class SheetNamer {
     const found = sheetFromText(pt.text)
     if (found === null) { this.labels[page] = null; return }
     // With codes read off boxes, a guess in another series is a tag on the drawing.
-    if (this.seriesSeen.size > 0 && (this.seriesSeen.get(series(found.number)) ?? 0) === 0) { this.labels[page] = null; return }
+    // A spec section ("09 51 13") has no letters, and no tag is without them.
+    const s = series(found.number)
+    if (s !== '' && this.seriesSeen.size > 0 && (this.seriesSeen.get(s) ?? 0) === 0) { this.labels[page] = null; return }
     this.labels[page] = found.title === '' ? found.number : `${found.number} ${found.title}`
   }
 

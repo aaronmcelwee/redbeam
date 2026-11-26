@@ -2038,13 +2038,19 @@ export default function Workspace({
           if (pt === undefined || (pt === null && pool !== null && pool.isClosed)) pt = await v.requestText(sweepPage)
           if (cancelled) return
           if (pt === null) continue
+          /*
+           * Named first, indexed after, and a failed index is not a failed
+           * name: a page with no row in the store yet ("FOREIGN KEY
+           * constraint failed") left every sheet but the first unnamed
+           * (0.3.98 test builds, SLS 2026-11-26).
+           */
+          namer.add(sweepPage, pt, false, v.getPageSize(sweepPage))
           await indexPageText(db, {
             pageId: pageIdFor(docId, sweepPage),
             documentId: docId,
             content: pt.text,
             source: pt.scanned ? 'ocr-needed' : 'native',
-          })
-          namer.add(sweepPage, pt, false, v.getPageSize(sweepPage))
+          }).catch(() => undefined)
         } catch {
           // One unreadable sheet is not a reason to stop reading the rest.
         }
