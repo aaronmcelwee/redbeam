@@ -7868,7 +7868,9 @@ export default function Workspace({
           })
           return {
             page: ap.index,
-            lines: lines.slice(offset),
+            // Rows, not objects: the same numbers in about a third of the text.
+            lineFormat: '[x1, y1, x2, y2, lengthPoints, lengthFeet, angle, cut?]; ends normalized 0..1 with y down; lengthFeet is null without a scale; a trailing 1 means the line goes on past the box',
+            lines: lines.slice(offset).map((l) => [l.x1, l.y1, l.x2, l.y2, l.lengthPoints, l.lengthFeet, l.angle, ...(l.cut === true ? [1] : [])]),
             total,
             ...(duplicatesRemoved > 0 ? { duplicatesRemoved } : {}),
             // Nothing is dropped: the rest comes with `offset`.
