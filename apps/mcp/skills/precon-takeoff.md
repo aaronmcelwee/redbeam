@@ -1,7 +1,7 @@
 ---
 name: "precon-takeoff"
 description: "Use after precon intake is approved: define each scope from the drawings for Aaron's sign-off, then do the RedBeam takeoff with layouts, quantities, detail and finish call-outs."
-master: "2026-11-27 sha256:a0954562f15e"
+master: "2026-11-27 sha256:efd857516922"
 ---
 
 # Precon takeoff
@@ -25,7 +25,7 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
   2. an enlarged RCP or a written note on the plan;
   3. the RCP's own linework.
   A higher source governs even when the RCP linework measures differently. Record the difference as an assumption, and make the source a question when none of 1 or 2 exists.
-- **RCPs can't be trusted alone: spacing needs a second, non-RCP confirmation.** Every repeating-member scope needs two sources that agree: the RCP linework plus at least one of a dimensioned section or detail through that mark (read at its own scale), or a ceiling assembly or finish schedule entry that states the spacing. Search for them with `redbeam_find_text` ("O.C", "CENTRE", "SPACING", the mark, "BAFFLE", "DETAILS - CEILINGS"). Ignore "200mm"-style hits that are only scale-bar labels. In the scope definition table, give each source with its sheet and detail number (e.g. "200 OC: detail 1/32403 at 1:5, ceiling assembly C6 on A-10340, RCP linework 5.67 pt at 1:100"). Where only the RCP gives spacing, mark it UNCONFIRMED, list it as a question for Aaron, and don't present it as settled. Where the sources disagree, the section or detail wins, and you report the difference.
+- **RCPs can't be trusted alone: spacing needs a second, non-RCP confirmation.** Every repeating-member scope needs two sources that agree: the RCP linework plus at least one of a dimensioned section or detail through that mark (read at its own scale), or a ceiling assembly or finish schedule entry that states the spacing. Search for them with `redbeam_find_text` ("O.C", "CENTRE", "SPACING", the mark, "BAFFLE", "DETAILS - CEILINGS"). Ignore "200mm"-style hits that are only scale-bar labels. In the scope definition table, give each source with its sheet and detail number (e.g. "200 OC: detail 1/32403 at 1:5, ceiling assembly C6 on A-10340, RCP linework 5.67 pt at 1:100"). Where only the RCP gives spacing, mark it UNCONFIRMED, list it as a question for Aaron, and don't present it as settled. Where the sources disagree, the section or detail wins, and you report the difference. Written bay dimensions on lighting or power plans also count as a second written source for spacing: cite them, but report them as RCP-family (the same plan drawn for another trade), never as a section or detail.
 - **Every section and detail carries its own scale.** Before measuring spacing or member size on one, read the scale printed under its title (`redbeam_read_scale` lists each stated scale with its box), draw a scale region over that detail with `redbeam_begin_scale_region` + `redbeam_set_region_scale {presetId}`, and check it against a written dimension in the detail. Never measure a detail at the sheet's scale. A written dimension beats any measurement.
 - **Read spacing off the RCP's linework only when no section or note gives it**, from member centre to member centre. `redbeam_detect_pattern` counts a member drawn as two faces once, at its centre, and tells members drawn differently apart (`memberTypes`, `sequence`, `repeat`: e.g. a beam every 4th member, slabs between). Check its spacing against `get_lines` before you rely on it.
 - **Measure every area, not every mark.** The same tag can change spacing, member mix or direction from room to room. Read OC and member rhythm in each room separately and make one scope per distinct spacing.
@@ -36,11 +36,14 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
   - Quarter needs Aaron's decision. Explain the stock it saves and why, then wait.
 - **Never invent product data.** If a required input such as maximum hanger spacing is not in the documents or Maxxit data, use a clearly labelled assumption and list it for Aaron.
 - **If RedBeam can't do something, stop and report it.** Aaron upgrades the app.
+- **When a check is questioned, re-derive it.** If anyone questions a spacing, count, scale or other check, go back to the documents and work it out again from the source before you restate it. Don't repeat the earlier conclusion, and don't call anything "confirmed" until it meets the source rules above.
+- **Keep the brief in step.** If the run keeps a brief page or document, update it in the same turn as every takeoff change (counts, stock, quantities, images), so it never shows superseded numbers.
+- **Temporary, until REDBEAM reads CAD text (bug filed 2026-11-27):** where a set stores the drawing text as annotations, `redbeam_find_text` and `redbeam_read_scale` miss tags, spacing notes and stated scales. When they come back empty on a sheet that visibly shows the text, also search the annotation text (`redbeam_list_annotations`) before you mark a source as missing.
 
 ## A. Scope definition (stop for approval)
 
 1. Start with `redbeam_start_session {task}` (a short name for the job) and pass its `session` on every call. Open the working copy with `redbeam_open_file`. **Fix sheet names first:** run `redbeam_list_sheets`; if numbers come from bookmarks/tags (MF01, SF72) or are null, find the title-block number and title boxes with `get_words`, set them with `redbeam_set_title_blocks`, then patch outliers and the discipline prefix (e.g. "A") with `redbeam_rename_sheets`. Save. Then go to each plan sheet with `redbeam_go_to_page {sheet}`.
-2. **Scale:** run `redbeam_read_scale` to see the stated scale. Check it against a written dimension (`dimension` + `points`). Set it with `redbeam_set_page_scale {presetId}`. This setting is not undoable.
+2. **Scale:** run `redbeam_read_scale` to see the stated scale. Check it against two written dimensions that run in different directions, one across and one down (`dimension` + `points`). If they disagree, report the difference to Aaron before any quantity: REDBEAM holds one scale per sheet, so a layout at the wrong scale drifts across the field. For a repeating-member field, also check the scale against a drawn bay (the measured distance between drawn members against the written spacing). Set it with `redbeam_set_page_scale {presetId}`. This setting is not undoable.
 3. **For each scope area:**
    - Find its outline with `redbeam_trace_area`. **If the field is a hatched/patterned fill (trace fails on content):** use `redbeam_trace_field` with a point inside the field. Do not hand-click outlines from screenshots and do not hull the vector hatch — hatch dashes break at every grid line, column and panel joint and the hull splits there. If the outline follows the wrong linework, call it again with `angle` from `pattern.alternatives` or with `strokeSpacingFeet`. Check each field's `lookAt` box with `redbeam_screenshot` (region, overlay on) and show Aaron before quantities.
    - **Grid lines, column lines and dimension lines are never boundaries.** A field only stops where its fill stops or at a drawn bulkhead/wall.
@@ -55,6 +58,7 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
      - the reveals or gaps between runs;
      - where the designer's first member sits.
    - Note the fixtures within the field. A pendant that hangs below the ceiling is not a cutout. Cut out only where the drawing leaves the field empty.
+   - **Column notches:** size each notch to the short runs drawn around the column, not to the column's box, and confirm the number of short runs laid out matches the drawing.
    - Note any edge where the drawn members stop short of the outline (e.g. clear zones at walls or a TV wall).
    - **Use the true outline.** Chevrons, angled and tapered fields are drawn as their real polygons, split at the fold, never as bounding rectangles.
    - **Split by direction.** Where members change direction inside a room (bands, diagonal splits), segment the field by member direction (orientation map on a render, then fit the dividing lines) and make one area per direction region, each with its own direction.
@@ -89,16 +93,19 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
    - areas sized so runs fit whole stock lengths where the drawing intends that (e.g. exactly 8'-0");
    - a cutout only where the drawing shows a real void.
 3. **Set the direction** for each scope with `redbeam_set_pattern_direction`.
-4. **Set the origin** with `redbeam_set_pattern_origin` to match the designer's first member: edge, corner or centre for symmetrical shapes.
+4. **Set the origin from the drawn members** with `redbeam_set_pattern_origin`. By default, put it on a drawn member, not the area edge. If the first bay at the edge is odd (shorter or longer than the spacing), skip it and start from the first member at full spacing. Use an edge, corner or centre origin only where the drawing places members that way (e.g. centred on a symmetrical shape).
 5. **Check the result:**
    - Run `redbeam_get_bom`. No line may be blocked.
    - Run `redbeam_get_piece_list` for each scope.
    - Compare runs and rows against the drawn counts, and explain every difference (e.g. a layout that reaches a wall the design stops short of).
    - **Count check per area:** members, boxes or panels laid out must equal those drawn. For tile grids, "cut at the edge" should be zero where the drawing shows whole modules; if not, the origin or area edge is off the grid. Size tile areas to an exact multiple of the module (a hair under, never over) to avoid sliver counts.
    - **Check the layout visually** with `redbeam_screenshot` (region, overlay on): close-ups draw the layout preview, so never zoom or turn Aaron's window to look.
+   - **Check positions at the far edge, not only the count.** Compare the last laid-out members with the drawn members at the edge opposite the origin. A matching count can hide drift from a scale or spacing error. If the layout has drifted off the drawn members, recheck the scale against the drawn bay before handing back.
    - Flag any run longer than the stock length (e.g. 8'-6" runs on 8' stock) and ask whether longer stock is available.
    - **Seams aligned by default.** Joints between pieces in neighbouring runs must line up on common lines across the field, unless Aaron turns that off for the scope. Check it in a close-up of the layout preview and in the piece list (the cut position of each run's first joint). If runs start their stock at their own edge and the seams stagger, report it as a RedBeam gap and say how many stock pieces aligned seams would add or save.
-6. **Yield pass:**
+6. **Stock search and yield pass:**
+   - Try each stock length Aaron names, or the schedule's lengths if he names none, and compare stock pieces for each.
+   - Read the piece list for every layout, not a summary line, and reject any layout that leaves a piece under 2'-0". If every length leaves one, report it as a RedBeam gap.
    - Try half on each scope that has cut pieces, and keep it only where stock drops.
    - Work out what quarter would save without applying it. If it helps, ask Aaron.
 7. **Save:** run `redbeam_save`.
@@ -127,6 +134,7 @@ The takeoff can go to Aaron for estimator-assisted review before these pass, but
 - **Drawn vs counted table** per area (members / boxes / panels), so Aaron can see each scope was checked against the plan.
 - **Superseded scopes:** archive (do not delete) any scope replaced during the run, and name it in the hand-back.
 - **RedBeam gaps and bugs** hit during the run. For a hard set, offer to package the relevant sheets, a README of what went wrong and why, overlay images and any scripts for the REDBEAM developer chat.
+- **Feedback to send, for approval.** Keep a running note through the session of (1) REDBEAM problems you hit: an error, a call that did nothing, a wrong quantity, something drawn wrong or slow; and (2) improvements to this skill: a step it got wrong or left out, or anything the person corrected you on that the skill should have told you. Before finishing, show the person both lists, one line each with what you would send, and ask which to submit. Submit only the ones they approve: each problem with `redbeam_report_problem` (becomes a "bug report" issue), each skill idea with `redbeam_suggest_skill_improvement` (`skill`, `summary` = what the agent should do differently, `suggestion` = the wording, `why` = what happened; becomes a "skill suggestion" issue that is reviewed before the skill changes). Keep client names and prices out of both. Keep following the skill as written until a change is approved. If there is nothing to report, say so in one line.
 - **Sign-off checks (Part C):** the second-pass log by sheet, the vertical height table, projected vs installed LF by platform or zone, the sheet-and-scope reconciliation when comparing with another takeoff, and the assumptions Aaron is accepting.
 - **File:** the path of the saved working copy.
-- **Finish the session:** call `redbeam_end_session {summary}` with one line on what was saved, so REDBEAM hands the PDF back to Aaron.
+- **Finish the session:** once the feedback above is submitted or declined, call `redbeam_end_session {summary}` with one line on what was saved, so REDBEAM hands the PDF back to Aaron.
