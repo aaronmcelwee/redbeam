@@ -595,6 +595,48 @@ describe('a Light file is saved into only once its own takeoff is in the window'
     expect(file.writes).toBe(1)
   })
 
+  it('keeps an archived scope that still has markups, so the file opens whole (Coinbase L7)', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    // An agent archived the scope its traced area was in; archiving keeps the markups.
+    await db.run('UPDATE scopes SET archived_at = ? WHERE id = ?', [NOW, 's1'])
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const read = await readSheetEmbed(file.bytes)
+    expect((read.slice!.tables.scopes ?? []).map((r) => r.id)).toEqual(['s1'])
+
+    const next = await freshDb()
+    const imported = await importSlice(next.db, next.docId, read.slice!)
+    expect(imported).toEqual({ markups: 1, scopes: 1 })
+    expect(fileLoadVerdict(read, imported, 'A-101')).toEqual({ state: 'loaded' })
+    const back = await next.db.all<{ archived_at: string | null }>('SELECT archived_at FROM scopes WHERE id = ?', ['s1'])
+    expect(back[0]?.archived_at).toBe(NOW)
+  })
+
+  it('opens a file saved without the scope its markups point at, bringing the scope back archived', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const read = await readSheetEmbed(file.bytes)
+    // As 0.3.122 and earlier wrote it: the archived scope left out, its markup kept.
+    const slice = { ...read.slice!, tables: { ...read.slice!.tables, scopes: [], activity: [
+      { id: 'a1', event_type: 'scope.archived', entity_type: 'scope', entity_id: 's1', origin: 'agent', actor_id: null,
+        details_json: JSON.stringify({ label: 'CLG10 - Baffles' }), created_at: NOW },
+    ] } }
+
+    const next = await freshDb()
+    const imported = await importSlice(next.db, next.docId, slice)
+    expect(imported?.skipped).toBeUndefined()
+    expect(imported?.markups).toBe(1)
+    expect(fileLoadVerdict({ ...read, slice }, imported, 'A-101')).toEqual({ state: 'loaded' })
+    const scope = await next.db.all<{ label: string, archived_at: string | null, scope_type: string }>(
+      'SELECT label, archived_at, scope_type FROM scopes WHERE id = ?', ['s1'])
+    expect(scope[0]?.label).toBe('CLG10 - Baffles')
+    expect(scope[0]?.archived_at).not.toBeNull()
+    expect(scope[0]?.scope_type).toBe('area')
+  })
+
   it('is not saved into when part of its takeoff could not be loaded', async () => {
     const { db, docId } = await freshDb()
     await seedTakeoff(db, docId)

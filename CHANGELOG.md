@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.123 — 2026-11-27
+
+### Files no longer lock after a scope is archived
+
+- **"Part of the takeoff could not be loaded" is fixed.** Archiving a scope keeps its markups, but saving left the archived scope itself out of the PDF. On reopening, those markups had no scope to belong to, so REDBEAM refused to save into the file. Archived scopes that still have markups are now saved with them.
+- **Files already affected open normally.** The missing scope comes back archived, under its old name, with its markups intact, and the next save repairs the file.
+
+
 ## 0.3.122 — 2026-11-27
 
 ### AI agents are told when to send calls together
