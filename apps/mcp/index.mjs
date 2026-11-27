@@ -236,12 +236,19 @@ function resolveRefs(value, answers) {
   return value
 }
 
+/** Sessions that finished themselves: their later calls are refused before REDBEAM is reached. */
+const ended = new Set()
+const END_TOOL = 'redbeam_end_session'
 /** One bridge call for a session: the answer as REDBEAM gave it. */
 async function callBridge(name, inputs, session, onAlive) {
   const method = METHOD_OF[name]
   if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
   const bound = ACTION_OF[name] ? { ...inputs, action: ACTION_OF[name] } : inputs
-  return await bridgeCall(method, bound, identity(session), onAlive)
+  // Alone or inside a batch, every call comes through here: none runs once the session has ended itself.
+  if (name !== END_TOOL && ended.has(session.code)) throw new Error(SPEC.sessions.over)
+  const result = await bridgeCall(method, bound, identity(session), onAlive)
+  if (name === END_TOOL && result?.ended === true) ended.add(session.code)
+  return result
 }
 
 /** Several calls in one round trip (SPEC.lean.batch). */
