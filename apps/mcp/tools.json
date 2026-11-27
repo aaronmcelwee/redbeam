@@ -83,7 +83,9 @@
     "redbeam_match_hatch": "invoke_ui_action",
     "redbeam_report_problem": "invoke_ui_action",
     "redbeam_whats_new": "invoke_ui_action",
-    "redbeam_convert_annotations": "invoke_ui_action"
+    "redbeam_convert_annotations": "invoke_ui_action",
+    "redbeam_create_links": "invoke_ui_action",
+    "redbeam_find_callout_links": "invoke_ui_action"
   },
   "actionOf": {
     "redbeam_get_bom": "get_bom",
@@ -161,7 +163,9 @@
     "redbeam_match_hatch": "match_hatch",
     "redbeam_report_problem": "report_problem",
     "redbeam_whats_new": "whats_new",
-    "redbeam_convert_annotations": "convert_annotations"
+    "redbeam_convert_annotations": "convert_annotations",
+    "redbeam_create_links": "create_links",
+    "redbeam_find_callout_links": "find_callout_links"
   },
   "tools": [
     {
@@ -2445,7 +2449,7 @@
     },
     {
       "name": "redbeam_list_links",
-      "description": "The PDF's links on a sheet: where each is and the page or address it goes to.",
+      "description": "The links on a sheet: the PDF's own (`links`, with the page or address each goes to) and REDBEAM's (`redbeamLinks`, with the id that moves or deletes one).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2760,6 +2764,82 @@
       }
     },
     {
+      "name": "redbeam_create_links",
+      "description": "Make links: a box on a sheet that jumps to another sheet of the same PDF, as the Link tool does. Each is {page, rect, toPage or toSheet, text?}; all go in one undo step. Saving writes them as real PDF links Bluebeam and Acrobat follow. Delete or move one with redbeam_delete_markup / redbeam_update_markup (kind link).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+                },
+                "rect": {
+                  "type": "object",
+                  "description": "The link's box {x0,y0,x1,y1}, normalized [0,1], y down."
+                },
+                "toPage": {
+                  "type": "integer"
+                },
+                "toSheet": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "For create_links: the links. `page` defaults to your sheet; `toSheet` is a sheet number (\"A5.01\")."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "links"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_find_callout_links",
+      "description": "Find every reference to another sheet (detail callouts like 3/A5.01, and sheet numbers in notes), as Link detail callouts does, with where each sits and the sheet it points to. Nothing is written: pass the ones to keep to redbeam_create_links. Reads the whole set unless `pages` or `page` is given; sheets not read in time come back in `stillReading`. Needs sheet numbers (redbeam_list_sheets).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+          },
+          "pages": {
+            "type": "array",
+            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
+          },
+          "fromPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
+          },
+          "toPage": {
+            "type": "integer",
+            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
       "name": "redbeam_invoke_ui_action",
       "description": "Drive the app the way a person would. Reporting and reading the app: report_problem (send a bug report, which becomes a GitHub issue), whats_new (release notes). Bluebeam markups: convert_annotations (the PDF's own areas, lines and counts into takeoff). Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page, and where each came from), set_title_blocks (name every sheet from a number box and a title box on the title block), rename_sheets (name pages yourself), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), detect_grid (module, rows, columns and first crossing of a drawn panel or tile grid), detect_directions (a field split into regions by the direction its members run, as polygons with angles), match_hatch (which legend mark a hatch belongs to), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: set_title_blocks and rename_sheets are not undone (call them again to change a name); commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
       "inputSchema": {
@@ -2843,7 +2923,9 @@
               "match_hatch",
               "report_problem",
               "whats_new",
-              "convert_annotations"
+              "convert_annotations",
+              "create_links",
+              "find_callout_links"
             ]
           },
           "tool": {
@@ -3382,6 +3464,39 @@
           "reset": {
             "type": "boolean",
             "description": "For set_setting: put the setting back to its default instead of giving `value`."
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+                },
+                "rect": {
+                  "type": "object",
+                  "description": "The link's box {x0,y0,x1,y1}, normalized [0,1], y down."
+                },
+                "toPage": {
+                  "type": "integer"
+                },
+                "toSheet": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "For create_links: the links. `page` defaults to your sheet; `toSheet` is a sheet number (\"A5.01\")."
+          },
+          "toSheet": {
+            "type": "string",
+            "description": "For create_links with one link: the sheet number it jumps to."
+          },
+          "text": {
+            "type": "string",
+            "description": "For create_links with one link: the callout it sits on."
           }
         },
         "required": [
