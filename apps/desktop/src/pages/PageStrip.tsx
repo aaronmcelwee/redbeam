@@ -6,7 +6,8 @@
  * the page under the cursor. This component asks for them and forgets; the
  * viewer decides when to actually rasterize.
  */
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { cellWidth, COLUMNS_KEY, parseColumns, renderWidth, stepColumns } from './thumbSize.js'
 import { hasSheetActions, SheetMenu, type SheetActions } from '../shell/SheetMenu.js'
 import {
   clickSheet, describeSelection, EMPTY_SELECTION, rightClickSheet, selectedInOrder,
@@ -62,6 +63,49 @@ export function PageStrip({
   const labelOf = (i: number) => labels?.[i] ?? String(i + 1)
   const stripRef = useRef<HTMLDivElement>(null)
 
+  /*
+   * In the side pane the strip is a grid: each thumbnail fills its column
+   * and is rendered at the screen's density (thumbSize.ts). The horizontal
+   * strip keeps `thumbWidth`. Ctrl+wheel over the grid changes the columns.
+   */
+  const [columns, setColumns] = useState(() => {
+    try { return parseColumns(localStorage.getItem(COLUMNS_KEY)) } catch { return parseColumns(null) }
+  })
+  const [shown, setShown] = useState<{ css: number; px: number }>(() => ({ css: thumbWidth, px: renderWidth(thumbWidth, globalThis.devicePixelRatio ?? 1) }))
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const measure = () => {
+      const style = getComputedStyle(strip)
+      const dpr = globalThis.devicePixelRatio ?? 1
+      if (style.display !== 'grid') { setShown({ css: thumbWidth, px: renderWidth(thumbWidth, dpr) }); return }
+      const gap = Number.parseFloat(style.columnGap) || 0
+      const padding = Number.parseFloat(style.paddingLeft) || 0
+      const cell = strip.querySelector<HTMLElement>('.thumb')
+      const cs = cell === null ? null : getComputedStyle(cell)
+      const chrome = cs === null ? 8
+        : (Number.parseFloat(cs.paddingLeft) || 0) + (Number.parseFloat(cs.paddingRight) || 0)
+          + (Number.parseFloat(cs.borderLeftWidth) || 0) + (Number.parseFloat(cs.borderRightWidth) || 0)
+      const css = cellWidth(strip.clientWidth, columns, gap, padding, chrome)
+      const px = renderWidth(css, dpr)
+      setShown((was) => (was.css === css && was.px === px ? was : { css, px }))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(strip)
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || getComputedStyle(strip).display !== 'grid') return
+      e.preventDefault()
+      setColumns((c) => {
+        const next = stepColumns(c, e.deltaY)
+        try { localStorage.setItem(COLUMNS_KEY, String(next)) } catch { /* remembered for this session only */ }
+        return next
+      })
+    }
+    strip.addEventListener('wheel', onWheel, { passive: false })
+    return () => { ro.disconnect(); strip.removeEventListener('wheel', onWheel) }
+  }, [columns, thumbWidth, pageCount > 0])
+
   // Keep the active page in view when it changes from outside (search, undo
   // navigating to its target).
   useEffect(() => {
@@ -102,7 +146,7 @@ export function PageStrip({
         >›</button>
       </div>
 
-      <div className="thumbs" ref={stripRef}>
+      <div className="thumbs" ref={stripRef} style={{ '--thumb-cols': columns } as CSSProperties}>
         {all.map((i) => (
           <Thumb
             key={`${i}:${rotationOf?.(i) ?? 0}`}
@@ -121,7 +165,8 @@ export function PageStrip({
               setMenu({ x: e.clientX, y: e.clientY, pages: selectedInOrder(next) })
             } : undefined}
             label={labels?.[i] ?? String(i + 1)}
-            width={thumbWidth}
+            width={shown.css}
+            renderPx={shown.px}
             eager={Math.abs(i - current) <= eagerRadius}
             request={requestThumbnail}
           />
@@ -144,14 +189,17 @@ export function PageStrip({
 }
 
 function Thumb({
-  index, active, picked, label, width, eager, request, onPick, onMenu,
+  index, active, picked, label, width, renderPx, eager, request, onPick, onMenu,
 }: {
   index: number
   active: boolean
   /** Part of a multi-page selection. */
   picked: boolean
   label: string
+  /** CSS pixels it is shown at. */
   width: number
+  /** Pixels it is rendered at: `width` at the screen's density. */
+  renderPx: number
   /** Load without waiting to be scrolled into view. */
   eager: boolean
   request: (index: number, width?: number) => ImageBitmap | undefined
@@ -170,10 +218,11 @@ function Thumb({
 
     const draw = () => {
       if (cancelled) return
-      const bmp = request(index, width)
+      const bmp = request(index, renderPx)
       if (!bmp) {
-        // Queued behind visible tiles by design; poll rather than block.
-        timer = setTimeout(draw, 300)
+        // Queued behind visible tiles by design; poll rather than block. A
+        // map lookup, so polling often costs nothing and shows it sooner.
+        timer = setTimeout(draw, 100)
         return
       }
       const c = canvasRef.current
@@ -207,12 +256,13 @@ function Thumb({
           draw()
         }
       },
-      { root: host.closest('.thumbs'), rootMargin: '200px' },
+      // A screenful ahead, so scrolling finds them drawn.
+      { root: host.closest('.thumbs'), rootMargin: '100% 0px' },
     )
     io.observe(host)
 
     return () => { cancelled = true; io.disconnect(); if (timer) clearTimeout(timer) }
-  }, [index, width, eager, request])
+  }, [index, renderPx, eager, request])
 
   return (
     <button

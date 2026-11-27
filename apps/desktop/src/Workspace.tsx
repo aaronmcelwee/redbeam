@@ -18,7 +18,7 @@ import {
   editableMeasures, measureHelp, readString, unitDisplayText, readBool,
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
   checkOutline, type OutlineIssue,
-  PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, readPatternRecipe, builtInAsRecipe,
+  PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, scopeProductLabel, readPatternRecipe, builtInAsRecipe,
   approvePatternRecipe, approvePatternLayer, removePatternLayer,
   type PatternRecipe,
 } from '@redbeam/domain'
@@ -2638,6 +2638,10 @@ export default function Workspace({
     setOpenFailed(false)
     const viewer = new Viewer(rasterRef.current, overlayRef.current, worker, {
       tileSize: 512,
+      // Thumbnails kept so scrolling back through a big set does not render
+      // them again (Kenneth, 2026-11-26: "make them load faster"). 64 held
+      // barely two screens; 800 is about 250 MB at the sharpest size.
+      maxThumbnails: 800,
       overlay: { strokeScale: strokeScaleFor },
       // The viewer already reports each tile's cost; feed it to the budget
       // rather than measuring it a second time from outside.
@@ -10547,7 +10551,36 @@ export default function Workspace({
         },
       })
     }
-    if (toolWarning !== null) out.push(toolWarning)
+    if (toolWarning !== null) {
+      /*
+       * Kenneth, 2026-11-26: counts and extra lengths drawn inside an area
+       * takeoff never reached its summary. They belong in a Count or Length
+       * scope of their own, so the warning offers one: the round's existing
+       * one, or a new one named after this scope.
+       */
+      const kind = TOOL_KIND[tool]
+      const here = scopes.find((sc) => sc.id === activeScope)
+      const wants = kind === 'count' ? 'count' as const : kind === 'polyline' ? 'linear' as const : null
+      if (here !== undefined && wants !== null) {
+        const word = wants === 'count' ? 'Count' : 'Length'
+        const other = scopes.find((sc) => sc.scopeType === wants)
+        // First after a file that cannot save: it is about the markup about to
+        // be drawn, and the banner shows one warning at a time.
+        out.splice(loadBlock !== null ? 1 : 0, 0, {
+          text: `${word === 'Count' ? 'Counts' : 'Lengths'} drawn in ${here.label}, an area scope, reach no total. Draw them in a ${word.toLowerCase()} scope.`,
+          action: other !== undefined
+            ? { label: `Draw in ${other.label}`, run: () => { setActiveScope(other.id); setOpenScopeId(other.id) } }
+            : {
+                label: `New ${word.toLowerCase()} scope`,
+                run: () => {
+                  const made = newScope(`${here.label} ${wants === 'count' ? 'counts' : 'lengths'}`, scopesRef.current)
+                  void createScope({ ...made, scopeType: wants, specifications: { productType: 'custom_assembly' } })
+                    .then(() => setOpenScopeId(made.id))
+                },
+              },
+        })
+      } else out.splice(loadBlock !== null ? 1 : 0, 0, toolWarning)
+    }
     if (embeddedHidden || redbeamHidden) {
       const which = embeddedHidden && redbeamHidden ? 'All markups are'
         : embeddedHidden ? 'The PDF\u2019s own markups are' : 'REDBEAM markups are'
@@ -10569,7 +10602,7 @@ export default function Workspace({
     if (ingestNote !== null) out.push(ingestNote)
     if (textNote !== null) out.push(textNote)
     return out
-  }, [cal, toolWarning, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, dismissRebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents, embeddedHidden, redbeamHidden, setMarkupVisibility])
+  }, [cal, toolWarning, tool, scopes, activeScope, createScope, ingestNote, textNote, projectMarkups, activeDocId, pageIndex, sheetLabelFor, openPalette, quickView, light, loadBlock, rebuiltNote, dismissRebuiltNote, saveCopyOfFile, oldOffer, transferFromOldProject, setStatus, documents, embeddedHidden, redbeamHidden, setMarkupVisibility])
   warningsRef.current = warnings
 
   // ------------------------------------------------------------ view math --
@@ -11309,7 +11342,7 @@ export default function Workspace({
         .map((sc): Command => ({
           ...then(sc),
           id: `pick-${sc.id}`, kind: 'scope', title: sc.label,
-          detail: `${productLabelFor(sc.specifications)} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}`,
+          detail: `${scopeProductLabel(sc)} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}`,
         })),
     })
     const renameCommand = (id: string): Command => ({
@@ -11336,6 +11369,20 @@ export default function Workspace({
             if (after.then === 'counts' && t === 'custom_assembly') return { next: countsCommand(id, { then: 'configure' }), chip: PRODUCT_TYPE_LABEL[t] }
             if (after.then === 'counts' || after.then === 'configure') return { next: configureCommand(id), chip: PRODUCT_TYPE_LABEL[t] }
           },
+        })).concat((['count', 'linear'] as const).map((measure): Command => {
+          // Count and Length: products of their own (Kenneth, 2026-11-26).
+          const title = measure === 'count' ? 'Count' : 'Length'
+          const sc0 = liveScope(id)
+          return {
+            id: `product-measure-${measure}`, kind: 'command', title,
+            ...(sc0 !== undefined && scopeProductLabel(sc0) === title ? { detail: 'current' } : {}),
+            run: async () => {
+              const sc = liveScope(id)
+              if (sc === undefined) return
+              await saveScope({ ...sc, scopeType: measure, specifications: writeProductType(sc.specifications, 'custom_assembly') })
+              if (after.then === 'counts' || after.then === 'configure') return { next: configureCommand(id), chip: title }
+            },
+          }
         })),
       },
     })
@@ -11515,7 +11562,7 @@ export default function Workspace({
                   step: {
                     kind: 'choose', label: 'Move to', note: 'which scope',
                     options: () => estimateScopes.filter((sc) => sc.id !== id).map((sc): Command => ({
-                      id: `markup-${r.id}-move-${sc.id}`, kind: 'scope', title: sc.label, detail: productLabelFor(sc.specifications),
+                      id: `markup-${r.id}-move-${sc.id}`, kind: 'scope', title: sc.label, detail: scopeProductLabel(sc),
                       run: () => { setSelectedIds([r.id]); selectedRef.current = [r.id]; void reassignSelection(sc.id) },
                     })),
                   },
@@ -11550,7 +11597,7 @@ export default function Workspace({
 
     /** Everything the prompt can do to one scope. Enter on a scope row opens this. */
     const scopeHub = (sc: Scope): Step => ({
-      kind: 'choose', label: sc.label, note: `${productLabelFor(sc.specifications)} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}${sc.id === shownScopeId ? ' · open in the sidebar' : ''}`,
+      kind: 'choose', label: sc.label, note: `${scopeProductLabel(sc)} · ${markupCounts[sc.id] ?? 0} markup${(markupCounts[sc.id] ?? 0) === 1 ? '' : 's'}${sc.id === shownScopeId ? ' · open in the sidebar' : ''}`,
       options: () => [
         {
           // Drawing needs a sheet, not a scale: the sidebar's own Take off
@@ -11561,7 +11608,7 @@ export default function Workspace({
           ...stuck(noSheet), run: () => { setActiveScope(sc.id); beginTakeoff(true); setTool(firstToolFor(sc.id)) },
         },
         { ...configureCommand(sc.id), title: 'Configure…', detail: 'product, each measure, yield, seams' },
-        { ...productCommand(sc.id, { then: 'configure' }), title: 'Set product…', detail: productLabelFor(sc.specifications) },
+        { ...productCommand(sc.id, { then: 'configure' }), title: 'Set product…', detail: scopeProductLabel(sc) },
         ...(readProductType(sc.specifications) === 'custom_assembly' ? [{ ...countsCommand(sc.id, { then: 'configure' }), title: 'Measured as…', detail: SCOPE_TYPE_LABEL[sc.scopeType] }] : []),
         colourCommand(sc.id),
         edgeDirectionCommand(sc.id),
@@ -12118,7 +12165,7 @@ export default function Workspace({
           kind: 'choose', label: 'Move to', note: `${selectedIds.length} markup${selectedIds.length === 1 ? '' : 's'}`,
           options: () => [
             ...estimateScopes.map((sc): Command => ({
-              id: `move-${sc.id}`, kind: 'scope', title: sc.label, detail: productLabelFor(sc.specifications),
+              id: `move-${sc.id}`, kind: 'scope', title: sc.label, detail: scopeProductLabel(sc),
               run: () => void reassignSelection(sc.id),
             })),
             { id: 'move-none', kind: 'command', title: 'No scope', detail: 'Kept on the sheet, counted nowhere', run: () => void reassignSelection(null) },

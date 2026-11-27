@@ -20,7 +20,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { isTauri } from '../tauri/window.js'
 import type {
-  DrawingPickOutcome, FilePickOutcome, PickOutcome, ProjectInfo, ProjectNesting, RecentProject, ScanResult,
+  DrawingPickOutcome, FilePickOutcome, FilesPickOutcome, PickOutcome, ProjectInfo, ProjectNesting, RecentProject, ScanResult,
 } from './types.js'
 
 /**
@@ -78,6 +78,8 @@ export interface ProjectBridge {
    * instantly. It should just open the file for quick viewing").
    */
   pickFile(): Promise<FilePickOutcome>
+  /** The same with several files allowed: their paths, empty when cancelled. */
+  pickFiles(): Promise<FilesPickOutcome>
   /** The same for a path that arrived without a dialog — a drawing dropped on the window. */
   locateFile(path: string): Promise<FilePickOutcome>
   /**
@@ -194,6 +196,12 @@ function toFilePick(raw: unknown): FilePickOutcome {
     relativePath: nullableStr(r.relativePath),
     reason: nullableStr(r.reason),
   }
+}
+
+export function toFilesPick(raw: unknown): FilesPickOutcome {
+  const r = asRecord(raw)
+  const paths = Array.isArray(r.paths) ? r.paths.filter((p): p is string => typeof p === 'string' && p !== '') : []
+  return { supported: bool(r.supported), paths, reason: nullableStr(r.reason) }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -365,6 +373,11 @@ export function createProjectBridge(opts: ProjectBridgeOptions = {}): ProjectBri
         return { supported: false, path: null, project: null, relativePath: null, reason: BROWSER_NO_DIALOG }
       }
       return toFilePick(await invoke<unknown>('project_pick_file'))
+    },
+
+    async pickFiles(): Promise<FilesPickOutcome> {
+      if (!desktop) return { supported: false, paths: [], reason: BROWSER_NO_DIALOG }
+      return toFilesPick(await invoke<unknown>('project_pick_files'))
     },
 
     async locateFile(path): Promise<FilePickOutcome> {

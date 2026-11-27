@@ -29,7 +29,7 @@ export function segmentCaption(mode: SegmentMode, placed: number, pivot: boolean
     if (placed === 0) return 'Click where the arc starts'
     return pivot ? (tool === 'polyline' ? 'Click where the arc ends' : 'Click where the arc ends, or Enter to close') : 'Click a point the arc passes through'
   }
-  return placed === 0 ? 'Press A while tracing for an arc' : 'A for an arc, Enter to finish'
+  return placed === 0 ? 'Click to start · A mid-trace for an arc · Shift+C for a circle' : 'A for an arc, Enter to finish'
 }
 
 export function SegmentBar({ mode, caption, onMode }: {

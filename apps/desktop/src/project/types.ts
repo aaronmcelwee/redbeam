@@ -96,6 +96,13 @@ export interface FilePickOutcome {
   reason: string | null
 }
 
+/** What picking several drawings to view produced: their paths, empty when cancelled. */
+export interface FilesPickOutcome {
+  supported: boolean
+  paths: string[]
+  reason: string | null
+}
+
 export interface DrawingPickOutcome {
   supported: boolean
   /** null when the user cancelled, or when `supported` is false. */

@@ -65,7 +65,7 @@ import { clickMarkupRow } from './markupSelection.js'
 import { saveOutcomeText, saveReportFile } from '../bom/exports.js'
 import { openFor, scopeStage, summaryToTsv, type SummaryLine } from './scopeSummary.js'
 import { PatternCard, type PatternControls } from './PatternCard.js'
-import { productLabelFor, readPatternRecipe } from '@redbeam/domain'
+import { productLabelFor, readPatternRecipe, scopeProductLabel } from '@redbeam/domain'
 
 /**
  * What a scope counts, in the order an estimator meets them: most ceiling
@@ -1043,7 +1043,7 @@ function EstimateOverview({
             <span className="es-rowtext">
               <span className="es-rowname">{s.label}</span>
               <span className="es-rowmeta">
-                {productLabelFor(s.specifications)}
+                {scopeProductLabel(s)}
                 {n === 0 ? ' · no markups' : ` · ${n} markup${n === 1 ? '' : 's'}`}
                 {missing.length > 0 && <span className="es-warnink">{` · needs ${missing.join(', ')}`}</span>}
               </span>
@@ -1071,7 +1071,7 @@ function EstimateOverview({
               <span className="es-dot" style={{ background: s.color }} aria-hidden="true" />
               <span className="es-rowtext">
                 <span className="es-rowname">{s.label}</span>
-                <span className="es-rowmeta">{productLabelFor(s.specifications)}</span>
+                <span className="es-rowmeta">{scopeProductLabel(s)}</span>
               </span>
               <button
                 className="es-btn subtle icon"
@@ -1238,7 +1238,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
     clip.writeText(text).then(() => setCopied('copied'), () => setCopied('failed'))
   }
 
-  const setupSummary = setupLine(product, scope.specifications, p.lengthDenominator ?? 16)
+  const setupSummary = setupLine(product, scope.specifications, p.lengthDenominator ?? 16, scope.scopeType)
   const markupSummary = markups.length === 0
     ? 'None yet'
     : `${markups.length} on ${sheets} sheet${sheets === 1 ? '' : 's'}`
@@ -1395,7 +1395,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
           : scope.label}
         sub={(
           <span>
-            {productLabelFor(scope.specifications)} · {markups.length} markup{markups.length === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}
+            {scopeProductLabel(scope)} · {markups.length} markup{markups.length === 1 ? '' : 's'} · {sheets} sheet{sheets === 1 ? '' : 's'}
           </span>
         )}
         primary={(
@@ -1520,13 +1520,14 @@ function Expander({ id, title, summary, count, open, onToggle, children }: {
 }
 
 /** Setup in one line, for when it is folded: the product, its measures, yield and seams. */
-function setupLine(product: ProductType, specs: Specifications, denominator: number): string {
+function setupLine(product: ProductType, specs: Specifications, denominator: number, scopeType: ScopeType = 'area'): string {
   if (product === 'custom_pattern') {
     const raw = readPatternRecipe(specs) as { layers?: unknown[]; status?: string } | null
     const n = Array.isArray(raw?.layers) ? raw!.layers.length : 0
     return [productLabelFor(specs), `${n} layer${n === 1 ? '' : 's'}`, raw?.status === 'approved' ? 'approved' : 'draft'].join(' · ')
   }
-  const bits: string[] = [PRODUCT_TYPE_LABEL[product]]
+  // Count and Length by name, not as the custom assembly they are underneath.
+  const bits: string[] = [scopeProductLabel({ scopeType, specifications: specs })]
   const sizes = editableMeasures(product)
     .map((f) => {
       const value = readString(specs, f.valueKey) ?? ''
@@ -1753,11 +1754,32 @@ function PartsTable({ view, pieces, nothingDrawn, missing, wasOf }: {
   )
 }
 
+/*
+ * Count and Length lead the product menu as products of their own (Kenneth,
+ * 2026-11-26: "let's consider making a count as a product type as opposed to
+ * an additional tool within a takeoff ... Same with linear footage."). Each
+ * is a custom assembly measured as counts or lengths; the menu says so plainly.
+ */
+const MEASURE_COUNT = 'measure:count'
+const MEASURE_LENGTH = 'measure:linear'
+export function measureValueOf(product: ProductType, scopeType: ScopeType): string {
+  if (product !== 'custom_assembly') return product
+  return scopeType === 'count' ? MEASURE_COUNT : scopeType === 'linear' ? MEASURE_LENGTH : product
+}
+function ProductOptions() {
+  return (
+    <>
+      {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
+      <option value={MEASURE_COUNT}>Count</option>
+      <option value={MEASURE_LENGTH}>Length</option>
+    </>
+  )
+}
+
 /**
  * Setup: the specification, two label/value pairs per row. The product is
  * in the header; the measures, then Yield and Seams, then Direction across
- * the row. A custom assembly asks what it is measured as, since the product
- * does not say.
+ * the row.
  */
 function SetupGrid({
   scope, product, missing, patch, onSaveScope, direction = null, onSetDirection, lengthDenominator = 16, pieces, patterns,
@@ -1789,23 +1811,29 @@ function SetupGrid({
         <select
           id="scope-type"
           className="es-field"
-          value={product}
+          value={measureValueOf(product, scope.scopeType)}
           onChange={(e) => {
             const value = e.target.value
             // A library pattern: its recipe is copied onto the scope.
             if (value.startsWith('lib:')) { patterns?.onUsePattern(scope.id, value.slice(4)); return }
             if (value === 'custom_pattern') return
+            // Count and Length: a custom assembly measured as counts or lengths.
+            if (value === MEASURE_COUNT || value === MEASURE_LENGTH) {
+              const scopeType: ScopeType = value === MEASURE_COUNT ? 'count' : 'linear'
+              onSaveScope({ ...scope, scopeType, specifications: writeProductType(scope.specifications, 'custom_assembly') })
+              return
+            }
             const next = value as ProductType
-            // The product decides what it is measured as; only a custom
-            // assembly keeps what was chosen.
-            const scopeType: ScopeType = scopeTypeForProduct(next) ?? scope.scopeType
+            // The product decides what it is measured as; a custom assembly
+            // picked here is an area one, since Count and Length are their own entries.
+            const scopeType: ScopeType = scopeTypeForProduct(next) ?? 'area'
             onSaveScope({ ...scope, scopeType, specifications: writeProductType(scope.specifications, next) })
           }}
         >
           {offerPatterns ? (
             <>
               <optgroup label="Built in">
-                {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
+                <ProductOptions />
               </optgroup>
               <optgroup label="Custom patterns">
                 {isPattern && <option value="custom_pattern">{productLabelFor(scope.specifications)}</option>}
@@ -1814,24 +1842,11 @@ function SetupGrid({
                   .map((l) => <option key={l.id} value={`lib:${l.id}`}>{l.name}</option>)}
               </optgroup>
             </>
-          ) : PRODUCT_TYPES.map((t) => <option key={t} value={t}>{PRODUCT_TYPE_LABEL[t]}</option>)}
+          ) : <ProductOptions />}
         </select>
       </span>
-      {product === 'custom_assembly' && (
-        <>
-          <label className="es-k" htmlFor="scope-counts">Measured as</label>
-          <span className="es-fieldwrap wide">
-            <select
-              id="scope-counts"
-              className="es-field"
-              value={scope.scopeType}
-              onChange={(e) => onSaveScope({ ...scope, scopeType: e.target.value as ScopeType })}
-            >
-              {SCOPE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-          </span>
-          <span className="es-muted wide">{SCOPE_TYPES.find((t) => t.id === scope.scopeType)?.help}</span>
-        </>
+      {product === 'custom_assembly' && scope.scopeType !== 'area' && (
+        <span className="es-muted wide">{SCOPE_TYPES.find((t) => t.id === scope.scopeType)?.help}</span>
       )}
       {/*
         Devices (issue #12): lights, diffusers, sprinklers counted here pass

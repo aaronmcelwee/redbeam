@@ -349,6 +349,39 @@ const STEPS = [
       return extra > 48 ? [`thumbnails: each cell is ${Math.round(extra)} px taller than its picture`] : []
     })
   }],
+  /*
+   * Kenneth, 2026-11-26: thumbnails were "really muddy". Each one must be
+   * rendered at least as many pixels wide as it is shown (times the screen
+   * density), and Ctrl+wheel must make them bigger.
+   */
+  ['thumbnail-size', async (page) => {
+    const problems = []
+    const strip = page.locator('.thumbs')
+    if ((await strip.count()) === 0) { await button(page, 'Thumbnails').click(); await page.waitForTimeout(2500) }
+    const sharp = () => page.evaluate(() => {
+      const c = document.querySelector('.thumb canvas')
+      if (!c) return null
+      return { shown: c.getBoundingClientRect().width * devicePixelRatio, drawn: c.width }
+    })
+    const before = await sharp()
+    if (before !== null && before.drawn + 1 < before.shown) problems.push(`thumbnails: drawn ${before.drawn} px wide, shown ${Math.round(before.shown)}`)
+    const box = await strip.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + 60)
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0, -100)
+    await page.mouse.wheel(0, -100)
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(2000)
+    const after = await sharp()
+    if (before !== null && after !== null && after.shown <= before.shown) problems.push('thumbnails: Ctrl+wheel did not make them bigger')
+    if (after !== null && after.drawn + 1 < after.shown) problems.push(`thumbnails: drawn ${after.drawn} px wide, shown ${Math.round(after.shown)} after Ctrl+wheel`)
+    // Back to three columns for the steps after.
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0, 100)
+    await page.mouse.wheel(0, 100)
+    await page.keyboard.up('Control')
+    return problems
+  }],
   ['search', async (page) => {
     await button(page, 'Search').click()
     await page.keyboard.type('CEILING')
@@ -522,6 +555,27 @@ const STEPS = [
     await page.keyboard.press('Control+0')
     await page.waitForTimeout(400)
     return problems
+  }],
+  /*
+   * Kenneth, 2026-11-26: Count and Length are products. A Count drawn in an
+   * area scope offers a count scope rather than leaving the totals.
+   */
+  ['count-in-area', async (page) => {
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: /^Count/ }).first().click()
+    await page.waitForTimeout(400)
+    const offer = page.getByRole('button', { name: 'New count scope' })
+    return (await offer.count()) === 0 ? ['count in an area scope: no "New count scope" offered'] : []
+  }],
+  ['count-product', async (page) => {
+    await page.getByRole('button', { name: 'New count scope' }).first().click()
+    await page.waitForTimeout(800)
+    const product = page.locator('#scope-type')
+    if ((await product.count()) === 0) { await page.getByRole('button', { name: /^Setup/ }).first().click(); await page.waitForTimeout(400) }
+    if ((await product.count()) === 0) return ['count scope: its Setup did not open']
+    const value = await product.inputValue()
+    await page.keyboard.press('Escape')
+    return value === 'measure:count' ? [] : [`count scope: Product shows ${value}, not Count`]
   }],
   ['takeoff-menus', async (page) => {
     const problems = []
