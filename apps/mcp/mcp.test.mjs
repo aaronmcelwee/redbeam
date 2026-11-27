@@ -211,3 +211,48 @@ test('every agent is handed the takeoff skill when its session starts', async ()
   assert.equal(started.structuredContent.takeoffSkill, SKILL_URI)
   assert.equal(started.content[1].text, skillHandout())
 })
+
+test('the listed tools are lean: no catch-all, short shared inputs, and a size that does not creep', async () => {
+  // Every chat pays for the whole list before its first call (Aaron,
+  // 2026-11-27: "use fewer tokens"). 0.3.113 listed 160 KB.
+  const { toolsWithAgent } = await import('./index.mjs')
+  const listed = toolsWithAgent()
+  const names = listed.map((t) => t.name)
+  assert.equal(names[0], 'redbeam_start_session')
+  assert.equal(names[1], 'redbeam_batch')
+  assert.equal(names.includes('redbeam_invoke_ui_action'), false, 'every action has a tool of its own')
+  for (const t of listed.slice(1)) {
+    const p = t.inputSchema.properties
+    assert.ok(p.session.description.length < 90, `${t.name} session`)
+    if (p.file !== undefined) assert.ok(p.file.description.length < 130, `${t.name} file`)
+    for (const [k, v] of Object.entries(p)) {
+      assert.doesNotMatch(String(v.description ?? ''), /^For [a-z_]+(, [a-z_]+)*(,? and [a-z_]+)?: /, `${t.name}.${k} still names the catch-all's actions`)
+    }
+  }
+  const bytes = JSON.stringify(listed).length
+  // Not a cap on what tools may exist: a reminder to say it in fewer words. Raise it with a new tool, not with longer text.
+  assert.ok(bytes < 125_000, `tools/list is ${bytes} bytes`)
+})
+
+test('a batch fills in values from earlier answers', async () => {
+  const { resolveRefs } = await import('./index.mjs')
+  const answers = [{ scopeId: 'sc_1', scope: { label: 'CL-1' } }, { pages: [3, 4] }]
+  assert.deepEqual(
+    resolveRefs({ scopeId: '$0.scopeId', label: '$0.scope.label', page: '$1.pages.1', note: '$5 each', rings: [[{ x: 0.1, y: 0.2 }]] }, answers),
+    { scopeId: 'sc_1', label: 'CL-1', page: 4, note: '$5 each', rings: [[{ x: 0.1, y: 0.2 }]] },
+  )
+  assert.throws(() => resolveRefs({ scopeId: '$0.nope' }, answers), /no such value/)
+  assert.throws(() => resolveRefs({ scopeId: '$7.scopeId' }, answers), /no such value/)
+})
+
+test('a batch needs a session and refuses to nest', async () => {
+  const { callTool, startSession } = await import('./index.mjs')
+  await assert.rejects(callTool('redbeam_batch', { calls: [{ tool: 'redbeam_get_ui_state' }] }), /redbeam_start_session/)
+  const session = startSession('Batch check')
+  await assert.rejects(callTool('redbeam_batch', { session, calls: [] }), /calls/)
+  const out = await callTool('redbeam_batch', { session, calls: [{ tool: 'redbeam_batch', arguments: { calls: [] } }, { tool: 'redbeam_get_ui_state' }] })
+  assert.equal(out.structuredContent.ran, 1)
+  assert.equal(out.structuredContent.of, 2)
+  assert.match(out.structuredContent.results[0].error, /cannot run inside a batch/)
+  assert.equal(out.isError, true)
+})

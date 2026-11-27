@@ -1,7 +1,7 @@
 {
   "name": "redbeam",
   "private": true,
-  "version": "0.3.116",
+  "version": "0.3.119",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -20,7 +20,8 @@
     "fixtures:dump": "node tools/dump-fixtures.mjs",
     "test:fixtures": "node tools/verify-fixtures.mjs",
     "test:mcp": "node --test apps/mcp/mcp.test.mjs apps/mcp/coverage.test.mjs",
-    "test:ui": "node apps/desktop/tools/ui-sweep/sweep.mjs"
+    "test:ui": "node apps/desktop/tools/ui-sweep/sweep.mjs",
+    "bench:agents": "node apps/desktop/tools/agent-bench/bench.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0",
