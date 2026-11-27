@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.122 — 2026-11-27
+
+### AI agents are told when to send calls together
+
+- **Fewer turns per takeoff.** In a ten-project test no agent used the new batch call on its own. Now, when Claude or ChatGPT starts a session, REDBEAM tells it exactly where in a takeoff to send calls together: reading several sheets, setting scales, creating a scope with its areas, and the closing checks and save.
+
+
 ## 0.3.121 — 2026-11-27
 
 ### Lighter answers for AI agents

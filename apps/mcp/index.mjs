@@ -397,7 +397,7 @@ const SKILL_ABOUT = 'How to do a takeoff in REDBEAM the way Maxxit does it: scop
 const SKILL = ((md) => (md.startsWith('# ') ? md : md.slice(md.indexOf('\n# ') + 1)))(fs.readFileSync(new URL('./skills/precon-takeoff.md', import.meta.url), 'utf8'))
 /** The skill as an agent is given it when its session starts. */
 function skillHandout() {
-  return `Follow this skill for any takeoff in this chat. It is also the resource ${SKILL_URI}, to read again.\n\n${SKILL}`
+  return `Follow this skill for any takeoff in this chat. It is also the resource ${SKILL_URI}, to read again.\n\n${LEAN.handout}\n\n${SKILL}`
 }
 
 /** The part of the instructions about working beside a person, to read again. */
