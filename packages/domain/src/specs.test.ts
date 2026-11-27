@@ -328,7 +328,7 @@ describe('each product type offers only what it reads', () => {
       'spacing', 'stockLength', 'maxConnectorSpacing', 'profileWidth', 'profileWidthInches', 'railLength',
     ],
     // A cassette is a module laid as a whole panel: calculatePieces reads its width, the baffle length and the spacing.
-    baffle_cassette: ['spacing', 'stockLength', 'cassetteWidth'],
+    baffle_cassette: ['spacing', 'stockLength', 'cassetteWidth', 'cassetteLength', 'cassetteGap', 'perimeterTrimLength'],
     linear_parts: ['partLength'],
     custom_assembly: [],
   }
