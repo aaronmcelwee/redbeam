@@ -754,6 +754,45 @@ const STEPS = [
     return problems
   }],
   /*
+   * A cassette scope's parts (#174-#177): full and built-to-fit cassettes,
+   * baffles cut to fit, installed length, and trim in feet.
+   */
+  ['cassette-parts', async (page) => {
+    const problems = []
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    await act('go_to_page', { page: 0 })
+    await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
+    const scope = await act('create_scope', {
+      label: 'CASS-01', productType: 'baffle_cassette',
+      specifications: { spacing: '6', spacingUnit: 'in', stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in', yieldGranularity: 'half', removableShare: '10', spacingSource: 'section' },
+    })
+    if (typeof scope.scopeId !== 'string') return [`cassette-parts: could not add a cassette scope: ${JSON.stringify(scope).slice(0, 160)}`]
+    await act('create_markup', { kind: 'area', scopeId: scope.scopeId, rings: [[{ x: 0.3, y: 0.3 }, { x: 0.57, y: 0.3 }, { x: 0.57, y: 0.53 }, { x: 0.3, y: 0.53 }]] })
+    await act('set_scope_direction', { scopeId: scope.scopeId, x1: 0.3, y1: 0.3, x2: 0.57, y2: 0.3 })
+    await act('set_active_scope', { scopeId: scope.scopeId })
+    await page.waitForTimeout(1200)
+    const bom = await act('get_bom', { scopeId: scope.scopeId })
+    const keys = (bom.lines ?? []).map((l) => l.itemKey)
+    for (const k of ['cassette_full', 'cassette_partial', 'perimeter_length', 'installed_length']) {
+      if (!keys.includes(k)) problems.push(`cassette-parts: get_bom has no ${k} line: ${keys.join(', ')}`)
+    }
+    const list = await act('get_piece_list', { scopeId: scope.scopeId })
+    if (list.cassettes === undefined) problems.push(`cassette-parts: get_piece_list gives no cassettes: ${JSON.stringify(list).slice(0, 160)}`)
+    const prior = await page.locator('nav.crumbs .crumb.current').first().textContent().catch(() => null)
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    await page.locator('button.es-row', { hasText: 'CASS-01' }).first().click()
+    await page.waitForTimeout(1000)
+    await page.screenshot({ path: join(out, `${shotPrefix}cassette-parts-scope.png`) })
+    const text = await page.locator('aside.es-panel').first().innerText().catch(() => '')
+    if (!/built to fit/.test(text)) problems.push('cassette-parts: the Cassettes line does not say how many are built to fit')
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()
+    await page.waitForTimeout(300)
+    return problems
+  }],
+  /*
    * The segment bar over the dock while tracing (Line, Arc, Circle), the Link
    * tool's picker and the detail-callout review (Kenneth, 2026-11-26, items 8
    * and 12). Each must open, read cleanly in both themes, and close on Escape

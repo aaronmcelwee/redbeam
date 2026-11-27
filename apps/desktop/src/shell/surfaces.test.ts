@@ -121,8 +121,9 @@ describe('the bill of materials, folded into the scope', () => {
    * length is a tile, and a hand-quantified product has no Parts section.
    */
   it('folds breakdowns and lengths into the part they belong to', () => {
-    expect(src).toContain("const FOLDED_ITEMS = new Set(['panel_full', 'panel_half', 'linear_measured', 'linear_ordered', 'linear_offcut'])")
-    expect(src).toContain("if (item.itemKey === 'net_linear') { view.installedFeet = item.quantity; continue }")
+    expect(src).toContain("  'panel_full', 'panel_half', 'linear_measured', 'linear_ordered', 'linear_offcut',")
+    expect(src).toContain("'cassette_full', 'cassette_partial', 'cassette_removable', 'cassette_by_area', 'baffle_count', 'baffle_cut',")
+    expect(src).toContain("if (item.itemKey === 'net_linear' || item.itemKey === 'installed_length') { view.installedFeet = item.quantity; continue }")
     expect(src).toContain("{product !== 'custom_assembly' && (")
   })
 

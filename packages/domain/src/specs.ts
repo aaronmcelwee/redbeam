@@ -422,6 +422,17 @@ export function readGranularity(specs: Specifications, key: string): Granularity
   return v === 'half' || v === 'quarter' ? v : 'full'
 }
 
+/**
+ * Whether a scope's joints line up across its runs. ON unless the scope says
+ * "false" (Coinbase blind test, 2026-11-27, #142): a scope an agent made
+ * without the key laid every run from its own wall, so joints staggered, and
+ * banding the field by hand to line them up counted every band edge as a run
+ * end. The per-scope switch (Seams: aligned / free) still turns it off.
+ */
+export function alignSeamsOf(specs: Specifications): boolean {
+  return readBool(specs, 'alignSeams', true)
+}
+
 /** Read a Qt-style boolean spec ("true"/"false" as text). */
 export function readBool(specs: Specifications, key: string, fallback = false): boolean {
   const v = readString(specs, key)

@@ -682,6 +682,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "scale": {
+            "type": "string",
+            "description": "Measure at this stated scale instead, e.g. 1 1/2\" = 1'-0\" for a section or detail (read spacing there, then set spacingSource)."
           }
         },
         "required": [
@@ -1528,6 +1532,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "exact": {
+            "type": "boolean",
+            "description": "Fail, writing nothing, if a cutout does not take off its own measured area (it lies partly outside the area or over an earlier cut). Each cutout's answer has cutSquareFeet and removedSquareFeet either way."
           }
         }
       },
@@ -3744,6 +3752,14 @@
           "fitEdges": {
             "type": "boolean",
             "description": "For trace_field: fit stair-stepped edges to the drawn line. Default true."
+          },
+          "scale": {
+            "type": "string",
+            "description": "measure: a stated scale to measure at."
+          },
+          "exact": {
+            "type": "boolean",
+            "description": "create_markups: fail if a cutout takes less than it measures."
           }
         },
         "required": [

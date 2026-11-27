@@ -637,6 +637,28 @@ describe('a Light file is saved into only once its own takeoff is in the window'
     expect(scope[0]?.scope_type).toBe('area')
   })
 
+  it('brings a lost scope back with the product and spec its archiving recorded (#180)', async () => {
+    const { db, docId } = await freshDb()
+    await seedTakeoff(db, docId)
+    const file = memoryFile(await blankPdf())
+    await embedDrawing({ db, documentId: docId, relativePath: 'A-101.pdf', displayName: 'A-101', appVersion: 't', file, allScopes: true })
+    const read = await readSheetEmbed(file.bytes)
+    const specifications = { productType: 'baffle', spacing: '6', spacingUnit: 'in', stockLength: '10', stockLengthUnit: 'ft' }
+    const slice = { ...read.slice!, tables: { ...read.slice!.tables, scopes: [], activity: [
+      { id: 'a1', event_type: 'scope.changed', entity_type: 'scope', entity_id: 's1', origin: 'agent', actor_id: null,
+        details_json: JSON.stringify({ label: 'Old name' }), created_at: '2026-11-27T10:00:00.000Z' },
+      { id: 'a2', event_type: 'scope.archived', entity_type: 'scope', entity_id: 's1', origin: 'agent', actor_id: null,
+        details_json: JSON.stringify({ label: 'Blind takeoff', scopeType: 'area', color: '#ff0000', specifications }), created_at: '2026-11-27T11:00:00.000Z' },
+    ] } }
+    const next = await freshDb()
+    await importSlice(next.db, next.docId, slice)
+    const scope = await next.db.all<{ label: string, color: string, specifications_json: string }>(
+      'SELECT label, color, specifications_json FROM scopes WHERE id = ?', ['s1'])
+    expect(scope[0]?.label).toBe('Blind takeoff')
+    expect(scope[0]?.color).toBe('#ff0000')
+    expect(JSON.parse(scope[0]!.specifications_json)).toEqual(specifications)
+  })
+
   it('is not saved into when part of its takeoff could not be loaded', async () => {
     const { db, docId } = await freshDb()
     await seedTakeoff(db, docId)

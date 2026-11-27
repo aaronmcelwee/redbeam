@@ -16,7 +16,7 @@ import {
   PAGE_DIRECTIONS_KEY, AREA_DIRECTIONS_KEY, AREA_ORIGINS_KEY, pageDirectionsFrom, areaDirectionsFrom,
   areaOriginsFrom, patternStartPoint, isAreaCorner, nearestAreaVertex, areaCornerPoint, normalizedBoundingRect, pointInRegion,
   canonicalProductType, scopeDefaultDirectionFrom as scopeDirectionOf, formatFeetInches,
-  editableMeasures, measureHelp, readString, unitDisplayText, readBool,
+  editableMeasures, measureHelp, readString, unitDisplayText, readBool, alignSeamsOf, cassettePieceList,
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
   checkOutline, type OutlineIssue,
   PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, scopeProductLabel, readPatternRecipe, builtInAsRecipe,
@@ -147,7 +147,7 @@ import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sh
 import { adoptForeignAnnots } from './export/adopt.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import {
-  cutAllEdits, cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts,
+  cutAllEdits, cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, measureCut, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts, type CutMeasure,
   type GeometryEdit,
   CUT_PREFIX,
 } from './cutouts.js'
@@ -164,7 +164,7 @@ import { indexProject, type IndexProgress } from './search/indexer.js'
 import { findInPageText, pageForSheet, wordsOnPage, type TextMatch } from './search/findText.js'
 import type { PageText } from '@redbeam/viewer'
 import { detectPattern, linesFromSegments, measurePoints } from './search/measure.js'
-import { describeAllProducts, describeProduct, measuresAsText, missingKeys, unknownSpecKeys } from './agent/products.js'
+import { describeAllProducts, describeProduct, measuresAsText, missingKeys, spacingSourceFlag, unknownSpecKeys } from './agent/products.js'
 import { ringsAreaPoints, snapToLinework } from './agent/snapTrace.js'
 import { traceFieldInWorker } from './agent/fieldTraceInWorker.js'
 import { expandRing } from './agent/arcs.js'
@@ -5911,7 +5911,16 @@ export default function Workspace({
     try {
       await logActivity(db, {
         eventType: archived ? 'scope.archived' : 'scope.restored', entityType: 'scope', entityId: id,
-        origin: actorRef.current, details: { label: scopesRef.current.find((x) => x.id === id)?.label ?? '' },
+        origin: actorRef.current,
+        // The whole scope goes on the trail when it is archived (#180): a file
+        // that loses the scope row can still bring back its product and spec.
+        details: ((): Record<string, unknown> => {
+          const sc = [...scopesRef.current, ...archivedScopesRef.current].find((x) => x.id === id)
+          return {
+            label: sc?.label ?? '',
+            ...(archived && sc !== undefined ? { scopeType: sc.scopeType, color: sc.color, specifications: sc.specifications } : {}),
+          }
+        })(),
       })
     } catch { /* as in saveScope */ }
     saveRef.current?.()
@@ -7810,12 +7819,20 @@ export default function Workspace({
             return { error: 'measure needs `points`: two or more {x,y} in NORMALIZED [0,1] page coordinates' }
           }
           const here = ap.id
+          // A section or detail at its own scale (#179: spacing is read off the section, at the section's scale).
+          let stated: { feetPerPoint: number; text: string } | undefined
+          if (typeof params['scale'] === 'string' && params['scale'].trim() !== '') {
+            const read = statedScales({ text: params['scale'] }).scales[0]
+            if (read === undefined) return { error: `could not read the scale "${params['scale']}"; give it as printed, e.g. 1 1/2" = 1'-0" or 1:20` }
+            stated = { feetPerPoint: read.feetPerPoint, text: read.text }
+          }
           return {
             page: ap.index,
             ...measurePoints(pts, ap.size, {
               closed: params['closed'] === true,
               regions: projectRegions.get(here) ?? [],
               pageFeetPerPoint: ap.feetPerPoint,
+              ...(stated !== undefined ? { stated } : {}),
             }),
           }
         }
@@ -8072,6 +8089,18 @@ export default function Workspace({
                 .filter((x) => x.over !== undefined)
                 .map(({ e, over }) => ({ scopeId: e.scope.id, scope: e.scope.label, stockFeet: over!.stockFeet, runs: over!.runs, longest: over!.longest, joints: over!.joints, fitsWithoutJoints: over!.fitsWithoutJoints }))
               return warn.length > 0 ? { longerThanStock: warn } : {}
+            })(),
+            /*
+             * What to look at again: a cassette width that holds no whole
+             * number of baffles (#176), and spacing with only the RCP, or
+             * nothing recorded, behind it (#179).
+             */
+            ...((): Record<string, unknown> => {
+              const checks = entries.map((e) => {
+                const flags = [...(e.result.warnings ?? []), ...[spacingSourceFlag(e.scope.specifications)].filter((x): x is string => x !== null)]
+                return flags.length > 0 ? { scopeId: e.scope.id, scope: e.scope.label, checks: flags } : null
+              }).filter((x) => x !== null)
+              return checks.length > 0 ? { toCheck: checks } : {}
             })(),
             /*
              * The frame round each scope's field, per sheet, with the edges
@@ -9515,8 +9544,10 @@ export default function Workspace({
               p = nearestOnBoundary(m.rings, pt, pageBox)
             } else if (mode === 'point') {
               if (pt === null) return { error: 'point mode needs `point` {x,y}, normalized' }
-              p = patternStartPoint(pt, m.rings, { scaleX: ap.size.width, scaleY: ap.size.height, radius: 3 })
-              if (p === null) return { error: `that point is outside area ${m.id}` }
+              // Exactly where it was put: point mode never snaps to a corner or an
+              // edge (#178); corner and edge modes are for that.
+              if (!pointInRegion(pt, m.rings)) return { error: `that point is outside area ${m.id}; give a point inside it, or use mode corner or edge` }
+              p = { x: pt.x, y: pt.y }
             } else {
               return { error: 'mode must be point, corner, edge, center, grid or auto' }
             }
@@ -10151,7 +10182,7 @@ export default function Workspace({
           const pending: Markup[] = []
           // Cutouts into areas already in the PDF are cut after the loop, all
           // together, each into the shape the ones before it left.
-          const cuts: Array<{ index: number; pageId: string; ring: Polygon; pendingHit: string[] }> = []
+          const cuts: Array<{ index: number; pageId: string; ring: Polygon; pendingHit: string[]; pendingMeasure: CutMeasure }> = []
           const results: Array<Record<string, unknown>> = []
           for (let i = 0; i < list.length; i++) {
             // Each entry may name its own ZERO-based page; otherwise the sheet showing.
@@ -10169,7 +10200,7 @@ export default function Workspace({
                 const m = pending.find((x) => x.id === e.id)!
                 m.rings = e.after
               }
-              cuts.push({ index: i, pageId, ring, pendingHit: pendingEdits.map((e) => e.id) })
+              cuts.push({ index: i, pageId, ring, pendingHit: pendingEdits.map((e) => e.id), pendingMeasure: measureCut(ring, pendingEdits) })
               results.push({ index: i, kind: 'cutout' })
               continue
             }
@@ -10181,12 +10212,36 @@ export default function Workspace({
             })
           }
           const cmds = pending.map((m) => cmdCreate({ ...m, origin: 'agent', reviewState: 'accepted' }))
-          const { edits, cutBy } = cutAllEdits(docMarkupsRef.current, cuts, { notch: true })
+          const { edits, cutBy, measured } = cutAllEdits(docMarkupsRef.current, cuts, { notch: true })
           for (let k = 0; k < cuts.length; k++) {
             const hit = [...cuts[k]!.pendingHit, ...cutBy[k]!]
             if (hit.length === 0) return { error: `markup ${cuts[k]!.index}: the cutout crosses no area on this sheet`, created: 0 }
             const row = results.find((r) => r['index'] === cuts[k]!.index)!
             row['cut'] = hit
+            /*
+             * Every cut says what it measures and what it took off (item 1 of
+             * the Coinbase report: a 51 sf strip came off as 3.5 sf, silently).
+             * Where they differ it says why; with `exact` a cut that does not
+             * take its own measured area fails the call and nothing is written.
+             */
+            const pg = pageNumberFrom(cuts[k]!.pageId, docId)
+            const size = projectPageBoxes.get(cuts[k]!.pageId), fpp = projectCalibrations.get(cuts[k]!.pageId)
+            if (size === undefined || fpp === undefined || pg === null) continue
+            const sf = (normalized: number): number => Math.round(normalized * size.width * size.height * fpp * fpp * 100) / 100
+            const pm = cuts[k]!.pendingMeasure, dm = measured[k]!
+            const own = sf(pm.own), inside = sf(pm.inside + dm.inside), removed = sf(pm.removed + dm.removed)
+            row['cutSquareFeet'] = own
+            row['removedSquareFeet'] = removed
+            const tol = Math.max(0.05, own * 0.005)
+            if (Math.abs(own - removed) > tol) {
+              const why = [
+                ...(own - inside > tol ? [`${Math.round((own - inside) * 100) / 100} sf of it lies outside the area's outline`] : []),
+                ...(inside - removed > tol ? [`${Math.round((inside - removed) * 100) / 100} sf of it was already cut out`] : []),
+              ]
+              const text = `took ${removed} sf of its own ${own} sf: ${why.length > 0 ? why.join('; ') : 'the cut changed the area by less than it measures'}`
+              if (params['exact'] === true) return { error: `markup ${cuts[k]!.index}: the cutout ${text}. Nothing was written. Draw it inside the area, or leave out \`exact\`.`, created: 0 }
+              row['warning'] = `this cutout ${text}`
+            }
           }
           // What each cut area measures now, so a cut that took less than meant shows.
           const changed = edits.map((e) => {
@@ -10213,6 +10268,14 @@ export default function Workspace({
           if (!p) return { error: `no calculation for ${sc.label} yet` }
           if (p.result.blockers.length > 0) {
             return { error: `${sc.label} cannot be calculated yet: ${p.result.blockers.map((b) => (typeof b === 'string' ? b : JSON.stringify(b))).join('; ')}`, blockers: p.result.blockers, missing: missingKeys(readProductType(sc.specifications), sc.specifications) }
+          }
+          if (p.result.cassettes !== undefined) {
+            // Full and partial cassettes and every baffle cut (#177); the counts are the BOM's own.
+            return {
+              scopeId: id, label: sc.label, productType: p.result.productType,
+              cassettes: cassettePieceList(p.result.cassettes), parts: p.result.quantities,
+              ...(p.result.warnings !== undefined ? { warnings: p.result.warnings } : {}),
+            }
           }
           if (p.result.runs.length === 0) {
             return { scopeId: id, productType: p.result.productType, note: 'this product is laid out as panels, not runs; get_bom has the panel counts', parts: p.result.quantities }
@@ -10347,6 +10410,7 @@ export default function Workspace({
               productType: type, productLabel: productLabelFor(x.specifications), specifications: x.specifications,
               ...(type !== null ? { needs: missingKeys(readProductType(x.specifications), x.specifications) } : {}),
               markups: counts.get(x.id) ?? 0, archived, active: x.id === activeScopeRef.current,
+              ...((): Record<string, unknown> => { const f = spacingSourceFlag(x.specifications); return f !== null ? { spacingCheck: f } : {} })(),
             }
           })
           return { count: scopes.length, scopes }
@@ -12061,7 +12125,7 @@ export default function Workspace({
               : []),
             ...measures,
             {
-              id: 'cfg-seams', kind: 'command', title: 'Seams', detail: readBool(sc.specifications, 'alignSeams') ? 'aligned' : 'free', keywords: ['align', 'joints'],
+              id: 'cfg-seams', kind: 'command', title: 'Seams', detail: alignSeamsOf(sc.specifications) ? 'aligned' : 'free', keywords: ['align', 'joints'],
               run: async () => {
                 const live = liveScope(id)
                 if (live === undefined) return

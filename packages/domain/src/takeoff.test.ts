@@ -523,7 +523,8 @@ describe('perimeter trim across sheets at different scales', () => {
 
   it('reads the trim length the way the engine does, per product', () => {
     expect(perimeterTrimLengthFeet(scope.specifications)).toBe(10)
-    expect(perimeterTrimLengthFeet({ productType: 'baffle_cassette', cassetteWidth: '24', cassetteWidthUnit: 'in' })).toBe(2)
+    expect(perimeterTrimLengthFeet({ productType: 'baffle_cassette', cassetteWidth: '24', cassetteWidthUnit: 'in' })).toBeNull()
+    expect(perimeterTrimLengthFeet({ productType: 'baffle_cassette', perimeterTrimLength: '12', perimeterTrimLengthUnit: 'ft' })).toBe(12)
     expect(perimeterTrimLengthFeet({ productType: 'baffle', perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft' })).toBeNull()
     expect(perimeterTrimLengthFeet({ productType: 'panels' })).toBeNull()
   })

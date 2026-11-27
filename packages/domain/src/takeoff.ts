@@ -39,18 +39,17 @@ import {
 } from './specs.js'
 import { checkPatternRecipe, readPatternRecipe, PATTERN_RECIPE_KEY, type ResolvedRecipe } from './patternRecipe.js'
 import { layoutPattern, type BuiltInGeometry, type PatternShape } from './patternEngine.js'
+import { cassetteQuantities, layoutCassettes, readCassetteInputs, type CassetteLayout } from './cassettes.js'
 
 /**
  * The length a scope's perimeter trim is cut in, feet, or null when it has
- * none: Trim Len for panels and planks; for a baffle cassette its width,
- * which is its trim convention. Other products order no trim.
+ * none: Trim Len for panels, planks and baffle cassettes (a cassette's
+ * trim was cut at its width until #177). Other products order no trim.
  */
 export function perimeterTrimLengthFeet(specs: Specifications): number | null {
   const product = readProductType(specs)
-  const feet = product === 'baffle_cassette'
-    ? measureToFeet(specs, { valueKey: 'cassetteWidth', unitKey: 'cassetteWidthUnit', label: 'Cassette W' })
-    : product === 'panels' || product === 'planks'
-      ? measureToFeet(specs, { valueKey: 'perimeterTrimLength', unitKey: 'perimeterTrimLengthUnit', label: 'Trim Len' })
+  const feet = product === 'panels' || product === 'planks' || product === 'baffle_cassette'
+    ? measureToFeet(specs, { valueKey: 'perimeterTrimLength', unitKey: 'perimeterTrimLengthUnit', label: 'Trim Len' })
       : null
   return feet !== null && feet > 0 ? feet : null
 }
@@ -138,6 +137,10 @@ export interface PieceResult {
    */
   confidence?: 'verified' | 'unverified'
   confidenceNote?: string
+  /** A baffle cassette's modules, full and partial, and their baffles (cassettes.ts). */
+  cassettes?: CassetteLayout
+  /** Numbers that are real but worth a second look (a cassette width that holds no whole number of baffles). */
+  warnings?: string[]
 }
 
 export interface PieceOptions {
@@ -729,43 +732,25 @@ export function calculatePieces(
    * its trim length.
    */
   if (product === 'baffle_cassette') {
-    const cassetteWidth = measureToFeet(specs, { valueKey: 'cassetteWidth', unitKey: 'cassetteWidthUnit', label: 'Cassette W' })
-    const stock = measureToFeet(specs, { valueKey: 'stockLength', unitKey: 'stockLengthUnit', label: 'Stock' })
-    const spacing = measureToFeet(specs, { valueKey: 'spacing', unitKey: 'spacingUnit', label: 'Spacing OC' })
-    const missing = [
-      ...(cassetteWidth === null ? ['Cassette W'] : []),
-      ...(stock === null ? ['Stock'] : []),
-      ...(spacing === null ? ['Spacing OC'] : []),
-    ]
-    if (cassetteWidth === null || stock === null || spacing === null) {
-      return { productType: product, quantities: [], cells: [], runs: [], blockers: missing }
-    }
+    const inputs = readCassetteInputs(specs)
+    if ('missing' in inputs) return { productType: product, quantities: [], cells: [], runs: [], blockers: inputs.missing }
     const groups = layoutGroupsFor(mine, cal, withDirections)
     if (groups.length === 0) return { productType: product, quantities: [], cells: [], runs: [], blockers: noGroups(mine) }
-    const result = layoutPanels(groups, {
-      panelWidthFeet: cassetteWidth,
-      panelLengthFeet: stock,
+    const layout = layoutCassettes(groups, inputs, {
       feetPerPoint: cal.feetPerPoint,
-      panelGranularity: 'full',
       ...(opts.perAreaOrigin === true ? { perAreaOrigin: true } : {}),
       ...(opts.edgeSnapFeet !== undefined ? { edgeSnapFeet: opts.edgeSnapFeet } : {}),
     })
-    const perCassette = Math.max(1, Math.floor(cassetteWidth / spacing + 1e-9))
-    const cassettes = result.panelCount
-    const baffles = cassettes * perCassette
     return {
       productType: product,
       blockers: [],
       // The modules themselves, for the preview: a cassette ceiling is drawn
       // as its cassettes, not as free baffle runs.
-      cells: result.cells,
+      cells: layout.cells,
       runs: [],
-      quantities: [
-        { itemKey: 'cassette_count', label: 'Cassettes', quantity: cassettes, unit: 'EA' },
-        { itemKey: 'primary_stock', label: 'Baffles', quantity: baffles, unit: 'EA' },
-        { itemKey: 'end_caps', label: 'End caps', quantity: baffles * 2, unit: 'EA' },
-        { itemKey: 'perimeter_trim', label: 'Perimeter trim', quantity: groupTrimPieces(groups, cassetteWidth, cal.feetPerPoint), unit: 'EA' },
-      ].filter((q) => q.quantity > 0),
+      cassettes: layout,
+      ...(layout.warnings.length > 0 ? { warnings: layout.warnings } : {}),
+      quantities: cassetteQuantities(layout),
     }
   }
 

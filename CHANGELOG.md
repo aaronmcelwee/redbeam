@@ -5,6 +5,24 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.128 — 2026-11-27
+
+### Cassettes counted as built, and joints that line up
+
+- **Partial cassettes are their own line.** A cassette the field only partly covers is now counted as built to fit, with its baffles cut to the length the field gives them and your yield applied to those cuts. Before, every cassette the field touched counted as a full one, which on the Coinbase test gave 403 cassettes against 287 by area and about 200 extra baffles.
+- **Cassettes get their own length, gap and removable share.** Agents can set the cassette length (it used to borrow the stock length), the gap between cassettes and the share that are removable, and REDBEAM warns when a cassette width does not hold a whole number of baffles, suggesting the nearest widths that do.
+- **Usable cassette outputs.** Perimeter trim is in feet, and in pieces only when a trim length is set (no more "818 EA"). The installed baffle length is shown, and agents get a cassette piece list with every cut.
+- **Joints line up across runs by default.** Seams now sit on common lines across the field unless a scope's Seams setting says free. Agents no longer band a field by hand to line them up, which counted every band edge as a run end.
+
+### Safer agent takeoffs
+
+- **Every cut says what it took.** When an agent cuts out part of an area, it is told the cut's own area and how much the area shrank, and why they differ (part of the cut lies outside the area, or was already cut). It can ask for the call to fail instead.
+- **The right file, always.** With two or more of its PDFs open, an agent must name the file for anything that changes the takeoff or reads quantities, so it can no longer read an empty BOM from the wrong PDF.
+- **Start points stay put.** An agent placing a layout start point at an exact spot no longer has it pulled to a nearby corner.
+- **Spacing from the section.** Agents can measure a section or detail at its own scale, record where each scope's spacing came from, and see any scope whose spacing rests only on the ceiling plan.
+- **Archived scopes keep their product.** Archiving now records a scope's product and settings, so a scope a file loses comes back with them.
+
+
 ## 0.3.127 — 2026-11-27
 
 ### Agents in Claude Code now receive the takeoff skill

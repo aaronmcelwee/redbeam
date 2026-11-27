@@ -62,14 +62,15 @@ describe('resolveRunInputs', () => {
   })
 
   /** Another one: a cassette's trim length is its cassetteWidth. */
-  it('takes a cassette’s trim length from cassetteWidth', () => {
-    const inputs = resolveRunInputs('baffle_cassette', {
+  it('takes a cassette’s trim length from Trim Len, never its width (#177)', () => {
+    const base = {
       spacing: '2', spacingUnit: 'ft',
       stockLength: '8', stockLengthUnit: 'ft',
       maxConnectorSpacing: '4', maxConnectorSpacingUnit: 'ft',
       cassetteWidth: '4', cassetteWidthUnit: 'ft',
-    })
-    expect(inputs?.perimeterTrimLengthFeet).toBe(4)
+    }
+    expect(resolveRunInputs('baffle_cassette', base)?.perimeterTrimLengthFeet).toBe(0)
+    expect(resolveRunInputs('baffle_cassette', { ...base, perimeterTrimLength: '10', perimeterTrimLengthUnit: 'ft' })?.perimeterTrimLengthFeet).toBe(10)
   })
 
   /** And a plain baffle reads no trim at all, so it never reports any. */

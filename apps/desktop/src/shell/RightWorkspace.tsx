@@ -53,7 +53,7 @@ import { formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, par
 import {
   PRODUCT_TYPES, PRODUCT_TYPE_LABEL, buildBom, editableMeasures,
   missingRequiredMeasures, readProductType, readString, unitDisplayText, writeProductType,
-  deriveRunTriple, granularityKey, readGranularity, readBool, GRANULARITIES, isDeviceScope, DEVICE_SPEC_KEY, factoryCutLine,
+  deriveRunTriple, granularityKey, readGranularity, readBool, alignSeamsOf, GRANULARITIES, isDeviceScope, DEVICE_SPEC_KEY, factoryCutLine,
 } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Count, Crosshair, Cutout, Ellipsis, FileText, Glyph, Highlighter,
@@ -1214,7 +1214,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const slots: Slot[] = [
     ...slotsOf([rows]),
     // A run product's installed length is a measurement, not a part (board 4).
-    ...(view.installedFeet === null ? [] : [{ itemKey: 'net_linear', unit: 'LF' as const, label: 'Installed', total: view.installedFeet, scopes: 1 }]),
+    ...(view.installedFeet === null ? [] : [{ itemKey: 'net_linear', unit: 'LF' as const, label: 'Installed', total: Math.round(view.installedFeet), scopes: 1 }]),
   ]
 
   /* The summary card, line for line, as the copy carries it. */
@@ -1544,7 +1544,7 @@ function setupLine(product: ProductType, specs: Specifications, denominator: num
   }
   if (product !== 'custom_assembly' && product !== 'linear_parts') {
     bits.push(readGranularity(specs, granularityKey(product)))
-    bits.push(readBool(specs, 'alignSeams') ? 'aligned' : 'free')
+    bits.push(alignSeamsOf(specs) ? 'aligned' : 'free')
   }
   return bits.join(' · ')
 }
@@ -1583,9 +1583,13 @@ interface PartsView {
    */
   factoryCut: { quantity: number | null; detail: string } | null
 }
-const ACCESSORY_ITEMS = new Set(['perimeter_trim', 'connectors', 'end_caps', 'joiners', 'suspension_rails'])
+const ACCESSORY_ITEMS = new Set(['perimeter_trim', 'perimeter_length', 'connectors', 'end_caps', 'joiners', 'suspension_rails'])
 /** Folded into a primary line's detail, or into a tile; never a row. */
-const FOLDED_ITEMS = new Set(['panel_full', 'panel_half', 'linear_measured', 'linear_ordered', 'linear_offcut'])
+const FOLDED_ITEMS = new Set([
+  'panel_full', 'panel_half', 'linear_measured', 'linear_ordered', 'linear_offcut',
+  // A cassette scope's breakdowns, shown in its Cassettes and Baffle stock lines (#174).
+  'cassette_full', 'cassette_partial', 'cassette_removable', 'cassette_by_area', 'baffle_count', 'baffle_cut',
+])
 
 function partsView(
   pieces: PieceResult | undefined, product: ProductType, specs: Specifications, cut?: FactoryCut,
@@ -1620,7 +1624,7 @@ function partsView(
   const feet = (valueKey: string) => measureToFeet(specs, { valueKey, unitKey: `${valueKey}Unit`, label: valueKey })
   const len = (f: number | null) => (f === null ? null : formatLength(f, 'ft'))
   for (const item of q) {
-    if (item.itemKey === 'net_linear') { view.installedFeet = item.quantity; continue }
+    if (item.itemKey === 'net_linear' || item.itemKey === 'installed_length') { view.installedFeet = item.quantity; continue }
     if (FOLDED_ITEMS.has(item.itemKey)) continue
     const row: PartRow = { itemKey: item.itemKey, label: pieceLabel(item), quantity: item.quantity, unit: item.unit }
     if (item.itemKey === 'panel_count') {
@@ -1631,17 +1635,29 @@ function partsView(
       const half = by('panel_half')
       if (half !== undefined && half.quantity > 0) row.detail = `${fmt(by('panel_full')?.quantity ?? 0)} full · ${fmt(half.quantity)} cut`
     } else if (item.itemKey === 'cassette_count') {
-      // A module: its width by the baffle length (Aaron, 2026-09-18).
+      // A module: its width by its length, the baffle length unless set (Aaron, 2026-09-18; #175).
       const w = len(feet('cassetteWidth'))
-      const l = len(feet('stockLength'))
+      const l = len(feet('cassetteLength') ?? feet('stockLength'))
       if (w !== null && l !== null) row.chip = `${w} × ${l}`
+      const partial = by('cassette_partial')?.quantity ?? 0
+      const removable = by('cassette_removable')?.quantity ?? 0
+      const bits = [
+        ...(partial > 0 ? [`${fmt(by('cassette_full')?.quantity ?? 0)} full`, `${fmt(partial)} built to fit`] : []),
+        ...(removable > 0 ? [`${fmt(removable)} removable`] : []),
+      ]
+      if (bits.length > 0) row.detail = bits.join(' · ')
     } else if (item.itemKey === 'primary_stock') {
       const stock = len(feet('stockLength'))
       if (stock !== null) row.chip = `${stock} stock`
       if (product === 'baffle_cassette') {
-        const w = feet('cassetteWidth')
-        const s = feet('spacing')
-        if (w !== null && s !== null) row.detail = `${Math.max(1, Math.floor(w / s + 1e-9))} per cassette`
+        const per = pieces.cassettes?.bafflesPerCassette
+        const baffles = by('baffle_count')?.quantity
+        const cut = by('baffle_cut')?.quantity ?? 0
+        row.detail = [
+          ...(baffles !== undefined ? [`${fmt(baffles)} baffles`] : []),
+          ...(cut > 0 ? [`${fmt(cut)} cut to fit`] : []),
+          ...(per !== undefined ? [`${per} per cassette`] : []),
+        ].join(' · ')
       }
     } else if (item.itemKey === 'linear_parts') {
       const each = len(feet('partLength'))
@@ -1903,7 +1919,7 @@ function SetupGrid({
             <select
               id="scope-seams"
               className="es-field"
-              value={readBool(scope.specifications, 'alignSeams') ? 'aligned' : 'free'}
+              value={alignSeamsOf(scope.specifications) ? 'aligned' : 'free'}
               onChange={(e) => patch({ ...scope.specifications, alignSeams: String(e.target.value === 'aligned') })}
             >
               <option value="aligned">aligned</option>

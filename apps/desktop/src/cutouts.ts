@@ -138,14 +138,17 @@ export function cutEdits(markups: readonly Markup[], pageId: string, ring: Polyg
  * kept only the last cut of each area (Coinbase blind test, 2026-11-27:
  * three cutouts reported "cut", one stored).
  */
-export function cutAllEdits(markups: readonly Markup[], cuts: ReadonlyArray<{ pageId: string, ring: Polygon }>, opts: { notch?: boolean } = {}): { edits: GeometryEdit[], cutBy: string[][] } {
+export function cutAllEdits(markups: readonly Markup[], cuts: ReadonlyArray<{ pageId: string, ring: Polygon }>, opts: { notch?: boolean } = {}): { edits: GeometryEdit[], cutBy: string[][], measured: CutMeasure[] } {
   const now = new Map<string, Markup>()
   for (const m of realOnly(markups)) if (m.kind === 'area') now.set(m.id, m)
   const first = new Map<string, Region>()
   const cutBy: string[][] = []
+  const measured: CutMeasure[] = []
   for (const c of cuts) {
     const hit: string[] = []
-    for (const e of cutEdits([...now.values()], c.pageId, c.ring, opts)) {
+    const edits = cutEdits([...now.values()], c.pageId, c.ring, opts)
+    measured.push(measureCut(c.ring, edits))
+    for (const e of edits) {
       if (!first.has(e.id)) first.set(e.id, e.before)
       now.set(e.id, { ...now.get(e.id)!, rings: e.after })
       hit.push(e.id)
@@ -153,7 +156,28 @@ export function cutAllEdits(markups: readonly Markup[], cuts: ReadonlyArray<{ pa
     cutBy.push(hit)
   }
   const edits = [...first].map(([id, before]) => ({ id, before, after: copy(now.get(id)!.rings) }))
-  return { edits, cutBy }
+  return { edits, cutBy, measured }
+}
+
+/**
+ * What one cut measures and what it took, in the rings' own (normalized)
+ * units (Coinbase blind test, 2026-11-27, item 1: a 51 sf strip came off as
+ * 3.5 sf, and nothing said so). `removed` is how much smaller the areas got;
+ * `inside` is the part of the cut inside their outlines. A cut takes all of
+ * `inside` unless part of it was already a hole; what lies outside every
+ * outline is `own - inside`.
+ */
+export interface CutMeasure { own: number, inside: number, removed: number }
+
+export function measureCut(ring: Polygon, edits: readonly GeometryEdit[]): CutMeasure {
+  let inside = 0
+  let removed = 0
+  for (const e of edits) {
+    const outline = e.before[0]
+    if (outline !== undefined) inside += regionArea(clipRingToRings(ring, [outline]))
+    removed += regionArea(areaRegion(e.before)) - regionArea(areaRegion(e.after))
+  }
+  return { own: regionArea([ring]), inside, removed: Math.max(0, removed) }
 }
 
 /** Remove one hole from its own area. */
