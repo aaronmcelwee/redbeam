@@ -3764,3 +3764,93 @@ html[data-backdrop="tabbed"] .dockgroup {
 .dockmarkup > .dockmarkupmore { width: 18px; padding-inline: 0; }
 /* A menu row's keyboard shortcut, right-aligned and quiet (Fluent's MenuFlyoutItem KeyboardAcceleratorText). */
 .menukey { margin-left: auto; padding-left: var(--ads-sp-4); color: var(--ads-ink-3); font-size: var(--rb-text-caption, 12px); }
+
+/*
+ * Line | Arc | Circle for Area, Cutout and Linear (SegmentBar.tsx): one
+ * dock surface, centred one row above the dock so it reads as that tool's
+ * options and never covers the tools themselves.
+ */
+.segbar {
+  position: absolute;
+  /* Centred without left: 50%, which would cap its width at half the drawing. */
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: max-content;
+  /* At the top of the drawing: over the dock it collided with the sheet row a narrow dock wraps up. */
+  top: var(--ads-sp-3);
+  z-index: 100;
+  max-width: calc(100% - var(--ads-sp-8));
+}
+.segbar .segbtn { height: var(--rb-dock-btn); padding-inline: var(--ads-sp-2) var(--ads-sp-3); }
+.segbar .segcaption {
+  padding-inline: var(--ads-sp-3) var(--ads-sp-2);
+  color: var(--ads-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 1px solid var(--ads-line-2);
+  margin-left: var(--ads-sp-1);
+}
+
+/* The Link tool's sheet picker (LinkPicker.tsx). */
+.linkpicker { width: 320px; display: flex; flex-direction: column; max-height: min(60vh, 440px); overflow: hidden; }
+.linkpicker .linkfilter { margin: 0 var(--ads-sp-2) var(--ads-sp-1); }
+.linkpicker .linkrows { overflow-y: auto; overflow-x: hidden; overscroll-behavior: none; min-height: 0; }
+.linkpicker .linknum { flex: none; font-weight: 600; color: var(--ads-ink); font-variant-numeric: tabular-nums; }
+.linkpicker .linktitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.linkpicker .menuitem[aria-selected="true"] { background: var(--ads-inset); }
+
+/*
+ * The callout review (CalloutReview.tsx): a flyout panel down the right of
+ * the drawing, so the sheet stays in view while the list is checked.
+ */
+.calloutreview {
+  position: absolute;
+  top: var(--ads-sp-3);
+  right: var(--ads-sp-3);
+  bottom: calc(var(--ads-sp-4) + var(--rb-dock-btn) + 2 * var(--rb-dock-pad) + 2px + var(--ads-sp-3));
+  width: 360px;
+  max-width: calc(100% - var(--ads-sp-6));
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rb-surface-stroke);
+  border-radius: var(--ads-radius-l);
+  background: var(--rb-flyout);
+  backdrop-filter: blur(30px) saturate(125%);
+  box-shadow: var(--rb-shadow-flyout);
+  color: var(--ads-ink);
+}
+.calloutreview .crhead { display: flex; align-items: flex-start; gap: var(--ads-sp-2); padding: var(--ads-sp-3) var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-3); }
+.calloutreview .crhead > svg { margin-top: 2px; color: var(--rb-accent); }
+.calloutreview .grow { flex: 1 1 auto; min-width: 0; }
+.calloutreview .crtitle { font-weight: 600; }
+.calloutreview .crsub { color: var(--ads-ink-2); font-size: 12px; margin-top: 2px; }
+.calloutreview progress { width: 100%; height: 4px; margin-top: var(--ads-sp-2); accent-color: var(--rb-accent); }
+.calloutreview .crtools { display: flex; gap: var(--ads-sp-1); padding: 0 var(--ads-sp-3) var(--ads-sp-2); }
+.calloutreview .crlist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: none; padding: 0 var(--ads-sp-1); border-top: 1px solid var(--ads-line); }
+.calloutreview .crgroup { position: sticky; top: 0; z-index: 1; padding: var(--ads-sp-2) var(--ads-sp-2) var(--ads-sp-1); font-weight: 600; font-size: 12px; background: var(--rb-flyout); }
+.calloutreview .crgroup span, .calloutreview .crto span { color: var(--ads-ink-2); font-weight: 400; margin-left: var(--ads-sp-1); }
+.calloutreview .crrow { display: flex; align-items: center; gap: var(--ads-sp-1); padding-left: var(--ads-sp-2); border-radius: var(--ads-radius-s); }
+.calloutreview .crrow[data-focus] { background: var(--rb-selected); }
+.calloutreview .crrow input { flex: none; accent-color: var(--rb-accent); width: 16px; height: 16px; margin: 0; }
+.calloutreview .crpick {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--ads-sp-2);
+  height: 32px; padding: 0 var(--ads-sp-2); border: 0; border-radius: var(--ads-radius-s);
+  background: transparent; color: var(--ads-ink); font: inherit; text-align: left; cursor: pointer;
+}
+.calloutreview .crpick:hover { background: var(--ads-inset); }
+.calloutreview .crtext { flex: none; font-variant-numeric: tabular-nums; }
+.calloutreview .crarrow { flex: none; color: var(--ads-ink-3); }
+.calloutreview .crto { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calloutreview .crkind { flex: none; font-size: 11px; color: var(--ads-ink-3); }
+.calloutreview .crfoot { display: flex; justify-content: flex-end; gap: var(--ads-sp-2); padding: var(--ads-sp-3); border-top: 1px solid var(--ads-line); }
+.segbar .segcaption.first { border-left: 0; margin-left: 0; border-right: 1px solid var(--ads-line-2); padding-inline: var(--ads-sp-2) var(--ads-sp-3); margin-right: var(--ads-sp-1); }
+/* The buttons keep their size; only the caption gives way on a narrow drawing. */
+.segbar .segbtn, .segbar .segbtn > svg { flex: none; }
+/* The narrow-dock rule squares every dock button; these keep their labels. */
+.segbar .dockbtn.segbtn { width: auto; }
+.segbar .segcaption { min-width: 0; flex: 0 1 auto; }
+.linkpicker .menuitem > svg, .linkpicker .linknum, .linkpicker .hint { flex: none; }

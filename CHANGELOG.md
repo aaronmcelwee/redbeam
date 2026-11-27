@@ -16,6 +16,15 @@ All are unsigned; SmartScreen will ask once.
 - **Colour, line width, fill, arrowheads and font size** are on a small bar over the dock while a markup tool is in hand or markups are selected.
 - **Bluebeam can edit them.** Each is saved in the PDF as the markup Bluebeam itself makes, so Revu opens them as its own text boxes, callouts, clouds and shapes.
 
+## 0.3.114 — 2026-11-26
+
+### Arcs, circles and links between sheets
+
+- **Arcs while you draw.** In Area, Cutout and Linear, press A (or pick Arc on the bar at the top of the drawing), click a point the arc passes through, then where it ends. The area and length follow the true curve.
+- **Circles.** Press Shift+C, click the centre, then a point on the edge. Handy for round cutouts and round clouds.
+- **Link tool.** Drag a box over a callout and pick the sheet it should open. The sheet named inside the box is listed first. Links are saved in the PDF, so they work in Bluebeam and any other viewer too.
+- **Link all detail callouts.** REDBEAM reads every sheet and lists each reference to another sheet, like 3/A5.01. Click a row to see it on the drawing, untick any you don't want, and add them all in one step.
+
 ## 0.3.113 — 2026-11-26
 
 ### Opening several sets, counts and lengths, sharper thumbnails

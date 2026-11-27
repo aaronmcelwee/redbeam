@@ -131,6 +131,8 @@ export interface EmbedMarkup extends WritableMarkup {
    * annotation Revu would write for it (noteAnnots.ts) rather than as takeoff.
    */
   noteContent?: NoteContent
+  /** A link markup's target page: written as a /Link that jumps there. */
+  linkTo?: number
 }
 
 export interface EmbedInput {
@@ -931,6 +933,39 @@ export function readSheetEmbedFrom(doc: PDFDocument): SheetEmbedReading {
 
 // ----------------------------------------------------------------- writing --
 
+/**
+ * A REDBEAM link as a PDF /Link: an invisible box that jumps to its sheet,
+ * shown whole (/Fit), the way Bluebeam's own sheet links are written. Every
+ * PDF reader follows it. Ours like any other REDBEAM annotation (/NM and the
+ * private key), so the next save takes it off and writes it again from the
+ * markup rather than adding a second.
+ */
+function buildLinkAnnot(
+  ctx: PDFContext,
+  page: PDFPage,
+  target: PDFPage | undefined,
+  markup: EmbedMarkup,
+  nm: string,
+  when: string,
+): PDFDict | null {
+  const ring = markup.rings[0]
+  if (target === undefined || ring === undefined || ring.length < 2) return null
+  const box = page.getCropBox() as PageBox
+  const rotation = page.getRotation().angle
+  const pts = ring.map((p) => toUserSpace(p, box, rotation))
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
+  return ctx.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+    Border: [0, 0, 0],
+    Dest: [target.ref, PDFName.of('Fit')],
+    NM: pdfText(nm),
+    M: PDFString.of(when),
+    F: 4,
+  })
+}
+
 function buildAnnot(
   ctx: PDFContext,
   page: PDFPage,
@@ -1455,7 +1490,9 @@ function embedInto(
       continue
     }
     const nm = redbeamNm(markup.id)
-    const annot = buildAnnot(ctx, page, markup, fpp, alpha, nm, when)
+    const annot = markup.kind === 'link'
+      ? buildLinkAnnot(ctx, page, pages[markup.linkTo ?? -1], markup, nm, when)
+      : buildAnnot(ctx, page, markup, fpp, alpha, nm, when)
     if (annot === null) continue
     annot.set(PDFName.of(KEY), ctx.obj({ MarkupId: pdfText(markup.id) }))
     annot.set(PDFName.of('P'), page.ref)

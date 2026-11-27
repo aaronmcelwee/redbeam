@@ -39,7 +39,7 @@ import { scopeProductLabel } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
-  OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, ZoomBox,
+  LinkIcon, OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, ZoomBox,
   ArrowShape, Callout, CloudShape, EllipseShape, LineShape, PenShape, PolygonShape, RectShape, TextBox,
 } from './icons.js'
 import { shortcutFor } from './sheetKeys.js'
@@ -78,7 +78,7 @@ const TOOLS: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
  * `'dimension'` is typed loosely here on purpose: the workspace is gaining the
  * tool in its own `Tool` union, and this row must not have to wait for it.
  */
-export type ReadTool = 'pan' | 'select' | 'dimension' | 'text' | MarkupTool
+export type ReadTool = 'pan' | 'select' | 'dimension' | 'text' | 'link' | MarkupTool
 const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
   { id: 'pan', label: 'Pan', title: 'Move the sheet', icon: Hand },
   // Marquee selection existed as Shift+drag in Pan and nobody found it.
@@ -88,6 +88,9 @@ const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon
   // Kenneth, 2026-11-26: "T should give me a text box". Selecting the
   // sheet's own words moved into Select: drag over text with no markups.
   { id: 'text', label: 'Text', title: 'Text box: drag a box, or click, then type', icon: TextBox },
+  // A box that jumps to another sheet (Kenneth #12). With the reading tools:
+  // a link is how the set is read, not takeoff.
+  { id: 'link', label: 'Link', title: 'Link: drag a box over a callout, then pick the sheet it goes to', icon: LinkIcon },
 ]
 
 /**

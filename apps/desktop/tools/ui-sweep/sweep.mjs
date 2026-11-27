@@ -753,6 +753,73 @@ const STEPS = [
     await page.waitForTimeout(300)
     return problems
   }],
+  /*
+   * The segment bar over the dock while tracing (Line, Arc, Circle), the Link
+   * tool's picker and the detail-callout review (Kenneth, 2026-11-26, items 8
+   * and 12). Each must open, read cleanly in both themes, and close on Escape
+   * or Cancel.
+   */
+  ['segment-bar', async (page) => {
+    const problems = []
+    await page.keyboard.press('Escape')
+    // Its own area scope: an earlier step may leave a count scope active, which arms Count.
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    const scope = await act('create_scope', { label: 'Sweep arcs', scopeType: 'area' })
+    if (scope.scopeId !== undefined) await act('set_active_scope', { scopeId: scope.scopeId })
+    await page.waitForTimeout(300)
+    if (await page.getByRole('button', { name: /^Take off/ }).count() > 0) await page.getByRole('button', { name: /^Take off/ }).first().click()
+    await page.waitForTimeout(200)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(200)
+    const box = await page.locator('.viewport').boundingBox()
+    await page.mouse.click(box.x + box.width / 2 - 100, box.y + box.height / 2 - 60)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(200)
+    const bar = page.getByRole('toolbar', { name: 'Segment' })
+    if (await bar.count() !== 1) problems.push('segment-bar: no Line / Arc / Circle bar while tracing an area')
+    else if (await bar.getByRole('button', { name: /Arc/ }).getAttribute('aria-pressed') !== 'true') problems.push('segment-bar: A did not switch to Arc')
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}segment-bar-arc.png`) })
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    return problems
+  }],
+  ['link-tool', async (page) => {
+    const problems = []
+    await page.keyboard.press('Escape')
+    await page.locator('.dockbtn', { hasText: 'Link' }).first().click()
+    await page.waitForTimeout(200)
+    if (await page.getByRole('toolbar', { name: 'Link' }).count() !== 1) problems.push('link-tool: no hint bar with the Link tool in hand')
+    const box = await page.locator('.viewport').boundingBox()
+    const x = box.x + box.width / 2, y = box.y + box.height / 2
+    await page.mouse.move(x - 60, y - 30)
+    await page.mouse.down()
+    await page.mouse.move(x + 60, y + 30, { steps: 5 })
+    await page.mouse.up()
+    const picker = page.getByRole('dialog', { name: 'Link to a sheet' })
+    await picker.waitFor({ timeout: 3000 }).catch(() => problems.push('link-tool: dragging a box did not open the sheet picker'))
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}link-picker.png`) })
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+    if (await picker.count() > 0) problems.push('link-tool: Escape left the sheet picker open')
+    return problems
+  }],
+  ['callout-review', async (page) => {
+    const problems = []
+    await page.getByRole('button', { name: /Link all detail callouts/ }).click()
+    const panel = page.getByRole('complementary', { name: 'Detail callouts' })
+    // A set whose sheets have no numbers says so in the status line instead.
+    if (await panel.waitFor({ timeout: 3000 }).then(() => true, () => false)) {
+      await page.waitForFunction(() => !document.querySelector('.calloutreview progress'), null, { timeout: 30000 }).catch(() => problems.push('callout-review: still reading after 30 s'))
+      await page.screenshot({ path: join(out, `${shotPrefix}callout-review.png`) })
+      await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.waitForTimeout(200)
+      if (await panel.count() > 0) problems.push('callout-review: Cancel left the list open')
+    }
+    await page.keyboard.press('h')
+    return problems
+  }],
   ['slow-close', async (page) => {
     const problems = []
     await page.keyboard.press('Escape')

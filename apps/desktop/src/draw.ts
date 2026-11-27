@@ -6,6 +6,7 @@
  * markup is independent of zoom and viewport.
  */
 import type { Viewport } from '@redbeam/viewer'
+import { previewCurve } from './tools/curves.js'
 
 /**
  * `direction` sets the scope's default pattern orientation: two clicks along
@@ -37,6 +38,9 @@ export type Tool =
   // corner, an edge or a point inside the area, with snapping. It was a
   // right-click menu item only (#69).
   | 'origin'
+  // `link` drags a box that jumps to another sheet (tools/links.ts). It reads
+  // the set rather than taking it off: no scope, no quantity.
+  | 'link'
 
 export interface DraftState {
   tool: Tool
@@ -44,6 +48,15 @@ export interface DraftState {
   points: Array<{ x: number; y: number }>
   /** Live cursor position, normalized — drawn as a rubber-band segment. */
   cursor: { x: number; y: number } | null
+  /**
+   * How the next click joins the trace in Area, Cutout and Linear: a line, an
+   * arc, or a circle (tools/curves.ts). Absent means a line.
+   */
+  mode?: 'line' | 'arc' | 'circle'
+  /** An arc's through point, or a circle's centre, once clicked. */
+  pivot?: { x: number; y: number }
+  /** The trace's length after each click, so Backspace takes back a whole arc. */
+  marks?: number[]
 }
 
 export const emptyDraft = (tool: Tool = 'pan'): DraftState => ({ tool, points: [], cursor: null })
@@ -83,6 +96,7 @@ export function isCommittable(d: DraftState): boolean {
     case 'calibrate':
     case 'direction': return d.points.length === 2
     case 'count': return d.points.length >= 1
+    case 'link': return d.points.length === 4
     default: return false
   }
 }
@@ -98,7 +112,7 @@ export function drawDraft(
   pageW: number,
   pageH: number,
 ): void {
-  if (d.tool === 'pan' || d.points.length === 0) return
+  if (d.tool === 'pan' || (d.points.length === 0 && d.pivot === undefined)) return
   const pt = (p: { x: number; y: number }) => normalizedToScreen(p.x, p.y, view, pageW, pageH)
 
   ctx.save()
@@ -123,15 +137,19 @@ export function drawDraft(
     return
   }
 
-  // path so far, plus a rubber band to the cursor
-  const pts = d.cursor ? [...d.points, d.cursor] : d.points
+  // path so far, plus a rubber band to the cursor: straight, or the arc or
+  // circle the next click would make (tools/curves.ts)
+  const page = { width: pageW, height: pageH }
+  const pts = d.mode === 'circle' && d.pivot !== undefined
+    ? previewCurve(d, page)
+    : d.cursor ? [...d.points, ...previewCurve(d, page)] : d.points
   ctx.beginPath()
   pts.forEach((p, i) => {
     const s = pt(p)
     if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y)
   })
 
-  if ((d.tool === 'area' || d.tool === 'cutout' || d.tool === 'shape') && d.points.length >= 2) {
+  if ((d.tool === 'area' || d.tool === 'cutout' || d.tool === 'shape' || (d.mode === 'circle' && d.pivot !== undefined)) && pts.length >= 3) {
     ctx.closePath()
     // a cutout is an opening: outline only, so it reads as removed material
     if (d.tool === 'area' || d.tool === 'shape') {
@@ -152,10 +170,24 @@ export function drawDraft(
   ctx.fillStyle = '#fff'
   ctx.strokeStyle = stroke
   ctx.lineWidth = 1.5
-  for (const p of d.points) {
+  // A handle where each click landed, not on every point along an arc.
+  const marks = d.marks ?? []
+  const clicked = marks.length > 0 && marks[marks.length - 1] === d.points.length
+    ? marks.map((n) => d.points[n - 1]!).filter((p) => p !== undefined)
+    : d.points
+  if (d.points.length > 0 && clicked[0] !== d.points[0]) clicked.unshift(d.points[0]!)
+  for (const p of d.mode === 'circle' ? [] : clicked) {
     const s = pt(p)
     ctx.beginPath()
     ctx.rect(s.x - 3, s.y - 3, 6, 6)
+    ctx.fill()
+    ctx.stroke()
+  }
+  // The arc's through point, or the circle's centre: a round handle.
+  if (d.pivot !== undefined) {
+    const s = pt(d.pivot)
+    ctx.beginPath()
+    ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2)
     ctx.fill()
     ctx.stroke()
   }
