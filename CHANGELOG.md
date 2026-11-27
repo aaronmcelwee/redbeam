@@ -13,6 +13,13 @@ All are unsigned; SmartScreen will ask once.
 - **Cassette length is required.** A cassette scope is counted only once its length is set; it no longer borrows the stock length. Older cassette scopes show Cassette L as needed until it is filled in.
 - **Widths must hold whole baffles.** A cassette width that is not a whole number of spacings is refused rather than counted, and Setup names the nearest widths that work (22 1/2" or 30" at 7 1/2").
 
+## 0.3.130 — 2026-11-27
+
+### Faster tracing of hatched ceilings for agents
+
+- **Same outline, sooner.** Tracing a hatched or slatted field for an agent takes about a fifth less time on a full sheet, and returns exactly the outline it did before.
+- **Slow traces explain themselves.** Each trace now reports how long reading the sheet, drawing it and tracing it took, so a slow sheet can be tracked down.
+
 ## 0.3.129 — 2026-11-27
 
 ### New agent tools appear after an update without restarting Claude

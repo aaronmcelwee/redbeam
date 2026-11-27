@@ -177,35 +177,61 @@ export function angleGap(a: number, b: number): number {
  * across them, and the two radii mean different things.
  */
 export function dilateXY(src: Uint8Array, w: number, h: number, rx: number, ry: number): Uint8Array {
-  let mid = src
+  return spreadXY(src, w, h, rx, ry, false)
+}
+
+/**
+ * Both morphology passes, a row at a time so memory is walked in order (a
+ * sheet is millions of cells; going down columns was most of a trace's time).
+ * `ofUnset` grows the unset cells instead and answers with the complement,
+ * which is erosion without the two copies inverting the grid cost.
+ */
+function spreadXY(src: Uint8Array, w: number, h: number, rx: number, ry: number, ofUnset: boolean): Uint8Array {
+  const n = w * h
+  const on = ofUnset ? 0 : 1, off = ofUnset ? 1 : 0
+  // `mid` holds 1 where a source cell (set, or unset when ofUnset) is within rx along the row.
+  let mid: Uint8Array
   if (rx > 0) {
-    mid = new Uint8Array(w * h)
+    mid = new Uint8Array(n)
     for (let y = 0; y < h; y++) {
       const row = y * w
       let last = -1 - rx
       for (let x = 0; x < w; x++) {
-        if (src[row + x]) last = x
+        if ((src[row + x] !== 0) !== ofUnset) last = x
         if (x - last <= rx) mid[row + x] = 1
       }
       last = w + rx
       for (let x = w - 1; x >= 0; x--) {
-        if (src[row + x]) last = x
+        if ((src[row + x] !== 0) !== ofUnset) last = x
         if (last - x <= rx) mid[row + x] = 1
       }
     }
+  } else if (ofUnset) {
+    mid = new Uint8Array(n)
+    for (let i = 0; i < n; i++) mid[i] = src[i] ? 0 : 1
+  } else {
+    mid = src
   }
-  if (ry <= 0) return mid === src ? src.slice() : mid
-  const out = new Uint8Array(w * h)
-  for (let x = 0; x < w; x++) {
-    let last = -1 - ry
-    for (let y = 0; y < h; y++) {
-      if (mid[y * w + x]) last = y
-      if (y - last <= ry) out[y * w + x] = 1
+  const out = new Uint8Array(n)
+  if (ry <= 0) {
+    if (on === 1 && off === 0) { for (let i = 0; i < n; i++) out[i] = mid[i] ? 1 : 0 } else { for (let i = 0; i < n; i++) out[i] = mid[i] ? 0 : 1 }
+    return out
+  }
+  if (off === 1) out.fill(1)
+  const last = new Int32Array(w).fill(-1 - ry)
+  for (let y = 0; y < h; y++) {
+    const row = y * w
+    for (let x = 0; x < w; x++) {
+      if (mid[row + x]) last[x] = y
+      if (y - last[x]! <= ry) out[row + x] = on
     }
-    last = h + ry
-    for (let y = h - 1; y >= 0; y--) {
-      if (mid[y * w + x]) last = y
-      if (last - y <= ry) out[y * w + x] = 1
+  }
+  last.fill(h + ry)
+  for (let y = h - 1; y >= 0; y--) {
+    const row = y * w
+    for (let x = 0; x < w; x++) {
+      if (mid[row + x]) last[x] = y
+      if (last[x]! - y <= ry) out[row + x] = on
     }
   }
   return out
@@ -213,11 +239,7 @@ export function dilateXY(src: Uint8Array, w: number, h: number, rx: number, ry: 
 
 /** Erosion as dilation of the complement; outside the grid reads as set, so a field running off the frame keeps its edge. */
 export function erodeXY(src: Uint8Array, w: number, h: number, rx: number, ry: number): Uint8Array {
-  const inv = new Uint8Array(w * h)
-  for (let i = 0; i < inv.length; i++) inv[i] = src[i] ? 0 : 1
-  const grown = dilateXY(inv, w, h, rx, ry)
-  for (let i = 0; i < grown.length; i++) grown[i] = grown[i] ? 0 : 1
-  return grown
+  return spreadXY(src, w, h, rx, ry, true)
 }
 
 const closeXY = (src: Uint8Array, w: number, h: number, rx: number, ry: number) => erodeXY(dilateXY(src, w, h, rx, ry), w, h, rx, ry)
