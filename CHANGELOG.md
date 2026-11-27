@@ -12,6 +12,15 @@ All are unsigned; SmartScreen will ask once.
 - **The sheet is drawn once.** To check a hatched ceiling against what is on the page, REDBEAM drew the sheet again for every trace an agent asked for. It now keeps that drawing while the agent stays on the sheet, which takes about a second and a half off each later trace of a dense sheet. The outlines are the same.
 
 
+## 0.3.142 — 2026-11-27
+
+### Agents follow the latest takeoff skill
+
+- **Spacing and scale checks are stricter.** Agents now check a sheet's scale against two written dimensions, one across and one down, and against a drawn bay, and tell you about any difference before giving quantities. Written bay sizes on lighting or power plans count as a second source for spacing, but are reported as plan-family, not as a detail.
+- **Layouts start from a drawn member.** Agents place the pattern origin on a drawn member rather than the area edge, skip an odd first bay, and check the far edge for drift, not just the count. Column notches are sized to the short runs drawn around the column.
+- **Better stock checks.** Agents try each stock length you name, read the full piece list, and reject any layout that leaves a piece under 2'-0".
+- **Questions get re-checked, and feedback is offered.** When you question a check, the agent works it out again from the drawings. At the end of a session it lists the REDBEAM problems it hit and any skill improvements, and sends only the ones you approve.
+
 ## 0.3.141 — 2026-11-27
 
 ### Suggest a skill improvement
