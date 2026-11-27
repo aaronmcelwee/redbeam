@@ -202,6 +202,7 @@ import {
   type ReportDraft, type ReportKind,
 } from './report/report.js'
 import { RELEASES } from './whatsnew/changelogSource.js'
+import { noteFromAgent, noteStyle, refitLeaderText, roughMeasure } from './agents/agentNotes.js'
 import { reportForAgent, whatsNewForAgent } from './agents/appWide.js'
 import { APP_VERSION } from './update/updates.js'
 import { UpdateChip } from './update/UpdateChip.js'
@@ -8219,6 +8220,26 @@ export default function Workspace({
         // marked with an origin. A bridge that wrote rows directly would
         // produce takeoff changes with no undo entry and no activity trail —
         // the reason the bridge's execute_query refuses writes outright.
+        /*
+         * A comment markup (kind note): text box, cloud, Cloud+, leader with
+         * text, line, rectangle, ellipse, polygon or pen, as the Markup tools
+         * draw them and saved as Bluebeam's own annotations (agents/agentNotes.ts).
+         */
+        case 'create_note': {
+          const probe = document.createElement('canvas').getContext('2d')
+          const measure = (pt: number) => probe === null ? roughMeasure(pt) : canvasMeasure(probe, pt)
+          const built = noteFromAgent(params, ap.size, measure)
+          if ('error' in built) return built
+          const id = uid()
+          const ok = await runCommand(cmdCreate({
+            id, documentId: docIdRef.current, pageId: ap.id, scopeId: null,
+            kind: 'note', rings: built.rings, origin: 'agent', reviewState: 'accepted',
+            content: built.content as unknown as Record<string, unknown>,
+          }))
+          if (!ok) return { error: 'the note could not be written' }
+          requestPaint()
+          return { id, kind: 'note', shape: built.content.shape, page: ap.index, sheet: sheetLabelFor(ap.index), note: 'saving writes it into the PDF as a markup Bluebeam can edit' }
+        }
         case 'create_markup': {
           const kind = String(params['kind'] ?? '')
           const allowed: MarkupKind[] = ['area', 'cutout', 'polyline', 'count', 'shape']
@@ -8995,14 +9016,35 @@ export default function Workspace({
            * text box, arrow): the markup menu's colour row. Takeoff markups
            * wear their scope's colour, which update_scope changes.
            */
-          if (params['color'] !== undefined) {
-            if (m.kind !== 'annot') return { error: 'only markups from Bluebeam or another app (kind annot) carry their own colour; a takeoff markup shows its scope\'s, which update_scope changes' }
+          if (params['color'] !== undefined && m.kind !== 'note') {
+            if (m.kind !== 'annot') return { error: 'only comment markups (kind note) and markups from Bluebeam or another app (kind annot) carry their own colour; a takeoff markup shows its scope\'s, which update_scope changes' }
             const hex = String(params['color']).trim().toLowerCase()
             const named = HELD_COLORS.find((c) => c.name.toLowerCase() === hex)?.hex ?? hex
             if (!/^#[0-9a-f]{6}$/.test(named)) return { error: `color must be #rrggbb or one of ${HELD_COLORS.map((c) => c.name).join(', ')}` }
             const was = heldColorOf(m)
             if (was !== named) await runCommand(cmdEditAnnotColor(id, was, named, { documentId: m.documentId, pageId: m.pageId }, 'agent'))
             if (params['rings'] === undefined && params['dx'] === undefined && params['dy'] === undefined) return { id, kind: m.kind, color: named }
+          }
+          /*
+           * A comment markup's text and style, as its property strip changes
+           * them: one undo step; a leader's text box is refitted to new text.
+           */
+          const NOTE_KEYS = ['text', 'color', 'width', 'fill', 'fillOpacity', 'ends', 'fontPt']
+          if (m.kind === 'note' && NOTE_KEYS.some((k) => params[k] !== undefined)) {
+            const before = parseNoteContent((m as { content?: unknown }).content)
+            if (before === null) return { error: `${id} is not a readable note` }
+            const next = noteStyle(params, before)
+            if ('error' in next) return next
+            if (next.text !== '' && !hasText(next.shape)) return { error: `a ${next.shape} carries no text` }
+            const cmds = [cmdEditContent(m.id, before as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, 'edit note', { documentId: m.documentId, pageId: m.pageId }, 'agent')]
+            if (next.text !== before.text || next.fontPt !== before.fontPt) {
+              const probe = document.createElement('canvas').getContext('2d')
+              const pg = m.pageId === ap.id ? ap.size : (() => { const n = pageNumberFrom(m.pageId, m.documentId); const z = n === null ? undefined : (viewerRef.current?.getPageSize(n) ?? pageSizesRef.current[n]); return { width: z?.width ?? 0, height: z?.height ?? 0 } })()
+              const refit = refitLeaderText(m.rings.map((r) => r.map((q) => ({ ...q }))), next, pg, (pt) => probe === null ? roughMeasure(pt) : canvasMeasure(probe, pt))
+              if (JSON.stringify(refit) !== JSON.stringify(m.rings)) cmds.push(cmdEditGeometry(m.id, m.rings, refit, 'edit note', { documentId: m.documentId, pageId: m.pageId }, 'agent'))
+            }
+            await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch('edit note', cmds))
+            if (params['rings'] === undefined && params['dx'] === undefined && params['dy'] === undefined) return { id, kind: 'note', content: next }
           }
           let after: Markup['rings']
           if (params['rings'] !== undefined) {
@@ -10154,6 +10196,7 @@ export default function Workspace({
               vertices: m.rings[0]?.length ?? 0, holes: closed ? Math.max(0, m.rings.length - 1) : 0,
               pending: pendingIdsRef.current.has(m.id),
               ...(m.kind === 'link' ? (() => { const c = linkContentOf(m); return c === null ? {} : { toPage: c.toPage, toSheet: sheetLabelFor(c.toPage) } })() : {}),
+              ...(m.kind === 'note' ? (() => { const c = parseNoteContent((m as { content?: unknown }).content); return c === null ? {} : { note: { shape: c.shape, text: c.text, color: c.color } } })() : {}),
               ...(params['withGeometry'] === true ? { rings: m.rings } : {}),
             }
           })
