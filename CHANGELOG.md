@@ -5,11 +5,18 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.125 — 2026-11-27
+## 0.3.127 — 2026-11-27
 
 ### Agents in Claude Code now receive the takeoff skill
 
 - **The skill reaches every agent.** When a session started, Claude Code showed the agent only the session name and dropped the takeoff skill and the note on sending calls together. REDBEAM now sends them in a form every AI app shows. Screenshots asked for in a batch of calls are no longer dropped either.
+
+## 0.3.126 — 2026-11-27
+
+### AI agents get the latest takeoff skill, kept in step with yours
+
+- **One skill, everywhere.** The takeoff skill REDBEAM hands Claude and ChatGPT now matches the one in your Claude account, including the sign-off checks, spacing sources and the steps that keep agents off your screen. A daily check keeps it current: when you change the skill in Claude, the next REDBEAM update carries it.
+
 
 ## 0.3.123 — 2026-11-27
 

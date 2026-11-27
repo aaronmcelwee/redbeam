@@ -199,6 +199,17 @@ test('a chat starts a session, and a call without one is refused', async () => {
   await assert.rejects(callTool('redbeam_start_session', {}), /task/)
 })
 
+test('the shipped takeoff skill is an untouched copy of the master', async () => {
+  // Aaron, 2026-11-27: his Claude account skill is the only place the skill is
+  // edited. The copy carries the master's date and fingerprint; any other edit
+  // breaks the match and is lost at the next sync.
+  const { check } = await import('../../tools/skill-sync.mjs')
+  const copy = readFileSync(new URL('./skills/precon-takeoff.md', import.meta.url), 'utf8')
+  const r = check(copy, copy)
+  assert.ok(r.stamp, 'skills/precon-takeoff.md has no "master:" stamp; make it with node tools/skill-sync.mjs stamp')
+  assert.equal(r.status, 'in_sync', 'skills/precon-takeoff.md was edited by hand. Edit the precon-takeoff skill in Aaron\'s Claude account instead, then run node tools/skill-sync.mjs stamp <SKILL.md> apps/mcp/skills/precon-takeoff.md')
+})
+
 test('every agent is handed the takeoff skill when its session starts', async () => {
   // Aaron, 2026-11-25: the local server gives agents the current precon-takeoff
   // skill. skills/precon-takeoff.md is the copy that ships.
