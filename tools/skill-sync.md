@@ -77,12 +77,32 @@ overwrite) and 20 when it was edited by hand (flag it, do not overwrite).
      `not_planned` with his reason if he gave one.
    - Never edit a copy, and never write a suggestion into the master
      yourself; the card is the only path.
+   - **Pending cards from other threads.** Aaron, 2026-11-27: skill updates
+     come to him once a day, in this run. List the project's threads active
+     since the last run (`list_threads` with `since`) and read each for skill
+     cards (`skill_proposal`) still `pending`. Fold their changes into your
+     card for that skill, then tell each of those threads (`message_thread`)
+     that its card is superseded by today's card and should not be re-posted.
+   - **One card per skill, built on the current master.** Every card holds
+     all of the day's changes for that skill as edits on the master as it is
+     now, so saving it never drops another change and no two cards for one
+     skill are ever open at once. If a card from an earlier run is still
+     unsaved, fold it into today's card and say the old one is replaced.
+   - When Aaron saves a card, this thread is told: run steps 3 and 4 again
+     at once so the app copy and Notion carry it the same day.
 6. Report only when something changed or was flagged: what was synced (skill,
    copy, new fingerprint, PR and version) and every flag with what Aaron
    should do (move the change into his Claude skill, or say to discard it).
    For a flag, also open a GitHub issue labelled `skill sync`. Report
    suggestions as how many came in, which you proposed (with the card) and
    which you closed and why. A run with nothing to do says nothing.
+
+**Threads don't post skill cards.** A thread in the REDBEAM project that finds a
+skill change (from a run, a correction Aaron made, a session report) files it
+as a `skill suggestion` issue titled `Skill suggestion (<skill>): <summary>`,
+with the wording, why, and a link to the thread, and tells Aaron in one line
+that it is queued for the daily skill check. Only when Aaron asks for a skill
+change in that thread right now does the thread post the card itself.
 
 When a thread in the REDBEAM project sees Aaron save a change to one of these
 skills, it fires the "Sync precon skills" scheduled task at once instead of
