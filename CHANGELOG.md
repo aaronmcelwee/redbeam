@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.121 — 2026-11-27
+
+### Lighter answers for AI agents
+
+- **Reading linework costs about a third of the tokens.** When Claude or ChatGPT reads the drawing's own lines to measure a grid or a wall, REDBEAM now answers with compact rows instead of a labelled record per line. The numbers are the same.
+- **A window full of tabs no longer slows every check.** With sixty PDFs open, each "what is open" check repeated every tab's owner. It now names only the tabs an agent opened.
+
+
 ## 0.3.120 — 2026-11-27
 
 ### Sharper agent takeoffs (Coinbase blind test fixes)

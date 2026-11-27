@@ -289,7 +289,6 @@ describe('what an agent is told about the window', () => {
       file: 'C:\\Jobs\\Tower A.pdf',
       personShowing: MINE,
       tabOwners: [
-        { file: MINE, owner: 'person' },
         { file: 'C:\\Jobs\\Tower A.pdf', owner: 'you' },
         { file: 'C:\\Jobs\\Tower B.pdf', owner: 'Claude Code' },
       ],

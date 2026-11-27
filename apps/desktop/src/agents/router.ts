@@ -567,7 +567,9 @@ export class BridgeRouter {
     const name = (owner: string | undefined) => (owner === undefined ? 'person' : owner === agent?.id ? 'you' : (this.deps.roster.agent(owner)?.name ?? 'another agent'))
     return {
       tabs: tabs.map((t) => t.file),
-      tabOwners: tabs.map((t) => ({ file: t.file, owner: name(t.owner) })),
+      // Only the tabs an agent opened: the rest are the person's, and a window
+      // with sixty of them said so sixty times in every answer.
+      tabOwners: tabs.filter((t) => t.owner !== undefined).map((t) => ({ file: t.file, owner: name(t.owner) })),
       personShowing: showing,
       ...(agent === null ? {} : {
         agent: {

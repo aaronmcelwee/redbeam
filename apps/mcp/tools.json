@@ -379,7 +379,7 @@
     },
     {
       "name": "redbeam_get_ui_state",
-      "description": "What your session's view is on, and the window around it: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open. ABOUT YOUR SHEET (the one your session is on, which may not be the one on screen): pageIndex, pageWidth, pageHeight, zoom, viewport, calibration, scaleRegions, selection, tool. ABOUT THE WHOLE FILE: file, tabs, pageCount, scopes, quantities and piece counts, `saved` (false while a change is not yet in the PDF), `lastSave` (how the last save went), `warnings` (the warning bar, word for word), appVersion. Sheets with markups but no scale are listed by redbeam_list_markups as unscaledSheets. ABOUT THE WINDOW: `tabs` (every open PDF), `tabOwners` (whose each is: person, you, or another agent's name), `personShowing` (the PDF the person is looking at, which may not be yours), and `agent` (your name and colour in REDBEAM, your tabs, and `drives`: whether the PDF this call was about is a tab you opened). `person`: the sheet, zoom, tool and selection on the person's screen, which your calls never change.",
+      "description": "What your session's view is on, and the window around it: active document and page, tool, active scope, zoom, selection, open panels, and the computed quantities and piece counts. Needs a window — fails if none is open. ABOUT YOUR SHEET (the one your session is on, which may not be the one on screen): pageIndex, pageWidth, pageHeight, zoom, viewport, calibration, scaleRegions, selection, tool. ABOUT THE WHOLE FILE: file, tabs, pageCount, scopes, quantities and piece counts, `saved` (false while a change is not yet in the PDF), `lastSave` (how the last save went), `warnings` (the warning bar, word for word), appVersion. Sheets with markups but no scale are listed by redbeam_list_markups as unscaledSheets. ABOUT THE WINDOW: `tabs` (every open PDF), `tabOwners` (the tabs an agent opened and whose each is: you, or another agent's name; every other tab is the person's), `personShowing` (the PDF the person is looking at, which may not be yours), and `agent` (your name and colour in REDBEAM, your tabs, and `drives`: whether the PDF this call was about is a tab you opened). `person`: the sheet, zoom, tool and selection on the person's screen, which your calls never change.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -693,7 +693,7 @@
     },
     {
       "name": "redbeam_get_lines",
-      "description": "The drawing's own line segments inside a box of the open sheet, longest first (or sorted by position): each segment's ends (NORMALIZED [0,1], y down) and its length in PDF points and, when the sheet has a scale, in feet. Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Lines are cut to the box: a line that goes on past it comes back as the part inside, marked `cut: true` (whole:true returns it as drawn). Filter to lines fully inside the box, an angle, horizontal or vertical, or a length range; a segment drawn twice is returned once. Keep the box small. Needs a window. When more lines match than `limit`, `nextOffset` is returned; pass it as `offset` for the rest. For a hatched ceiling with no line around it, use redbeam_trace_field instead.",
+      "description": "The drawing's own line segments inside a box of the open sheet, longest first (or sorted by position): each a row `[x1, y1, x2, y2, lengthPoints, lengthFeet, angle]` (ends NORMALIZED [0,1], y down; lengthFeet null without a scale; angle in degrees 0..180). Read from the PDF's vector paths. Use it to measure a wall, a ceiling grid or a panel off the drawing itself. Lines are cut to the box: a line that goes on past it comes back as the part inside, with a trailing 1 on its row (whole:true returns it as drawn). Filter to lines fully inside the box, an angle, horizontal or vertical, or a length range; a segment drawn twice is returned once. Keep the box small. Needs a window. When more lines match than `limit`, `nextOffset` is returned; pass it as `offset` for the rest. For a hatched ceiling with no line around it, use redbeam_trace_field instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3553,7 +3553,7 @@
           },
           "whole": {
             "type": "boolean",
-            "description": "For get_lines: return each line as drawn, even the part outside rect. Default false: lines are cut to rect (`cut: true` on the ones that go on past it)."
+            "description": "For get_lines: return each line as drawn, even the part outside rect. Default false: lines are cut to rect (a trailing 1 on the rows that go on past it)."
           },
           "recipe": {
             "type": "object",
