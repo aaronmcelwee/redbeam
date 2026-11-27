@@ -14,6 +14,7 @@
  */
 import type { RailPanel } from './shell/Shell.js'
 import type { SearchScope } from './search/SearchPanel.js'
+import { LEGACY_LAYOUT_SETTINGS } from './layout/scopeLayout.js'
 
 /**
  * Palette commands that act on the project rather than on the open file.
@@ -68,9 +69,12 @@ export const LIGHT_PANELS: readonly RailPanel[] = ['contents', 'thumbnails', 'se
 /**
  * Settings that only steer projects: reopening the last one, and how long the
  * recent-projects list is. Light's recents are PDFs and are not governed by them.
+ * And the layout settings each scope now sets for itself (Aaron, 2026-11-27):
+ * their old global value is only the fallback for a scope that has not.
  */
 export const LIGHT_HIDDEN_SETTINGS: readonly string[] = [
   'general.restoreProjectWindows', 'general.recentProjectLimit', 'general.recentExpiry',
+  ...LEGACY_LAYOUT_SETTINGS,
 ]
 
 /** Search reaches in Light: Folder and Project would only repeat Document. */
