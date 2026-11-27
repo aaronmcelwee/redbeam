@@ -1044,6 +1044,24 @@ fn pick_drawing_native(app: &AppHandle) -> Result<Option<PathBuf>, String> {
     Ok(picked.and_then(|p| p.into_path().ok()))
 }
 
+/// The same dialog with several files allowed. Kenneth, 2026-11-26: "when
+/// you're opening files, you can't multi-select files in the open file
+/// dialog."
+fn pick_drawings_native(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Open drawing sets")
+        .add_filter("PDF drawings", &["pdf"])
+        .blocking_pick_files();
+    Ok(picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .collect())
+}
+
 /// Where an export goes: a native Save As, then the bytes written there.
 ///
 /// Every export used to hand a blob to the webview's downloader, which put
@@ -1157,6 +1175,30 @@ pub async fn project_pick_file(app: AppHandle) -> Result<FilePickOutcome, String
         }
     };
     describe_file_for_viewing(&picked)
+}
+
+/// Pick one or more PDFs to view, as [`project_pick_file`] picks one. Each
+/// path comes back canonical, in the order the dialog gave them; an empty
+/// list means the person cancelled.
+#[tauri::command]
+pub async fn project_pick_files(app: AppHandle) -> Result<FilesPickOutcome, String> {
+    match pick_drawings_native(&app) {
+        Ok(paths) => Ok(FilesPickOutcome {
+            supported: true,
+            paths: paths.iter().map(|p| canonical_project_root(p).display().to_string()).collect(),
+            reason: None,
+        }),
+        Err(reason) => Ok(FilesPickOutcome { supported: false, paths: Vec::new(), reason: Some(reason) }),
+    }
+}
+
+/// What [`project_pick_files`] managed to do.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesPickOutcome {
+    pub supported: bool,
+    pub paths: Vec<String>,
+    pub reason: Option<String>,
 }
 
 /// The same, for a path that arrived without a dialog — a PDF dropped on the

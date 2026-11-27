@@ -35,7 +35,7 @@ import {
   type ScalePreset,
 } from '@redbeam/domain'
 import type { Tool } from '../draw.js'
-import { productLabelFor } from '@redbeam/domain'
+import { scopeProductLabel } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
@@ -457,14 +457,14 @@ export function ToolPill({
                   className="menuitem scopemenurow"
                   role="option"
                   aria-selected={sc.id === activeScope}
-                  title={`${sc.label} — ${productLabelFor(sc.specifications)}${n === undefined ? '' : ` · ${n} markup${n === 1 ? '' : 's'}`}`}
+                  title={`${sc.label} — ${scopeProductLabel(sc)}${n === undefined ? '' : ` · ${n} markup${n === 1 ? '' : 's'}`}`}
                   onClick={() => { onScope(sc.id); setScopeOpen(false) }}
                 >
                   <span className="scopedot" style={{ background: sc.color }} aria-hidden="true" />
                   <span className="scopemenutext">
                     <span className="scopemenulabel">{sc.label}</span>
                     <span className="scopemenusub">
-                      {productLabelFor(sc.specifications)}
+                      {scopeProductLabel(sc)}
                       {n !== undefined && ` · ${n} markup${n === 1 ? '' : 's'}`}
                     </span>
                   </span>

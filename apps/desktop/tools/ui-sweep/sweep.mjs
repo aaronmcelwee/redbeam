@@ -38,6 +38,7 @@ const out = join(desktop, 'ui-sweep-out')
 const require = createRequire(import.meta.url)
 const AXE = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8')
 const PDF = readFileSync(join(root, 'fixtures/ui/sweep.pdf'))
+const HELD_PDF = readFileSync(join(root, 'fixtures/ui/held.pdf'))
 const PORT = Number(process.env.RB_SWEEP_PORT ?? 5199)
 const BASE = `http://localhost:${PORT}/`
 const FILE = 'C:\\Jobs\\Sweep\\Sweep set.pdf'
@@ -383,6 +384,39 @@ const STEPS = [
       return extra > 48 ? [`thumbnails: each cell is ${Math.round(extra)} px taller than its picture`] : []
     })
   }],
+  /*
+   * Kenneth, 2026-11-26: thumbnails were "really muddy". Each one must be
+   * rendered at least as many pixels wide as it is shown (times the screen
+   * density), and Ctrl+wheel must make them bigger.
+   */
+  ['thumbnail-size', async (page) => {
+    const problems = []
+    const strip = page.locator('.thumbs')
+    if ((await strip.count()) === 0) { await button(page, 'Thumbnails').click(); await page.waitForTimeout(2500) }
+    const sharp = () => page.evaluate(() => {
+      const c = document.querySelector('.thumb canvas')
+      if (!c) return null
+      return { shown: c.getBoundingClientRect().width * devicePixelRatio, drawn: c.width }
+    })
+    const before = await sharp()
+    if (before !== null && before.drawn + 1 < before.shown) problems.push(`thumbnails: drawn ${before.drawn} px wide, shown ${Math.round(before.shown)}`)
+    const box = await strip.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + 60)
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0, -100)
+    await page.mouse.wheel(0, -100)
+    await page.keyboard.up('Control')
+    await page.waitForTimeout(2000)
+    const after = await sharp()
+    if (before !== null && after !== null && after.shown <= before.shown) problems.push('thumbnails: Ctrl+wheel did not make them bigger')
+    if (after !== null && after.drawn + 1 < after.shown) problems.push(`thumbnails: drawn ${after.drawn} px wide, shown ${Math.round(after.shown)} after Ctrl+wheel`)
+    // Back to three columns for the steps after.
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0, 100)
+    await page.mouse.wheel(0, 100)
+    await page.keyboard.up('Control')
+    return problems
+  }],
   ['search', async (page) => {
     await button(page, 'Search').click()
     await page.keyboard.type('CEILING')
@@ -556,6 +590,27 @@ const STEPS = [
     await page.keyboard.press('Control+0')
     await page.waitForTimeout(400)
     return problems
+  }],
+  /*
+   * Kenneth, 2026-11-26: Count and Length are products. A Count drawn in an
+   * area scope offers a count scope rather than leaving the totals.
+   */
+  ['count-in-area', async (page) => {
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: /^Count/ }).first().click()
+    await page.waitForTimeout(400)
+    const offer = page.getByRole('button', { name: 'New count scope' })
+    return (await offer.count()) === 0 ? ['count in an area scope: no "New count scope" offered'] : []
+  }],
+  ['count-product', async (page) => {
+    await page.getByRole('button', { name: 'New count scope' }).first().click()
+    await page.waitForTimeout(800)
+    const product = page.locator('#scope-type')
+    if ((await product.count()) === 0) { await page.getByRole('button', { name: /^Setup/ }).first().click(); await page.waitForTimeout(400) }
+    if ((await product.count()) === 0) return ['count scope: its Setup did not open']
+    const value = await product.inputValue()
+    await page.keyboard.press('Escape')
+    return value === 'measure:count' ? [] : [`count scope: Product shows ${value}, not Count`]
   }],
   ['takeoff-menus', async (page) => {
     const problems = []
@@ -1222,6 +1277,55 @@ const STEPS = [
     if (!(await chip.innerText()).includes('Restart to update')) problems.push(`update-chip: once staged it says "${await chip.innerText()}"`)
     return problems
   }],
+  /**
+   * Kenneth, 2026-11-26: a cloud and a text box made in Bluebeam select,
+   * recolour from their menu and drag like REDBEAM's own.
+   */
+  ['held-markup', async (page) => {
+    const problems = []
+    await page.goto(view('C:\\Jobs\\Sweep\\Held sheet.pdf'))
+    await page.locator('.sheetrow, [data-page]').first().waitFor({ timeout: 20000 })
+    await page.waitForTimeout(1500)
+    const held = () => page.evaluate(() => (window.__redbeam.markups ?? []).filter((m) => m.kind === 'annot')
+      .map((m) => ({ id: m.id, ring: m.rings[0], color: m.content?.annot?.color ?? null, nm: m.content?.adopted?.nm })))
+    const list = await held()
+    if (list.length !== 2) return [`held-markup: ${list.length} held markup(s) on the sheet, expected the cloud and the text box`]
+    const cloud = list.find((m) => m.nm === 'SWEEPCLOUD000001')
+    if (cloud === undefined) return ['held-markup: the Bluebeam cloud was not held']
+    const toScreen = async (p) => {
+      const vp = await page.locator('.viewport').boundingBox()
+      const v = await page.evaluate(() => ({ ...window.__redbeam.view(), w: window.__redbeam.page.width, h: window.__redbeam.page.height }))
+      return { x: vp.x + p.x * v.zoom * v.w - v.ox, y: vp.y + p.y * v.zoom * v.h - v.oy }
+    }
+    const mid = (ring) => ({ x: ring.reduce((a, p) => a + p.x, 0) / ring.length, y: ring.reduce((a, p) => a + p.y, 0) / ring.length })
+    // Clouds are hit on their outline's inside too: aim between the centre and an edge.
+    const at = await toScreen(mid(cloud.ring))
+    await page.mouse.click(at.x, at.y, { button: 'right' })
+    await page.waitForTimeout(300)
+    const menu = page.locator('.menunote', { hasText: 'Made in Bluebeam' })
+    if (await menu.count() !== 1) return ['held-markup: right-clicking the cloud did not open its menu']
+    const chips = page.getByRole('menuitemradio', { name: 'Blue' })
+    if (await chips.count() < 1) problems.push('held-markup: no Blue swatch in the menu')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}held-markup-menu.png`) })
+    await chips.first().click()
+    await page.waitForTimeout(800)
+    const after = (await held()).find((m) => m.nm === 'SWEEPCLOUD000001')
+    if (after?.color !== '#0070ff') problems.push(`held-markup: picking Blue left its colour ${after?.color}`)
+    await page.screenshot({ path: join(out, `${shotPrefix}held-markup-blue.png`) })
+    // Dragged: it moves, and stays one markup.
+    await page.mouse.move(at.x, at.y)
+    await page.mouse.down()
+    for (let i = 1; i <= 8; i++) { await page.mouse.move(at.x + i * 10, at.y + i * 5); await page.waitForTimeout(16) }
+    await page.mouse.up()
+    await page.waitForTimeout(800)
+    const moved = (await held()).find((m) => m.nm === 'SWEEPCLOUD000001')
+    if (moved === undefined || Math.abs(moved.ring[0].x - cloud.ring[0].x) < 1e-4) problems.push('held-markup: dragging the cloud did not move it')
+    if ((await held()).length !== 2) problems.push('held-markup: dragging left a copy behind')
+    await page.screenshot({ path: join(out, `${shotPrefix}held-markup-moved.png`) })
+    await page.keyboard.press('Escape')
+    return problems
+  }],
 ]
 
 // ---------------------------------------------------------------- run --
@@ -1260,6 +1364,7 @@ async function pass(browser, theme, backdrop) {
     }, MICA[theme])
   }
   await page.route('**/__sweep.pdf', (r) => r.fulfill({ body: PDF, contentType: 'application/pdf' }))
+  await page.route('**/__held.pdf', (r) => r.fulfill({ body: HELD_PDF, contentType: 'application/pdf' }))
   shotPrefix = `${theme}-${backdrop ? 'mica-' : ''}`
   const failures = []
   for (const [name, step] of STEPS) {

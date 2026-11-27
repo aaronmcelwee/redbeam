@@ -117,6 +117,7 @@ pub fn run() {
             project::project_pick_folder,
             project::project_pick_drawing,
             project::project_pick_file,
+            project::project_pick_files,
             project::project_locate_file,
             project::project_nesting,
             project::project_open,
