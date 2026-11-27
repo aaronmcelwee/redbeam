@@ -894,11 +894,28 @@ export function calculatePattern(
   const laid = layoutPattern(resolved, groups, geometry)
   if (laid.blockers.length > 0) return { ...labelled, blockers: laid.blockers }
 
-  const quantities: PieceQuantity[] = []
+  const listed: PieceQuantity[] = []
   for (const layer of resolved.layers) {
     const fromBuiltIn = builtInQuantities.get(layer.id)
-    if (fromBuiltIn !== undefined) { quantities.push(...fromBuiltIn); continue }
-    quantities.push(...laid.quantities.filter((q) => q.itemKey.startsWith(`${layer.id}.`)))
+    if (fromBuiltIn !== undefined) { listed.push(...fromBuiltIn); continue }
+    listed.push(...laid.quantities.filter((q) => q.itemKey.startsWith(`${layer.id}.`)))
+  }
+  /*
+   * Layers with the same name are one product to the estimator (700 Bay,
+   * 2026-11-27: eight "Mains E-W" layers listed eight blocks). Their lines
+   * with the same label and unit are summed into the first one's line;
+   * percentages are not summed. Hardware items stay apart: hardwareKeys.
+   */
+  const quantities: PieceQuantity[] = []
+  const hardwareNames = new Set(resolved.layers.filter((l) => l.kind === 'hardware').map((l) => l.name))
+  const merged = new Map<string, PieceQuantity>()
+  for (const q of listed) {
+    const k = `${q.layer ?? ''}\u0000${q.label}\u0000${q.unit}\u0000${q.detail === true ? 1 : 0}`
+    const prior = merged.get(k)
+    if (prior !== undefined && q.unit !== '%' && !hardwareNames.has(q.layer ?? '')) { prior.quantity = Math.round((prior.quantity + q.quantity) * 1000) / 1000; continue }
+    const copy = { ...q }
+    if (prior === undefined) merged.set(k, copy)
+    quantities.push(copy)
   }
   const draft = resolved.draft
   return {

@@ -3651,6 +3651,12 @@ html[data-backdrop="tabbed"] .dockgroup {
 .pt-ln { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .pt-ln small { font-size: var(--rb-caption); line-height: 16px; color: var(--rb-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pt-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+/* A stored primitive's values: label left, value right, one per row (2026-11-27). */
+.pm-params { display: flex; flex-direction: column; }
+.pm-param { display: flex; align-items: baseline; gap: 8px; min-height: 28px; padding: 4px 0; border-top: 1px solid var(--rb-line); }
+.pm-param:first-child { border-top: 0; }
+.pm-k { flex: 0 0 44%; color: var(--rb-ink-2); }
+.pm-v { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 /* -------------------------------------------- sheet names: title block -- */
 
 /* Under the sheet list: where the names came from, and how to fix them. */

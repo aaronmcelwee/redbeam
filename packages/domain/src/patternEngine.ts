@@ -353,6 +353,7 @@ export function layoutPattern(
     const signs = ringSigns(region)
     const b = bounds(region)
     if (b === null) continue
+    const region0 = region, b0 = b
     areaSquareFeet += regionArea(region)
     for (const acc of accs.values()) { acc.runs = []; acc.polys = [] }
 
@@ -415,6 +416,11 @@ export function layoutPattern(
         continue
       }
       if (layer.kind === 'members') {
+        // Members across the pattern: lay them in a frame turned a quarter, then turn back (as lines do).
+        const turned = layer.run === 'across'
+        const turn = (p: Point): Point => (turned ? { x: p.y, y: p.x } : p)
+        const region = turned ? region0.map((r) => r.map(turn)) : region0
+        const b = turned ? { minX: b0.minY, maxX: b0.maxY, minY: b0.minX, maxY: b0.maxX } : b0
         const c = {
           minX: Math.min(...layer.members.map((m) => m.along)), maxX: Math.max(...layer.members.map((m) => m.along + m.length)),
           minY: Math.min(...layer.members.map((m) => m.across)), maxY: Math.max(...layer.members.map((m) => m.across)),
@@ -437,7 +443,7 @@ export function layoutPattern(
               touched = true
               // Within the snap of whole is whole, and is ordered at its full length.
               const whole = m.length - (z - a) <= Math.max(1e-6, snap)
-              const piece: RunPiece = { a: { x: a, y }, b: { x: z, y }, length: whole ? m.length : z - a, full: whole }
+              const piece: RunPiece = { a: turn({ x: a, y }), b: turn({ x: z, y }), length: whole ? m.length : z - a, full: whole }
               addRun(acc, layer, piece)
               shape(layer.id, 'segment', [piece.a, piece.b], !piece.full, layer.width)
             }

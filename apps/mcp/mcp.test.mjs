@@ -252,7 +252,8 @@ test('the listed tools are lean: no catch-all, short shared inputs, and a size t
   }
   const bytes = JSON.stringify(listed).length
   // Not a cap on what tools may exist: a reminder to say it in fewer words. Raise it with a new tool, not with longer text.
-  assert.ok(bytes < 125_000, `tools/list is ${bytes} bytes`)
+  // 0.3.136: +4 KB for the three stored-primitive tools.
+  assert.ok(bytes < 130_000, `tools/list is ${bytes} bytes`)
 })
 
 test('a batch fills in values from earlier answers', async () => {

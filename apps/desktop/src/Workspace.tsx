@@ -21,6 +21,7 @@ import {
   checkOutline, type OutlineIssue,
   PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, recipeErrorLine, productLabelFor, scopeProductLabel, readPatternRecipe, builtInAsRecipe,
   approvePatternRecipe, approvePatternLayer, removePatternLayer,
+  PRIMITIVE_KEY, checkPrimitiveDefinition, readScopePrimitive, resolveValues, GENERATORS, describeGenerator, OPEN_CELL_EXAMPLE,
   type PatternRecipe, type Polygon, type FieldFrame, areaRegion, regionArea,
 } from '@redbeam/domain'
 import {
@@ -182,6 +183,7 @@ import {
 import { HELD_COLORS, heldColorOf, heldEditsFor, heldLabelOf, heldNmOf, heldStateKey } from './tools/heldAnnots.js'
 import { drawPanelLayout, drawPatternShapes, drawRunLayout, layoutSummary } from './layout/drawLayout.js'
 import { libraryEntry, readLibrary, saveToLibrary, newerInLibrary } from './patterns/library.js'
+import { approvePrimitive, getPrimitive, primitiveSummaries, savePrimitiveDraft, adoptPrimitive } from './patterns/primitives.js'
 import type { PatternControls } from './shell/PatternCard.js'
 import { drawScaleRegions } from './scale/drawRegions.js'
 import { UNNAMED_CALL, useBridgeHost, type CallContext } from './bridge/useBridgeRequests.js'
@@ -6933,6 +6935,98 @@ export default function Workspace({
     return { layers, confidence: r.confidence ?? 'verified', drawn: (r.shapes?.length ?? 0) + r.cells.length + r.runs.length }
   }
   /*
+   * ---- stored primitives (Aaron, 2026-11-27) ----
+   * The scope's primitive, laid out, as an agent reads it: the cut list, each
+   * area's size and overrides, and every blocker naming its field.
+   */
+  const settledPrimitive = async (scopeId: string, prim: unknown): Promise<PieceResult | 'pending' | undefined> => {
+    const want = stableJson(prim)
+    const current = () => {
+      const e = piecesRef.current.find((p) => p.scope.id === scopeId)
+      return e !== undefined && stableJson(e.scope.specifications[PRIMITIVE_KEY]) === want ? e.result : undefined
+    }
+    await until(() => current() !== undefined, 30_000)
+    return current() ?? (piecesRef.current.some((p) => p.scope.id === scopeId) ? 'pending' : undefined)
+  }
+  const primitiveAnswer = (r: PieceResult | 'pending' | undefined): Record<string, unknown> => {
+    if (r === undefined) return { note: 'the scope has no calibrated sheet yet, so nothing could be counted' }
+    if (r === 'pending') return { counting: 'still laying out; read the cut list with redbeam_get_bom in a moment' }
+    const p = r.primitive
+    if (p === undefined) return r.blockers.length > 0 ? { blockers: r.blockers } : {}
+    return {
+      primitive: { id: p.id, version: p.version, name: p.name, status: p.status },
+      ...(r.blockers.length > 0 ? { blockers: r.blockers } : {
+        cutList: p.skus.map((x) => ({ sku: x.sku, qty: x.count, lengthIn: x.lengthInches, lf: x.linearFeet })),
+        totals: { pieces: p.totalPieces, lf: p.totalLinearFeet },
+        hardware: Object.fromEntries(p.hardware.map((h) => [h.key, h.qty])),
+      }),
+      areas: p.areas.map((a) => ({ markupId: a.markupId, page: a.pageId, drawnIn: a.drawn, usedIn: a.used, ...(a.overrides.length > 0 ? { overrides: a.overrides } : {}), pieces: a.pieces })),
+      ...(p.warnings.length > 0 ? { warnings: p.warnings } : {}),
+      confidence: r.confidence ?? 'verified',
+    }
+  }
+  /** Merge per-area values: an area set to null loses its overrides, a key set to null loses that one. */
+  const mergeAreaParameters = (prior: Record<string, Record<string, unknown>> | undefined, sent: unknown): Record<string, Record<string, unknown>> | { error: string } => {
+    const out: Record<string, Record<string, unknown>> = { ...(prior ?? {}) }
+    if (sent === undefined) return out
+    if (typeof sent !== 'object' || sent === null || Array.isArray(sent)) return { error: 'areaParameters: an object {markupId: {parameter: value}}' }
+    for (const [id, v] of Object.entries(sent as Record<string, unknown>)) {
+      if (v === null) { delete out[id]; continue }
+      if (typeof v !== 'object' || Array.isArray(v)) return { error: `areaParameters.${id}: an object of parameter values, or null to clear` }
+      const merged: Record<string, unknown> = { ...(out[id] ?? {}) }
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) { if (x === null) delete merged[k]; else merged[k] = x }
+      if (Object.keys(merged).length === 0) delete out[id]
+      else out[id] = merged
+    }
+    return out
+  }
+  /**
+   * Put a primitive on a scope, or change its values. Writes the scope's
+   * `primitive` spec (definition as used, values, per-area overrides) and
+   * makes it a custom_pattern area scope. Values are checked against the
+   * schema before anything is saved, so a refusal changes nothing.
+   */
+  const putPrimitive = async (sc: Scope, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const prior = readScopePrimitive(sc.specifications)
+    const have = prior !== null && !('error' in prior) ? prior : null
+    let definition = have?.definition ?? null
+    const wanted = typeof params['primitive'] === 'string' ? params['primitive'].trim() : ''
+    const version = typeof params['version'] === 'number' ? params['version'] : undefined
+    if (wanted !== '') {
+      const d = getPrimitive(wanted, version)
+      if (d === undefined) {
+        return { error: `no primitive "${wanted}"${version !== undefined ? ` version ${version}` : ''} in the library`, library: primitiveSummaries().map((e) => ({ primitiveId: e.id, name: e.latest.name, version: e.latest.primitiveVersion })) }
+      }
+      definition = d
+    }
+    if (definition === null) return { error: 'name the primitive: `primitive` (an id from redbeam_list_primitives)' }
+    const sentParams = params['parameters']
+    if (sentParams !== undefined && (typeof sentParams !== 'object' || sentParams === null || Array.isArray(sentParams))) return { error: 'parameters: an object {parameter: value}' }
+    const values: Record<string, unknown> = { ...(have !== null && wanted === '' ? have.parameters : wanted !== '' && have?.definition.id === definition.id ? have.parameters : {}) }
+    for (const [k, v] of Object.entries((sentParams ?? {}) as Record<string, unknown>)) { if (v === null) delete values[k]; else values[k] = v }
+    const areas = mergeAreaParameters(have?.areas, params['areaParameters'])
+    if ('error' in areas) return areas
+    // Every sheet's areas, and a moment for ones drawn in the call before this to arrive.
+    const areaIds = () => new Set(projectMarkupsRef.current.filter((m) => m.scopeId === sc.id && m.kind === 'area').map((m) => m.id))
+    const named = Object.keys(areas)
+    if (named.some((id) => !areaIds().has(id))) await until(() => named.every((id) => areaIds().has(id)), 3000)
+    const mine = areaIds()
+    const unknownAreas = Object.keys(areas).filter((id) => !mine.has(id))
+    const errors: string[] = []
+    for (const id of unknownAreas) errors.push(`areaParameters.${id}: no area of ${sc.label} has that id (its areas: ${[...mine].join(', ') || 'none yet'})`)
+    // Check every value now, against every area, so nothing is saved half right.
+    for (const id of mine.size > 0 ? [...mine] : ['']) {
+      const r = resolveValues(definition, values, id === '' ? undefined : areas[id], id)
+      errors.push(...r.errors.filter((e) => !/: required/.test(e) || id !== ''))
+    }
+    const unique = [...new Set(errors)]
+    if (unique.length > 0) return { error: `not saved: ${recipeErrorLine(unique)}`, errors: unique, schema: 'redbeam_describe_primitive' }
+    const prim = { definition, parameters: values, ...(Object.keys(areas).length > 0 ? { areas } : {}) }
+    await saveScope({ ...sc, scopeType: 'area', specifications: writeProductType({ ...sc.specifications, [PRIMITIVE_KEY]: prim }, 'custom_pattern') })
+    const result = await settledPrimitive(sc.id, prim)
+    return { scopeId: sc.id, ...primitiveAnswer(result) }
+  }
+  /*
    * ---- custom patterns (beta): the person's side, in the scope's setup ----
    * Approval only ever happens here, by a person. Every change goes through
    * saveScope, so it is one undoable step saved in the PDF.
@@ -6995,6 +7089,45 @@ export default function Workspace({
       if (r !== null) setRecipe(scopeId, r)
     },
     newerVersion: (recipe) => newerInLibrary(recipe)?.version ?? null,
+    primitive: {
+      /*
+       * The person approves the VERSION, in the library and on every scope
+       * of this PDF that uses it. A PDF from another machine brings its
+       * version into this library first.
+       */
+      onApprove: (scopeId) => {
+        const sc = scopesRef.current.find((x) => x.id === scopeId)
+        const p = sc === undefined ? null : readScopePrimitive(sc.specifications)
+        if (p === null || 'error' in p) return
+        const d = p.definition
+        if (getPrimitive(d.id, d.primitiveVersion) === undefined) adoptPrimitive(d)
+        const approved = approvePrimitive(d.id, d.primitiveVersion, 'You', today()) ?? { ...d, status: 'approved' as const, approvedBy: 'You', approvedAt: today() }
+        for (const x of scopesRef.current) {
+          const q = readScopePrimitive(x.specifications)
+          if (q === null || 'error' in q || q.definition.id !== d.id || q.definition.primitiveVersion !== d.primitiveVersion) continue
+          void saveScope({ ...x, specifications: { ...x.specifications, [PRIMITIVE_KEY]: { ...(x.specifications[PRIMITIVE_KEY] as object), definition: approved } } })
+        }
+      },
+      onDiscard: (scopeId) => {
+        const sc = scopesRef.current.find((x) => x.id === scopeId)
+        if (sc === undefined) return
+        const specs: Record<string, unknown> = { ...sc.specifications }
+        delete specs[PRIMITIVE_KEY]
+        void saveScope({ ...sc, specifications: specs })
+      },
+      newerVersion: (id, version) => {
+        const d = getPrimitive(id)
+        return d !== undefined && d.status === 'approved' && d.primitiveVersion > version ? d.primitiveVersion : null
+      },
+      onUpdate: (scopeId) => {
+        const sc = scopesRef.current.find((x) => x.id === scopeId)
+        const p = sc === undefined ? null : readScopePrimitive(sc.specifications)
+        if (sc === undefined || p === null || 'error' in p) return
+        const d = getPrimitive(p.definition.id)
+        if (d === undefined) return
+        void saveScope({ ...sc, specifications: { ...sc.specifications, [PRIMITIVE_KEY]: { ...(sc.specifications[PRIMITIVE_KEY] as object), definition: d } } })
+      },
+    },
   }
   const noScope = (id: string | null): { error: string; scopes: Array<{ scopeId: string; label: string }> } => ({
     error: `no such scope: ${id === null || id === '' ? '(none given, and none is active)' : id}. Use a scopeId from \`scopes\`, or create_scope`,
@@ -8434,16 +8567,33 @@ export default function Workspace({
           if (recipeSent !== undefined && recipeSent !== null && product !== null && product !== 'custom_pattern') {
             return { error: `a recipe makes the scope a custom_pattern, not a ${product}; leave productType out or send custom_pattern` }
           }
-          if (product === 'custom_pattern' || (recipeSent !== undefined && recipeSent !== null)) {
+          /*
+           * A stored primitive with the scope (2026-11-27): checked against the
+           * library and its schema first, so a refusal makes no scope.
+           */
+          const primitiveSent = typeof params['primitive'] === 'string' && params['primitive'].trim() !== '' ? params['primitive'].trim() : null
+          if (primitiveSent !== null && recipeSent !== undefined && recipeSent !== null) return { error: 'send a recipe or a primitive, not both' }
+          if (primitiveSent !== null && product !== null && product !== 'custom_pattern') {
+            return { error: `a primitive makes the scope a custom_pattern, not a ${product}; leave productType out` }
+          }
+          if (product === 'custom_pattern' || primitiveSent !== null || (recipeSent !== undefined && recipeSent !== null)) {
             const off = patternsOff()
             if (off !== null) return off
+          }
+          if (primitiveSent !== null) {
+            const d = getPrimitive(primitiveSent, typeof params['version'] === 'number' ? params['version'] : undefined)
+            if (d === undefined) return { error: `no primitive "${primitiveSent}" in the library, so no scope was made`, library: primitiveSummaries().map((e) => ({ primitiveId: e.id, name: e.latest.name })) }
+            const sentValues = params['parameters']
+            if (sentValues !== undefined && (typeof sentValues !== 'object' || sentValues === null || Array.isArray(sentValues))) return { error: 'parameters: an object {parameter: value}' }
+            const r = resolveValues(d, (sentValues ?? {}) as Record<string, unknown>, undefined, '')
+            if (r.errors.length > 0) return { error: `no scope was made: ${recipeErrorLine(r.errors)}`, errors: r.errors, schema: 'redbeam_describe_primitive' }
           }
           if (recipeSent !== undefined && recipeSent !== null) {
             const check = checkPatternRecipe(typeof recipeSent === 'string' ? ((): unknown => { try { return JSON.parse(recipeSent) } catch { return recipeSent } })() : recipeSent)
             if (!check.ok) return { error: `the recipe does not check, so no scope was made: ${recipeErrorLine(check.errors)}`, errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
           }
           const implied = product === null
-            ? (recipeSent !== undefined && recipeSent !== null ? 'area' : null)
+            ? ((recipeSent !== undefined && recipeSent !== null) || primitiveSent !== null ? 'area' : null)
             : scopeTypeForProduct(product)
           const scopeType = String(params['scopeType'] ?? implied ?? '') as Scope['scopeType']
           if (!types.includes(scopeType)) {
@@ -8472,7 +8622,7 @@ export default function Workspace({
             scopeType,
             color: typeof params['color'] === 'string' ? params['color'] : '#39a2ff',
             specifications: product === null
-              ? (recipeSent !== undefined && recipeSent !== null ? writeProductType(specs ?? {}, 'custom_pattern') : (specs ?? {}))
+              ? ((recipeSent !== undefined && recipeSent !== null) || primitiveSent !== null ? writeProductType(specs ?? {}, 'custom_pattern') : (specs ?? {}))
               : writeProductType(specs ?? {}, product),
           }
           // In the person's PDF the new scope is the agent's to draw in, not the person's active one.
@@ -8488,6 +8638,15 @@ export default function Workspace({
           await scopeWhen(scope.id, () => true)
           const pattern = recipeSent === undefined || recipeSent === null ? null
             : await invokeAction('save_pattern', { scopeId: scope.id, recipe: recipeSent })
+          const placed = primitiveSent === null ? null
+            : await putPrimitive(scopesRef.current.find((x) => x.id === scope.id) ?? scope, params)
+          if (placed !== null) {
+            return {
+              ...placed, label, scopeType: 'area', productType: 'custom_pattern',
+              estimateId: openEstimateIdRef.current, inEstimate: openEstimateIdRef.current !== null,
+              next: 'Draw one area per island (exact outside size), then read the cut list with redbeam_get_bom; update_scope {areaParameters} for an island that differs.',
+            }
+          }
           const made = (pattern !== null && pattern['saved'] === true
             ? await scopeWhen(scope.id, (x) => x.specifications[PATTERN_RECIPE_KEY] !== undefined)
             : undefined) ?? scopesRef.current.find((x) => x.id === scope.id) ?? scope
@@ -8510,6 +8669,27 @@ export default function Workspace({
           const id = String(params['scopeId'] ?? agentScope() ?? '')
           const sc = scopesRef.current.find((x) => x.id === id)
           if (!sc) return noScope(id)
+          /*
+           * A primitive's values, per-area overrides, or a different
+           * primitive or version. The other fields of the call apply first.
+           */
+          const primitiveChange = params['primitive'] !== undefined || params['parameters'] !== undefined || params['areaParameters'] !== undefined
+          if (primitiveChange) {
+            const off = patternsOff()
+            if (off !== null) return off
+            if (params['primitive'] === undefined && readScopePrimitive(sc.specifications) === null) {
+              return { error: `${sc.label} has no primitive: send \`primitive\` (redbeam_list_primitives) to put one on it` }
+            }
+            const rest = { ...params }
+            delete rest['primitive']; delete rest['parameters']; delete rest['areaParameters']; delete rest['version']
+            let base = sc
+            if (rest['label'] !== undefined || rest['color'] !== undefined || rest['specifications'] !== undefined) {
+              const first = await invokeAction('update_scope', rest)
+              if (typeof first['error'] === 'string') return first
+              base = scopesRef.current.find((x) => x.id === id) ?? sc
+            }
+            return await putPrimitive(base, params)
+          }
           const sent = objectParam(params['specifications'])
           if (sent === null) return { error: 'specifications must be an object' }
           // A measure sent as a number is the text the product reads.
@@ -9475,6 +9655,70 @@ export default function Workspace({
               }]
             }),
             note: 'withRecipes:true includes each recipe. redbeam_use_pattern puts a library pattern on a scope.',
+          }
+        }
+        /*
+         * ---- stored primitives (Aaron, 2026-11-27) ----
+         * An agent saves a primitive as a draft; nothing here approves one.
+         */
+        case 'save_primitive': {
+          const off = patternsOff()
+          if (off !== null) return off
+          const raw = typeof params['definition'] === 'string' ? ((): unknown => { try { return JSON.parse(params['definition'] as string) } catch { return params['definition'] } })() : params['definition']
+          const check = checkPrimitiveDefinition(raw)
+          if (!check.ok) return { error: `the primitive does not check: ${recipeErrorLine(check.errors)}`, errors: check.errors, schema: 'redbeam_describe_primitive {generator}' }
+          const by = agentCtxRef.current.agent?.name ?? agentCtxRef.current.agent?.app ?? 'an AI app'
+          const saved = savePrimitiveDraft({ ...check.definition, source: by }, by, new Date().toISOString())
+          const d = saved.definition
+          return {
+            primitiveId: d.id, version: d.primitiveVersion, name: d.name, status: d.status, newVersion: saved.isNew,
+            parameters: d.parameters.map((x) => x.key),
+            note: d.status === 'approved'
+              ? 'Unchanged from the approved version: use it now with create_scope {primitive, parameters}.'
+              : 'Saved as a draft. It counts at once on a scope (create_scope {primitive, parameters}), and its lines stay unverified until the person approves it in the app, once.',
+          }
+        }
+        case 'list_primitives': {
+          const off = patternsOff()
+          if (off !== null) return off
+          return {
+            library: primitiveSummaries().map((e) => ({
+              primitiveId: e.id, name: e.latest.name, generator: e.latest.generator,
+              version: e.latest.primitiveVersion, status: e.latest.status,
+              ...(e.approved !== null && e.approved.primitiveVersion !== e.latest.primitiveVersion ? { approvedVersion: e.approved.primitiveVersion } : {}),
+              ...(e.latest.description !== undefined ? { description: e.latest.description } : {}),
+            })),
+            generators: Object.values(GENERATORS).map((g) => ({ generator: g.id, label: g.label })),
+            onScopes: scopesRef.current.flatMap((x): Array<Record<string, unknown>> => {
+              const p = readScopePrimitive(x.specifications)
+              if (p === null) return []
+              if ('error' in p) return [{ scopeId: x.id, label: x.label, problem: p.error }]
+              return [{ scopeId: x.id, label: x.label, primitiveId: p.definition.id, version: p.definition.primitiveVersion, status: p.definition.status, areaOverrides: Object.keys(p.areas ?? {}).length }]
+            }),
+            note: 'redbeam_describe_primitive gives a primitive\'s parameters; create_scope {primitive, parameters, areaParameters} uses one.',
+          }
+        }
+        case 'describe_primitive': {
+          const pid = typeof params['primitiveId'] === 'string' ? params['primitiveId'].trim() : ''
+          if (pid === '') {
+            const g = typeof params['generator'] === 'string' ? params['generator'] : 'parallel_open_cell'
+            const about = describeGenerator(g)
+            if (about === null) return { error: `no generator "${g}" (generators: ${Object.keys(GENERATORS).join(', ')})` }
+            return { ...about, example: OPEN_CELL_EXAMPLE, note: 'Save one with redbeam_save_primitive {definition: {name, generator, parameters: {key: {default, required?, label?}}}}.' }
+          }
+          const d = getPrimitive(pid, typeof params['version'] === 'number' ? params['version'] : undefined)
+          if (d === undefined) return { error: `no primitive "${pid}" in the library`, library: primitiveSummaries().map((e) => ({ primitiveId: e.id, name: e.latest.name })) }
+          const about = describeGenerator(d.generator)
+          return {
+            primitiveId: d.id, version: d.primitiveVersion, name: d.name, status: d.status, generator: d.generator,
+            ...(d.description !== undefined ? { description: d.description } : {}),
+            rules: about?.['rules'],
+            parameters: d.parameters.map((x) => ({
+              key: x.key, label: x.label, kind: x.kind, ...(x.kind === 'measure' || x.kind === 'measures' ? { unit: x.unit ?? 'in' } : {}),
+              ...(x.choices !== undefined ? { choices: x.choices } : {}), ...(x.default !== undefined && x.default !== null ? { default: x.default } : {}),
+              ...(x.required === true ? { required: true } : {}), ...(x.perArea === false ? { perArea: false } : {}), ...(x.help !== undefined ? { help: x.help } : {}),
+            })),
+            use: 'create_scope {label, primitive, parameters} then draw one area per island; update_scope {areaParameters: {markupId: {...}}} for an island that differs.',
           }
         }
         case 'use_pattern': {

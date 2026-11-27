@@ -11,6 +11,7 @@
 import type { PatternRecipe, PieceResult } from '@redbeam/domain'
 import { checkPatternRecipe, draftLayers } from '@redbeam/domain'
 import { patternLayerColor } from '../layout/drawLayout.js'
+import type { PrimitiveControls } from './PrimitiveCard.js'
 
 export interface PatternControls {
   /** Settings › Beta › Custom patterns. Off: nothing new is offered, but a scope that has a pattern still shows it. */
@@ -30,6 +31,8 @@ export interface PatternControls {
   onMakePattern: (scopeId: string) => void
   /** The library's version of this scope's pattern when it is newer, else null. */
   newerVersion: (recipe: PatternRecipe) => number | null
+  /** A scope laid out by a stored primitive (PrimitiveCard). */
+  primitive: PrimitiveControls
 }
 
 const KIND_TEXT: Record<string, string> = {

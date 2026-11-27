@@ -285,3 +285,34 @@ describe('hardware over several layers and with repeated names (700 Bay, 2026-11
     expect(lines[0]!.quantity).not.toBe(lines[1]!.quantity)
   })
 })
+
+describe('one scope, both ways of a grid (700 Bay, 2026-11-27)', () => {
+  const grid = (crossRun: 'along' | 'across') => ({
+    version: 1, name: 'Grid', status: 'draft', units: 'in',
+    layers: [
+      { id: 'mains', kind: 'members', name: 'Mains', module: { along: 120, across: 60 }, members: [{ along: 0, across: 30, length: 120 }] },
+      { id: 'cross', kind: 'members', name: 'Cross', run: crossRun, module: { along: 120, across: 60 }, members: [{ along: 0, across: 30, length: 120 }] },
+    ],
+  })
+  it('lays members across the pattern with run:"across"', () => {
+    const r = calculatePieces(pattern(grid('across')), [square(10)], cal, opts)
+    expect(r.blockers).toEqual([])
+    // A 10' square: two runs each way at 60" OC, offset 30", 10' long.
+    expect(q(r, 'mains.count')).toBe(2)
+    expect(q(r, 'cross.count')).toBe(2)
+    const segs = (r.shapes ?? []).filter((s) => s.layer === 'cross')
+    expect(segs.every((s) => Math.abs(s.points[0]!.x - s.points[1]!.x) < 1e-6)).toBe(true)
+  })
+  it('sums layers that share a name into one line', () => {
+    const recipe = {
+      version: 1, name: 'Split mains', status: 'draft', units: 'in',
+      layers: [
+        { id: 'm1', kind: 'lines', name: 'Mains', run: 'along', spacing: 120, offset: 30 },
+        { id: 'm2', kind: 'lines', name: 'Mains', run: 'along', spacing: 120, offset: 90 },
+      ],
+    }
+    const r = calculatePieces(pattern(recipe), [square(10)], cal, opts)
+    expect(r.quantities.filter((x) => x.label === 'Mains')).toHaveLength(1)
+    expect(q(r, 'm1.count')).toBe(2)
+  })
+})

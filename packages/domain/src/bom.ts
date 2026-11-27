@@ -50,6 +50,9 @@ export interface BomLine {
   confidence: LineConfidence
   /** Why it is blocked or unverified, in the estimator's words. */
   note?: string
+  /** A finished piece (stored primitives): its length and the line's linear feet. */
+  lengthInches?: number
+  linearFeet?: number
 }
 
 export interface Bom {
@@ -229,7 +232,11 @@ export function buildBom(entries: readonly ScopePieces[]): Bom {
  */
 const TOTALLED_ITEMS: readonly string[] = ['panel_count', 'primary_stock', 'mixed_stock', 'linear_parts'] as const
 
-function lineOf(q: PieceQuantity): Pick<BomLine, 'itemKey' | 'label' | 'quantity' | 'unit'> {
+function lineOf(q: PieceQuantity): Pick<BomLine, 'itemKey' | 'label' | 'quantity' | 'unit' | 'lengthInches' | 'linearFeet'> {
+  // A SKU is its own name: "Main 8'-10", not "Pieces · Main 8'-10".
+  if (q.lengthInches !== undefined) {
+    return { itemKey: q.itemKey, label: q.label, quantity: q.quantity, unit: q.unit, lengthInches: q.lengthInches, ...(q.linearFeet !== undefined ? { linearFeet: q.linearFeet } : {}) }
+  }
   // A layered product names the layer, so "Rails" under a pattern reads as the pattern's rails.
   // "Triangle panel" in a layer called "Triangle panels" says it once.
   const stem = (t: string) => t.toLowerCase().replace(/s$/, '')
