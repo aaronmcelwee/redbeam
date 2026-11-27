@@ -79,7 +79,13 @@ export function describeProduct(type: string): ProductDescription {
     measuredAs: scopeTypeForProduct(product),
     fields,
     example,
-    ...(product === 'baffle' || product === 'baffle_cassette' ? { options: MIXED_OPTIONS } : {}),
+    ...(SPACED.has(product) ? {
+      options: [
+        ...(product === 'baffle' || product === 'baffle_cassette' ? MIXED_OPTIONS : []),
+        ...(product === 'baffle_cassette' ? CASSETTE_OPTIONS : []),
+        ...SPACING_OPTIONS,
+      ],
+    } : {}),
     note: 'Values are text ("6", "7 1/2"). Each measure is two keys: the number under `key`, the unit under `unitKey`. '
       + 'Set them with update_scope {specifications}, which merges. Laid-out products also need a pattern direction (set_pattern_direction).',
   }
@@ -92,6 +98,38 @@ const MIXED_OPTIONS = [
   { key: 'mixedLabel', help: 'the Nth member\'s name', default: 'Beam' },
   { key: 'memberLabel', help: 'the members between (e.g. "Slab"); the stock line is named after it', default: 'Baffle' },
 ]
+
+/** A cassette's own settings beyond the three required measures (#175, #177). Read by domain cassettes.ts. */
+const CASSETTE_OPTIONS = [
+  { key: 'cassetteLength', help: 'module length along the baffles, with cassetteLengthUnit; default: the Stock length', default: '' },
+  { key: 'cassetteGap', help: 'gap between neighbouring cassettes, both ways, with cassetteGapUnit', default: '0' },
+  { key: 'removableShare', help: 'share of cassettes that are removable for access, percent ("10") or fraction ("0.1")', default: '0' },
+  { key: 'perimeterTrimLength', help: 'trim piece length, with perimeterTrimLengthUnit; trim is always given in LF, and in pieces when this is set', default: '' },
+]
+
+/** Where a run product's spacing came from (#179; precon-takeoff skill Part C: section first). */
+export const SPACING_SOURCES = ['section', 'detail', 'schedule', 'rcp'] as const
+const SPACING_OPTIONS = [
+  { key: 'spacingSource', help: `what set the spacing: ${SPACING_SOURCES.join(', ')}. A scope with only the RCP behind it is flagged in get_bom and list_scopes`, default: '' },
+  { key: 'spacingSourceRef', help: 'where: sheet and detail, e.g. "A-521 detail 4"', default: '' },
+]
+
+const SPACED = new Set<ProductType>(['baffle', 'baffle_cassette', 'planks'])
+
+/**
+ * A run product's spacing that rests on the RCP alone, or on nothing recorded
+ * (#179): the RCP draws members at a plotting pitch, the section states it.
+ * Null when the spacing has a section, detail or schedule behind it, or the
+ * product has no spacing.
+ */
+export function spacingSourceFlag(specs: Specifications): string | null {
+  const product = canonicalProductType(String(specs[PRODUCT_TYPE_KEY] ?? ''))
+  if (!SPACED.has(product)) return null
+  const source = String(specs['spacingSource'] ?? '').trim().toLowerCase()
+  if (source === 'section' || source === 'detail' || source === 'schedule') return null
+  if (source === 'rcp') return 'spacing from the RCP only; confirm it on a section or detail (spacingSource)'
+  return 'spacing source not recorded; read it from a section or detail and set spacingSource'
+}
 
 export function describeAllProducts(): ProductDescription[] {
   return PRODUCT_TYPES.map((p) => describeProduct(p))
@@ -109,8 +147,13 @@ const OTHER_KNOWN = [
   PRODUCT_TYPE_KEY, 'alignSeams', 'profileWidthInches', 'scopeColor', 'scopeDefaultDirection',
   'pageDirections', 'areaDirections', 'areaOrigins', 'panelGranularity', 'yieldGranularity',
   'layoutPreviewActive', 'showConnectors', 'showEndCaps', 'showJoiners', 'showOverflowPreview', 'dimPageContent',
-  'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel',
+  'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'spacingSource', 'spacingSourceRef',
 ]
+
+/** Keys one product reads beyond its measures (a cassette's length, gap, removable share and trim). */
+const PRODUCT_EXTRA: Partial<Record<ProductType, readonly string[]>> = {
+  baffle_cassette: ['cassetteLength', 'cassetteLengthUnit', 'cassetteGap', 'cassetteGapUnit', 'removableShare', 'perimeterTrimLength', 'perimeterTrimLengthUnit'],
+}
 
 /**
  * Keys in `specs` that nothing reads for this product, so a value written
@@ -124,7 +167,8 @@ export function unknownSpecKeys(type: string, specs: Record<string, unknown>): s
   for (const p of PRODUCT_TYPES) {
     for (const f of editableMeasures(p)) { known.add(f.valueKey); known.add(f.unitKey) }
   }
-  const mine = new Set<string>()
+  for (const keys of Object.values(PRODUCT_EXTRA)) for (const k of keys) known.add(k)
+  const mine = new Set<string>(PRODUCT_EXTRA[product] ?? [])
   for (const f of editableMeasures(product)) { mine.add(f.valueKey); mine.add(f.unitKey) }
   return Object.keys(specs).filter((k) => !known.has(k) || (!mine.has(k) && !OTHER_KNOWN.includes(k)))
 }
@@ -137,6 +181,7 @@ export function unknownSpecKeys(type: string, specs: Record<string, unknown>): s
 export function measuresAsText(specs: Record<string, unknown>): Record<string, unknown> {
   const keys = new Set<string>()
   for (const p of PRODUCT_TYPES) for (const f of editableMeasures(p)) keys.add(f.valueKey)
+  for (const k of ['cassetteLength', 'cassetteGap', 'removableShare']) keys.add(k)
   const out: Record<string, unknown> = { ...specs }
   for (const [k, v] of Object.entries(specs)) {
     if (typeof v === 'number' && Number.isFinite(v) && keys.has(k)) out[k] = String(v)

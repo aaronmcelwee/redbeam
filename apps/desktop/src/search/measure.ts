@@ -25,9 +25,11 @@ export interface Measurement {
   areaSquarePoints?: number
   areaSquareFeet?: number | null
   feetPerPoint: number | null
-  /** Which scale measured it: a region's id, the page, or none. */
-  scaleSource: 'region' | 'page' | 'none'
+  /** Which scale measured it: a stated `scale`, a region's id, the page, or none. */
+  scaleSource: 'stated' | 'region' | 'page' | 'none'
   scaleRegionId?: string
+  /** The stated scale it was measured at, as given. */
+  scale?: string
   warning?: string
 }
 
@@ -36,7 +38,11 @@ const r3 = (n: number) => Math.round(n * 1000) / 1000
 export function measurePoints(
   points: ReadonlyArray<{ x: number; y: number }>,
   page: { width: number; height: number },
-  opts: { closed?: boolean; regions?: readonly ScaleRegion[]; pageFeetPerPoint?: number | null } = {},
+  opts: {
+    closed?: boolean; regions?: readonly ScaleRegion[]; pageFeetPerPoint?: number | null
+    /** A detail's own stated scale (#179): measured at it, whatever the sheet or a region says. */
+    stated?: { feetPerPoint: number; text: string }
+  } = {},
 ): Measurement {
   const pts = points.map((p) => ({ x: p.x * page.width, y: p.y * page.height }))
   const legs: number[] = []
@@ -45,7 +51,9 @@ export function measurePoints(
   if (closed) legs.push(Math.hypot(pts[0]!.x - pts.at(-1)!.x, pts[0]!.y - pts.at(-1)!.y))
   const lengthPoints = legs.reduce((a, b) => a + b, 0)
 
-  const resolved = resolveScaleForRings([points.map((p) => ({ x: p.x, y: p.y }))], opts.regions ?? [], opts.pageFeetPerPoint ?? null)
+  const resolved = opts.stated !== undefined
+    ? { feetPerPoint: opts.stated.feetPerPoint, regionId: null, warning: null }
+    : resolveScaleForRings([points.map((p) => ({ x: p.x, y: p.y }))], opts.regions ?? [], opts.pageFeetPerPoint ?? null)
   const fpp = resolved.feetPerPoint
   const out: Measurement = {
     lengthPoints: r3(lengthPoints),
@@ -53,7 +61,8 @@ export function measurePoints(
     length: fpp === null ? null : formatFeetInches(lengthPoints * fpp),
     segmentsFeet: legs.map((l) => (fpp === null ? null : r3(l * fpp))),
     feetPerPoint: fpp,
-    scaleSource: resolved.regionId !== null ? 'region' : fpp !== null ? 'page' : 'none',
+    scaleSource: opts.stated !== undefined ? 'stated' : resolved.regionId !== null ? 'region' : fpp !== null ? 'page' : 'none',
+    ...(opts.stated !== undefined ? { scale: opts.stated.text } : {}),
     ...(resolved.regionId !== null ? { scaleRegionId: resolved.regionId } : {}),
     ...(resolved.warning !== null ? { warning: resolved.warning } : {}),
   }

@@ -32,7 +32,7 @@ import { buildRunLayout, type Piece, type RegionLayout } from './pieces.js'
 import { fractionApproximately, orderStockPieceCount, roundUpQuantity } from './panels.js'
 import { regionArea, trimEdgeLengths, trimPiecesForEdges } from './geometry.js'
 import {
-  measureToFeet, readBool, readString, type ProductType, type Specifications,
+  alignSeamsOf, measureToFeet, readString, type ProductType, type Specifications,
 } from './specs.js'
 import { parseNumberOrFraction, unitToFeet } from './units.js'
 import type { PieceQuantity } from './takeoff.js'
@@ -170,7 +170,8 @@ export function resolveRunInputs(
       }
     }
     if (product === 'baffle_cassette') {
-      perimeterTrimLengthFeet = optionalFeet(specs, 'cassetteWidth')
+      // In feet and, at Trim Len, in pieces (#177); cut at the cassette width it was "818 EA".
+      perimeterTrimLengthFeet = optionalFeet(specs, 'perimeterTrimLength')
     }
     /*
      * Rails for baffles too. They were read for planks only, so a baffle
@@ -201,7 +202,7 @@ export function resolveRunInputs(
     railLengthFeet,
     railSpacingFeet,
     yieldGranularity: readString(specs, 'yieldGranularity') ?? 'full',
-    alignSeams: readBool(specs, 'alignSeams'),
+    alignSeams: alignSeamsOf(specs),
     ...(mixed !== null ? { mixed } : {}),
   }
 }

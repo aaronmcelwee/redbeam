@@ -996,18 +996,42 @@ async function missingScopes(db: SqlDriver, slice: SheetSlice): Promise<Array<Re
   for (const [id, m] of wanted) {
     const there = await db.all<{ n: number }>('SELECT COUNT(*) AS n FROM scopes WHERE id = ?', [id])
     if ((there[0]?.n ?? 0) > 0) continue
+    const kept = scopeFromActivity(slice, id)
     out.push({
       id,
       label: scopeLabelFromActivity(slice, id) ?? 'Recovered scope',
-      scope_type: m['kind'] === 'count' ? 'count' : m['kind'] === 'area' ? 'area' : 'linear',
-      color: '#8a8a8a',
-      specifications_json: '{}',
+      scope_type: kept?.scopeType ?? (m['kind'] === 'count' ? 'count' : m['kind'] === 'area' ? 'area' : 'linear'),
+      color: kept?.color ?? '#8a8a8a',
+      specifications_json: JSON.stringify(kept?.specifications ?? {}),
       archived_at: now,
       created_at: typeof m['created_at'] === 'string' ? m['created_at'] : now,
       updated_at: now,
     })
   }
   return out
+}
+
+/**
+ * The scope as the trail last recorded it whole: archiving writes its type,
+ * colour and specifications there (#180), so a scope a file lost comes back
+ * with its product and spec, not empty.
+ */
+function scopeFromActivity(slice: SheetSlice, id: string): { scopeType?: string, color?: string, specifications: Record<string, unknown> } | null {
+  const rows = (slice.tables.activity ?? [])
+    .filter((a) => a['entity_id'] === id && typeof a['details_json'] === 'string')
+    .sort((a, b) => String(b['created_at']).localeCompare(String(a['created_at'])))
+  for (const a of rows) {
+    try {
+      const d = JSON.parse(String(a['details_json'])) as { scopeType?: unknown, color?: unknown, specifications?: unknown }
+      if (d.specifications === null || typeof d.specifications !== 'object' || Array.isArray(d.specifications)) continue
+      return {
+        ...(d.scopeType === 'area' || d.scopeType === 'linear' || d.scopeType === 'count' ? { scopeType: d.scopeType } : {}),
+        ...(typeof d.color === 'string' ? { color: d.color } : {}),
+        specifications: d.specifications as Record<string, unknown>,
+      }
+    } catch { /* not JSON: try the next entry */ }
+  }
+  return null
 }
 
 /** The newest label the activity trail gives a scope, if any. */

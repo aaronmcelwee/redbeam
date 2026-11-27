@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { areaRegion, regionArea, type Markup } from '@redbeam/domain'
 import {
   cutAllEdits, cutEdits, cutRings, cutoutsOf, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits,
-  uncutEdits, withCutouts,
+  measureCut, uncutEdits, withCutouts,
 } from './cutouts.js'
 
 const sq = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]
@@ -122,5 +122,31 @@ describe('agent cuts (Coinbase blind test, 2026-11-27)', () => {
   it('leaves the person\'s cutter as it was: a cut across the edge is a hole they can pick', () => {
     const after = cutRings(big.rings, sq(0.45, 0.2, 0.6, 0.3))!
     expect(after).toHaveLength(2)
+  })
+})
+
+describe('what each cut measures and takes (Coinbase report, item 1)', () => {
+  const field = mk('a1', 'area', [sq(0.1, 0.1, 0.5, 0.5)])
+  it('takes its own area when it lies inside the outline', () => {
+    const { measured } = cutAllEdits([field], [{ pageId: 'p0', ring: sq(0.2, 0.2, 0.3, 0.3) }], { notch: true })
+    expect(measured[0]!.own).toBeCloseTo(0.01, 9)
+    expect(measured[0]!.inside).toBeCloseTo(0.01, 9)
+    expect(measured[0]!.removed).toBeCloseTo(0.01, 9)
+  })
+  it('says how much of a strip along the edge lies outside it', () => {
+    // A strip half over the edge: it can take only the half inside.
+    const { measured } = cutAllEdits([field], [{ pageId: 'p0', ring: sq(0.45, 0.1, 0.55, 0.5) }], { notch: true })
+    expect(measured[0]!.own).toBeCloseTo(0.04, 9)
+    expect(measured[0]!.inside).toBeCloseTo(0.02, 9)
+    expect(measured[0]!.removed).toBeCloseTo(0.02, 9)
+  })
+  it('says how much was already cut out', () => {
+    const { measured } = cutAllEdits([field], [
+      { pageId: 'p0', ring: sq(0.2, 0.2, 0.3, 0.3) },
+      { pageId: 'p0', ring: sq(0.25, 0.2, 0.35, 0.3) },
+    ], { notch: true })
+    expect(measured[1]!.inside).toBeCloseTo(0.01, 9)
+    expect(measured[1]!.removed).toBeCloseTo(0.005, 9)
+    expect(measureCut(sq(0, 0, 1, 1), []).removed).toBe(0)
   })
 })
