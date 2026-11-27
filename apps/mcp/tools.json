@@ -1546,7 +1546,7 @@
     },
     {
       "name": "redbeam_get_piece_list",
-      "description": "A run product's piece list: every run with its length and pieces, each piece's cut length and whether it is cut to fit at an edge or curve, the cutting list (identical cuts counted), stock lengths used by size, offcut, rails, and parts (connectors, end caps, joiners, trim). export what:\"pieces-csv\" writes it as a sheet. Needs a window. `longerThanStock` lists the runs longer than the stock length, the joints they need, and `fitsWithoutJoints`: the shortest stock, in whole feet, that would run every one of them in one piece. `stock.stockToOrder` matches the BOM; `stock.howCounted` explains it.",
+      "description": "A run product's piece list: every run as a row `[page, area, run, lengthFeet, pieces]`, each piece `[cutFeet, stockFraction, cutToFit, offcutFeet, caps, connectors, joiners]` in order along the run (`runFormat` in the answer explains the columns), then the cutting list (identical cuts counted), stock used by size, offcut, rails and parts. export what:\"pieces-csv\" writes it as a sheet. Needs a window. `longerThanStock`: runs over the stock length, the joints they need, and `fitsWithoutJoints`, the shortest whole-foot stock that runs each in one piece. `stock.stockToOrder` matches the BOM; `stock.howCounted` explains it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3831,6 +3831,7 @@
       }
     },
     "input": "REQUIRED. The `session` value redbeam_start_session returned to THIS chat, exactly as given. A call without one is refused.",
+    "over": "This session ended when it called redbeam_end_session, so this call was not run and nothing was changed. Start a new session with redbeam_start_session and pass its `session` value.",
     "refused": "Start a session first: call redbeam_start_session with a short name for the job this chat is doing, then pass the `session` it returns on every call. This call carried no session that REDBEAM issued to a chat on this connection."
   }
 }
