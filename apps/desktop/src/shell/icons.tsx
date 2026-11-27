@@ -161,6 +161,10 @@ export const Round = family('ClipboardBulletListLtr', 16, 20, 24)
 export const Area = family('DrawShape', 16, 20, 24)
 export const Cutout = family('ShapeSubtract', 16, 20, 24)
 export const Polyline = family('Line', 16, 20, 24)
+/** A circle segment in Area, Cutout and Linear (SegmentBar). */
+export const CircleSeg = family('Circle', 16, 20, 24)
+/** A link on the sheet: the Link tool and the callout review. */
+export const LinkIcon = family('Link', 16, 20, 24)
 export const Count = family('Location', 12, 16, 20, 24)
 export const Part = family('Box', 16, 20, 24)
 export const Setting = family('TagMultiple', 16, 20, 24)

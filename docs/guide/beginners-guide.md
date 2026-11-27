@@ -117,6 +117,7 @@ When **Take off** is on, the toolbar shows the scope you are drawing into and it
 | **Area** | A | Click the corners, or drag a rectangle. Enter finishes. |
 | **Cutout** | X | Draw inside an area to take out a hole (a bulkhead, an atrium, a column). |
 | **Linear** | L | Click along a run (trim, a wall, a light cove). Enter finishes. |
+| **Arc / Circle** | A / Shift+C | While drawing an Area, Cutout or Linear: A for a curved piece, Shift+C for a circle. See *Arcs and circles* below. |
 | **Count** | C | One click per item (lights, diffusers, sprinklers). |
 | **Select** | V | Click a markup, or drag a box around several. Delete removes them; Ctrl+D duplicates. |
 | **Dimension** | D | Measure one length off the sheet without adding to a scope. |
@@ -124,6 +125,44 @@ When **Take off** is on, the toolbar shows the scope you are drawing into and it
 | **Direction / Origin** | O for Origin | Set which way panels or baffles run, and where the pattern starts. |
 
 Points snap to the drawing's lines; hold **Alt** to place a point exactly where the cursor is. **Esc** cancels, **Ctrl+Z** undoes. Right-click a markup for more (Copy markup, Start the pattern here, and so on).
+
+### Arcs and circles
+
+Curved walls, round bulkheads and circular openings are drawn with the same Area, Cutout and Linear tools. When one of them is on, a small bar at the top of the drawing shows **Line**, **Arc** and **Circle**, and tells you what to click next.
+
+**An arc inside an area or a run**
+
+1. Start the Area (or Cutout, or Linear) as usual: click the straight corners up to where the curve begins.
+2. Press **A** (or click **Arc** on the bar).
+3. Click any point the curve passes through, ideally near its middle.
+4. Click where the curve ends. You are back to straight lines, so keep clicking corners, or press **A** again for the next arc.
+5. Press **Enter** to finish. If the arc is the last piece of an area, press Enter after step 3 and REDBEAM closes the area along the curve back to your first point.
+
+![Drawing an area with a curved side: straight corners, A, a point on the curve, then its end](images/30-arc.gif)
+
+**A circle**
+
+1. Pick Area or Cutout (or Linear for a circle's perimeter).
+2. Press **Shift+C** (or click **Circle** on the bar). Do this before your first click.
+3. Click the centre, then any point on the edge. The circle is done; click again for another one the same way.
+4. Click **Line** on the bar to go back to straight lines.
+
+![A round opening cut out of an area: Cutout, Shift+C, the centre, then the edge](images/31-circle-cutout.gif)
+
+The area and length follow the true curve, not a rough polygon. **Backspace** takes back the last arc point (or the last corner), and Ctrl+Z undoes a finished shape as usual.
+
+### Links between sheets
+
+Clicking a detail bubble, section mark or sheet number that the architect linked takes you to that sheet, and **Alt+Left** brings you back. When a set has no links (or broken ones), you can add them:
+
+- **One link:** pick **Link** on the toolbar, drag a box over the callout and choose the sheet. The sheet named inside the box is listed first.
+- **Every detail callout at once:** with Link on, click **Link all detail callouts…**. REDBEAM reads every sheet and lists each reference to another sheet. Click a row to see it on the drawing, untick any you don't want, then **Add links**. Sheet names must be set first (see *Fix the sheet names*).
+
+The links are saved into the PDF, so they work in Bluebeam and any other viewer too.
+
+![The Link tool: a box over a detail bubble and the sheet list](images/32-link-picker.png)
+
+![Link detail callouts: every reference found, grouped by sheet, ready to add](images/33-link-callouts.png)
 
 ### Saving: the PDF is the record
 
