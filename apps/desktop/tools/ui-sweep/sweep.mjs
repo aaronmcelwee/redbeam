@@ -786,6 +786,18 @@ const STEPS = [
     await page.screenshot({ path: join(out, `${shotPrefix}cassette-parts-scope.png`) })
     const text = await page.locator('aside.es-panel').first().innerText().catch(() => '')
     if (!/built to fit/.test(text)) problems.push('cassette-parts: the Cassettes line does not say how many are built to fit')
+    // Setup: the cassette's own fields, the spacing source, and the width warning at 7 1/2" spacing.
+    await act('update_scope', { scopeId: scope.scopeId, specifications: { spacing: '7 1/2', spacingSource: '' } })
+    await page.waitForTimeout(800)
+    const setup = page.getByRole('button', { name: /^Setup/ }).first()
+    if (await setup.count() > 0) await setup.click()
+    await page.waitForTimeout(600)
+    for (const id of ['#measure-cassette-l', '#measure-gap', '#scope-removable', '#scope-spacing-source']) {
+      if (await page.locator(id).count() === 0) problems.push(`cassette-parts: Setup has no ${id}`)
+    }
+    for (const p of await inspect(page)) problems.push(`cassette-setup: ${p}`)
+    await page.locator('#scope-spacing-source').scrollIntoViewIfNeeded().catch(() => {})
+    await page.screenshot({ path: join(out, `${shotPrefix}cassette-setup.png`) })
     if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
     await page.waitForTimeout(300)
     if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()

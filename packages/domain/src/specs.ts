@@ -262,7 +262,9 @@ export function measureHelp(valueKey: string): string {
     case 'panelWidth': return 'face width'
     case 'panelLength': return 'face length'
     case 'plankWidth': return 'face width'
-    case 'cassetteWidth': return 'face and trim'
+    case 'cassetteWidth': return 'across baffles'
+    case 'cassetteLength': return 'blank: Stock'
+    case 'cassetteGap': return 'between modules'
     case 'stockLength': return 'length you buy'
     case 'spacing': return 'centre to centre'
     case 'revealSpacing': return 'gap between'
@@ -340,13 +342,19 @@ export function editableMeasures(product: ProductType): MeasureField[] {
         ...common,
       ]
     case 'baffle_cassette':
-      // A cassette's perimeter trim length is read from `cassetteWidth`, not
-      // from `perimeterTrimLength` — so that is the field to offer, and the
-      // generic Trim Len would be inert.
-      // Nothing beyond the module's three measures: cassettes are laid as
-      // whole panels, so a profile width (the run preview's band) and a rail
-      // length (rails are inside the module) would change no number.
-      return [...requiredMeasures(product)]
+      /*
+       * The module's three measures, then its own length (the baffle stock
+       * length when empty), the gap between modules, and the trim piece
+       * length: trim is reported in feet, and in pieces only at Trim Len
+       * (#175, #177; it used to be cut at the cassette width). No profile
+       * width or rail length: rails are inside the module.
+       */
+      return [
+        ...requiredMeasures(product),
+        measure('cassetteLength', 'Cassette L'),
+        measure('cassetteGap', 'Gap'),
+        ...common,
+      ]
     case 'baffle':
       /*
        * No Trim Len here. resolveRunInputs reads a trim length for planks and,
