@@ -117,7 +117,7 @@ import { LinkBar, SegmentBar, segmentCaption } from './shell/SegmentBar.js'
 import { LinkPicker } from './shell/LinkPicker.js'
 import { CalloutReview, type ReviewState } from './shell/CalloutReview.js'
 import { findCallouts } from './tools/callouts.js'
-import { boxRing, pageLinksFrom, ringBox, suggestTargets } from './tools/links.js'
+import { boxRing, linkContentOf, pageLinksFrom, ringBox, suggestTargets } from './tools/links.js'
 import { LINK_COLOR } from './overlay.js'
 import { useStageSize, sizeCanvas } from './useStageSize.js'
 import { embedWhenQuiet } from './autoEmbed.js'
@@ -202,6 +202,9 @@ import {
   EMPTY_DRAFT, REPORT_KINDS, SUMMARY_MAX, buildPayload, captureStage, gatherContext, sendReport, whereLine,
   type ReportDraft, type ReportKind,
 } from './report/report.js'
+import { RELEASES } from './whatsnew/changelogSource.js'
+import { noteFromAgent, noteStyle, refitLeaderText, roughMeasure } from './agents/agentNotes.js'
+import { reportForAgent, whatsNewForAgent } from './agents/appWide.js'
 import { APP_VERSION } from './update/updates.js'
 import { UpdateChip } from './update/UpdateChip.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
@@ -5297,18 +5300,22 @@ export default function Workspace({
    */
   const documentsRef = useRef(documents)
   documentsRef.current = documents
-  const convertAnnotations = useCallback(async (list: PageAnnotation[], scopeId: string | null = activeScopeRef.current) => {
+  const convertAnnotations = useCallback(async (
+    list: PageAnnotation[], scopeId: string | null = activeScopeRef.current,
+    // An agent converts on ITS sheet, which need not be the one on screen.
+    at: { page: number; origin: 'user' | 'agent' } = { page: pageIndexRef.current, origin: 'user' },
+  ): Promise<{ converted: number; cutouts: number; cutoutsUnread: boolean }> => {
     const docId = docIdRef.current
-    const pageIndexNow = pageIndexRef.current
-    const pageId = pageIdFor(docId, pageIndexRef.current)
+    const targetPage = at.page
+    const pageId = pageIdFor(docId, targetPage)
     let found: RawCutouts[] = []
     let cutoutsUnread = false
     if (list.some((a) => a.hasCutouts && kindForAnnotation(a) === 'area')) {
       const doc = documentsRef.current.find((d) => d.id === docId)
       try {
         if (doc === undefined) throw new Error('no document')
-        found = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.cutouts(pageIndexNow)))?.value
-          ?? await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), pageIndexNow)
+        found = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.cutouts(targetPage)))?.value
+          ?? await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), targetPage)
       } catch {
         cutoutsUnread = true
       }
@@ -5330,18 +5337,24 @@ export default function Workspace({
         if (openings.length > 0) { holes += openings.length; holed++ }
         cmds.push(cmdCreate({
           id: uid(), documentId: docId, pageId, scopeId, kind,
-          rings, origin: 'user', reviewState: 'accepted',
+          rings, origin: at.origin, reviewState: 'accepted',
           content: openings.length === 0 ? content : { ...content, cutouts: openings.length },
         }))
       }
     }
-    if (cmds.length === 0) { setStatus('nothing there to convert'); return }
+    if (cmds.length === 0) {
+      if (at.origin === 'user') setStatus('nothing there to convert')
+      return { converted: 0, cutouts: 0, cutoutsUnread }
+    }
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${cmds.length} PDF markups`, cmds))
-    selectAnnots([])
     const shapes = cmds.length
+    // A session's conversion leaves the person's selection and status line alone.
+    if (at.origin === 'agent') return { converted: shapes, cutouts: holes, cutoutsUnread }
+    selectAnnots([])
     setStatus(`${shapes} PDF markup${shapes === 1 ? '' : 's'} converted`
       + (holes > 0 ? `, ${holed === 1 ? 'one area' : `${holed} areas`} with ${holes} cutout${holes === 1 ? '' : 's'}` : '')
       + (cutoutsUnread ? '. Their cutouts could not be read from the file' : ''))
+    return { converted: shapes, cutouts: holes, cutoutsUnread }
   }, [runCommand, selectAnnots, projectPath])
 
   /** Every convertible annotation on the open sheet, converted. */
@@ -8207,6 +8220,26 @@ export default function Workspace({
         // marked with an origin. A bridge that wrote rows directly would
         // produce takeoff changes with no undo entry and no activity trail —
         // the reason the bridge's execute_query refuses writes outright.
+        /*
+         * A comment markup (kind note): text box, cloud, Cloud+, leader with
+         * text, line, rectangle, ellipse, polygon or pen, as the Markup tools
+         * draw them and saved as Bluebeam's own annotations (agents/agentNotes.ts).
+         */
+        case 'create_note': {
+          const probe = document.createElement('canvas').getContext('2d')
+          const measure = (pt: number) => probe === null ? roughMeasure(pt) : canvasMeasure(probe, pt)
+          const built = noteFromAgent(params, ap.size, measure)
+          if ('error' in built) return built
+          const id = uid()
+          const ok = await runCommand(cmdCreate({
+            id, documentId: docIdRef.current, pageId: ap.id, scopeId: null,
+            kind: 'note', rings: built.rings, origin: 'agent', reviewState: 'accepted',
+            content: built.content as unknown as Record<string, unknown>,
+          }))
+          if (!ok) return { error: 'the note could not be written' }
+          requestPaint()
+          return { id, kind: 'note', shape: built.content.shape, page: ap.index, sheet: sheetLabelFor(ap.index), note: 'saving writes it into the PDF as a markup Bluebeam can edit' }
+        }
         case 'create_markup': {
           const kind = String(params['kind'] ?? '')
           const allowed: MarkupKind[] = ['area', 'cutout', 'polyline', 'count', 'shape']
@@ -8820,9 +8853,161 @@ export default function Workspace({
           const tails = SETTINGS.filter((x) => x.id.split('.').pop() === sid)
           const d = SETTINGS.find((x) => x.id === sid) ?? (tails.length === 1 ? tails[0] : undefined)
           if (d === undefined || LIGHT_HIDDEN_SETTINGS.includes(d.id)) return { error: `no setting ${sid}; get_settings lists them` }
-          const why = settings.set(d.id, params['value'])
+          // Back to its default: the Settings page's reset, one setting at a time.
+          const why = settings.set(d.id, params['reset'] === true ? d.default : params['value'])
           if (why !== null) return { error: why }
-          return { setting: d.id, value: settings.all()[d.id] }
+          return { setting: d.id, value: settings.all()[d.id], ...(params['reset'] === true ? { reset: true } : {}) }
+        }
+        /*
+         * Report a bug, as Settings › Report a bug and the prompt's "Report a
+         * bug…" do (Aaron, 2026-11-27: "add the report problem or bug report
+         * feature as an agent usable tool"). The same Worker and the same
+         * GitHub issue labelled "bug report"; the issue says an AI agent sent
+         * it. The session name is left out: it carries the client's job name,
+         * and issues on a public repo show what was typed.
+         */
+        case 'report_problem': {
+          const agent = agentCtxRef.current.agent
+          const box = bridgeRect(params['region'] ?? params['rect'])
+          if (box === null) return { error: 'region must be {x0,y0,x1,y1} in normalized [0,1] page coordinates' }
+          const doc = documents.find((d) => d.id === activeDocId)
+          const targetPage = ap.index
+          const view = agentView()
+          return reportForAgent({
+            params, app: agent?.app ?? null, agentId: agent?.id ?? null,
+            where: whereLine([
+              projectName, doc === undefined ? null : (doc.displayName || doc.relativePath.split('/').pop()),
+              doc === undefined ? null : sheetLabelFor(targetPage),
+            ]),
+            // A picture of the session's own sheet with the takeoff on it, as the form's "attach a picture" would.
+            picture: async () => {
+              const v = viewerRef.current
+              if (v === null || activeDocId === null) return null
+              const out = await v.renderRegion(box ?? view?.rect ?? { x0: 0, y0: 0, x1: 1, y1: 1 }, 1600, {
+                page: targetPage,
+                overlaySet: toOverlay(docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, targetPage) && !isCutId(m.id)), scopesRef.current, pendingIdsRef.current),
+              })
+              return out.canvas.toDataURL('image/jpeg', 0.85)
+            },
+          })
+        }
+        /* What changed in each release, as the What's new dialog shows it. */
+        case 'whats_new':
+          return whatsNewForAgent(params, RELEASES, APP_VERSION)
+        /*
+         * Links of REDBEAM's own (kind link): a box on one sheet that jumps
+         * to another, as the Link tool draws them, and the detail callouts
+         * "Link detail callouts" finds. Saving writes each as a real /Link.
+         */
+        case 'create_links': {
+          const raw = Array.isArray(params['links']) ? params['links'] as unknown[]
+            : params['rect'] !== undefined ? [{ page: params['page'], rect: params['rect'], toPage: params['toPage'], toSheet: params['toSheet'], text: params['text'] }] : []
+          if (raw.length === 0) return { error: 'create_links needs `links`: [{page, rect:{x0,y0,x1,y1}, toPage or toSheet}], or one link as `rect` with `toPage`/`toSheet`' }
+          const sheetRows = sheetGroups.flatMap((g) => g.rows)
+          const pageArg = (v: unknown, what: string): number | string => {
+            if (typeof v === 'string' && !/^\d+$/.test(v.trim())) {
+              const at = pageForSheet(sheetRows, v)
+              return at === null ? `${what}: no single sheet is called ${v}` : at
+            }
+            const n = Number(v)
+            return Number.isInteger(n) && n >= 0 && n < pageCount ? n : `${what}: page ${String(v)} out of range (0..${pageCount - 1})`
+          }
+          const docId = docIdRef.current
+          const made: Array<{ id: string; page: number; toPage: number; toSheet: string }> = []
+          const cmds = []
+          for (const [i, item] of raw.entries()) {
+            const o = objectParam(item)
+            if (o == null) return { error: `links[${i}] must be an object` }
+            const targetPage = o['page'] === undefined ? ap.index : pageArg(o['page'], `links[${i}].page`)
+            if (typeof targetPage === 'string') return { error: targetPage }
+            const to = pageArg(o['toPage'] ?? o['toSheet'], `links[${i}].toPage`)
+            if (typeof to === 'string') return { error: o['toPage'] === undefined && o['toSheet'] === undefined ? `links[${i}] needs toPage or toSheet` : to }
+            if (to === targetPage) return { error: `links[${i}] jumps to the sheet it is on` }
+            const box = bridgeRect(o['rect'])
+            if (box == null) return { error: `links[${i}].rect must be {x0,y0,x1,y1} in normalized [0,1] page coordinates` }
+            const id = uid()
+            const text = typeof o['text'] === 'string' && o['text'].trim() !== '' ? o['text'].trim() : undefined
+            cmds.push(cmdCreate({
+              id, documentId: docId, pageId: pageIdFor(docId, targetPage), scopeId: null,
+              kind: 'link', rings: [boxRing(box)], origin: 'agent', reviewState: 'accepted',
+              content: { toPage: to, source: text === undefined ? 'drawn' : 'callout', ...(text !== undefined ? { text } : {}) },
+            }))
+            made.push({ id, page: targetPage, toPage: to, toSheet: sheetLabelFor(to) })
+          }
+          const ok = await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`link ${cmds.length} callouts`, cmds))
+          if (!ok) return { error: 'the links could not be written' }
+          requestPaint()
+          return { created: made, note: 'one undo step; saving writes them into the PDF as links Bluebeam and Acrobat follow' }
+        }
+        /*
+         * Every reference to another sheet ("3/A5.01", "SEE A5.01"), as Link
+         * detail callouts finds them, ready to pass to create_links. Nothing
+         * is written. Sheets not read in time come back in `stillReading`.
+         */
+        case 'find_callout_links': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null || pageCount === 0) return { error: 'no document is open' }
+          const numbered = pickerSheets.filter((x) => !/^Page \d+$/.test(x.number))
+          if (numbered.length < 2) return { error: 'this set has no sheet numbers to match yet; name its sheets first (redbeam_set_title_blocks or redbeam_rename_sheets)' }
+          const pages = params['page'] === undefined && params['pages'] === undefined && params['fromPage'] === undefined && params['toPage'] === undefined
+            ? { pages: Array.from({ length: pageCount }, (_, i) => i) }
+            : agentPageList(params, ap.index)
+          if ('error' in pages) return pages
+          const docId = docIdRef.current
+          const replyBy = performance.now() + AGENT_REPLY_MS
+          const found: ReturnType<typeof findCallouts> = []
+          const stillReading: number[] = []
+          for (const sweepPage of pages.pages) {
+            if (performance.now() > replyBy) { stillReading.push(sweepPage); continue }
+            let pt: PageText | null = v.getText(sweepPage) ?? null
+            if (pt === null) { try { pt = await v.requestText(sweepPage, { priority: PRIORITY_THUMBNAIL }) } catch { pt = null } }
+            if (pt === null) continue
+            const words = wordsOnPage(pt).map((w) => ({ text: w.text, ...w.box }))
+            const pageId = pageIdFor(docId, sweepPage)
+            const existing = [
+              ...(v.getLinks(sweepPage) ?? []).map((l) => l.rect),
+              ...docMarkupsRef.current.filter((m) => m.kind === 'link' && m.pageId === pageId).map((m) => ringBox(m.rings[0] ?? [])),
+            ]
+            found.push(...findCallouts(sweepPage, words, numbered, existing))
+          }
+          const r5 = (n: number) => Math.round(n * 1e5) / 1e5
+          return {
+            candidates: found.map((c) => ({
+              page: c.page, sheet: sheetLabelFor(c.page), toPage: c.toPage, toSheet: sheetLabelFor(c.toPage), text: c.text,
+              kind: c.kind, likely: c.checked,
+              rect: { x0: r5(c.rect.x0), y0: r5(c.rect.y0), x1: r5(c.rect.x1), y1: r5(c.rect.y1) },
+            })),
+            note: 'callout = a detail number over a sheet number; mention = a sheet number alone. `likely` is what the review list ticks. Pass the ones to keep to redbeam_create_links.',
+            ...(stillReading.length > 0 ? { stillReading, more: 'ask again with `pages` set to these' } : {}),
+          }
+        }
+        /*
+         * Turn the PDF's own markups (a Bluebeam area, polyline or count drawn
+         * before REDBEAM) into takeoff in a scope: the drawing menu's "Convert
+         * the PDF's markups". `names` are list_annotations' `name`s; without
+         * them, every convertible markup on the sheet.
+         */
+        case 'convert_annotations': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          const target = ap.index
+          const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : agentScope()
+          if (scopeId !== null && !scopesRef.current.some((x) => x.id === scopeId)) return { error: `no such scope: ${scopeId}; list_scopes has them` }
+          let all: PageAnnotation[] = []
+          try { all = await v.requestAnnotations(target) } catch { return { error: 'could not read the markups on that sheet' } }
+          // As the sheet offers them to Select: not REDBEAM's own, not ones already taken in as markups.
+          const adopted = adoptedNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+          const held = heldNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+          const convertible = all.filter((a) => a.shape !== 'other' && !isRedbeamNm(a.name) && !adopted.has(a.name) && !held.has(a.name))
+          const names = Array.isArray(params['names']) ? (params['names'] as unknown[]).map(String) : null
+          const picked = names === null ? convertible : convertible.filter((a) => names.includes(a.name))
+          const missing = names === null ? [] : names.filter((n) => !picked.some((a) => a.name === n))
+          if (picked.length === 0) return { error: names === null ? 'nothing on this sheet to convert: only areas, lines and counts convert' : `none of those can be converted; list_annotations names the markups on the sheet`, ...(missing.length > 0 ? { notConvertible: missing } : {}) }
+          const r = await convertAnnotations(picked, scopeId, { page: target, origin: 'agent' })
+          return {
+            page: target, sheet: sheetLabelFor(target), scopeId, ...r,
+            ...(missing.length > 0 ? { notConvertible: missing, note: 'these are not areas, lines or counts, or are not on this sheet' } : {}),
+          }
         }
         /*
          * ---- agent usability study, priority 2 ----
@@ -8832,6 +9017,41 @@ export default function Workspace({
           const id = String(params['id'] ?? '')
           const m = docMarkupsRef.current.find((x) => x.id === id)
           if (!m) return { error: `no such markup: ${id}` }
+          /*
+           * Recolour another app's markup held in place (a Bluebeam cloud,
+           * text box, arrow): the markup menu's colour row. Takeoff markups
+           * wear their scope's colour, which update_scope changes.
+           */
+          if (params['color'] !== undefined && m.kind !== 'note') {
+            if (m.kind !== 'annot') return { error: 'only comment markups (kind note) and markups from Bluebeam or another app (kind annot) carry their own colour; a takeoff markup shows its scope\'s, which update_scope changes' }
+            const hex = String(params['color']).trim().toLowerCase()
+            const named = HELD_COLORS.find((c) => c.name.toLowerCase() === hex)?.hex ?? hex
+            if (!/^#[0-9a-f]{6}$/.test(named)) return { error: `color must be #rrggbb or one of ${HELD_COLORS.map((c) => c.name).join(', ')}` }
+            const was = heldColorOf(m)
+            if (was !== named) await runCommand(cmdEditAnnotColor(id, was, named, { documentId: m.documentId, pageId: m.pageId }, 'agent'))
+            if (params['rings'] === undefined && params['dx'] === undefined && params['dy'] === undefined) return { id, kind: m.kind, color: named }
+          }
+          /*
+           * A comment markup's text and style, as its property strip changes
+           * them: one undo step; a leader's text box is refitted to new text.
+           */
+          const NOTE_KEYS = ['text', 'color', 'width', 'fill', 'fillOpacity', 'ends', 'fontPt']
+          if (m.kind === 'note' && NOTE_KEYS.some((k) => params[k] !== undefined)) {
+            const before = parseNoteContent((m as { content?: unknown }).content)
+            if (before === null) return { error: `${id} is not a readable note` }
+            const next = noteStyle(params, before)
+            if ('error' in next) return next
+            if (next.text !== '' && !hasText(next.shape)) return { error: `a ${next.shape} carries no text` }
+            const cmds = [cmdEditContent(m.id, before as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, 'edit note', { documentId: m.documentId, pageId: m.pageId }, 'agent')]
+            if (next.text !== before.text || next.fontPt !== before.fontPt) {
+              const probe = document.createElement('canvas').getContext('2d')
+              const pg = m.pageId === ap.id ? ap.size : (() => { const n = pageNumberFrom(m.pageId, m.documentId); const z = n === null ? undefined : (viewerRef.current?.getPageSize(n) ?? pageSizesRef.current[n]); return { width: z?.width ?? 0, height: z?.height ?? 0 } })()
+              const refit = refitLeaderText(m.rings.map((r) => r.map((q) => ({ ...q }))), next, pg, (pt) => probe === null ? roughMeasure(pt) : canvasMeasure(probe, pt))
+              if (JSON.stringify(refit) !== JSON.stringify(m.rings)) cmds.push(cmdEditGeometry(m.id, m.rings, refit, 'edit note', { documentId: m.documentId, pageId: m.pageId }, 'agent'))
+            }
+            await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch('edit note', cmds))
+            if (params['rings'] === undefined && params['dx'] === undefined && params['dy'] === undefined) return { id, kind: 'note', content: next }
+          }
           let after: Markup['rings']
           if (params['rings'] !== undefined) {
             const built = agentMarkup({ kind: m.kind, rings: params['rings'], ...(m.scopeId !== null ? { scopeId: m.scopeId } : {}) }, m.documentId, m.pageId)
@@ -8954,6 +9174,11 @@ export default function Workspace({
           return {
             page: ap.index,
             links: v.getLinks(ap.index).map((l) => ({ rect: l.rect, ...(l.page !== undefined ? { toPage: l.page, toSheet: sheetLabelFor(l.page) } : {}), ...(l.uri !== undefined ? { uri: l.uri } : {}) })),
+            // REDBEAM's own (the Link tool's, create_links'), with the id that moves or deletes one.
+            redbeamLinks: docMarkupsRef.current.filter((m) => m.pageId === ap.id).flatMap((m) => {
+              const c = linkContentOf(m)
+              return c === null ? [] : [{ id: m.id, rect: ringBox(m.rings[0] ?? []), toPage: c.toPage, toSheet: sheetLabelFor(c.toPage), ...(c.text !== undefined ? { text: c.text } : {}) }]
+            }),
           }
         }
         case 'list_bookmarks': {
@@ -10095,6 +10320,8 @@ export default function Workspace({
               quantity, unit,
               vertices: m.rings[0]?.length ?? 0, holes: closed ? Math.max(0, m.rings.length - 1) : 0,
               pending: pendingIdsRef.current.has(m.id),
+              ...(m.kind === 'link' ? (() => { const c = linkContentOf(m); return c === null ? {} : { toPage: c.toPage, toSheet: sheetLabelFor(c.toPage) } })() : {}),
+              ...(m.kind === 'note' ? (() => { const c = parseNoteContent((m as { content?: unknown }).content); return c === null ? {} : { note: { shape: c.shape, text: c.text, color: c.color } } })() : {}),
               ...(params['withGeometry'] === true ? { rings: m.rings } : {}),
             }
           })
