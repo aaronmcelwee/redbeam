@@ -10,6 +10,12 @@ All are unsigned; SmartScreen will ask once.
 ### AI agents check a takeoff before calling it final
 
 - **Sign-off checks in the takeoff guide REDBEAM gives Claude and ChatGPT.** Before a takeoff is final, the agent now rechecks every baffle ceiling plan and logs what it added on each sheet, gives every vertical baffle group a height and where that height came from, keeps sloped-ceiling plan lengths apart from installed lengths, compares with other takeoffs sheet by sheet and scope by scope, counts each run once at match lines, and lists the assumptions you are accepting.
+## 0.3.123 — 2026-11-27
+
+### Files no longer lock after a scope is archived
+
+- **"Part of the takeoff could not be loaded" is fixed.** Archiving a scope keeps its markups, but saving left the archived scope itself out of the PDF. On reopening, those markups had no scope to belong to, so REDBEAM refused to save into the file. Archived scopes that still have markups are now saved with them.
+- **Files already affected open normally.** The missing scope comes back archived, under its old name, with its markups intact, and the next save repairs the file.
 
 
 ## 0.3.122 — 2026-11-27
