@@ -65,14 +65,25 @@ const SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [
  * keeps those queries: there the scopes are the whole job's, and every sheet
  * carrying all of them would be wrong.
  */
+/*
+ * A Light file's scopes: every live one, and every archived one that still
+ * has markups. Archiving keeps a scope's markups (setScopeArchived), so the
+ * scope has to travel with them. Leaving archived scopes out (to 0.3.122)
+ * wrote markups whose scope was not in the file; on reopening those markups
+ * could not be loaded and the file was locked against saving (Coinbase L7,
+ * 2026-11-27: an agent archived the scope it had traced an area in).
+ */
+const LIGHT_SCOPE_IDS = `SELECT id FROM scopes WHERE archived_at IS NULL OR id IN (
+     SELECT scope_id FROM markups WHERE document_id = ?1 AND deleted_at IS NULL AND scope_id IS NOT NULL)`
+
 const LIGHT_SLICE_QUERIES: ReadonlyArray<readonly [string, string]> = [...SLICE_QUERIES.map(([table, sql]) => {
-  if (table === 'scopes') return [table, 'SELECT * FROM scopes WHERE archived_at IS NULL'] as const
+  if (table === 'scopes') return [table, `SELECT * FROM scopes WHERE id IN (${LIGHT_SCOPE_IDS})`] as const
   if (table === 'calculation_runs') {
-    return [table, 'SELECT * FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL)'] as const
+    return [table, `SELECT * FROM calculation_runs WHERE scope_id IN (${LIGHT_SCOPE_IDS})`] as const
   }
   if (table === 'quantity_results') {
     return [table, `SELECT * FROM quantity_results WHERE calculation_run_id IN (
-       SELECT id FROM calculation_runs WHERE scope_id IN (SELECT id FROM scopes WHERE archived_at IS NULL))`] as const
+       SELECT id FROM calculation_runs WHERE scope_id IN (${LIGHT_SCOPE_IDS}))`] as const
   }
   return [table, sql] as const
 }),
@@ -962,6 +973,58 @@ export function rebuiltStatus(result: RebuiltTakeoff, name: string): string {
 }
 
 /**
+ * Scopes a slice's markups point at but the slice does not carry.
+ *
+ * Light files saved up to 0.3.122 left out archived scopes while keeping
+ * their markups, so those markups had no scope to load into and the whole
+ * file was locked against saving. Each such scope comes back archived, as it
+ * was, named from the file's activity trail where it can be, so the markups
+ * load, nothing is lost, and the next save writes the scope back properly.
+ */
+async function missingScopes(db: SqlDriver, slice: SheetSlice): Promise<Array<Record<string, unknown>>> {
+  const carried = new Set((slice.tables.scopes ?? []).map((r) => String(r['id'])))
+  const wanted = new Map<string, Record<string, unknown>>()
+  for (const m of slice.tables.markups ?? []) {
+    const id = m['scope_id']
+    if (typeof id !== 'string' || id === '' || carried.has(id) || wanted.has(id)) continue
+    if (m['deleted_at'] !== null && m['deleted_at'] !== undefined) continue
+    wanted.set(id, m)
+  }
+  if (wanted.size === 0) return []
+  const out: Array<Record<string, unknown>> = []
+  const now = new Date().toISOString()
+  for (const [id, m] of wanted) {
+    const there = await db.all<{ n: number }>('SELECT COUNT(*) AS n FROM scopes WHERE id = ?', [id])
+    if ((there[0]?.n ?? 0) > 0) continue
+    out.push({
+      id,
+      label: scopeLabelFromActivity(slice, id) ?? 'Recovered scope',
+      scope_type: m['kind'] === 'count' ? 'count' : m['kind'] === 'area' ? 'area' : 'linear',
+      color: '#8a8a8a',
+      specifications_json: '{}',
+      archived_at: now,
+      created_at: typeof m['created_at'] === 'string' ? m['created_at'] : now,
+      updated_at: now,
+    })
+  }
+  return out
+}
+
+/** The newest label the activity trail gives a scope, if any. */
+function scopeLabelFromActivity(slice: SheetSlice, id: string): string | null {
+  const rows = (slice.tables.activity ?? [])
+    .filter((a) => a['entity_id'] === id && typeof a['details_json'] === 'string')
+    .sort((a, b) => String(b['created_at']).localeCompare(String(a['created_at'])))
+  for (const a of rows) {
+    try {
+      const label = (JSON.parse(String(a['details_json'])) as { label?: unknown }).label
+      if (typeof label === 'string' && label.trim() !== '') return label
+    } catch { /* not JSON: try the next entry */ }
+  }
+  return null
+}
+
+/**
  * Bring a drawing's embedded takeoff into a database that has none for it.
  *
  * Only ever ADDS: rows that already exist are kept as they are (INSERT OR
@@ -979,9 +1042,10 @@ export async function importSlice(
 
   // Pages must exist for markups to reference; they are normally created when
   // the drawing is opened, so only missing ones are added.
+  const recovered = await missingScopes(db, slice)
   const tables: Array<readonly [string, Array<Record<string, unknown>>]> = [
     ['pages', slice.tables.pages ?? []],
-    ...IMPORT_ORDER.map((t) => [t, slice.tables[t] ?? []] as const),
+    ...IMPORT_ORDER.map((t) => [t, t === 'scopes' ? [...(slice.tables.scopes ?? []), ...recovered] : slice.tables[t] ?? []] as const),
   ]
   let markups = 0
   let scopes = 0
@@ -1098,6 +1162,7 @@ export async function takeNewerSlice(
       } catch { /* the page is already there under its own row */ }
     }
     for (const raw of slice.tables.scopes ?? []) if (await upsert('scopes', raw)) scopes++
+    for (const raw of await missingScopes(db, slice)) if (await upsert('scopes', raw)) scopes++
     for (const table of ['calibrations', 'scale_regions'] as const) {
       for (const raw of slice.tables[table] ?? []) await upsert(table, raw)
     }
