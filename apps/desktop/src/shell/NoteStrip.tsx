@@ -4,7 +4,7 @@
  *
  * It shows while a note tool is in hand (it sets what the tool draws next)
  * and while notes are selected (it changes them). Only what the shape has is
- * offered: ends on a line, an arrow and a leader; a font size on a text box;
+ * offered: ends on a line and a leader; a font size wherever there is text;
  * fill on closed shapes. Nothing else is on it, so it stays one row.
  */
 import { useState } from 'react'
@@ -12,7 +12,7 @@ import { useDismiss } from './dismiss.js'
 import { useClampedPopover } from './popover.js'
 import { Check, ChevronDown, FillColor, FontSize, Glyph, LineWidth } from './icons.js'
 import {
-  LINE_ENDS, NOTE_COLORS, NOTE_FONT_SIZES, NOTE_WIDTHS, hasEnds, isClosedShape,
+  LINE_ENDS, NOTE_COLORS, NOTE_FONT_SIZES, NOTE_WIDTHS, hasEnds, hasText, isClosedShape,
   type LineEnd, type NoteContent,
 } from '../tools/noteGeometry.js'
 
@@ -139,15 +139,15 @@ export function NoteStrip({ content: c, target, count = 0, onChange }: NoteStrip
       )}
       {hasEnds(c.shape) && (
         <Menu
-          label={c.shape === 'callout' ? 'Leader end' : 'Start'}
-          title={c.shape === 'callout' ? 'Where the leader points' : 'The end you started from'}
+          label={c.shape === 'line' ? 'Start' : 'Leader end'}
+          title={c.shape === 'line' ? 'The end you started from' : 'The end that points at the thing'}
           value={c.ends[0]}
           options={LINE_ENDS}
           render={(e) => <span className="noteend"><EndGlyph end={e} />{END_LABEL[e]}</span>}
           onPick={(e) => onChange({ ends: [e, c.ends[1]] })}
         />
       )}
-      {(c.shape === 'arrow' || c.shape === 'line') && (
+      {c.shape === 'line' && (
         <Menu
           label="End"
           title="The end you finished at"
@@ -157,7 +157,7 @@ export function NoteStrip({ content: c, target, count = 0, onChange }: NoteStrip
           onPick={(e) => onChange({ ends: [c.ends[0], e] })}
         />
       )}
-      {c.shape === 'text' && (
+      {hasText(c.shape) && (
         <Menu
           label="Font size"
           title="Font size"

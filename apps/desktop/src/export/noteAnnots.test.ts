@@ -22,8 +22,11 @@ const box = (x0: number, y0: number, x1: number, y1: number) =>
 const ALL: EmbedMarkup[] = [
   note('n-text', 'text', box(0.05, 0.05, 0.3, 0.16), { text: 'VERIFY CEILING HEIGHT\nwith architect before order' }),
   note('n-cloud', 'cloud', box(0.4, 0.05, 0.6, 0.25)),
-  note('n-callout', 'callout', [...box(0.65, 0.05, 0.85, 0.2), [{ x: 0.95, y: 0.35 }, { x: 0.85, y: 0.2 }]]),
-  note('n-arrow', 'arrow', [[{ x: 0.1, y: 0.4 }, { x: 0.3, y: 0.55 }]]),
+  note('n-callout', 'callout', [
+    ...box(0.65, 0.05, 0.85, 0.2), [{ x: 0.85, y: 0.2 }, { x: 0.9, y: 0.3 }], ...box(0.9, 0.28, 0.99, 0.32),
+  ], { text: 'RFI 12' }),
+  note('n-arrow', 'arrow', [[{ x: 0.1, y: 0.4 }, { x: 0.3, y: 0.55 }], ...box(0.3, 0.53, 0.4, 0.57)], { text: 'Bulkhead here' }),
+  note('n-arrow-bare', 'arrow', [[{ x: 0.1, y: 0.9 }, { x: 0.2, y: 0.95 }], ...box(0.2, 0.93, 0.3, 0.97)]),
   note('n-line', 'line', [[{ x: 0.1, y: 0.65 }, { x: 0.3, y: 0.65 }]], { ends: ['dot', 'open'] }),
   note('n-rect', 'rect', box(0.4, 0.4, 0.55, 0.55), { fill: '#1f6fd6', color: '#1f6fd6' }),
   note('n-ellipse', 'ellipse', box(0.6, 0.4, 0.75, 0.55)),
@@ -57,19 +60,33 @@ describe('notes in the PDF', () => {
     const list = await annots(out.bytes!)
     const subj = list.map((a) => `${name(a, 'Subtype')}:${text(a, 'Subj')}`)
     expect(subj).toEqual([
-      'FreeText:Text Box', 'Polygon:Cloud', 'Polygon:Cloud', 'Line:Leader', 'Line:Arrow', 'Line:Line',
+      'FreeText:Text Box', 'Polygon:Cloud', 'Polygon:Cloud+', 'FreeText:Callout', 'FreeText:Callout', 'Line:Arrow', 'Line:Line',
       'Square:Rectangle', 'Circle:Ellipse', 'Polygon:Polygon', 'Ink:Pen',
     ])
     for (const a of list) {
       expect(isRedbeamNm(text(a, 'NM'))).toBe(true)
       expect((a.lookup(PDFName.of('AP')) as PDFDict).lookup(PDFName.of('N'))).toBeInstanceOf(PDFStream)
     }
-    const [freeText, cloud, , leader, arrow, line] = list as [PDFDict, PDFDict, PDFDict, PDFDict, PDFDict, PDFDict]
+    const [freeText, cloud, , cloudCallout, callout, arrow, line] = list as [PDFDict, PDFDict, PDFDict, PDFDict, PDFDict, PDFDict, PDFDict]
     expect(text(freeText, 'Contents')).toBe('VERIFY CEILING HEIGHT\nwith architect before order')
     expect(text(freeText, 'DA')).toContain('/Helv 12 Tf')
     expect(text(freeText, 'RC')).toContain('<p>VERIFY CEILING HEIGHT</p>')
     expect(name(cloud, 'IT')).toBe('PolygonCloud')
-    expect(leader.get(PDFName.of('IRT'))).toBeDefined()
+    expect(cloudCallout.get(PDFName.of('IRT'))).toBeDefined()
+    expect(text(cloudCallout, 'Contents')).toBe('RFI 12')
+    // Revu's Callout: the leader from its head on the cloud to the box.
+    for (const co of [cloudCallout, callout]) {
+      expect(name(co, 'IT')).toBe('FreeTextCallout')
+      expect(name(co, 'LE')).toBe('ClosedArrow')
+      expect((co.lookup(PDFName.of('CL')) as PDFArray).size()).toBe(4)
+      expect((co.lookup(PDFName.of('RD')) as PDFArray).size()).toBe(4)
+    }
+    expect(text(callout, 'Contents')).toBe('Bulkhead here')
+    const cl = (callout.lookup(PDFName.of('CL')) as PDFArray).asArray().map((n) => Number(n.toString()))
+    // Head at 0.1 across a 1224 pt page, 0.4 down a 792 pt one (y up).
+    expect(cl[0]).toBeCloseTo(122.4, 1)
+    expect(cl[1]).toBeCloseTo(792 * 0.6, 1)
+    // An arrow with no text is just an arrow.
     expect((arrow.lookup(PDFName.of('LE')) as PDFArray).asArray().map((n) => (n as PDFName).decodeText())).toEqual(['ClosedArrow', 'None'])
     expect((line.lookup(PDFName.of('LE')) as PDFArray).asArray().map((n) => (n as PDFName).decodeText())).toEqual(['Circle', 'OpenArrow'])
   })
@@ -78,7 +95,7 @@ describe('notes in the PDF', () => {
     const first = await embedSheet(await blank(), input(ALL))
     const moved = ALL.map((m) => m.id === 'n-rect' ? { ...m, rings: box(0.42, 0.42, 0.57, 0.57), rev: 'r2' } : m)
     const second = await embedSheet(first.bytes!, input(moved))
-    expect(await annots(second.bytes!)).toHaveLength(10)
+    expect(await annots(second.bytes!)).toHaveLength(11)
     const reading = await readSheetEmbed(second.bytes!)
     expect(reading.foreignAnnots).toBe(0)
   })

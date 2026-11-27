@@ -1442,7 +1442,7 @@ function embedInto(
         const bnm = redbeamNm(markup.id + b.part)
         b.dict.set(PDFName.of(KEY), ctx.obj({ MarkupId: pdfText(markup.id) }))
         b.dict.set(PDFName.of('P'), page.ref)
-        // A callout's leader is grouped to its cloud, so Revu moves them together.
+        // A cloud+'s callout is grouped to its cloud, so Revu moves them together.
         if (head !== null) { b.dict.set(PDFName.of('IRT'), head); b.dict.set(PDFName.of('RT'), PDFName.of('Group')) }
         annots[bnm] = {
           markupId: markup.id, fp: annotFingerprint(b.dict),

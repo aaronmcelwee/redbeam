@@ -8,9 +8,14 @@
  * Revu reads back when someone edits it:
  *
  *   text box      FreeText, /DA /DS /RC with the text, fill as /IC
+ *   leader        FreeText /IT /FreeTextCallout: the text box, with the
+ *                 leader as /CL [head tail], its head as /LE and the box
+ *                 inset from /Rect by /RD; Revu's Callout. Without text it
+ *                 is a Line, an arrow and nothing more.
+ *   cloud+leader  the cloud, and its callout grouped to it (/IRT, /RT /Group),
+ *                 as Revu's Cloud+ is a cloud and a callout grouped
  *   cloud         Polygon, /IT /PolygonCloud, /BE << /S /C /I 1 >>
- *   cloud+leader  the cloud, and a Line from the tip grouped to it (/IRT, /RT /Group)
- *   arrow, line   Line, /L and /LE (ClosedArrow, OpenArrow, Circle, None)
+ *   line          Line, /L and /LE (ClosedArrow, OpenArrow, Circle, None)
  *   rectangle     Square;  ellipse  Circle;  polygon  Polygon
  *   pen           Ink, /InkList
  *
@@ -21,7 +26,8 @@
  */
 import { PDFDict, PDFName, PDFString, StandardFontEmbedder, StandardFonts, type PDFContext, type PDFPage } from 'pdf-lib'
 import {
-  TEXT_LEADING, TEXT_PAD_PT, arrowBarbs, cloudOutline, cloudRadiusPt, dotRadius, wrapLines,
+  TEXT_LEADING, TEXT_PAD_PT, arrowBarbs, cloudOutline, cloudRadiusPt, dotRadius, leaderRingIndex,
+  textRingIndex, wrapLines,
   type LineEnd, type NoteContent,
 } from '../tools/noteGeometry.js'
 import { pdfText, toPdfColor, toUserSpace, type PageBox } from './pdfMarkup.js'
@@ -30,7 +36,7 @@ type P = { x: number; y: number }
 
 /** What Bluebeam's Markups List shows as the Subject of each. */
 export const NOTE_SUBJECT: Record<NoteContent['shape'], string> = {
-  text: 'Text Box', cloud: 'Cloud', callout: 'Cloud', arrow: 'Arrow', line: 'Line',
+  text: 'Text Box', cloud: 'Cloud', callout: 'Cloud+', arrow: 'Callout', line: 'Line',
   rect: 'Rectangle', ellipse: 'Ellipse', polygon: 'Polygon', pen: 'Pen',
 }
 
@@ -106,7 +112,7 @@ function endPad(c: NoteContent): number {
 }
 
 interface Built {
-  /** Suffix for the annotation's /NM: '' for the note itself, ':leader' for a callout's leader. */
+  /** Suffix for the annotation's /NM: '' for the note itself, ':callout' for a cloud+'s callout. */
   part: string
   dict: PDFDict
 }
@@ -149,7 +155,7 @@ export function buildNoteAnnots(
     CA: 1,
     F: 4,
     BS: ctx.obj({ Type: 'Border', W: w, S: PDFName.of('S') }),
-    Subj: pdfText(part === ':leader' ? 'Leader' : NOTE_SUBJECT[c.shape]),
+    Subj: pdfText(part === '' ? NOTE_SUBJECT[c.shape] : 'Callout'),
     T: PDFString.of('REDBEAM'),
     NM: pdfText(nm(part)),
     M: PDFString.of(when),
@@ -157,57 +163,118 @@ export function buildNoteAnnots(
   })
   const withFill = fill === null ? {} : { IC: toPdfColor(fill), FillOpacity: c.fillOpacity }
 
+  /*
+   * A box of text, drawn upright in its own frame, 0..dw across and 0..dh
+   * up: fill, border, and the lines wrapped to its width, clipped to it.
+   * The same as the sheet draws it (notes.ts drawTextBox).
+   */
+  const textBlock = (dw: number, dh: number, fillHex: string | null): string[] => {
+    const fe = font()
+    const lines = wrapLines(c.text, Math.max(1, dw - 2 * TEXT_PAD_PT + 1), (s) => fe.widthOfTextAtSize(winAnsi(s), c.fontPt)).map(winAnsi)
+    const inset = w / 2
+    const textOps = lines.flatMap((l, i) => {
+      const y = dh - TEXT_PAD_PT - c.fontPt * (0.87 + i * TEXT_LEADING)
+      return l === '' ? [] : [`1 0 0 1 ${f(TEXT_PAD_PT)} ${f(y)} Tm`, `${fe.encodeText(l).toString()} Tj`]
+    })
+    return [
+      ...(fillHex === null ? [] : ['q', '/FILL gs', `${rgb(fillHex)} rg`, `0 0 ${f(dw)} ${f(dh)} re`, 'f', 'Q']),
+      ...(w > 0 ? [`${rgb(c.color)} RG`, `${f(w)} w`, `${f(inset)} ${f(inset)} ${f(Math.max(0, dw - w))} ${f(Math.max(0, dh - w))} re`, 'S'] : []),
+      'q', `0 0 ${f(dw)} ${f(dh)} re`, 'W', 'n',
+      'BT', `/Helv ${f(c.fontPt)} Tf`, `${rgb(c.color)} rg`, ...textOps, 'ET', 'Q',
+    ]
+  }
+  const textResources = (fillOpacity: number) => ctx.obj({
+    ExtGState: ctx.obj({ GS: ctx.obj({ Type: 'ExtGState', CA: 1, ca: 1 }), FILL: ctx.obj({ Type: 'ExtGState', ca: fillOpacity }) }),
+    Font: ctx.obj({ Helv: ctx.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', Encoding: 'WinAnsiEncoding' }) }),
+  })
+  /** What Revu reads back to edit a FreeText's text: the text, its font and its rich text. */
+  const freeTextEntries = () => {
+    const css = `font: Helvetica ${f(c.fontPt)}pt; text-align:left; color:${c.color.toUpperCase()}`
+    const rc = '<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" '
+      + `xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="font-size:${f(c.fontPt)}pt;text-align:left;color:${c.color.toUpperCase()};font-family:Helvetica">`
+      + c.text.split(/\r?\n/).map((l) => `<p>${xmlEscape(l) || '&#160;'}</p>`).join('') + '</body>'
+    return {
+      Contents: pdfText(c.text),
+      DA: PDFString.of(`${rgb(c.color)} rg /Helv ${f(c.fontPt)} Tf`),
+      DS: PDFString.of(css),
+      RC: pdfText(rc),
+      Q: 0,
+      ...(rotation === 0 ? {} : { Rotate: rotation }),
+    }
+  }
+  /**
+   * A leader with its text, as Revu's Callout: a FreeText whose /CL is the
+   * leader from its head to the box, /LE the head, and /RD how far the box
+   * sits inside /Rect. The appearance draws the leader in page space and the
+   * box upright in the sheet's display frame, placed there by a `cm`.
+   * Without text it is a plain Line with the arrowhead.
+   */
+  const leaderAnnot = (part: string): Built | null => {
+    const leader = rings[leaderRingIndex(c.shape)]
+    if (leader === undefined || leader.length < 2) return null
+    const [head, tail] = placed(leader, box, rotation) as [P, P]
+    const boxRing = rings[textRingIndex(c.shape)]
+    if (c.text === '' || boxRing === undefined || boxRing.length < 4) {
+      const rect = boundsOf([head, tail], endPad(c))
+      const ap = appearance(rect, [...pathOps([tail, head], false), 'S', ...endOps(head, tail, c.ends[0], w)])
+      return {
+        part,
+        dict: ctx.obj({
+          ...common('Line', rect, part), Subj: pdfText(part === '' ? 'Arrow' : 'Leader'),
+          L: [head.x, head.y, tail.x, tail.y],
+          LE: [PDFName.of(LE[c.ends[0]]), PDFName.of('None')],
+          AP: ctx.obj({ N: ap }),
+        }) as PDFDict,
+      }
+    }
+    // The box's corners TL TR BR BL as drawn, in page space.
+    const [tl, tr, , bl] = placed(boxRing, box, rotation) as [P, P, P, P]
+    const dw = Math.hypot(tr.x - tl.x, tr.y - tl.y), dh = Math.hypot(tl.x - bl.x, tl.y - bl.y)
+    if (!(dw > 0 && dh > 0)) return null
+    const u = { x: (tr.x - tl.x) / dw, y: (tr.y - tl.y) / dw }
+    const v = { x: (tl.x - bl.x) / dh, y: (tl.y - bl.y) / dh }
+    const boxPts = placed(boxRing, box, rotation)
+    const rect = boundsOf([...boxPts, head, tail], endPad(c))
+    const tb = boundsOf(boxPts, 0)
+    const ap = ctx.register(ctx.flateStream(
+      [
+        'q', '/GS gs', `${rgb(c.color)} RG`, `${rgb(c.color)} rg`, `${f(w)} w`, '1 J', '1 j',
+        ...pathOps([tail, head], false), 'S', ...endOps(head, tail, c.ends[0], w),
+        'q', `${f(u.x)} ${f(u.y)} ${f(v.x)} ${f(v.y)} ${f(bl.x)} ${f(bl.y)} cm`, ...textBlock(dw, dh, '#ffffff'), 'Q',
+        'Q',
+      ].join('\n'),
+      { Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: rect, Resources: textResources(1) },
+    ))
+    return {
+      part,
+      dict: ctx.obj({
+        ...common('FreeText', rect, part),
+        Subj: pdfText('Callout'),
+        IT: PDFName.of('FreeTextCallout'),
+        CL: [head.x, head.y, tail.x, tail.y],
+        LE: PDFName.of(LE[c.ends[0]]),
+        RD: [tb[0]! - rect[0]!, tb[1]! - rect[1]!, rect[2]! - tb[2]!, rect[3]! - tb[3]!],
+        IC: toPdfColor('#ffffff'),
+        ...freeTextEntries(),
+        AP: ctx.obj({ N: ap }),
+      }) as PDFDict,
+    }
+  }
+
   switch (c.shape) {
     case 'text': {
       const rect = boundsOf(pts, 0)
       const turned = rotation === 90 || rotation === 270
       const dw = turned ? rect[3]! - rect[1]! : rect[2]! - rect[0]!
       const dh = turned ? rect[2]! - rect[0]! : rect[3]! - rect[1]!
-      const fe = font()
-      const lines = wrapLines(c.text, Math.max(1, dw - 2 * TEXT_PAD_PT), (s) => fe.widthOfTextAtSize(winAnsi(s), c.fontPt)).map(winAnsi)
       const matrix = rotation === 90 ? [0, 1, -1, 0, 0, 0] : rotation === 180 ? [-1, 0, 0, -1, 0, 0] : rotation === 270 ? [0, -1, 1, 0, 0, 0] : [1, 0, 0, 1, 0, 0]
-      const frame = [0, 0, dw, dh]
-      const inset = w / 2
-      const border = [`${f(inset)} ${f(inset)} ${f(Math.max(0, dw - w))} ${f(Math.max(0, dh - w))} re`]
-      const textOps = lines.flatMap((l, i) => {
-        const y = dh - TEXT_PAD_PT - c.fontPt * (0.87 + i * TEXT_LEADING)
-        return l === '' ? [] : [`1 0 0 1 ${f(TEXT_PAD_PT)} ${f(y)} Tm`, `${fe.encodeText(l).toString()} Tj`]
-      })
-      const ops = [
-        ...(fill === null ? [] : ['q', '/FILL gs', `${rgb(fill)} rg`, `0 0 ${f(dw)} ${f(dh)} re`, 'f', 'Q']),
-        ...(w > 0 ? [...border, 'S'] : []),
-        // Clipped to the box, the way the sheet shows it.
-        'q', `0 0 ${f(dw)} ${f(dh)} re`, 'W', 'n',
-        'BT', `/Helv ${f(c.fontPt)} Tf`, `${rgb(c.color)} rg`, ...textOps, 'ET', 'Q',
-      ]
-      const helv = ctx.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', Encoding: 'WinAnsiEncoding' })
       const ap = ctx.register(ctx.flateStream(
-        ['q', '/GS gs', `${rgb(c.color)} RG`, `${f(w)} w`, ...ops, 'Q'].join('\n'),
-        {
-          Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: frame, Matrix: matrix,
-          Resources: ctx.obj({
-            ExtGState: ctx.obj({ GS: ctx.obj({ Type: 'ExtGState', CA: 1, ca: 1 }), FILL: ctx.obj({ Type: 'ExtGState', ca: c.fillOpacity }) }),
-            Font: ctx.obj({ Helv: helv }),
-          }),
-        },
+        ['q', '/GS gs', `${rgb(c.color)} RG`, `${f(w)} w`, ...textBlock(dw, dh, fill), 'Q'].join('\n'),
+        { Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: [0, 0, dw, dh], Matrix: matrix, Resources: textResources(c.fillOpacity) },
       ))
-      const css = `font: Helvetica ${f(c.fontPt)}pt; text-align:left; color:${c.color.toUpperCase()}`
-      const rc = '<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" '
-        + `xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="font-size:${f(c.fontPt)}pt;text-align:left;color:${c.color.toUpperCase()};font-family:Helvetica">`
-        + c.text.split(/\r?\n/).map((l) => `<p>${xmlEscape(l) || '&#160;'}</p>`).join('') + '</body>'
       return [{
         part: '',
-        dict: ctx.obj({
-          ...common('FreeText', rect),
-          ...withFill,
-          Contents: pdfText(c.text),
-          DA: PDFString.of(`${rgb(c.color)} rg /Helv ${f(c.fontPt)} Tf`),
-          DS: PDFString.of(css),
-          RC: pdfText(rc),
-          Q: 0,
-          ...(rotation === 0 ? {} : { Rotate: rotation }),
-          AP: ctx.obj({ N: ap }),
-        }) as PDFDict,
+        dict: ctx.obj({ ...common('FreeText', rect), ...withFill, ...freeTextEntries(), AP: ctx.obj({ N: ap }) }) as PDFDict,
       }]
     }
     case 'rect': case 'ellipse': {
@@ -242,24 +309,17 @@ export function buildNoteAnnots(
           AP: ctx.obj({ N: ap }),
         }) as PDFDict,
       }]
-      const leader = rings[1]
-      if (c.shape === 'callout' && leader !== undefined && leader.length >= 2) {
-        const [tip, foot] = placed(leader, box, rotation) as [P, P]
-        const lrect = boundsOf([tip, foot], endPad(c))
-        const lap = appearance(lrect, [...pathOps([foot, tip], false), 'S', ...endOps(tip, foot, c.ends[0], w)])
-        out.push({
-          part: ':leader',
-          dict: ctx.obj({
-            ...common('Line', lrect, ':leader'),
-            L: [tip.x, tip.y, foot.x, foot.y],
-            LE: [PDFName.of(LE[c.ends[0]]), PDFName.of('None')],
-            AP: ctx.obj({ N: lap }),
-          }) as PDFDict,
-        })
+      if (c.shape === 'callout') {
+        const callout = leaderAnnot(':callout')
+        if (callout !== null) out.push(callout)
       }
       return out
     }
-    case 'arrow': case 'line': {
+    case 'arrow': {
+      const built = leaderAnnot('')
+      return built === null ? null : [built]
+    }
+    case 'line': {
       if (pts.length < 2) return null
       const [a, b] = pts as [P, P]
       const rect = boundsOf([a, b], endPad(c))

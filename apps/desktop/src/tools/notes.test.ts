@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { pointInPolygon } from '@redbeam/domain'
 import {
   boxRing, cloudOutline, defaultNoteContent, emptyNoteDraft, hitTestNote, noteBack, noteDown, noteFinish,
-  noteMove, noteUp, parseNoteContent, simplifyStroke, wrapLines, type NoteLike,
+  leaderTextSize, noteMove, noteUp, parseNoteContent, simplifyStroke, wrapLines, type NoteLike,
 } from './notes.js'
 
 const view = { zoom: 1, ox: 0, oy: 0, vw: 100, vh: 100 }
@@ -51,13 +51,21 @@ describe('note drafts', () => {
     const s = noteUp(noteDown(emptyNoteDraft('text'), { x: 0.5, y: 0.5 }), { x: 0.5, y: 0.5 }, { dragged: false, textBox: { w: 0.1, h: 0.05 } })
     expect(s.rings![0]![2]).toEqual({ x: 0.6, y: 0.55 })
   })
-  it('draws an arrow by drag or by two clicks', () => {
-    const drag = noteUp(noteDown(emptyNoteDraft('arrow'), { x: 0, y: 0 }), { x: 1, y: 1 }, { dragged: true })
-    expect(drag.rings).toEqual([[{ x: 0, y: 0 }, { x: 1, y: 1 }]])
-    let s = noteUp(noteDown(emptyNoteDraft('arrow'), { x: 0, y: 0 }), { x: 0, y: 0 }, { dragged: false })
+  it('draws a leader by drag or by two clicks, with its text box at the tail', () => {
+    const tb = { w: 0.2, h: 0.1 }
+    const drag = noteUp(noteDown(emptyNoteDraft('arrow'), { x: 0, y: 0 }), { x: 1, y: 1 }, { dragged: true, textBox: tb })
+    expect(drag.rings![0]).toEqual([{ x: 0, y: 0 }, { x: 1, y: 1 }])
+    // The tail is halfway down the box's near side; the box runs on away from the head.
+    expect(drag.rings![1]).toEqual(boxRing({ x: 1, y: 0.95 }, { x: 1.2, y: 1.05 }))
+    let s = noteUp(noteDown(emptyNoteDraft('arrow'), { x: 1, y: 0 }), { x: 1, y: 0 }, { dragged: false, textBox: tb })
     expect(s.rings).toBeNull()
-    s = noteUp(noteDown(s.draft, { x: 1, y: 0 }), { x: 1, y: 0 }, { dragged: false })
-    expect(s.rings).toEqual([[{ x: 0, y: 0 }, { x: 1, y: 0 }]])
+    s = noteUp(noteDown(s.draft, { x: 0.5, y: 0 }), { x: 0.5, y: 0 }, { dragged: false, textBox: tb })
+    expect(s.rings![0]).toEqual([{ x: 1, y: 0 }, { x: 0.5, y: 0 }])
+    expect(s.rings![1]![1]).toEqual({ x: 0.5, y: -0.05 })
+  })
+  it('draws a plain line with no text box', () => {
+    const s = noteUp(noteDown(emptyNoteDraft('line'), { x: 0, y: 0 }), { x: 1, y: 1 }, { dragged: true })
+    expect(s.rings).toEqual([[{ x: 0, y: 0 }, { x: 1, y: 1 }]])
   })
   it('clicks a cloud and finishes it on the first corner or Enter', () => {
     let d = emptyNoteDraft('cloud')
@@ -66,12 +74,14 @@ describe('note drafts', () => {
     expect(noteUp(noteDown(d, { x: 0, y: 0 }), { x: 0, y: 0 }, { dragged: false, closes: true }).rings![0]).toHaveLength(3)
     expect(noteBack(d).points).toHaveLength(2)
   })
-  it('gives a callout a leader to the nearest edge of its cloud', () => {
+  it('points a cloud+ leader at the nearest edge of its cloud, text where you click', () => {
     let s = noteUp(noteDown(emptyNoteDraft('callout'), { x: 0.2, y: 0.2 }), { x: 0.4, y: 0.4 }, { dragged: true })
     expect(s.rings).toBeNull()
     expect(s.draft.cloud).toHaveLength(4)
-    s = noteUp(noteDown(s.draft, { x: 0.6, y: 0.3 }), { x: 0.6, y: 0.3 }, { dragged: false })
-    expect(s.rings![1]).toEqual([{ x: 0.6, y: 0.3 }, { x: 0.4, y: 0.3 }])
+    s = noteUp(noteDown(s.draft, { x: 0.6, y: 0.3 }), { x: 0.6, y: 0.3 }, { dragged: false, textBox: { w: 0.1, h: 0.04 } })
+    expect(s.rings![1]).toEqual([{ x: 0.4, y: 0.3 }, { x: 0.6, y: 0.3 }])
+    expect(s.rings![2]![0]!.x).toBe(0.6)
+    expect(s.rings![2]![0]!.y).toBeCloseTo(0.28)
   })
   it('keeps a pen stroke, thinned', () => {
     let d = noteDown(emptyNoteDraft('pen'), { x: 0, y: 0 })
@@ -89,6 +99,21 @@ describe('note hit-testing', () => {
     expect(hitTestNote(30, 10, [n], view, 100, 100)).toEqual({ markupId: 'rect', part: 'edge', index: 0 })
     expect(hitTestNote(30, 30, [n], view, 100, 100)?.part).toBe('inside')
     expect(hitTestNote(80, 80, [n], view, 100, 100)).toBeNull()
+  })
+  it('grabs a leader by its head and its text, not by its tail', () => {
+    const c = { ...defaultNoteContent('arrow'), text: 'Note' }
+    const n: NoteLike = { id: 'a', rings: [[{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.5 }], boxRing({ x: 0.5, y: 0.45 }, { x: 0.8, y: 0.55 })], content: c }
+    expect(hitTestNote(10, 10, [n], view, 100, 100)).toEqual({ markupId: 'a', part: 'vertex', index: 0 })
+    expect(hitTestNote(50, 50, [n], view, 100, 100)?.part).toBe('inside')
+    expect(hitTestNote(70, 50, [n], view, 100, 100)?.part).toBe('inside')
+    // Without text the box is not there to grab.
+    expect(hitTestNote(70, 50, [{ ...n, content: { ...c, text: '' } }], view, 100, 100)).toBeNull()
+  })
+  it('fits a leader\'s text box to its text', () => {
+    const size = leaderTextSize('abcd', 10, (s) => s.length * 5)
+    expect(size.w).toBe(20 + 8 + 1)
+    expect(size.h).toBeCloseTo(12 + 8)
+    expect(leaderTextSize('x '.repeat(100), 10, (s) => s.length * 5).w).toBeLessThanOrEqual(180)
   })
   it('grabs a line by its ends', () => {
     const n = note('line', [[{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 }]])

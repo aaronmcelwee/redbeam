@@ -1337,11 +1337,26 @@ const STEPS = [
     }
     await markupTool('Cloud')
     await drag([0.4, 0.08], [0.58, 0.25])
+    // A cloud with a leader: the cloud, then where its text goes.
     await page.keyboard.press('q')
     await drag([0.64, 0.08], [0.8, 0.2])
-    await click([0.9, 0.32])
-    await markupTool('Arrow')
-    await drag([0.1, 0.3], [0.28, 0.42])
+    await click([0.86, 0.3])
+    if (await editor.count() !== 1) problems.push('notes: the cloud\'s leader opened no text box')
+    else {
+      await page.keyboard.type('RFI 12: confirm grid')
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(600)
+    }
+    // A leader: from what it points at to where its text goes.
+    await markupTool('Leader')
+    await drag([0.12, 0.3], [0.24, 0.4])
+    if (await editor.count() !== 1) problems.push('notes: the leader opened no text box')
+    else {
+      await page.keyboard.type('Bulkhead by others')
+      await page.screenshot({ path: join(out, `${shotPrefix}notes-leader-typing.png`) })
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(600)
+    }
     await page.keyboard.press('r')
     await drag([0.4, 0.35], [0.52, 0.48])
     await page.keyboard.press('e')
@@ -1375,6 +1390,10 @@ const STEPS = [
     if (shapes !== want) problems.push(`notes: drew ${shapes || 'nothing'}, expected ${want}`)
     const text = list.find((n) => n.shape === 'text')
     if (text !== undefined && text.text !== 'VERIFY CEILING HEIGHT with architect') problems.push(`notes: the text box holds "${text.text}"`)
+    for (const [shape, want] of [['callout', 'RFI 12: confirm grid'], ['arrow', 'Bulkhead by others']]) {
+      const n = list.find((x) => x.shape === shape)
+      if (n !== undefined && n.text !== want) problems.push(`notes: the ${shape} holds "${n.text}", expected "${want}"`)
+    }
 
     // Select the cloud and make it blue from the strip.
     await page.keyboard.press('Escape')

@@ -60,9 +60,9 @@ import {
   type DimensionDraft, type DimensionMarkup,
 } from './tools/dimension.js'
 import {
-  canvasMeasure, drawNote, drawNoteDraft, emptyNoteDraft, hitTestNote, isNoteTool, noteBack, noteDown,
-  noteDraftStarted, noteFinish, noteMove, noteUp, notesOf, parseNoteContent, textBoxHeightFor,
-  TEXT_LEADING, TEXT_PAD_PT,
+  boxAtTail, canvasMeasure, drawNote, drawNoteDraft, emptyNoteDraft, hasText, hitTestNote, isNoteTool,
+  leaderRingIndex, leaderTextSize, noteBack, noteDown, noteDraftStarted, noteFinish, noteMove, noteUp, notesOf,
+  parseNoteContent, textBoxHeightFor, textRingIndex, TEXT_LEADING, TEXT_PAD_PT,
   type NoteContent, type NoteDraft, type NoteShape, type NoteStep,
 } from './tools/notes.js'
 import { loadNoteStyles, saveNoteStyles, type NoteStyles } from './tools/noteStyles.js'
@@ -1523,7 +1523,7 @@ export default function Workspace({
         const editing = noteEditRef.current?.id ?? null
         for (const n of bare ? [] : notesOf(markupsRef.current)) {
           drawNote(oc, n.rings, n.content, viewRef.current, page.width, page.height, { hideText: n.id === editing })
-          if (n.id === editing) placeNoteEditor(n.rings[0] ?? [], n.content)
+          if (n.id === editing) placeNoteEditor(n.rings[textRingIndex(n.content.shape)] ?? [], n.content)
         }
         if (isNoteTool(toolRef.current)) {
           const shape = toolRef.current
@@ -4974,7 +4974,8 @@ export default function Workspace({
       const step = noteUp(noteDraftRef.current, p, {
         dragged: from !== null && Math.hypot(s0.x - from.x, s0.y - from.y) > 4,
         closes: firstOnScreen !== null && Math.hypot(firstOnScreen.x - s0.x, firstOnScreen.y - s0.y) <= VERTEX_GRAB_PX,
-        // A click places a text box two and a half inches wide, one line high.
+        // A click places a text box two and a half inches wide, one line high;
+        // a leader's starts that size at its tail and fits its text when done.
         textBox: { w: 180 / page.width, h: (style.fontPt * TEXT_LEADING + 2 * TEXT_PAD_PT) / page.height },
         simplify: 0.75 / (page.width * viewRef.current.zoom),
       })
@@ -5381,21 +5382,25 @@ export default function Workspace({
       content: content as unknown as Record<string, unknown>,
     }))
     if (!ok) return
-    if (shape === 'text') { setNoteEdit({ id, isNew: true }); setStatus('type the text · click away or Ctrl+Enter when done') }
-    else setStatus(`${shape === 'callout' ? 'cloud with leader' : shape === 'rect' ? 'rectangle' : shape} added`)
+    if (hasText(shape)) { setNoteEdit({ id, isNew: true }); setStatus('type the text · click away or Ctrl+Enter when done') }
+    else setStatus(`${shape === 'rect' ? 'rectangle' : shape} added`)
     requestPaint()
   }, [runCommand, requestPaint, setStatus])
 
   const applyNoteStep = useCallback((step: NoteStep) => {
     noteDraftRef.current = step.draft
     if (step.rings !== null && isNoteTool(toolRef.current)) void commitNote(toolRef.current, step.rings)
-    else if (step.draft.cloud !== null) setStatus('now click what the leader points at')
+    else if (step.draft.cloud !== null) setStatus('now click where the text goes')
     requestPaint()
   }, [commitNote, requestPaint, setStatus])
   const applyNoteStepRef = useRef(applyNoteStep)
   applyNoteStepRef.current = applyNoteStep
 
-  /** Write what was typed into the text box, grown to fit it. */
+  /**
+   * Write what was typed. A text box grows downward to fit it; a leader's box
+   * is fitted to its text and kept at the leader's tail. A new text box left
+   * empty is taken away; a leader left without text stays an arrow.
+   */
   const finishNoteEdit = useCallback(async () => {
     const edit = noteEditRef.current
     const el = noteTextRef.current
@@ -5406,27 +5411,42 @@ export default function Workspace({
     const before = parseNoteContent((m as { content?: unknown } | undefined)?.content)
     if (m === undefined || before === null) { requestPaint(); return }
     const text = (el?.value ?? before.text).replace(/\s+$/, '')
-    if (text === '' && edit.isNew) {
+    if (text === '' && edit.isNew && before.shape === 'text') {
       await runCommand(cmdRemove({ id: m.id, kind: 'note', origin: 'user', documentId: m.documentId, pageId: m.pageId }))
       setStatus('empty text box removed')
       return
     }
     if (text === before.text) { requestPaint(); return }
     const after: NoteContent = { ...before, text }
-    const ring = m.rings[0] ?? []
+    const at = textRingIndex(before.shape)
+    const ring = m.rings[at] ?? []
     const ys = ring.map((q) => q.y), xs = ring.map((q) => q.x)
-    const widthPt = (Math.max(...xs) - Math.min(...xs)) * page.width
-    const heightPt = (Math.max(...ys) - Math.min(...ys)) * page.height
     const probe = document.createElement('canvas').getContext('2d')
-    const needPt = probe === null ? heightPt : textBoxHeightFor(after, widthPt, canvasMeasure(probe, after.fontPt))
+    const measure = probe === null ? (t: string) => t.length * after.fontPt * 0.5 : canvasMeasure(probe, after.fontPt)
+    let box: Array<{ x: number; y: number }> | null = null
+    if (before.shape === 'text') {
+      const widthPt = (Math.max(...xs) - Math.min(...xs)) * page.width
+      const heightPt = (Math.max(...ys) - Math.min(...ys)) * page.height
+      const needPt = textBoxHeightFor(after, widthPt, measure)
+      if (needPt > heightPt + 0.5 && ring.length === 4) {
+        const y0 = Math.min(...ys), y1 = y0 + needPt / page.height
+        box = [
+          { x: Math.min(...xs), y: y0 }, { x: Math.max(...xs), y: y0 },
+          { x: Math.max(...xs), y: y1 }, { x: Math.min(...xs), y: y1 },
+        ]
+      }
+    } else {
+      const leader = m.rings[leaderRingIndex(before.shape)]
+      if (leader !== undefined && leader.length >= 2) {
+        const size = leaderTextSize(text, after.fontPt, measure)
+        box = boxAtTail(leader[0]!, leader[1]!, size.w / page.width, size.h / page.height)
+      }
+    }
     const cmds = [cmdEditContent(m.id, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, 'edit text')]
-    if (needPt > heightPt + 0.5 && ring.length === 4) {
-      const y0 = Math.min(...ys), y1 = y0 + needPt / page.height
-      const grown = [
-        { x: Math.min(...xs), y: y0 }, { x: Math.max(...xs), y: y0 },
-        { x: Math.max(...xs), y: y1 }, { x: Math.min(...xs), y: y1 },
-      ]
-      cmds.push(cmdEditGeometry(m.id, m.rings.map((r) => r.map((q) => ({ ...q }))), [grown], 'edit text'))
+    if (box !== null) {
+      const rings = m.rings.map((r) => r.map((q) => ({ ...q })))
+      rings[at] = box
+      cmds.push(cmdEditGeometry(m.id, m.rings.map((r) => r.map((q) => ({ ...q }))), rings, 'edit text'))
     }
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch('edit text', cmds))
     setStatus('text saved')
@@ -6546,12 +6566,13 @@ export default function Workspace({
   const onDoubleClick = (e: React.MouseEvent) => {
     if (tool === 'area' || tool === 'cutout' || tool === 'shape' || tool === 'polyline') void commitDraft()
     if (isNoteTool(tool)) { applyNoteStep(noteFinish(noteDraftRef.current)); return }
-    // A text box, double-clicked, opens for typing.
+    // A text box or a leader, double-clicked, opens its text for typing.
     if (tool === 'pan' || tool === 'select') {
       const r0 = e.currentTarget.getBoundingClientRect()
       const hit = hitNoteAt(e.clientX - r0.left, e.clientY - r0.top)
       const m = hit === null ? undefined : markupsRef.current.find((x) => x.id === hit.markupId)
-      if (m !== undefined && parseNoteContent((m as { content?: unknown }).content)?.shape === 'text') {
+      const shape = m === undefined ? undefined : parseNoteContent((m as { content?: unknown }).content)?.shape
+      if (m !== undefined && shape !== undefined && hasText(shape)) {
         setNoteEdit({ id: m.id, isNew: false })
         requestPaint()
       }
@@ -12105,8 +12126,8 @@ export default function Workspace({
         ['dimension', 'Dimension tool', 'Measure and write it on the sheet'], ['pan', 'Pan tool', 'Read the sheet'],
         ['select', 'Select tool', 'Click a markup, or drag a box around several, or around words to copy them'],
         ['text', 'Text box', 'Drag a box, or click, then type'], ['cloud', 'Cloud', 'Drag a box, or click its corners'],
-        ['callout', 'Cloud with leader', 'Draw the cloud, then click what it points at'],
-        ['arrow', 'Arrow', 'Drag from what it points at'], ['line', 'Line', 'Drag from end to end'],
+        ['callout', 'Cloud with leader', 'Draw the cloud, then click where the text goes'],
+        ['arrow', 'Leader', 'Drag from what it points at to where the text goes'], ['line', 'Line', 'Drag from end to end'],
         ['rect', 'Rectangle', 'Drag a box'], ['ellipse', 'Ellipse', 'Drag its box'],
         ['polygon', 'Polygon', 'Click its corners, double-click to finish'], ['pen', 'Pen', 'Draw freehand'],
       ] as const).map(([t, label, detail]): Command => {
@@ -12902,13 +12923,13 @@ export default function Workspace({
               key={noteEdit.id}
               ref={(el) => {
                 noteTextRef.current = el
-                if (el !== null) { placeNoteEditor(m.rings[0] ?? [], c); if (document.activeElement !== el) el.focus() }
+                if (el !== null) { placeNoteEditor(m.rings[textRingIndex(c.shape)] ?? [], c); if (document.activeElement !== el) el.focus() }
               }}
               className="notetextedit"
               aria-label="Text box"
               defaultValue={c.text}
               spellCheck
-              onInput={() => placeNoteEditor(m.rings[0] ?? [], c)}
+              onInput={() => placeNoteEditor(m.rings[textRingIndex(c.shape)] ?? [], c)}
               onBlur={() => { void finishNoteEdit() }}
               onKeyDown={(e) => {
                 // Escape and Ctrl+Enter end the typing; nothing reaches the sheet's shortcuts.

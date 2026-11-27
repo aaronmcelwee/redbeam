@@ -45,9 +45,9 @@ export interface NoteContent {
    * way Revu's Arrow tool draws it.
    */
   ends: [LineEnd, LineEnd]
-  /** A text box's text. Empty for the other shapes. */
+  /** The text of a text box, or at the tail of a leader or a cloud's leader. */
   text: string
-  /** A text box's font size in PDF points. */
+  /** Font size of that text, in PDF points. */
   fontPt: number
 }
 
@@ -55,8 +55,11 @@ export interface NoteContent {
  * Where each shape keeps its geometry, all normalized page coordinates:
  *  - text, rect, ellipse: rings[0] is the box, four corners TL TR BR BL;
  *  - cloud, polygon: rings[0] is the outline;
- *  - callout: rings[0] the cloud, rings[1] the leader [tip, foot on the cloud];
- *  - arrow, line: rings[0] is [start, end];
+ *  - arrow (a leader, Revu's Callout): rings[0] is [head, tail], the head
+ *    being what it points at, and rings[1] the text box at the tail;
+ *  - callout (Revu's Cloud+): rings[0] the cloud, rings[1] the leader
+ *    [head on the cloud, tail], rings[2] the text box at the tail;
+ *  - line: rings[0] is [start, end];
  *  - pen: rings[0] is the stroke.
  * Every ring moves with the markup, so the generic move works on all of them.
  */
@@ -138,6 +141,25 @@ export function hasEnds(shape: NoteShape): boolean {
   return shape === 'arrow' || shape === 'line' || shape === 'callout'
 }
 
+/**
+ * Which shapes carry text: the text box, and the two leaders, whose text
+ * sits at the tail the way a comment on a drawing does (Aaron, 2026-11-27:
+ * "this is for commenting, not just for random sketches").
+ */
+export function hasText(shape: NoteShape): boolean {
+  return shape === 'text' || shape === 'arrow' || shape === 'callout'
+}
+
+/** Which ring holds the shape's text box, or -1. */
+export function textRingIndex(shape: NoteShape): number {
+  return shape === 'text' ? 0 : shape === 'arrow' ? 1 : shape === 'callout' ? 2 : -1
+}
+
+/** Which ring holds a leader [head, tail], or -1. */
+export function leaderRingIndex(shape: NoteShape): number {
+  return shape === 'arrow' ? 0 : shape === 'callout' ? 1 : -1
+}
+
 // ------------------------------------------------------------ geometry ----
 
 type P = { x: number; y: number }
@@ -207,6 +229,17 @@ export function cloudOutline(ring: ReadonlyArray<P>, radius: number, perArc = 8)
   return out
 }
 
+/**
+ * The text box at a leader's tail, `w` by `h`: the tail sits halfway down
+ * the box's near side and the box runs on away from the head, as Revu lays
+ * out a callout. Four corners TL TR BR BL, in the caller's units (y down).
+ */
+export function boxAtTail(head: P, tail: P, w: number, h: number): P[] {
+  const x0 = tail.x >= head.x ? tail.x : tail.x - w
+  const y0 = tail.y - h / 2
+  return [{ x: x0, y: y0 }, { x: x0 + w, y: y0 }, { x: x0 + w, y: y0 + h }, { x: x0, y: y0 + h }]
+}
+
 /** The point on a closed ring's edges nearest `p`: where a leader meets the cloud. */
 export function nearestOnRing(ring: ReadonlyArray<P>, p: P): P {
   let best = ring[0] ?? p
@@ -267,6 +300,23 @@ export const TEXT_PAD_PT = 4
 
 /** Line height as a multiple of the font size. */
 export const TEXT_LEADING = 1.2
+
+/** The widest a leader's text box grows before its text wraps, in points. */
+export const LEADER_TEXT_MAX_PT = 180
+
+/**
+ * The size, in points, of the box that holds a leader's text: as wide as its
+ * longest line up to LEADER_TEXT_MAX_PT, as tall as its lines. `measure`
+ * gives a string's width at the font size.
+ */
+export function leaderTextSize(text: string, fontPt: number, measure: (s: string) => number): { w: number; h: number } {
+  const lines = wrapLines(text, LEADER_TEXT_MAX_PT - 2 * TEXT_PAD_PT, measure)
+  const widest = Math.max(0, ...lines.map(measure))
+  return {
+    w: Math.max(fontPt * 2, Math.ceil(widest) + 2 * TEXT_PAD_PT + 1),
+    h: Math.max(1, lines.length) * fontPt * TEXT_LEADING + 2 * TEXT_PAD_PT,
+  }
+}
 
 /** Scallop radius of a cloud in points, from its line width. */
 export function cloudRadiusPt(width: number): number {

@@ -99,8 +99,8 @@ const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon
 export type MarkupTool = 'cloud' | 'callout' | 'arrow' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'pen'
 export const MARKUP_TOOLS: Array<{ id: MarkupTool; label: string; title: string; icon: Icon }> = [
   { id: 'cloud', label: 'Cloud', title: 'Cloud: drag a box, or click its corners and double-click', icon: CloudShape },
-  { id: 'callout', label: 'Cloud + leader', title: 'Cloud with a leader: draw the cloud, then click what it points at', icon: Callout },
-  { id: 'arrow', label: 'Arrow', title: 'Arrow: drag from what it points at', icon: ArrowShape },
+  { id: 'callout', label: 'Cloud + leader', title: 'Cloud with a leader and text: draw the cloud, then click where the text goes', icon: Callout },
+  { id: 'arrow', label: 'Leader', title: 'Leader with text: drag from what it points at to where the text goes', icon: ArrowShape },
   { id: 'line', label: 'Line', title: 'Line: drag from end to end', icon: LineShape },
   { id: 'rect', label: 'Rectangle', title: 'Rectangle: drag a box', icon: RectShape },
   { id: 'ellipse', label: 'Ellipse', title: 'Ellipse: drag its box', icon: EllipseShape },

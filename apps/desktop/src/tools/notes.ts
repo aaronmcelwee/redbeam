@@ -12,8 +12,8 @@ import type { Viewport } from '@redbeam/viewer'
 import { normalizedToScreen } from '../draw.js'
 import { EDGE_GRAB_PX, VERTEX_GRAB_PX, type Hit } from '../hit.js'
 import {
-  TEXT_LEADING, TEXT_PAD_PT, arrowBarbs, boxRing, cloudOutline, cloudRadiusPt, dotRadius,
-  isBoxShape, isClosedShape, nearestOnRing, parseNoteContent, simplifyStroke, wrapLines,
+  TEXT_LEADING, TEXT_PAD_PT, arrowBarbs, boxAtTail, boxRing, cloudOutline, cloudRadiusPt, dotRadius,
+  isBoxShape, isClosedShape, leaderRingIndex, nearestOnRing, parseNoteContent, simplifyStroke, textRingIndex, wrapLines,
   type LineEnd, type NoteContent, type NoteShape,
 } from './noteGeometry.js'
 
@@ -42,7 +42,7 @@ export interface NoteDraft {
   down: P | null
   /** A pen stroke in progress. */
   stroke: P[]
-  /** A callout whose cloud is finished, waiting for where its leader points. */
+  /** A cloud+ whose cloud is finished, waiting for where its text goes. */
   cloud: P[] | null
 }
 
@@ -82,7 +82,8 @@ export function noteMove(d: NoteDraft, p: P, minStep = 0): NoteDraft {
  *  - `dragged`: the pointer travelled far enough from where it went down to
  *    be a drag rather than a click;
  *  - `closes`: the release landed on the first corner, closing the outline;
- *  - `textBox`: the size of a text box placed with a click, normalized;
+ *  - `textBox`: the size of a text box placed with a click, and of the
+ *    one-line box a leader starts with at its tail, normalized;
  *  - `simplify`: how far a pen sample may sit off its stroke and be dropped.
  */
 export interface UpOptions {
@@ -111,20 +112,27 @@ export function noteUp(d: NoteDraft, p: P, o: UpOptions): NoteStep {
       return keep(base)
     }
     case 'arrow': case 'line': {
-      if (o.dragged && d.points.length === 0) return done(d, [[down, p]])
-      if (d.points.length === 0) return keep({ ...base, points: [p] })
-      return done(d, [[d.points[0]!, p]])
+      // From what it points at to where its text goes: a drag, or two clicks.
+      const ends: [P, P] | null = o.dragged && d.points.length === 0 ? [down, p]
+        : d.points.length === 0 ? null : [d.points[0]!, p]
+      if (ends === null) return keep({ ...base, points: [p] })
+      return done(d, d.shape === 'arrow' ? [ends, tailBox(ends[0], ends[1], o)] : [ends])
     }
     case 'cloud': case 'polygon': case 'callout': {
       if (d.cloud !== null) {
-        // The callout's leader: from where it points to the nearest edge.
-        return done(d, [d.cloud, [p, nearestOnRing(d.cloud, p)]])
+        // The cloud+'s leader: from the nearest edge of the cloud to where its text goes.
+        const head = nearestOnRing(d.cloud, p)
+        return done(d, [d.cloud, [head, p], tailBox(head, p, o)])
       }
       if (d.points.length === 0 && o.dragged) return outlineDone(base, boxRing(down, p))
       if (o.closes === true && d.points.length >= 3) return outlineDone(base, d.points)
       return keep({ ...base, points: [...d.points, p] })
     }
   }
+}
+
+function tailBox(head: P, tail: P, o: UpOptions): P[] {
+  return boxAtTail(head, tail, o.textBox?.w ?? 0, o.textBox?.h ?? 0)
 }
 
 function outlineDone(d: NoteDraft, ring: P[]): NoteStep {
@@ -163,7 +171,7 @@ export function draftPreview(d: NoteDraft): { rings: P[][]; open: boolean } | nu
     }
     default: {
       if (d.cloud !== null) {
-        return { rings: c === null ? [d.cloud] : [d.cloud, [c, nearestOnRing(d.cloud, c)]], open: false }
+        return { rings: c === null ? [d.cloud] : [d.cloud, [nearestOnRing(d.cloud, c), c]], open: false }
       }
       if (d.points.length === 0) {
         return d.down !== null && c !== null ? { rings: [boxRing(d.down, c)], open: false } : null
@@ -245,29 +253,9 @@ export function drawNote(
   const stroke = () => { if (c.width > 0) ctx.stroke() }
 
   switch (c.shape) {
-    case 'text': {
-      const x0 = Math.min(...ring.map((p) => p.x)), x1 = Math.max(...ring.map((p) => p.x))
-      const y0 = Math.min(...ring.map((p) => p.y)), y1 = Math.max(...ring.map((p) => p.y))
-      ctx.beginPath()
-      ctx.rect(x0, y0, x1 - x0, y1 - y0)
-      fill()
-      stroke()
-      if (o.hideText !== true && c.text !== '') {
-        const fontPx = c.fontPt * unit
-        const pad = TEXT_PAD_PT * unit
-        const measure = canvasMeasure(ctx, fontPx)
-        const lines = wrapLines(c.text, Math.max(1, x1 - x0 - 2 * pad), measure)
-        ctx.fillStyle = c.color
-        ctx.textBaseline = 'top'
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(x0, y0, x1 - x0, y1 - y0)
-        ctx.clip()
-        lines.forEach((l, i) => ctx.fillText(l, x0 + pad, y0 + pad + i * fontPx * TEXT_LEADING + fontPx * 0.1))
-        ctx.restore()
-      }
+    case 'text':
+      drawTextBox(ctx, ring, c, unit, c.fill, c.fillOpacity, o.hideText === true)
       break
-    }
     case 'rect': case 'polygon':
       ctx.beginPath()
       trace(ctx, ring, o.open !== true)
@@ -291,18 +279,13 @@ export function drawNote(
         fill()
       }
       stroke()
-      const leader = rings[1]
-      if (c.shape === 'callout' && leader !== undefined && leader.length >= 2) {
-        const [tip, foot] = toScreen(leader, view, pageW, pageH) as [P, P]
-        ctx.beginPath()
-        ctx.moveTo(foot.x, foot.y)
-        ctx.lineTo(tip.x, tip.y)
-        stroke()
-        drawEnd(ctx, tip, foot, c.ends[0], ctx.lineWidth, unit, c.color)
-      }
+      if (c.shape === 'callout') drawLeader(ctx, rings, c, view, pageW, pageH, o)
       break
     }
-    case 'arrow': case 'line': {
+    case 'arrow':
+      drawLeader(ctx, rings, c, view, pageW, pageH, o)
+      break
+    case 'line': {
       if (ring.length < 2) break
       const [a, b] = ring as [P, P]
       ctx.beginPath()
@@ -320,6 +303,62 @@ export function drawNote(
       break
   }
   ctx.restore()
+}
+
+/**
+ * A box of text: its fill and border, then its lines wrapped to its width
+ * and clipped to it. `ring` is in screen pixels.
+ */
+function drawTextBox(
+  ctx: Ctx, ring: ReadonlyArray<P>, c: NoteContent, unit: number,
+  fillHex: string | null, fillOpacity: number, hideText: boolean,
+): void {
+  const x0 = Math.min(...ring.map((p) => p.x)), x1 = Math.max(...ring.map((p) => p.x))
+  const y0 = Math.min(...ring.map((p) => p.y)), y1 = Math.max(...ring.map((p) => p.y))
+  ctx.beginPath()
+  ctx.rect(x0, y0, x1 - x0, y1 - y0)
+  if (fillHex !== null && fillOpacity > 0) {
+    ctx.fillStyle = rgba(fillHex, fillOpacity)
+    ctx.fill()
+  }
+  if (c.width > 0) ctx.stroke()
+  if (hideText || c.text === '') return
+  const fontPx = c.fontPt * unit
+  const pad = TEXT_PAD_PT * unit
+  const measure = canvasMeasure(ctx, fontPx)
+  // A hair of slack, so a box fitted to its longest line keeps that line whole.
+  const lines = wrapLines(c.text, Math.max(1, x1 - x0 - 2 * pad + unit), measure)
+  ctx.fillStyle = c.color
+  ctx.textBaseline = 'top'
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x0, y0, x1 - x0, y1 - y0)
+  ctx.clip()
+  lines.forEach((l, i) => ctx.fillText(l, x0 + pad, y0 + pad + i * fontPx * TEXT_LEADING + fontPx * 0.1))
+  ctx.restore()
+}
+
+/**
+ * A leader: the line from its head to its tail, the arrowhead at the head,
+ * and its text in a box at the tail. The box shows once it has text, or
+ * while it is being typed into; an arrow left without text is just an arrow.
+ */
+function drawLeader(
+  ctx: Ctx, rings: ReadonlyArray<ReadonlyArray<P>>, c: NoteContent,
+  view: Viewport, pageW: number, pageH: number, o: NotePaint,
+): void {
+  const unit = view.zoom
+  const leader = rings[leaderRingIndex(c.shape)]
+  if (leader === undefined || leader.length < 2) return
+  const [head, tail] = toScreen(leader, view, pageW, pageH) as [P, P]
+  ctx.beginPath()
+  ctx.moveTo(tail.x, tail.y)
+  ctx.lineTo(head.x, head.y)
+  ctx.stroke()
+  drawEnd(ctx, head, tail, c.ends[0], ctx.lineWidth, unit, c.color)
+  const box = rings[textRingIndex(c.shape)]
+  if (box === undefined || box.length < 4 || (c.text === '' && o.hideText !== true)) return
+  drawTextBox(ctx, toScreen(box, view, pageW, pageH), c, unit, '#ffffff', 1, o.hideText === true)
 }
 
 /** Paint the draft in the style it will be committed in. */
@@ -380,9 +419,9 @@ function nearPath(p: P, pts: ReadonlyArray<P>, close: boolean, tol: number): num
 /**
  * The note under a screen point, newest first, in the shape `hitTest`
  * answers so the select tool treats a note like any markup:
- *  - a corner of a polygon or cloud, or an end of a line: `vertex`;
+ *  - a corner of a polygon or cloud, an end of a line, a leader's head: `vertex`;
  *  - the edge of a box (text, rectangle, ellipse): `edge`, which resizes it;
- *  - on its line or inside a closed shape: `inside`, which moves it.
+ *  - on its line, on a leader's text or inside a closed shape: `inside`, which moves it.
  */
 export function hitTestNote(
   sx: number, sy: number, notes: ReadonlyArray<NoteLike>, view: Viewport, pageW: number, pageH: number,
@@ -394,7 +433,8 @@ export function hitTestNote(
     const ring = toScreen(n.rings[0] ?? [], view, pageW, pageH)
     const lineTol = Math.max(EDGE_GRAB_PX, n.content.width * view.zoom / 2 + 2)
     if (!isBoxShape(shape) && shape !== 'pen') {
-      for (let vi = 0; vi < ring.length; vi++) {
+      // A leader's head is its one handle: its tail stays with its text.
+      for (let vi = 0; vi < (shape === 'arrow' ? 1 : ring.length); vi++) {
         if (Math.hypot(ring[vi]!.x - sx, ring[vi]!.y - sy) <= VERTEX_GRAB_PX) return { markupId: n.id, part: 'vertex', index: vi }
       }
     }
@@ -403,8 +443,15 @@ export function hitTestNote(
       if (e >= 0) return { markupId: n.id, part: 'edge', index: e }
     }
     if (nearPath(p, ring, isClosedShape(shape), lineTol) >= 0) return { markupId: n.id, part: 'inside', index: -1 }
-    for (const extra of n.rings.slice(1)) {
-      if (nearPath(p, toScreen(extra, view, pageW, pageH), false, lineTol) >= 0) return { markupId: n.id, part: 'inside', index: -1 }
+    const textAt = textRingIndex(shape)
+    for (let ri = 1; ri < n.rings.length; ri++) {
+      const extra = toScreen(n.rings[ri]!, view, pageW, pageH)
+      if (ri === textAt) {
+        // A leader's text box, once it has text, is grabbed anywhere on it.
+        if (n.content.text !== '' && extra.length >= 3 && (pointInPolygon(p, extra) || nearPath(p, extra, true, EDGE_GRAB_PX) >= 0)) {
+          return { markupId: n.id, part: 'inside', index: -1 }
+        }
+      } else if (nearPath(p, extra, false, lineTol) >= 0) return { markupId: n.id, part: 'inside', index: -1 }
     }
     if (isClosedShape(shape) && ring.length >= 3) {
       if (shape === 'ellipse') {
