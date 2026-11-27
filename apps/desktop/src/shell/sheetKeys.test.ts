@@ -15,7 +15,9 @@ describe('tool shortcuts (#29)', () => {
     expect(toolForKey('K', bare)).toBe('scale-region')
     expect(toolForKey('v', bare)).toBe('select')
     expect(toolForKey('h', bare)).toBe('pan')
-    expect(toolForKey('q', bare)).toBeNull()
+    expect(toolForKey('q', bare)).toBe('callout')
+    expect(toolForKey('t', bare)).toBe('text')
+    expect(toolForKey('j', bare)).toBeNull()
   })
 
   it('Ctrl+K opens the palette and arms nothing', () => {

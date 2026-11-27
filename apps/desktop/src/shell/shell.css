@@ -3708,6 +3708,63 @@ html[data-backdrop="tabbed"] .dockgroup {
 .tbpick-actions .st-btn.accent:hover { background: var(--rb-accent-2); }
 .tbpick-actions .st-btn:disabled { opacity: 0.45; cursor: default; }
 
+/* ---- note properties (NoteStrip.tsx) ----
+ * A second, smaller surface over the dock, centred on it, shown only while a
+ * note tool is in hand or notes are selected. Same acrylic and buttons as the
+ * dock, so it reads as part of it.
+ */
+.notestrip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + var(--ads-sp-2));
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.notestripwrap { position: relative; }
+.notestripbtn { gap: var(--ads-sp-1); padding-inline: var(--ads-sp-2); }
+@container viewport (max-width: 999px) {
+  .notestripbtn { width: auto; }
+}
+.notestripvalue { font-size: var(--rb-text-body); color: var(--ads-ink-2); }
+.notestripmenu { min-width: 160px; }
+.noteswatches { display: flex; align-items: center; gap: var(--ads-sp-1); padding-inline: var(--ads-sp-1); }
+.noteswatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--ads-line-2);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.noteswatch[aria-checked="true"] {
+  outline: 2px solid var(--rb-ink);
+  outline-offset: 2px;
+}
+.noteswatch:focus-visible { outline: 2px solid var(--rb-focus-outer); outline-offset: 2px; }
+.noteend { display: inline-flex; align-items: center; gap: var(--ads-sp-2); }
+
+/* The text a text box is being typed into, laid over the box itself. */
+.notetextedit {
+  position: absolute;
+  z-index: 50;
+  margin: 0;
+  border: 1px dashed var(--rb-accent);
+  border-radius: 0;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  font-family: Helvetica, Arial, sans-serif;
+  line-height: 1.2;
+  white-space: pre-wrap;
+}
+
+/* The Markup split button: the last shape used, and a chevron for the rest. */
+.dockmarkup { display: inline-flex; align-items: center; position: relative; }
+.dockmarkup > .dockmarkupmore { width: 18px; padding-inline: 0; }
+/* A menu row's keyboard shortcut, right-aligned and quiet (Fluent's MenuFlyoutItem KeyboardAcceleratorText). */
+.menukey { margin-left: auto; padding-left: var(--ads-sp-4); color: var(--ads-ink-3); font-size: var(--rb-text-caption, 12px); }
+
 /*
  * Line | Arc | Circle for Area, Cutout and Linear (SegmentBar.tsx): one
  * dock surface, centred one row above the dock so it reads as that tool's

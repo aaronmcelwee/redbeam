@@ -13,6 +13,17 @@ All are unsigned; SmartScreen will ask once.
 - **Traced fields match the drawing.** Tracing a ceiling field gives the same area however the agent frames it. Stair-stepped edges now follow the drawn wall, curve or slanted line, and an agent can choose to end the field at the hatch rather than the wall line.
 - **Counts that agree.** End caps are counted one per run end, so 475 runs give 950. The piece list's stock figures now say plainly how much stock to order and why, and the pieces CSV has columns for start caps, end caps, connectors and joiners.
 - **Better reading of sheets.** Two-line sheet titles are read in full, a scale check reads the sheet you asked about, and agents can read the shape and measured value of existing markups. An agent working across several open PDFs is told which file each call went to.
+## 0.3.115 — 2026-11-27
+
+### Text boxes, clouds, leaders and shapes
+
+- **Text box.** Press T, then click or drag a box and type. Click away or press Ctrl+Enter when you're done. Double-click a text box to change its text. Selecting text on the sheet to copy it now happens in the Select tool: drag over words where there are no markups.
+- **Leaders with text.** The Leader tool works like Bluebeam's Callout. Drag from the thing you're pointing at to where you want the text, then type. The arrowhead sits on the thing, and the text box fits what you typed.
+- **Clouds, and clouds with a leader.** Drag a cloud, or click its corners and double-click. Cloud + leader (Q) works like Bluebeam's Cloud+: draw the cloud, then click where the text goes.
+- **Shapes and a pen.** Line, rectangle, ellipse, polygon and a freehand pen are in the markup menu beside Text, with keys R, E, N and P.
+- **Colour, line width, fill, arrowheads and font size** are on a small bar over the dock while a markup tool is in hand or markups are selected.
+- **Bluebeam can edit them.** Each is saved in the PDF as the markup Bluebeam itself makes, so Revu opens them as its own text boxes, callouts, clouds and shapes.
+
 ## 0.3.114 — 2026-11-26
 
 ### Arcs, circles and links between sheets

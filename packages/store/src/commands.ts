@@ -52,6 +52,7 @@ export type UndoOpKind =
   | 'reassign_scope'
   | 'set_calibration'
   | 'edit_annot_color'
+  | 'edit_content'
   | 'batch'
 
 /**
@@ -307,6 +308,43 @@ export function editAnnotColor(
     },
     async revert(db) {
       await set(db, before)
+    },
+  }
+}
+
+/**
+ * Replace a markup's content: a note's text, colour, line or ends. The whole
+ * payload is swapped both ways, so an undo puts back exactly what was there.
+ */
+export function editContent(
+  id: string,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  label = 'edit markup',
+  where?: EntityLocation,
+  origin: string = USER,
+): Command {
+  const record: UndoRecord = {
+    op: 'edit_content',
+    label,
+    entityType: 'markup',
+    entityId: id,
+    ...locate(where),
+    before,
+    after,
+    origin,
+  }
+  return {
+    label,
+    record,
+    async apply(db) {
+      await updateMarkupContent(db, id, after)
+      await logActivity(db, {
+        eventType: 'markup.content_changed', entityType: 'markup', entityId: id, origin, details: { label },
+      })
+    },
+    async revert(db) {
+      await updateMarkupContent(db, id, before)
     },
   }
 }
