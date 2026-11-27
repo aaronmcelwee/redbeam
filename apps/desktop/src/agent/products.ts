@@ -12,6 +12,7 @@ import {
   granularityKey, measureHelp, measureToFeet, requiredMeasures, scopeTypeForProduct,
   type ProductType, type Specifications,
 } from '@redbeam/domain'
+import { LAYOUT_KEYS } from '../layout/scopeLayout.js'
 
 export const UNITS = ['in', 'ft', 'mm', 'cm', 'm'] as const
 
@@ -79,11 +80,12 @@ export function describeProduct(type: string): ProductDescription {
     measuredAs: scopeTypeForProduct(product),
     fields,
     example,
-    ...(SPACED.has(product) ? {
+    ...(SPACED.has(product) || product === 'panels' ? {
       options: [
         ...(product === 'baffle' || product === 'baffle_cassette' ? MIXED_OPTIONS : []),
         ...(product === 'baffle_cassette' ? CASSETTE_OPTIONS : []),
-        ...SPACING_OPTIONS,
+        ...(SPACED.has(product) ? SPACING_OPTIONS : []),
+        ...LAYOUT_OPTIONS,
       ],
     } : {}),
     note: 'Values are text ("6", "7 1/2"). Each measure is two keys: the number under `key`, the unit under `unitKey`. '
@@ -104,6 +106,16 @@ const CASSETTE_OPTIONS = [
   { key: 'cassetteGap', help: 'gap between neighbouring cassettes, both ways, with cassetteGapUnit', default: '0' },
   { key: 'removableShare', help: 'share of cassettes that are removable for access, percent ("10") or fraction ("0.1")', default: '0' },
   { key: 'perimeterTrimLength', help: 'trim piece length, with perimeterTrimLengthUnit; trim is always given in LF, and in pieces when this is set', default: '' },
+]
+
+/** The scope's own layout settings (Aaron, 2026-11-27; they were global until 0.3.132). */
+const LAYOUT_OPTIONS = [
+  { key: LAYOUT_KEYS.patternStart, help: 'where an area with no placed start begins: top-left|top-right|bottom-left|bottom-right|automatic', default: 'top-left' },
+  { key: LAYOUT_KEYS.perAreaOrigin, help: '"true": with an automatic start, each area gets its own grid instead of one shared across the sheet', default: 'false' },
+  { key: LAYOUT_KEYS.showOverflow, help: 'layout preview draws stock past the area edge', default: 'true' },
+  { key: LAYOUT_KEYS.showRails, help: 'layout preview draws suspension rails', default: 'true' },
+  { key: LAYOUT_KEYS.showTrim, help: 'layout preview outlines perimeter trim', default: 'true' },
+  { key: LAYOUT_KEYS.showSeams, help: 'layout preview marks seams', default: 'true' },
 ]
 
 /** Where a run product's spacing came from (#179; precon-takeoff skill Part C: section first). */
@@ -147,6 +159,7 @@ const OTHER_KNOWN = [
   'pageDirections', 'areaDirections', 'areaOrigins', 'panelGranularity', 'yieldGranularity',
   'layoutPreviewActive', 'showConnectors', 'showEndCaps', 'showJoiners', 'showOverflowPreview', 'dimPageContent',
   'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'spacingSource', 'spacingSourceRef',
+  ...Object.values(LAYOUT_KEYS),
 ]
 
 /** Keys one product reads beyond its measures (a cassette's length, gap, removable share and trim). */

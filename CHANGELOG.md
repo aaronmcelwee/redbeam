@@ -5,13 +5,28 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.134 — 2026-11-27
+## 0.3.140 — 2026-11-27
 
 ### A second trace on the same sheet starts sooner
 
 - **The sheet is drawn once.** To check a hatched ceiling against what is on the page, REDBEAM drew the sheet again for every trace an agent asked for. It now keeps that drawing while the agent stays on the sheet, which takes about a second and a half off each later trace of a dense sheet. The outlines are the same.
 
 
+## 0.3.136 — 2026-11-27
+
+### Layout settings belong to each scope
+
+- **Each scope sets its own layout.** Where its areas start (a corner, or automatic with one grid across the sheet or each area on its own) is now in the scope's Setup, beside Seams and Direction.
+- **Each scope chooses what its preview draws.** Material past the edge, suspension rails, perimeter trim and seams switch on and off under the scope's "Show layout on sheet". Settings keeps only the one switch that shows or hides every layout.
+- **Nothing moves on its own.** Scopes you already have keep the values the old global settings held until you change them on the scope. Agents read and set the same settings per scope.
+
+
+## 0.3.134 — 2026-11-27
+
+### Settings stay as you set them after an update
+
+- **Settings no longer reset.** A switch such as the Custom patterns beta could turn itself back off after an update. A REDBEAM window opened before the change still held the old value and wrote it back the next time it saved anything. Each window now saves only the setting you changed and picks up changes made in other windows.
+- **A copy on disk.** Settings are also kept in a file in your Windows profile, so an update that closes REDBEAM straight after a change, or a reset of the built-in browser's storage, can no longer lose them.
 ## 0.3.133 — 2026-11-27
 
 ### A finished agent session stays finished

@@ -7,6 +7,7 @@ mod docstream;
 pub mod mcp;
 mod open_with;
 mod portable;
+mod settings_file;
 mod project;
 mod store;
 mod undo;
@@ -142,6 +143,8 @@ pub fn run() {
             project::project_save_file,
             portable::app_portable,
             portable::portable_open_download,
+            settings_file::settings_file_read,
+            settings_file::settings_file_write,
             window::open_project_window,
             window::open_context_window,
             window::close_window,
