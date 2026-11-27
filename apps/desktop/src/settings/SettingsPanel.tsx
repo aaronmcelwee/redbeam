@@ -35,7 +35,7 @@ import { AiAppsRun } from './AiAppsRun.js'
 import { APP_VERSION } from '../update/updates.js'
 import { isTauri } from '../tauri/window.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
-import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Reset, Search, Sparkles, TriangleAlert, X } from '../shell/icons.js'
+import { Bug, ChevronDown, ChevronUp, ChevronRight, Glyph, Lightbulb, Reset, Search, Sparkles, TriangleAlert, X } from '../shell/icons.js'
 import { openWhatsNew } from '../whatsnew/open.js'
 import './settings.css'
 import { AppMark } from '../brand/AppMark.js'
@@ -50,6 +50,8 @@ interface Props {
   initialSettingId?: string
   /** Open the bug report card over this page. Absent where nothing can send one. */
   onReportBug?: () => void
+  /** Opens the same card asking for an idea for a precon skill. */
+  onSuggestSkill?: () => void
   /** Settings that mean nothing in this window, left off the page (Light has no recent projects). */
   hidden?: readonly string[]
 }
@@ -67,7 +69,7 @@ function runs(): Array<{ title: string; roots: SettingDescriptor[] }> {
   return out
 }
 
-export function SettingsPanel({ store, onClose, initialSettingId, onReportBug, hidden = [] }: Props) {
+export function SettingsPanel({ store, onClose, initialSettingId, onReportBug, onSuggestSkill, hidden = [] }: Props) {
   useReturnFocus(true)
   const trap = useFocusTrap<HTMLDivElement>(true)
   const [values, setValues] = useState(() => store.all())
@@ -201,7 +203,12 @@ export function SettingsPanel({ store, onClose, initialSettingId, onReportBug, h
 
           {(q === '' || ['claude', 'chatgpt', 'ai', 'mcp', 'codex'].some((w) => w.startsWith(q))) && <AiAppsRun />}
 
-          {q === '' && <AboutRun {...(onReportBug === undefined ? {} : { onReportBug })} />}
+          {q === '' && (
+            <AboutRun
+              {...(onReportBug === undefined ? {} : { onReportBug })}
+              {...(onSuggestSkill === undefined ? {} : { onSuggestSkill })}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -353,7 +360,7 @@ function AccentRow() {
  * whether it can update, what it recorded when it broke, and what it is
  * built on. Rows without switches — nothing here is a preference.
  */
-function AboutRun({ onReportBug }: { onReportBug?: () => void }) {
+function AboutRun({ onReportBug, onSuggestSkill }: { onReportBug?: () => void; onSuggestSkill?: () => void }) {
   return (
     <section className="prefs-run prefs-about" aria-label="About REDBEAM">
       <h3 className="prefs-runtitle"><AppMark size={16} /> About REDBEAM <span className="prefs-version">{APP_VERSION}</span></h3>
@@ -366,6 +373,19 @@ function AboutRun({ onReportBug }: { onReportBug?: () => void }) {
               <span className="prefs-cardnote">
                 A wrong quantity, a sheet that drew badly, anything that got in the way. Sent with
                 this copy’s version, and a picture of the drawing if you add one.
+              </span>
+            </span>
+            <Glyph icon={ChevronRight} role="small" />
+          </button>
+        )}
+        {onSuggestSkill !== undefined && (
+          <button type="button" className="prefs-card prefs-reportcard" onClick={onSuggestSkill}>
+            <span className="prefs-cardicon accent"><Glyph icon={Lightbulb} role="card" /></span>
+            <span className="prefs-cardtext">
+              <span className="prefs-cardtitle">Suggest a skill improvement</span>
+              <span className="prefs-cardnote">
+                An idea for how Claude and ChatGPT do takeoffs in REDBEAM. Claude reviews it, and the
+                skill changes only once its owner approves.
               </span>
             </span>
             <Glyph icon={ChevronRight} role="small" />

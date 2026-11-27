@@ -82,7 +82,7 @@ describe('sending', () => {
     }) as typeof fetch
     await sendReport(payload, capture, 'https://x/reports')
     expect(Object.keys(body).sort()).toEqual(
-      ['contact', 'details', 'kind', 'machine', 'os', 'screenshot', 'summary', 'version', 'where'],
+      ['contact', 'details', 'kind', 'machine', 'os', 'screenshot', 'skill', 'summary', 'version', 'where'],
     )
   })
 })

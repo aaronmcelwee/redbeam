@@ -523,6 +523,33 @@ const STEPS = [
     await page.waitForTimeout(250)
     return problems
   }],
+  ['suggest-skill', async (page) => {
+    // Settings › About › Suggest a skill improvement: the report card in its skill mode.
+    await button(page, 'Settings').last().click()
+    await page.waitForTimeout(400)
+    const problems = []
+    const entry = page.getByRole('button', { name: /Suggest a skill improvement/ })
+    if (await entry.count() === 0) {
+      problems.push('suggest-skill: no "Suggest a skill improvement" in Settings › About')
+    } else {
+      await entry.first().scrollIntoViewIfNeeded()
+      await entry.first().click()
+      await page.waitForTimeout(300)
+      if (await page.getByRole('dialog', { name: 'Suggest a skill improvement' }).count() === 0) {
+        problems.push('suggest-skill: the card did not open')
+      } else {
+        if (await page.getByRole('radio', { name: 'Intake' }).count() === 0) problems.push('suggest-skill: no skill choice')
+        problems.push(...await inspect(page))
+        await page.screenshot({ path: join(out, `${shotPrefix}suggest-skill.png`) })
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(250)
+        if (await page.locator('.rpt-card').count() > 0) problems.push('suggest-skill: Escape left the card open')
+      }
+    }
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(250)
+    return problems
+  }],
   ['export', async (page) => {
     await button(page, 'Export…').click()
     await page.waitForTimeout(300)

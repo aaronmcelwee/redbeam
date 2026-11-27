@@ -205,10 +205,10 @@ import {
 } from './report/report.js'
 import { RELEASES } from './whatsnew/changelogSource.js'
 import { noteFromAgent, noteStyle, refitLeaderText, roughMeasure } from './agents/agentNotes.js'
-import { reportForAgent, whatsNewForAgent } from './agents/appWide.js'
+import { reportForAgent, suggestForAgent, whatsNewForAgent } from './agents/appWide.js'
 import { APP_VERSION } from './update/updates.js'
 import { UpdateChip } from './update/UpdateChip.js'
-import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
+import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Lightbulb, Sparkles } from './shell/icons.js'
 import { defaultCornerOf, LAYOUT_KEYS, scopeLayout } from './layout/scopeLayout.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
 import { SettingsStore, browserStorage, restoreFromFile as restoreSettingsFromFile } from './settings/store.js'
@@ -1055,10 +1055,15 @@ export default function Workspace({
    * when that report could not go, or when Shift+Enter asked for the form.
    * It opens over Settings as well as over the drawing.
    */
-  const [report, setReport] = useState<{ initial?: Partial<ReportDraft> } | null>(null)
+  const [report, setReport] = useState<{ initial?: Partial<ReportDraft>; mode?: 'skill' } | null>(null)
   const openReport = useCallback((initial?: Partial<ReportDraft>) => {
     setPaletteOpen(false)
     setReport(initial === undefined ? {} : { initial })
+  }, [])
+  /** The same card, asking for an idea for a precon skill instead of a bug. */
+  const openSkillSuggestion = useCallback(() => {
+    setPaletteOpen(false)
+    setReport({ mode: 'skill' })
   }, [])
   /** The drawing as it is on screen, for the report's picture. */
   const captureView = useCallback(
@@ -8959,6 +8964,22 @@ export default function Workspace({
             },
           })
         }
+        /*
+         * An idea for a precon skill, as Settings › Suggest a skill
+         * improvement sends it: a "skill suggestion" issue the daily skill
+         * sync reviews. No picture; where the session was only when asked.
+         */
+        case 'suggest_skill_improvement': {
+          const agent = agentCtxRef.current.agent
+          const doc = documents.find((d) => d.id === activeDocId)
+          return suggestForAgent({
+            params, app: agent?.app ?? null, agentId: agent?.id ?? null,
+            where: whereLine([
+              projectName, doc === undefined ? null : (doc.displayName || doc.relativePath.split('/').pop()),
+              doc === undefined ? null : sheetLabelFor(ap.index),
+            ]),
+          })
+        }
         /* What changed in each release, as the What's new dialog shows it. */
         case 'whats_new':
           return whatsNewForAgent(params, RELEASES, APP_VERSION)
@@ -12561,6 +12582,12 @@ export default function Workspace({
         run: () => openReport(),
       },
       {
+        id: 'suggest-skill', kind: 'command', title: 'Suggest a skill improvement…', icon: Lightbulb,
+        detail: 'An idea for how agents do takeoffs, reviewed before the skill changes',
+        keywords: ['skill', 'agent', 'claude', 'chatgpt', 'idea', 'suggestion', 'feedback', 'improve', 'precon', 'takeoff', 'intake'],
+        run: openSkillSuggestion,
+      },
+      {
         id: 'context-window', kind: 'command', title: 'New context window', detail: 'A second view on this project',
         keywords: ['window', 'second'], run: inContext(activeDoc?.relativePath),
       },
@@ -13252,7 +13279,7 @@ export default function Workspace({
   }, [
     documents, activeDocId, estimates, openEstimateId, scopes, shownScopeId, estimateScopes,
     pageIndex, pageCount, sheetLabelFor, goToPage, closeDocument, railPanel, workOpen, embeddedHidden, redbeamHidden, setMarkupVisibility,
-    openSearch, openSettings, openReport, refreshFiles, convertSheetAnnotations, closeProjectSavingTakeoff, saveTakeoffIntoDrawing, activeDocId, undoState, doUndo, doRedo, cal, applyPreset,
+    openSearch, openSettings, openReport, openSkillSuggestion, refreshFiles, convertSheetAnnotations, closeProjectSavingTakeoff, saveTakeoffIntoDrawing, activeDocId, undoState, doUndo, doRedo, cal, applyPreset,
     regionsOnThisSheet, removeRegion, createEstimate, renameEstimateBy, duplicateEstimate,
     deleteEstimateBy, projectName, pieces, markupsOnOpenDrawing, exportMarkedDrawing,
     createNamedScope, saveScope, duplicateScope, removeScopeBy, archivedScopes, restoreScope,
@@ -13540,6 +13567,7 @@ export default function Workspace({
             store={settings}
             onClose={() => setSettingsOpen(false)}
             onReportBug={() => openReport()}
+            onSuggestSkill={openSkillSuggestion}
             {...(settingsTarget !== null ? { initialSettingId: settingsTarget } : {})}
           />
         </div>
@@ -14096,6 +14124,7 @@ export default function Workspace({
             where={whereLine([projectName, activeDoc === null ? null : nameOf(activeDoc), activeDoc === null ? null : sheetLabelFor(pageIndex)])}
             {...(activeDoc === null ? {} : { captureView })}
             initial={report.initial}
+            mode={report.mode}
           />
         )}
 
