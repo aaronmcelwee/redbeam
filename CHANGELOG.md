@@ -11,6 +11,13 @@ All are unsigned; SmartScreen will ask once.
 
 - **The skill reaches every agent.** When a session started, Claude Code showed the agent only the session name and dropped the takeoff skill and the note on sending calls together. REDBEAM now sends them in a form every AI app shows. Screenshots asked for in a batch of calls are no longer dropped either.
 
+## 0.3.123 — 2026-11-27
+
+### Files no longer lock after a scope is archived
+
+- **"Part of the takeoff could not be loaded" is fixed.** Archiving a scope keeps its markups, but saving left the archived scope itself out of the PDF. On reopening, those markups had no scope to belong to, so REDBEAM refused to save into the file. Archived scopes that still have markups are now saved with them.
+- **Files already affected open normally.** The missing scope comes back archived, under its old name, with its markups intact, and the next save repairs the file.
+
 
 ## 0.3.122 — 2026-11-27
 
