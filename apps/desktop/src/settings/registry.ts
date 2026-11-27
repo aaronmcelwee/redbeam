@@ -166,6 +166,29 @@ export const SETTINGS: readonly SettingDescriptor[] = [
       'typed. Off, nothing is sent and anything not sent yet is thrown away.',
   },
   {
+    id: 'viewer.drawingColors',
+    category: 'viewer',
+    section: 'Appearance',
+    type: 'enum',
+    // Aaron, 2026-11-27: "Need a drawing: dark mode, sepia, dark gray, and
+    // true black." Display only (drawingColors.ts): the PDF, exports and
+    // agents' close-ups keep the drawing's own colours, and markups keep
+    // theirs so they match their scope.
+    default: 'normal',
+    choices: [
+      { value: 'normal', label: 'Normal' },
+      { value: 'dark', label: 'Dark' },
+      { value: 'darkgray', label: 'Dark gray' },
+      { value: 'black', label: 'True black' },
+      { value: 'sepia', label: 'Sepia' },
+    ],
+    label: 'Drawing colours',
+    description:
+      'How the sheet itself is shown. Dark, Dark gray and True black turn the paper dark and the ' +
+      'linework light; Sepia warms it. Only the screen changes: the PDF, exports and printing keep ' +
+      "the drawing's own colours, and markups keep their scope colours.",
+  },
+  {
     id: 'viewer.scrollToZoom',
     category: 'viewer',
     section: 'Navigation',
