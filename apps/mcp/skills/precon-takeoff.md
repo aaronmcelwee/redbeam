@@ -10,7 +10,7 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
 - **A. Scope definition.** Read and measure, write nothing to the takeoff, and wait for Aaron's approval.
 - **B. Takeoff.** Build scopes, layouts and quantities in RedBeam, then hand back for review.
 
-**Done means:** a saved RedBeam takeoff in a working copy, the bill of materials and piece lists for each scope, call-outs for details and finish schedules, a record of every assumption, and a list of RedBeam gaps.
+**Done means:** a saved RedBeam takeoff in a working copy, the bill of materials and piece lists for each scope, call-outs for details and finish schedules, a record of every assumption, the sign-off checks in Part C, and a list of RedBeam gaps.
 
 ## Hard rules
 
@@ -84,6 +84,19 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
    - If it refuses because another app wrote to the file, run `redbeam_save_copy`, reopen the copy, and confirm the scopes still carry their product type, specifications, directions and origins. Re-enter anything that was lost.
    - Tell Aaron which sheets carry the takeoff. His screen is his: you cannot turn his page or switch on his layout preview. He can click your session in the Agents list to go to your sheet.
 
+## C. Sign-off checks (before the takeoff is final)
+
+The takeoff can go to Aaron for estimator-assisted review before these pass, but it is not final until each one does. Report each check as passed, open or not applicable, with its evidence.
+
+1. **Second visual pass on every baffle RCP.** After the first takeoff, go back over every baffle RCP with the saved traces shown over the drawing (`redbeam_screenshot`, region, overlay on), zoomed to edge level. Look hardest at fan or radial layouts, fixtures, openings, field edges and match lines. Add the missed segments, then log the segments and installed LF added on each sheet. Sheets that added nothing are logged as 0, so the log shows every baffle sheet was rechecked.
+2. **A height source for every vertical group.** For each group of vertical baffles or blades, record the blade count, the height, the section or elevation it comes from, and whether the height was dimensioned, scaled or assumed. An assumed height is not final until Aaron approves it. Where another height is plausible (a different section, another estimator's figure), show the LF at that height too.
+3. **Projected LF and installed LF are separate.** Plan traces of a sloped ceiling give projected LF. Assign a slope to each platform or zone, cite the section that shows it, and report projected LF, angle and installed LF (projected ÷ cos angle) for each. Never add projected and installed LF in one total.
+4. **Reconcile by sheet and scope before grand totals.** When comparing with another estimator's takeoff or an earlier revision, compare sheet by sheet and scope by scope first. Keep flat ceilings, sloped ceilings, verticals and bulkhead top faces as separate lines. Where an area was converted to LF, record the on-centre spacing used. Explain each major difference and flag the ones you can't resolve. Matching grand totals can hide errors that offset each other.
+5. **Count each physical run once.** At a match line, name the sheet that owns each run and leave it out of the other sheet. For repeated details (typical bulkheads, typical ends, copied floors), tie every counted occurrence and every counted face to a plan location. If the drawings don't show how many locations or exposed faces there are, that count is an assumption to confirm before sign-off.
+6. **Keep an auditable revision.** Save the corrected markups, the installed-quantity summary and the cut schedule together in one revision, so the saved file reproduces the reported total (previous total + logged additions = new total). Name any markups left out of the count, such as another estimator's labels, and why. The cells and labels of a comparison worksheet go in the report, not in the takeoff.
+
+**Sign-off names the assumptions.** The request for final approval lists the assumptions Aaron is accepting, such as vertical heights, face counts at repeated details, and differences between traced runs and area-derived LF, each with its effect on LF where known.
+
 ## Hand back
 
 - **Quantities table, per scope:** area, on-centre spacing, stock, yield, installed LF, stock pieces (full or half), cut list, hangers, end caps, joiners.
@@ -91,5 +104,6 @@ Step 2 of the Maxxit estimating codex. It starts from a scope brief that Aaron a
 - **Assumptions to confirm:** e.g. hanger spacing, edge clearances, stock lengths that differ from the schedule.
 - **Where the layout differs from the drawing, and why.**
 - **RedBeam gaps and bugs** hit during the run. For a hard set, offer to package the relevant sheets, a README of what went wrong and why, overlay images and any scripts for the REDBEAM developer chat.
+- **Sign-off checks (Part C):** the second-pass log by sheet, the vertical height table, projected vs installed LF by platform or zone, the sheet-and-scope reconciliation when comparing with another takeoff, and the assumptions Aaron is accepting.
 - **File:** the path of the saved working copy.
 - **Finish the session:** call `redbeam_end_session {summary}` with one line on what was saved, so REDBEAM hands the PDF back to Aaron.

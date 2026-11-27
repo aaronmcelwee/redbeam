@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.124 — 2026-11-27
+
+### AI agents check a takeoff before calling it final
+
+- **Sign-off checks in the takeoff guide REDBEAM gives Claude and ChatGPT.** Before a takeoff is final, the agent now rechecks every baffle ceiling plan and logs what it added on each sheet, gives every vertical baffle group a height and where that height came from, keeps sloped-ceiling plan lengths apart from installed lengths, compares with other takeoffs sheet by sheet and scope by scope, counts each run once at match lines, and lists the assumptions you are accepting.
+
+
 ## 0.3.122 — 2026-11-27
 
 ### AI agents are told when to send calls together
