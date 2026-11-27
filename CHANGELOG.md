@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.131 — 2026-11-27
+
+### Cassette settings in the scope editor
+
+- **New cassette fields in Setup.** Cassette L, Gap, Trim Len and Removable % sit with the other cassette measures, and a "Spacing from" choice records whether the spacing came from a section, detail, schedule or only the ceiling plan, with a note of where.
+- **Cassette length is required.** A cassette scope is counted only once its length is set; it no longer borrows the stock length. Older cassette scopes show Cassette L as needed until it is filled in.
+- **Widths must hold whole baffles.** A cassette width that is not a whole number of spacings is refused rather than counted, and Setup names the nearest widths that work (22 1/2" or 30" at 7 1/2").
+
 ## 0.3.130 — 2026-11-27
 
 ### Faster tracing of hatched ceilings for agents

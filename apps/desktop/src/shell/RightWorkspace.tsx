@@ -49,7 +49,7 @@ import type {
   FactoryCut, PieceResult, ProductType, QuantityResult, Scope, ScopePieces, ScopeType, Specifications,
 } from '@redbeam/domain'
 import type { QuantityDelta } from '../commit.js'
-import { formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, parseLengthInput, formatLength, parseNumberOrFraction, scopeTypeForProduct } from '@redbeam/domain'
+import { cassetteWidthProblem, formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, parseLengthInput, formatLength, parseNumberOrFraction, scopeTypeForProduct } from '@redbeam/domain'
 import {
   PRODUCT_TYPES, PRODUCT_TYPE_LABEL, buildBom, editableMeasures,
   missingRequiredMeasures, readProductType, readString, unitDisplayText, writeProductType,
@@ -1193,7 +1193,14 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
       return { tone: 'warn', text: `Parts need ${missing.join(' and ')}.`, action: { label: 'Set it', run: () => show('setup') } }
     }
     if (blocked) {
-      return { tone: 'warn', text: pieces.blockers.join('; '), action: p.onSetDirection === undefined ? null : { label: 'Set direction', run: p.onSetDirection } }
+      // Offer the fix that matches: a direction, or Setup for a refused setting such as a cassette width.
+      const needsDirection = pieces.blockers.some((b) => /direction/i.test(b))
+      return {
+        tone: 'warn', text: pieces.blockers.join('; '),
+        action: needsDirection
+          ? (p.onSetDirection === undefined ? null : { label: 'Set direction', run: p.onSetDirection })
+          : { label: 'Fix in Setup', run: () => show('setup') },
+      }
     }
     if (p.commit === undefined) {
       return { tone: 'info', text: 'Saving automatically…', action: null }
@@ -1635,9 +1642,9 @@ function partsView(
       const half = by('panel_half')
       if (half !== undefined && half.quantity > 0) row.detail = `${fmt(by('panel_full')?.quantity ?? 0)} full · ${fmt(half.quantity)} cut`
     } else if (item.itemKey === 'cassette_count') {
-      // A module: its width by its length, the baffle length unless set (Aaron, 2026-09-18; #175).
+      // A module: its width by its length (Aaron, 2026-09-18; #175).
       const w = len(feet('cassetteWidth'))
-      const l = len(feet('cassetteLength') ?? feet('stockLength'))
+      const l = len(feet('cassetteLength'))
       if (w !== null && l !== null) row.chip = `${w} × ${l}`
       const partial = by('cassette_partial')?.quantity ?? 0
       const removable = by('cassette_removable')?.quantity ?? 0
@@ -1812,6 +1819,7 @@ function SetupGrid({
   lengthDenominator?: number
 }) {
   const measures = editableMeasures(product)
+  const widthProblem = product === 'baffle_cassette' ? cassetteWidthProblem(scope.specifications) : null
   const isPattern = product === 'custom_pattern'
   const laysOut = product !== 'custom_assembly' && product !== 'linear_parts' && !isPattern
   const offerPatterns = patterns !== undefined && (patterns.enabled || isPattern)
@@ -1892,7 +1900,7 @@ function SetupGrid({
         <MeasureField
           key={f.valueKey}
           label={f.label}
-          required={missing.includes(f.label)}
+          required={missing.includes(f.label) || (f.valueKey === 'cassetteWidth' && widthProblem !== null)}
           value={readString(scope.specifications, f.valueKey) ?? ''}
           unit={unitDisplayText(readString(scope.specifications, f.unitKey) ?? '')}
           denominator={lengthDenominator}
@@ -1926,6 +1934,43 @@ function SetupGrid({
               <option value="free">free</option>
             </select>
           </span>
+          {(product === 'baffle' || product === 'baffle_cassette' || product === 'planks') && (
+            <>
+              <label className="es-k" htmlFor="scope-spacing-source">Spacing from</label>
+              <span className="es-fieldwrap wide">
+                <select
+                  id="scope-spacing-source"
+                  className="es-field"
+                  value={readString(scope.specifications, 'spacingSource') ?? ''}
+                  onChange={(e) => patch({ ...scope.specifications, spacingSource: e.target.value })}
+                >
+                  <option value="">not recorded</option>
+                  <option value="section">section</option>
+                  <option value="detail">detail</option>
+                  <option value="schedule">schedule</option>
+                  <option value="rcp">ceiling plan only</option>
+                </select>
+              </span>
+              <TextSpec
+                id="scope-spacing-ref" label="Where" placeholder="sheet and detail, e.g. A-521 / 4" wide
+                value={readString(scope.specifications, 'spacingSourceRef') ?? ''}
+                onCommit={(v) => patch({ ...scope.specifications, spacingSourceRef: v })}
+              />
+              {!['section', 'detail', 'schedule'].includes((readString(scope.specifications, 'spacingSource') ?? '').toLowerCase()) && (
+                <span className="es-muted wide">Check the spacing on a section or detail: a ceiling plan is drawn at a plotting pitch.</span>
+              )}
+            </>
+          )}
+          {product === 'baffle_cassette' && (
+            <TextSpec
+              id="scope-removable" label="Removable" suffix="%" placeholder="0"
+              value={readString(scope.specifications, 'removableShare') ?? ''}
+              onCommit={(v) => patch({ ...scope.specifications, removableShare: v })}
+            />
+          )}
+          {/* A width that is not a whole number of spacings is refused, not counted (Aaron, 2026-11-27). */}
+          {widthProblem !== null && <span className="es-muted es-warnink wide" role="alert">{widthProblem}</span>}
+          {(pieces?.warnings ?? []).map((w) => <span key={w} className="es-muted es-warnink wide">{w}</span>)}
           <span className="es-k">Direction</span>
           <span className="es-ro wide">
             <span className={direction === null ? 'es-rotext unset' : 'es-rotext'}>{direction ?? 'not set'}</span>
@@ -2091,6 +2136,44 @@ function MeasureField({
             if (e.key === 'Escape') setDraft(shown())
           }}
         />
+      </span>
+    </>
+  )
+}
+
+/** A short text setting, committed on blur or Enter. */
+function TextSpec({
+  id, label, value, placeholder, suffix, wide, onCommit,
+}: {
+  id: string
+  label: string
+  value: string
+  placeholder?: string
+  suffix?: string
+  wide?: boolean
+  onCommit: (value: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => { setDraft(value) }, [value])
+  const commit = () => { if (draft.trim() !== value) onCommit(draft.trim()) }
+  return (
+    <>
+      <label className="es-k" htmlFor={id}>{label}</label>
+      <span className={wide === true ? 'es-fieldwrap wide' : 'es-fieldwrap'}>
+        <input
+          id={id}
+          className="es-field"
+          value={draft}
+          placeholder={placeholder}
+          aria-label={label}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur() }
+            if (e.key === 'Escape') setDraft(value)
+          }}
+        />
+        {suffix !== undefined && <span className="es-u">{suffix}</span>}
       </span>
     </>
   )
