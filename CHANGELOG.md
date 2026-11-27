@@ -14,6 +14,17 @@ All are unsigned; SmartScreen will ask once.
 - **Agents can recolour Bluebeam markups.** Clouds, text boxes and arrows from other apps can be recoloured by an agent as well as moved and deleted, and saving writes the change into the PDF.
 - **Agents can make links.** An agent can find every detail callout and sheet reference, as *Link detail callouts* does, and add links between sheets, as the Link tool does.
 - **Agents can read What's new and reset a setting.** An agent can see what changed in recent releases, and put a setting back to its default.
+## 0.3.115 — 2026-11-27
+
+### Text boxes, clouds, leaders and shapes
+
+- **Text box.** Press T, then click or drag a box and type. Click away or press Ctrl+Enter when you're done. Double-click a text box to change its text. Selecting text on the sheet to copy it now happens in the Select tool: drag over words where there are no markups.
+- **Leaders with text.** The Leader tool works like Bluebeam's Callout. Drag from the thing you're pointing at to where you want the text, then type. The arrowhead sits on the thing, and the text box fits what you typed.
+- **Clouds, and clouds with a leader.** Drag a cloud, or click its corners and double-click. Cloud + leader (Q) works like Bluebeam's Cloud+: draw the cloud, then click where the text goes.
+- **Shapes and a pen.** Line, rectangle, ellipse, polygon and a freehand pen are in the markup menu beside Text, with keys R, E, N and P.
+- **Colour, line width, fill, arrowheads and font size** are on a small bar over the dock while a markup tool is in hand or markups are selected.
+- **Bluebeam can edit them.** Each is saved in the PDF as the markup Bluebeam itself makes, so Revu opens them as its own text boxes, callouts, clouds and shapes.
+
 ## 0.3.114 — 2026-11-26
 
 ### Arcs, circles and links between sheets

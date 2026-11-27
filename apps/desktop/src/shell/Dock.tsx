@@ -39,7 +39,8 @@ import { scopeProductLabel } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
   Ellipsis, Glyph, Hand, Highlighter, Maximize, Minus, Plus, Polyline, Round, Ruler,
-  LinkIcon, OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, Type, ZoomBox,
+  LinkIcon, OriginPin, RotateSheetCcw, RotateSheetCw, StretchHorizontal, ZoomBox,
+  ArrowShape, Callout, CloudShape, EllipseShape, LineShape, PenShape, PolygonShape, RectShape, TextBox,
 } from './icons.js'
 import { shortcutFor } from './sheetKeys.js'
 import type { Icon } from './icons.js'
@@ -77,18 +78,47 @@ const TOOLS: Array<{ id: Tool; label: string; title: string; icon: Icon }> = [
  * `'dimension'` is typed loosely here on purpose: the workspace is gaining the
  * tool in its own `Tool` union, and this row must not have to wait for it.
  */
-export type ReadTool = 'pan' | 'select' | 'dimension' | 'text' | 'link'
+export type ReadTool = 'pan' | 'select' | 'dimension' | 'text' | 'link' | MarkupTool
 const READ_TOOLS: Array<{ id: ReadTool; label: string; title: string; icon: Icon }> = [
   { id: 'pan', label: 'Pan', title: 'Move the sheet', icon: Hand },
   // Marquee selection existed as Shift+drag in Pan and nobody found it.
   // Kenneth, 2026-09-10: "I need a select tool for marquee selections".
   { id: 'select', label: 'Select', title: 'Select markups: click one, or drag a box around several', icon: Cursor },
   { id: 'dimension', label: 'Dimension', title: 'Measure one length off the sheet', icon: Ruler },
-  { id: 'text', label: 'Text', title: 'Select text: drag a box around it, then Ctrl+C', icon: Type },
+  // Kenneth, 2026-11-26: "T should give me a text box". Selecting the
+  // sheet's own words moved into Select: drag over text with no markups.
+  { id: 'text', label: 'Text', title: 'Text box: drag a box, or click, then type', icon: TextBox },
   // A box that jumps to another sheet (Kenneth #12). With the reading tools:
   // a link is how the set is read, not takeoff.
   { id: 'link', label: 'Link', title: 'Link: drag a box over a callout, then pick the sheet it goes to', icon: LinkIcon },
 ]
+
+/**
+ * The markup tools: clouds, leaders, shapes and a pen, as one split button
+ * beside Text. The face is the last one used, so a run of clouds is one
+ * click each; the chevron lists them all. They leave notes with no scope,
+ * so like Dimension they need no takeoff and no round.
+ */
+export type MarkupTool = 'cloud' | 'callout' | 'arrow' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'pen'
+export const MARKUP_TOOLS: Array<{ id: MarkupTool; label: string; title: string; icon: Icon }> = [
+  { id: 'cloud', label: 'Cloud', title: 'Cloud: drag a box, or click its corners and double-click', icon: CloudShape },
+  { id: 'callout', label: 'Cloud + leader', title: 'Cloud with a leader and text: draw the cloud, then click where the text goes', icon: Callout },
+  { id: 'arrow', label: 'Leader', title: 'Leader with text: drag from what it points at to where the text goes', icon: ArrowShape },
+  { id: 'line', label: 'Line', title: 'Line: drag from end to end', icon: LineShape },
+  { id: 'rect', label: 'Rectangle', title: 'Rectangle: drag a box', icon: RectShape },
+  { id: 'ellipse', label: 'Ellipse', title: 'Ellipse: drag its box', icon: EllipseShape },
+  { id: 'polygon', label: 'Polygon', title: 'Polygon: click its corners and double-click', icon: PolygonShape },
+  { id: 'pen', label: 'Pen', title: 'Pen: draw freehand', icon: PenShape },
+]
+
+const LAST_MARKUP_KEY = 'redbeam.last-markup-tool'
+function readLastMarkup(): MarkupTool {
+  try {
+    const v = localStorage.getItem(LAST_MARKUP_KEY)
+    if (MARKUP_TOOLS.some((t) => t.id === v)) return v as MarkupTool
+  } catch { /* default */ }
+  return 'cloud'
+}
 
 /**
  * The four scales the page-scale popover offers up front.
@@ -259,6 +289,16 @@ export function ToolPill({
    */
   const [roundsOpen, setRoundsOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [markupOpen, setMarkupOpen] = useState(false)
+  const markupRef = useDismiss(markupOpen, () => setMarkupOpen(false))
+  const markupClamp = useClampedPopover<HTMLDivElement>(markupOpen)
+  const [lastMarkup, setLastMarkup] = useState<MarkupTool>(readLastMarkup)
+  useEffect(() => {
+    if (!MARKUP_TOOLS.some((t) => t.id === tool) || tool === lastMarkup) return
+    setLastMarkup(tool as MarkupTool)
+    try { localStorage.setItem(LAST_MARKUP_KEY, tool) } catch { /* remembered for this window only */ }
+  }, [tool, lastMarkup])
+  const lastMarkupTool = MARKUP_TOOLS.find((t) => t.id === lastMarkup) ?? MARKUP_TOOLS[0]!
   const scopeRef = useDismiss(scopeOpen, () => setScopeOpen(false))
   const moreRef = useDismiss(moreOpen, () => setMoreOpen(false))
   /* Anchored to the pill, kept inside the viewport — see popover.ts. */
@@ -354,6 +394,38 @@ export function ToolPill({
       {READ_TOOLS.map((t) => (
         <Fragment key={t.id}>
           {toolButton(t, t.id === 'dimension' ? 'read' : undefined)}
+          {t.id === 'text' && (
+            <div ref={markupRef} className="dockmarkup">
+              {toolButton(lastMarkupTool)}
+              <button
+                className="dockbtn docktool dockmarkupmore"
+                aria-haspopup="menu"
+                aria-expanded={markupOpen}
+                aria-label="More markup tools"
+                title={documentOpen ? 'Clouds, leaders, shapes and the pen' : 'Open a drawing first'}
+                disabled={!documentOpen}
+                onClick={() => setMarkupOpen((v) => !v)}
+              ><Glyph icon={ChevronDown} role="small" style={{ transform: 'rotate(180deg)' }} /></button>
+              {markupOpen && (
+                <div className="dockmenu left" role="menu" aria-label="Markup tools" ref={markupClamp.ref} style={markupClamp.style}>
+                  {MARKUP_TOOLS.map((m) => (
+                    <button
+                      key={m.id}
+                      className="menuitem"
+                      role="menuitemradio"
+                      aria-checked={tool === m.id}
+                      title={toolTitle(m.id, m.title)}
+                      onClick={() => { onTool(m.id as Tool); setMarkupOpen(false) }}
+                    >
+                      <Glyph icon={m.icon} role="inline" filled={tool === m.id} />
+                      <span className="grow">{m.label}</span>
+                      {shortcutFor(m.id) !== null && <span className="menukey">{shortcutFor(m.id)}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {t.id === 'select' && onZoomBox !== undefined && (
             <button
               className="dockbtn docktool"
@@ -1047,13 +1119,16 @@ export function DocumentPill({
  * the work surface dims and stops taking clicks: a tool picked mid-gesture
  * would draw into a sheet whose scale is about to change.
  */
-export function Dock({ left, right, pinned = false }: {
+export function Dock({ left, right, above, pinned = false }: {
   left: React.ReactNode
   right: React.ReactNode
+  /** A strip over the dock, centred on it: the note properties. */
+  above?: React.ReactNode
   pinned?: boolean
 }) {
   return (
     <div className="dock" data-pinned={pinned || undefined}>
+      {above}
       {left}
       {right}
     </div>

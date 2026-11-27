@@ -30,7 +30,7 @@ import {
   pageIdFor, pageNumberFrom, rotatePageData, searchProjectText, indexPageText, textIndexCoverage,
   type DocumentRow, type SearchHit, type NormBox,
   UndoStack, PERSON as UNDO_PERSON, createMarkup as cmdCreate, removeMarkup as cmdRemove,
-  editGeometry as cmdEditGeometry, editAnnotColor as cmdEditAnnotColor, setCalibration as cmdCalibrate, batch as cmdBatch,
+  editGeometry as cmdEditGeometry, editAnnotColor as cmdEditAnnotColor, editContent as cmdEditContent, setCalibration as cmdCalibrate, batch as cmdBatch,
   reassignScope as cmdReassign,
   type UndoState,
   recordFrozenCalculation, latestFrozenCalculation, frozenCalculationBefore,
@@ -59,6 +59,14 @@ import {
   drawDimension, drawDimensionDraft, emptyDimensionDraft,
   type DimensionDraft, type DimensionMarkup,
 } from './tools/dimension.js'
+import {
+  boxAtTail, canvasMeasure, drawNote, drawNoteDraft, emptyNoteDraft, hasText, hitTestNote, isNoteTool,
+  leaderRingIndex, leaderTextSize, noteBack, noteDown, noteDraftStarted, noteFinish, noteMove, noteUp, notesOf,
+  parseNoteContent, textBoxHeightFor, textRingIndex, TEXT_LEADING, TEXT_PAD_PT,
+  type NoteContent, type NoteDraft, type NoteShape, type NoteStep,
+} from './tools/notes.js'
+import { loadNoteStyles, saveNoteStyles, type NoteStyles } from './tools/noteStyles.js'
+import { NoteStrip, type NotePatch } from './shell/NoteStrip.js'
 import { SEED_SCOPES } from './seed.js'
 import { PageStrip } from './pages/PageStrip.js'
 import './shell/shell.css'
@@ -733,6 +741,39 @@ export default function Workspace({
    * the Qt build's version grew the bugs this port left behind.
    */
   const dimensionDraftRef = useRef<DimensionDraft>(emptyDimensionDraft())
+  /*
+   * The note tools (tools/notes.ts): the shape being placed, the style each
+   * tool draws with next, and the text box being typed into. The editor is
+   * a textarea over the box; the painter keeps it on the box as the sheet
+   * moves, and leaves the box's own text out while it is open.
+   */
+  const noteDraftRef = useRef<NoteDraft>(emptyNoteDraft('text'))
+  const noteDownAtRef = useRef<{ x: number; y: number } | null>(null)
+  const [noteStyles, setNoteStyles] = useState<NoteStyles>(loadNoteStyles)
+  const noteStylesRef = useRef(noteStyles)
+  noteStylesRef.current = noteStyles
+  const [noteEdit, setNoteEdit] = useState<{ id: string; isNew: boolean } | null>(null)
+  const noteEditRef = useRef(noteEdit)
+  noteEditRef.current = noteEdit
+  const noteTextRef = useRef<HTMLTextAreaElement | null>(null)
+  /** Keep the text editor over its box as the sheet pans and zooms. Called by the painter. */
+  const placeNoteEditor = (ring: ReadonlyArray<{ x: number; y: number }>, c: NoteContent) => {
+    const el = noteTextRef.current
+    if (el === null || ring.length === 0) return
+    const v = viewRef.current
+    const pts = ring.map((q) => normalizedToScreen(q.x, q.y, v, page.width, page.height))
+    const x0 = Math.min(...pts.map((q) => q.x)), y0 = Math.min(...pts.map((q) => q.y))
+    const x1 = Math.max(...pts.map((q) => q.x)), y1 = Math.max(...pts.map((q) => q.y))
+    el.style.left = `${x0}px`
+    el.style.top = `${y0}px`
+    el.style.width = `${Math.max(24, x1 - x0)}px`
+    el.style.minHeight = `${Math.max(16, y1 - y0)}px`
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(y1 - y0, el.scrollHeight)}px`
+    el.style.fontSize = `${c.fontPt * v.zoom}px`
+    el.style.padding = `${TEXT_PAD_PT * v.zoom}px`
+    el.style.color = c.color
+  }
   const [tool, setTool] = useState<Tool>('pan')
   const [scopes, setScopes] = useState<Scope[]>([])
   /*
@@ -1485,6 +1526,18 @@ export default function Workspace({
       }
       if (toolRef.current === 'dimension') {
         drawDimensionDraft(oc, dimensionDraftRef.current, viewRef.current, page.width, page.height)
+      }
+      // Notes, on the same layer: they belong to no scope either.
+      {
+        const editing = noteEditRef.current?.id ?? null
+        for (const n of bare ? [] : notesOf(markupsRef.current)) {
+          drawNote(oc, n.rings, n.content, viewRef.current, page.width, page.height, { hideText: n.id === editing })
+          if (n.id === editing) placeNoteEditor(n.rings[textRingIndex(n.content.shape)] ?? [], n.content)
+        }
+        if (isNoteTool(toolRef.current)) {
+          const shape = toolRef.current
+          drawNoteDraft(oc, noteDraftRef.current, noteStylesRef.current[shape], viewRef.current, page.width, page.height)
+        }
       }
 
       const regionsHere = regionsRef.current.get(
@@ -3475,6 +3528,8 @@ export default function Workspace({
     // The dimension keeps its own draft, and Escape left its first point
     // standing: the next click closed a dimension nobody was drawing.
     dimensionDraftRef.current = emptyDimensionDraft(dimensionDraftRef.current.ortho)
+    noteDraftRef.current = emptyNoteDraft(noteDraftRef.current.shape)
+    noteDownAtRef.current = null
     setSelectedIds([])
     selectedRef.current = []
     requestPaint()
@@ -3993,6 +4048,7 @@ export default function Workspace({
          * does the same (see onContextMenu). Aaron asked for both.
          */
         const drawing = draftRef.current.points.length > 0 || draftRef.current.pivot !== undefined || dimensionDraftRef.current.a !== null
+          || (isNoteTool(toolRef.current) && noteDraftStarted(noteDraftRef.current))
         if (drawing) signal('friction', `abandon:draw-${toolRef.current}`, draftRef.current.points.length >= 3 ? 'three or more points' : 'under three points')
         cancelDraft()
         if (!drawing && toolRef.current !== 'pan') setTool('pan')
@@ -4001,6 +4057,10 @@ export default function Workspace({
         const ids = selectedRef.current
         setSelectedIds([]); selectedRef.current = []
         void removeMarkups(ids)
+      }
+      else if (e.key === 'Enter' && isNoteTool(toolRef.current)) { applyNoteStepRef.current(noteFinish(noteDraftRef.current)) }
+      else if (e.key === 'Backspace' && isNoteTool(toolRef.current) && noteDraftStarted(noteDraftRef.current)) {
+        noteDraftRef.current = noteBack(noteDraftRef.current); requestPaint()
       }
       else if (e.key === 'Enter') { void commitDraft() }
       else if (e.key === 'Backspace' && (d.points.length > 0 || d.pivot !== undefined)) {
@@ -4100,7 +4160,7 @@ export default function Workspace({
   regionsRef.current = projectRegions
   toolRef.current = tool
   // Words picked with the Text tool stay highlighted only while it is in hand.
-  useEffect(() => { if (tool !== 'text' && textPickRef.current !== null) { textPickRef.current = null; requestPaint() } }, [tool, requestPaint])
+  useEffect(() => { if (tool !== 'select' && textPickRef.current !== null) { textPickRef.current = null; requestPaint() } }, [tool, requestPaint])
   // A rail pane is deliberately NOT in this list, and neither is anything in
   // the estimates panel: they sit beside the drawing rather than over it, so
   // the drawing's shortcuts still belong to the user. What IS in it is every
@@ -4198,6 +4258,8 @@ export default function Workspace({
 
   useEffect(() => {
     draftRef.current = emptyDraft(tool)
+    if (isNoteTool(tool)) noteDraftRef.current = emptyNoteDraft(tool)
+    noteDownAtRef.current = null
     setSegMode('line')
     snapRef.current = null
     // leaving the pan tool drops the selection; editing only happens with Pan
@@ -4387,6 +4449,12 @@ export default function Workspace({
     return { markupId: d.markupId, part: d.part === 'vertex' ? 'vertex' : 'inside', index: d.index }
   }
 
+  /** The note under the pointer, after takeoff and dimensions have had their turn. */
+  const hitNoteAt = (hx: number, hy: number): Hit | null => {
+    const notes = notesOf(markupsRef.current)
+    return notes.length === 0 ? null : hitTestNote(hx, hy, notes, viewRef.current, page.width, page.height)
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     /*
      * Space held, or the middle button: pan, whatever the tool.
@@ -4416,7 +4484,7 @@ export default function Workspace({
     const hb = e.pointerType === 'mouse' ? historyStepForButton(e.button) : null
     if (hb !== null) { e.preventDefault(); stepHistoryRef.current(hb); return }
     if (e.pointerType === 'mouse' && e.button !== 0) return
-    if (zoomBoxArmedRef.current || titlePickRef.current !== null || toolRef.current === 'text') {
+    if (zoomBoxArmedRef.current || titlePickRef.current !== null) {
       const r0 = e.currentTarget.getBoundingClientRect()
       const hx = e.clientX - r0.left, hy = e.clientY - r0.top
       const box = { x0: hx, y0: hy, x1: hx, y1: hy }
@@ -4466,7 +4534,7 @@ export default function Workspace({
       const hx = e.clientX - r0.left, hy = e.clientY - r0.top
       // In Pan a link is clicked to follow it; Select (or a right-click) picks it to move or delete.
       const hit = hitTest(hx, hy, tool === 'pan' ? markupsRef.current.filter((m) => m.kind !== 'link') : markupsRef.current, viewRef.current, page.width, page.height)
-        ?? hitDimensionAt(hx, hy)
+        ?? hitDimensionAt(hx, hy) ?? hitNoteAt(hx, hy)
       // Capture keeps a drag alive past the stage's edge. A pointer the
       // browser does not consider active — a synthetic one, in a test —
       // refuses it, and the refusal must not abort the selection or the pan.
@@ -4631,6 +4699,19 @@ export default function Workspace({
       })
       if (pick === null) setStatus('click inside an area, or on its corner or edge, to start its pattern there')
       else void startPatternHere(pick.markup, pick.point)
+      requestPaint()
+      return
+    }
+
+    if (isNoteTool(tool)) {
+      // The pen follows the hand, not the drawing's lines.
+      const at = tool === 'pen'
+        ? screenToNormalized(e.clientX - rect.left, e.clientY - rect.top, viewRef.current, page.width, page.height)
+        : p
+      if (tool === 'pen') snapRef.current = null
+      noteDraftRef.current = noteDown(noteDraftRef.current, at)
+      noteDownAtRef.current = tool === 'pen' ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : { x: s0.x, y: s0.y }
+      try { (e.target as Element).setPointerCapture(e.pointerId) } catch { /* as in the pan branch */ }
       requestPaint()
       return
     }
@@ -4807,6 +4888,16 @@ export default function Workspace({
      * so a constrained dimension snaps to the axis while it is being drawn
      * rather than jumping to it on release.
      */
+    if (isNoteTool(tool)) {
+      const rx = e.clientX - rect.left, ry = e.clientY - rect.top
+      const s0 = tool === 'pen' ? { x: rx, y: ry, snap: null } : applySnap(rx, ry)
+      snapRef.current = s0.snap
+      const p = screenToNormalized(s0.x, s0.y, viewRef.current, page.width, page.height)
+      noteDraftRef.current = noteMove(noteDraftRef.current, p, 1.5 / (page.width * viewRef.current.zoom))
+      requestPaint()
+      return
+    }
+
     if (tool === 'dimension') {
       const s0 = applySnap(e.clientX - rect.left, e.clientY - rect.top)
       snapRef.current = s0.snap
@@ -4860,6 +4951,7 @@ export default function Workspace({
       const hv = hitTest(e.clientX - rect.left, e.clientY - rect.top,
         markupsRef.current, viewRef.current, page.width, page.height)
         ?? hitDimensionAt(e.clientX - rect.left, e.clientY - rect.top)
+        ?? hitNoteAt(e.clientX - rect.left, e.clientY - rect.top)
       hoverRef.current = hv
       /*
        * The cursor says what a press would do. Over a rectangle's edge it is
@@ -4961,6 +5053,29 @@ export default function Workspace({
       }
     }
 
+    if (isNoteTool(toolRef.current) && noteDraftRef.current.down !== null && e !== undefined) {
+      const r0 = e.currentTarget.getBoundingClientRect()
+      const rx = e.clientX - r0.left, ry = e.clientY - r0.top
+      const pen = toolRef.current === 'pen'
+      const s0 = pen ? { x: rx, y: ry } : applySnap(rx, ry)
+      const p = screenToNormalized(s0.x, s0.y, viewRef.current, page.width, page.height)
+      const from = noteDownAtRef.current
+      noteDownAtRef.current = null
+      const first = noteDraftRef.current.points[0]
+      const firstOnScreen = first === undefined ? null : normalizedToScreen(first.x, first.y, viewRef.current, page.width, page.height)
+      const style = noteStylesRef.current[toolRef.current as NoteShape]
+      const step = noteUp(noteDraftRef.current, p, {
+        dragged: from !== null && Math.hypot(s0.x - from.x, s0.y - from.y) > 4,
+        closes: firstOnScreen !== null && Math.hypot(firstOnScreen.x - s0.x, firstOnScreen.y - s0.y) <= VERTEX_GRAB_PX,
+        // A click places a text box two and a half inches wide, one line high;
+        // a leader's starts that size at its tail and fits its text when done.
+        textBox: { w: 180 / page.width, h: (style.fontPt * TEXT_LEADING + 2 * TEXT_PAD_PT) / page.height },
+        simplify: 0.75 / (page.width * viewRef.current.zoom),
+      })
+      applyNoteStepRef.current(step)
+      return
+    }
+
     const rc = rectRef.current
     if (rc) {
       rectRef.current = null
@@ -4994,6 +5109,19 @@ export default function Workspace({
         const picked = annotsRef.current.filter((a) => a.rect.x0 >= n0.x && a.rect.x1 <= n1.x && a.rect.y0 >= n0.y && a.rect.y1 <= n1.y).map((a) => a.index)
         selectAnnots(picked)
         const total = ids.length + picked.length
+        /*
+         * Nothing of ours or the PDF's in the box: it was drawn around the
+         * sheet's own words, which the Select tool picks for Ctrl+C. This was
+         * the Text tool's job until T became the text box (Kenneth,
+         * 2026-11-26: "T should be text box, select text should be part of
+         * the select tool").
+         */
+        if (total === 0 && toolRef.current === 'select') {
+          finishTextBoxRef.current(r)
+          requestPaint()
+          return
+        }
+        textPickRef.current = null
         setStatus(total > 0
           ? `${total} selected${picked.length > 0 ? ` · ${picked.length} from the PDF` : ''}`
           : 'nothing in selection')
@@ -5333,6 +5461,122 @@ export default function Workspace({
     setStatus(`dimension: ${frozen.content.label}`)
     requestPaint()
   }, [page.width, page.height, runCommand, requestPaint])
+
+  /*
+   * The note tools.
+   *
+   * A note is committed the moment its shape is complete: a drag let go, a
+   * cloud closed, a leader placed. A text box then opens for typing; the
+   * text is written when the box loses focus, and a new box left empty is
+   * taken away again rather than left as an empty rectangle.
+   */
+  const commitNote = useCallback(async (shape: NoteShape, rings: Array<Array<{ x: number; y: number }>>) => {
+    const id = `mk-${Math.random().toString(36).slice(2, 10)}`
+    const content: NoteContent = { ...noteStylesRef.current[shape], shape, text: '' }
+    const ok = await runCommand(cmdCreate({
+      id,
+      scopeId: null,
+      documentId: docIdRef.current,
+      pageId: pageIdFor(docIdRef.current, pageIndexRef.current),
+      kind: 'note',
+      rings,
+      origin: 'user',
+      reviewState: 'accepted',
+      content: content as unknown as Record<string, unknown>,
+    }))
+    if (!ok) return
+    if (hasText(shape)) { setNoteEdit({ id, isNew: true }); setStatus('type the text · click away or Ctrl+Enter when done') }
+    else setStatus(`${shape === 'rect' ? 'rectangle' : shape} added`)
+    requestPaint()
+  }, [runCommand, requestPaint, setStatus])
+
+  const applyNoteStep = useCallback((step: NoteStep) => {
+    noteDraftRef.current = step.draft
+    if (step.rings !== null && isNoteTool(toolRef.current)) void commitNote(toolRef.current, step.rings)
+    else if (step.draft.cloud !== null) setStatus('now click where the text goes')
+    requestPaint()
+  }, [commitNote, requestPaint, setStatus])
+  const applyNoteStepRef = useRef(applyNoteStep)
+  applyNoteStepRef.current = applyNoteStep
+
+  /**
+   * Write what was typed. A text box grows downward to fit it; a leader's box
+   * is fitted to its text and kept at the leader's tail. A new text box left
+   * empty is taken away; a leader left without text stays an arrow.
+   */
+  const finishNoteEdit = useCallback(async () => {
+    const edit = noteEditRef.current
+    const el = noteTextRef.current
+    if (edit === null) return
+    setNoteEdit(null)
+    noteEditRef.current = null
+    const m = markupsRef.current.find((x) => x.id === edit.id)
+    const before = parseNoteContent((m as { content?: unknown } | undefined)?.content)
+    if (m === undefined || before === null) { requestPaint(); return }
+    const text = (el?.value ?? before.text).replace(/\s+$/, '')
+    if (text === '' && edit.isNew && before.shape === 'text') {
+      await runCommand(cmdRemove({ id: m.id, kind: 'note', origin: 'user', documentId: m.documentId, pageId: m.pageId }))
+      setStatus('empty text box removed')
+      return
+    }
+    if (text === before.text) { requestPaint(); return }
+    const after: NoteContent = { ...before, text }
+    const at = textRingIndex(before.shape)
+    const ring = m.rings[at] ?? []
+    const ys = ring.map((q) => q.y), xs = ring.map((q) => q.x)
+    const probe = document.createElement('canvas').getContext('2d')
+    const measure = probe === null ? (t: string) => t.length * after.fontPt * 0.5 : canvasMeasure(probe, after.fontPt)
+    let box: Array<{ x: number; y: number }> | null = null
+    if (before.shape === 'text') {
+      const widthPt = (Math.max(...xs) - Math.min(...xs)) * page.width
+      const heightPt = (Math.max(...ys) - Math.min(...ys)) * page.height
+      const needPt = textBoxHeightFor(after, widthPt, measure)
+      if (needPt > heightPt + 0.5 && ring.length === 4) {
+        const y0 = Math.min(...ys), y1 = y0 + needPt / page.height
+        box = [
+          { x: Math.min(...xs), y: y0 }, { x: Math.max(...xs), y: y0 },
+          { x: Math.max(...xs), y: y1 }, { x: Math.min(...xs), y: y1 },
+        ]
+      }
+    } else {
+      const leader = m.rings[leaderRingIndex(before.shape)]
+      if (leader !== undefined && leader.length >= 2) {
+        const size = leaderTextSize(text, after.fontPt, measure)
+        box = boxAtTail(leader[0]!, leader[1]!, size.w / page.width, size.h / page.height)
+      }
+    }
+    const cmds = [cmdEditContent(m.id, before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, 'edit text')]
+    if (box !== null) {
+      const rings = m.rings.map((r) => r.map((q) => ({ ...q })))
+      rings[at] = box
+      cmds.push(cmdEditGeometry(m.id, m.rings.map((r) => r.map((q) => ({ ...q }))), rings, 'edit text'))
+    }
+    await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch('edit text', cmds))
+    setStatus('text saved')
+  }, [page.width, page.height, runCommand, requestPaint, setStatus])
+
+  /** The notes selected now, with their content. */
+  const selectedNotes = useMemo(() => notesOf(markups.filter((m) => selectedIds.includes(m.id))), [markups, selectedIds])
+
+  /** A change from the property strip: to the tool's next note, and to the notes selected. */
+  const patchNotes = useCallback((patch: NotePatch) => {
+    const t = toolRef.current
+    if (isNoteTool(t)) {
+      setNoteStyles((cur) => {
+        const next = { ...cur, [t]: { ...cur[t], ...patch } }
+        saveNoteStyles(next)
+        return next
+      })
+    }
+    const picked = notesOf(markupsRef.current.filter((m) => selectedRef.current.includes(m.id)))
+    if (picked.length === 0) { requestPaint(); return }
+    const cmds = picked.map((n) => cmdEditContent(
+      n.id, n.content as unknown as Record<string, unknown>,
+      { ...n.content, ...patch } as unknown as Record<string, unknown>, 'change markup',
+    ))
+    void runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`change ${cmds.length} markups`, cmds))
+      .then(() => { requestAnimationFrame(() => requestPaint()) })
+  }, [runCommand, requestPaint])
 
   /** Re-read both live and archived scopes after any scope mutation. */
   const refreshScopes = useCallback(async () => {
@@ -6422,8 +6666,20 @@ export default function Workspace({
     return out
   }, [projectMarkups])
 
-  const onDoubleClick = () => {
+  const onDoubleClick = (e: React.MouseEvent) => {
     if (tool === 'area' || tool === 'cutout' || tool === 'shape' || tool === 'polyline') void commitDraft()
+    if (isNoteTool(tool)) { applyNoteStep(noteFinish(noteDraftRef.current)); return }
+    // A text box or a leader, double-clicked, opens its text for typing.
+    if (tool === 'pan' || tool === 'select') {
+      const r0 = e.currentTarget.getBoundingClientRect()
+      const hit = hitNoteAt(e.clientX - r0.left, e.clientY - r0.top)
+      const m = hit === null ? undefined : markupsRef.current.find((x) => x.id === hit.markupId)
+      const shape = m === undefined ? undefined : parseNoteContent((m as { content?: unknown }).content)?.shape
+      if (m !== undefined && shape !== undefined && hasText(shape)) {
+        setNoteEdit({ id: m.id, isNew: false })
+        requestPaint()
+      }
+    }
   }
 
   /**
@@ -7178,6 +7434,7 @@ export default function Workspace({
           const known: Tool[] = [
             'pan', 'select', 'area', 'cutout', 'polyline', 'count', 'shape',
             'calibrate', 'direction', 'scale-region', 'dimension', 'text', 'origin', 'link',
+            'cloud', 'callout', 'arrow', 'line', 'rect', 'ellipse', 'polygon', 'pen',
           ]
           if (!known.includes(next as Tool)) return { error: `unknown tool: ${next}` }
           // The tool in hand on screen is the person's. A session draws with its calls, not with a tool.
@@ -10061,8 +10318,9 @@ export default function Workspace({
   const takeoffPages = useMemo(() => {
     const out = new Set<number>()
     for (const m of docMarkups) {
-      // A link is how the set is read, not takeoff: it makes no sheet "taken off" or "unscaled".
-      if (m.kind === 'link') continue
+      // A cloud or a text box is not takeoff, and a link is how the set is
+      // read: neither makes a sheet "taken off" or "unscaled".
+      if (m.kind === 'note' || m.kind === 'link') continue
       const i = pageIndexOf(m.pageId)
       if (i !== null) out.add(i)
     }
@@ -10705,7 +10963,7 @@ export default function Workspace({
      */
     if (activeDocId !== null && cal === null) {
       const here = pageIdFor(docIdRef.current, pageIndexRef.current)
-      const drawn = projectMarkups.filter((m) => m.pageId === here && m.kind !== 'dimension' && m.kind !== 'link').length
+      const drawn = projectMarkups.filter((m) => m.pageId === here && m.kind !== 'dimension' && m.kind !== 'note' && m.kind !== 'link').length
       if (drawn > 0) {
         out.push({
           text: `${sheetLabelFor(pageIndex)} has no scale, so its ${drawn} markup${drawn === 1 ? ' counts' : 's count'} nothing yet`,
@@ -11459,7 +11717,7 @@ export default function Workspace({
     const noScale = cal === null ? 'sheet has no scale' : undefined
     const markupsOnThisPage = activeDoc === undefined
       ? 0
-      : projectMarkups.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current) && m.kind !== 'dimension' && m.kind !== 'link').length
+      : projectMarkups.filter((m) => m.pageId === pageIdFor(docIdRef.current, pageIndexRef.current) && m.kind !== 'dimension' && m.kind !== 'note' && m.kind !== 'link').length
     const allPages = Array.from({ length: pageCount }, (_, i) => i)
     const scaledPages = allPages.filter((i) => scaleOfPage(i) !== null).length
     const stuck = (why: string | undefined) => (why === undefined ? {} : { unavailable: why })
@@ -11929,7 +12187,7 @@ export default function Workspace({
           setMarkupVisibility({ embedded: on, redbeam: on })
         },
       },
-      { id: 'select-text', kind: 'command', title: 'Select text', shortcut: 'T', keywords: ['copy text', 'text', 'clipboard'], ...stuck(noSheet), run: () => setTool('text') },
+      { id: 'select-text', kind: 'command', title: 'Select text', detail: 'Select tool: drag a box around the words, then Ctrl+C', shortcut: 'V', keywords: ['copy text', 'text', 'clipboard'], ...stuck(noSheet), run: () => { setTool('select'); setStatus('drag a box around the words, then Ctrl+C') } },
       { id: 'link-tool', kind: 'command', title: 'Add a link', detail: 'drag a box over a callout, then pick its sheet', keywords: ['link', 'hyperlink', 'jump', 'callout', 'reference'], ...stuck(noSheet), run: () => setTool('link') },
       { id: 'link-callouts', kind: 'command', title: 'Link detail callouts', detail: 'find every reference to another sheet and choose which to link', keywords: ['link', 'batch link', 'callout', 'detail', 'section', 'hyperlink', 'auto link'], ...stuck(noSheet), run: () => void findCalloutLinksRef.current() },
       ...[50, 100, 200, 400].map((pct): Command => ({
@@ -12310,9 +12568,14 @@ export default function Workspace({
         ['area', 'Area tool', 'Trace a region'], ['polyline', 'Length tool', 'Trace a run'], ['count', 'Count tool', 'One click, one piece'],
         ['cutout', 'Cutout tool', 'Subtract from an area'], ['shape', 'Highlight tool', 'Mark a region; counts nothing'],
         ['dimension', 'Dimension tool', 'Measure and write it on the sheet'], ['pan', 'Pan tool', 'Read the sheet'],
-        ['select', 'Select tool', 'Click a markup, or drag a box around several'],
+        ['select', 'Select tool', 'Click a markup, or drag a box around several, or around words to copy them'],
+        ['text', 'Text box', 'Drag a box, or click, then type'], ['cloud', 'Cloud', 'Drag a box, or click its corners'],
+        ['callout', 'Cloud with leader', 'Draw the cloud, then click where the text goes'],
+        ['arrow', 'Leader', 'Drag from what it points at to where the text goes'], ['line', 'Line', 'Drag from end to end'],
+        ['rect', 'Rectangle', 'Drag a box'], ['ellipse', 'Ellipse', 'Drag its box'],
+        ['polygon', 'Polygon', 'Click its corners, double-click to finish'], ['pen', 'Pen', 'Draw freehand'],
       ] as const).map(([t, label, detail]): Command => {
-        const needsScope = t !== 'pan' && t !== 'select' && t !== 'dimension'
+        const needsScope = t !== 'pan' && t !== 'select' && t !== 'dimension' && !isNoteTool(t)
         const base = {
           id: `tool-${t}`, kind: 'command' as const, title: label, detail: tool === t ? `${detail} · current` : detail,
           keywords: ['tool', 'draw'], ...stuck(noSheet),
@@ -13054,7 +13317,7 @@ export default function Workspace({
             const r = e.currentTarget.getBoundingClientRect()
             const hx = e.clientX - r.left, hy = e.clientY - r.top
             const hit = hitTest(hx, hy, markupsRef.current, viewRef.current, page.width, page.height)
-              ?? hitDimensionAt(hx, hy)
+              ?? hitDimensionAt(hx, hy) ?? hitNoteAt(hx, hy)
             if (!hit) {
               // Nothing of ours under the pointer: ask the drawing what it has.
               // One of the PDF's markups there joins the selection first, so
@@ -13089,6 +13352,40 @@ export default function Workspace({
             <AgentCursors ref={cursorsRef} file={quickView.file} page={pageIndex} place={placeAgentPoint} />
           )}
         </div>
+
+        {/*
+          The text box being typed into, over the box itself; the painter
+          keeps it there as the sheet moves (placeNoteEditor). Outside the
+          stage, so a click in it is typing and not a gesture on the sheet.
+        */}
+        {noteEdit !== null && (() => {
+          const m = markups.find((x) => x.id === noteEdit.id)
+          const c = parseNoteContent((m as { content?: unknown } | undefined)?.content)
+          if (m === undefined || c === null) return null
+          return (
+            <textarea
+              key={noteEdit.id}
+              ref={(el) => {
+                noteTextRef.current = el
+                if (el !== null) { placeNoteEditor(m.rings[textRingIndex(c.shape)] ?? [], c); if (document.activeElement !== el) el.focus() }
+              }}
+              className="notetextedit"
+              aria-label="Text box"
+              defaultValue={c.text}
+              spellCheck
+              onInput={() => placeNoteEditor(m.rings[textRingIndex(c.shape)] ?? [], c)}
+              onBlur={() => { void finishNoteEdit() }}
+              onKeyDown={(e) => {
+                // Escape and Ctrl+Enter end the typing; nothing reaches the sheet's shortcuts.
+                e.stopPropagation()
+                if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                }
+              }}
+            />
+          )
+        })()}
 
         {light && quickView !== undefined && lightTabs !== undefined && (
           <AgentBar
@@ -13613,6 +13910,11 @@ export default function Workspace({
         )}
         <Dock
           pinned={pendingCal !== null || pendingRegion !== null}
+          above={isNoteTool(tool)
+            ? <NoteStrip content={noteStyles[tool]} target="tool" onChange={patchNotes} />
+            : selectedNotes.length > 0 && (tool === 'pan' || tool === 'select')
+              ? <NoteStrip content={selectedNotes[0]!.content} target="selection" count={selectedNotes.length} onChange={patchNotes} />
+              : undefined}
           left={
             <ToolPill
               tool={tool}
