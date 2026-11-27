@@ -847,3 +847,50 @@ describe('addenda links made by hand', () => {
     expect(rows).toEqual([{ key: 'addenda_links', value: JSON.stringify([{ replaced: 0, by: 1, source: 'linked' }]) }])
   })
 })
+
+describe('links made in REDBEAM', () => {
+  it('are written as real /Link annotations that jump to their sheet, once per save', async () => {
+    const db = await SqlJsDriver.open()
+    await migrate(db, loadMigrations())
+    await ingestDocuments(db, [{
+      relativePath: 'set.pdf', displayName: 'set.pdf', kind: 'drawing', status: 'current', sizeBytes: 1,
+      contentFingerprint: 'fp', availability: 'local',
+      pages: [{ pageNumber: 0, widthPdfPoints: 2592, heightPdfPoints: 1728 }, { pageNumber: 1, widthPdfPoints: 2592, heightPdfPoints: 1728 }],
+    }])
+    const docId = (await db.all<{ id: string }>('SELECT id FROM documents LIMIT 1'))[0]!.id
+    await db.run(`INSERT INTO markups(id,document_id,page_id,scope_id,kind,geometry_json,content_json,origin,created_at,updated_at)
+      VALUES('l1',?,?,NULL,'link',?,?,'user',?,?)`,
+    [docId, `${docId}-p0`, JSON.stringify([sq(0.5, 0.5, 0.52, 0.53)]), JSON.stringify({ toPage: 1, source: 'callout', text: '3/A5.01' }), NOW, NOW])
+    const d = await PDFDocument.create()
+    d.addPage([2592, 1728]); d.addPage([2592, 1728])
+    const file = memoryFile(await d.save())
+    const opts = { db, documentId: docId, relativePath: 'set.pdf', displayName: 'set', appVersion: 't', file }
+    expect((await embedDrawing(opts)).kind).toBe('written')
+
+    const links = async () => {
+      const doc = await PDFDocument.load(file.bytes)
+      const annots = doc.getPages()[0]!.node.lookup(PDFName.of('Annots'), PDFArray)
+      const out: PDFDict[] = []
+      for (let i = 0; i < annots.size(); i++) {
+        const a = annots.lookup(i, PDFDict)
+        if (a.lookup(PDFName.of('Subtype')) === PDFName.of('Link')) out.push(a)
+      }
+      return { doc, out }
+    }
+    const first = await links()
+    expect(first.out).toHaveLength(1)
+    const dest = first.out[0]!.lookup(PDFName.of('Dest'), PDFArray)
+    expect(dest.get(0)).toBe(first.doc.getPages()[1]!.ref)
+    expect(dest.get(1)).toBe(PDFName.of('Fit'))
+    const rect = first.out[0]!.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Number(n.toString()))
+    expect(rect[0]).toBeCloseTo(0.5 * 2592, 3)
+    expect(rect[3]).toBeCloseTo(1728 - 0.5 * 1728, 3)
+
+    // Moved and saved again: still one link, where it now is.
+    await db.run(`UPDATE markups SET geometry_json = ? WHERE id = 'l1'`, [JSON.stringify([sq(0.6, 0.5, 0.62, 0.53)])])
+    expect((await embedDrawing(opts)).kind).toBe('written')
+    const second = await links()
+    expect(second.out).toHaveLength(1)
+    expect(Number(second.out[0]!.lookup(PDFName.of('Rect'), PDFArray).get(0).toString())).toBeCloseTo(0.6 * 2592, 3)
+  })
+})

@@ -13,6 +13,14 @@ All are unsigned; SmartScreen will ask once.
 - **Agents can turn Bluebeam markups into takeoff.** An agent can convert the areas, lines and counts already drawn in a PDF into a scope, as *Convert the PDF's markups* does, cutouts included.
 - **Agents can recolour Bluebeam markups.** Clouds, text boxes and arrows from other apps can be recoloured by an agent as well as moved and deleted, and saving writes the change into the PDF.
 - **Agents can read What's new and reset a setting.** An agent can see what changed in recent releases, and put a setting back to its default.
+## 0.3.114 — 2026-11-26
+
+### Arcs, circles and links between sheets
+
+- **Arcs while you draw.** In Area, Cutout and Linear, press A (or pick Arc on the bar at the top of the drawing), click a point the arc passes through, then where it ends. The area and length follow the true curve.
+- **Circles.** Press Shift+C, click the centre, then a point on the edge. Handy for round cutouts and round clouds.
+- **Link tool.** Drag a box over a callout and pick the sheet it should open. The sheet named inside the box is listed first. Links are saved in the PDF, so they work in Bluebeam and any other viewer too.
+- **Link all detail callouts.** REDBEAM reads every sheet and lists each reference to another sheet, like 3/A5.01. Click a row to see it on the drawing, untick any you don't want, and add them all in one step.
 
 ## 0.3.113 — 2026-11-26
 
