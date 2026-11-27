@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.136 — 2026-11-27
+
+### Layout settings belong to each scope
+
+- **Each scope sets its own layout.** Where its areas start (a corner, or automatic with one grid across the sheet or each area on its own) is now in the scope's Setup, beside Seams and Direction.
+- **Each scope chooses what its preview draws.** Material past the edge, suspension rails, perimeter trim and seams switch on and off under the scope's "Show layout on sheet". Settings keeps only the one switch that shows or hides every layout.
+- **Nothing moves on its own.** Scopes you already have keep the values the old global settings held until you change them on the scope. Agents read and set the same settings per scope.
+
+
 ## 0.3.134 — 2026-11-27
 
 ### Settings stay as you set them after an update
