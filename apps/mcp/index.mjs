@@ -331,14 +331,16 @@ async function handleRequest(req) {
         id,
         result: {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
-          capabilities: { tools: {}, resources: {}, prompts: {} },
+          capabilities: { tools: { listChanged: true }, resources: {}, prompts: {} },
           serverInfo: SERVER_INFO,
           instructions: SPEC.instructions + LEAN.instructions,
         },
       })
       return
     }
-    if (method === 'notifications/initialized') return
+    // An AI app left open across an update reconnects with the old tool
+    // list; this makes it ask again on every connection.
+    if (method === 'notifications/initialized') return send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' })
     if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} })
     if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools: toolsWithAgent() } })
     if (method === 'resources/list') {
