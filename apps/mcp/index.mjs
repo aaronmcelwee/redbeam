@@ -172,23 +172,113 @@ function sessionOf(value) {
 function identity(session) {
   return { id: `${SESSION}/${session.code}`, client: clientName, label: session.task }
 }
-/** The tool list: the session tool first, then every tool with the required `session` input. */
-function toolsWithAgent() {
-  return [SESSION_TOOL, ...tools.map((t) => {
-    const schema = t.inputSchema ?? { type: 'object', properties: {} }
-    if (schema.properties?.[SESSION_ARG] !== undefined) return t
-    return {
-      ...t,
-      inputSchema: {
-        ...schema,
-        properties: {
-          ...(schema.properties ?? {}),
-          [SESSION_ARG]: { type: 'string', description: SPEC.sessions.input },
-        },
-        required: [...(schema.required ?? []), SESSION_ARG],
-      },
+/**
+ * The tool list as an AI app is given it: the session tool first, the batch
+ * tool, then every tool with the required `session` input.
+ *
+ * Every chat pays for all of this text before its first call, so what is
+ * listed is kept lean (SPEC.lean) without touching what a tool does:
+ *  - redbeam_invoke_ui_action is not listed. Every action it takes has a tool
+ *    of its own, and its schema repeated all of theirs. A call to it still works.
+ *  - `file` and `session` are on every tool; their long explanation is in the
+ *    server instructions once, and each tool carries a short line.
+ *  - "For a, b and c: ..." at the start of an input's description names the
+ *    actions of the catch-all tool; on a tool of its own it says nothing.
+ */
+const LEAN = SPEC.lean
+const FOR_ACTIONS = /^For [a-z_]+(?:, [a-z_]+)*(?:,? and [a-z_]+)?: /
+function leanSchema(node) {
+  if (Array.isArray(node)) return node.map(leanSchema)
+  if (node === null || typeof node !== 'object') return node
+  const out = {}
+  for (const [k, v] of Object.entries(node)) out[k] = leanSchema(v)
+  if (typeof out.description === 'string') {
+    const m = FOR_ACTIONS.exec(out.description)
+    if (m !== null) {
+      const rest = out.description.slice(m[0].length)
+      out.description = rest.charAt(0).toUpperCase() + rest.slice(1)
     }
-  })]
+  }
+  return out
+}
+function withSession(t) {
+  const schema = leanSchema(t.inputSchema ?? { type: 'object', properties: {} })
+  const properties = { ...(schema.properties ?? {}) }
+  if (properties.file !== undefined) properties.file = { type: 'string', description: LEAN.file }
+  if (properties[SESSION_ARG] !== undefined) return { ...t, inputSchema: { ...schema, properties } }
+  properties[SESSION_ARG] = { type: 'string', description: LEAN.session }
+  return { ...t, inputSchema: { ...schema, properties, required: [...(schema.required ?? []), SESSION_ARG] } }
+}
+function toolsWithAgent() {
+  return [SESSION_TOOL, withSession(LEAN.batch), ...tools.filter((t) => !LEAN.hidden.includes(t.name)).map(withSession)]
+}
+
+/** The text of an answer: JSON with no indentation. Indented, the same answers were two thirds bigger for nothing a model reads. */
+const asText = (value) => JSON.stringify(value)
+
+/** `"$N.path"`: the value at `path` in the answer of call N of this batch; anything else is itself. */
+function resolveRefs(value, answers) {
+  if (typeof value === 'string') {
+    const m = /^\$(\d+)\.([\w.]+)$/.exec(value)
+    if (m === null) return value
+    let at = answers[Number(m[1])]
+    for (const key of m[2].split('.')) {
+      if (at === null || typeof at !== 'object') throw new Error(`${value}: call ${m[1]} has no such value`)
+      at = at[key]
+    }
+    if (at === undefined) throw new Error(`${value}: call ${m[1]} has no such value`)
+    return at
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveRefs(v, answers))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveRefs(v, answers)]))
+  }
+  return value
+}
+
+/** One bridge call for a session: the answer as REDBEAM gave it. */
+async function callBridge(name, inputs, session, onAlive) {
+  const method = METHOD_OF[name]
+  if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
+  const bound = ACTION_OF[name] ? { ...inputs, action: ACTION_OF[name] } : inputs
+  return await bridgeCall(method, bound, identity(session), onAlive)
+}
+
+/** Several calls in one round trip (SPEC.lean.batch). */
+async function callBatch(args, session, onAlive) {
+  const calls = Array.isArray(args?.calls) ? args.calls : []
+  if (calls.length === 0) throw new Error('Give `calls`: [{tool, arguments}, ...].')
+  const carryOn = args?.continueOnError === true
+  const answers = []
+  const results = []
+  const images = []
+  let failed = 0
+  for (let i = 0; i < calls.length; i++) {
+    const tool = typeof calls[i]?.tool === 'string' ? calls[i].tool : ''
+    try {
+      if (tool === SESSION_TOOL.name || tool === LEAN.batch.name) throw new Error(`${tool} cannot run inside a batch`)
+      const { [SESSION_ARG]: _own, ...inputs } = resolveRefs(calls[i]?.arguments ?? {}, answers)
+      const result = await callBridge(tool, inputs, session, onAlive)
+      answers.push(result)
+      if (tool === 'redbeam_screenshot' && typeof result?.dataUrl === 'string') {
+        images.push({ type: 'image', data: result.dataUrl.slice(result.dataUrl.indexOf(',') + 1), mimeType: 'image/png' })
+        results.push({ call: i, tool, ok: true, result: { image: images.length } })
+      } else {
+        results.push({ call: i, tool, ok: true, result })
+      }
+    } catch (e) {
+      failed++
+      answers.push(null)
+      results.push({ call: i, tool, ok: false, error: e.message })
+      if (!carryOn) break
+    }
+  }
+  const summary = {
+    ran: results.length, of: calls.length, failed,
+    ...(results.length < calls.length ? { stoppedAt: results.length - 1, note: 'A call failed, so the calls after it were not run. Fix it and send the rest.' } : {}),
+    results,
+  }
+  return { content: [{ type: 'text', text: asText(summary) }, ...images], structuredContent: summary, ...(failed > 0 && results.length === failed ? { isError: true } : {}) }
 }
 
 async function callTool(name, args = {}, onAlive = () => {}) {
@@ -196,20 +286,19 @@ async function callTool(name, args = {}, onAlive = () => {}) {
     const session = startSession(args?.task)
     return {
       content: [
-        { type: 'text', text: JSON.stringify({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.', takeoffSkill: SKILL_URI }, null, 2) },
+        { type: 'text', text: asText({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.', takeoffSkill: SKILL_URI }) },
         { type: 'text', text: skillHandout() },
       ],
       structuredContent: { session, takeoffSkill: SKILL_URI },
     }
   }
-  const method = METHOD_OF[name]
-  if (!method) throw new Error(`Unknown REDBEAM tool: ${name}`)
+  if (name !== LEAN.batch.name && !METHOD_OF[name]) throw new Error(`Unknown REDBEAM tool: ${name}`)
   // Who is calling is not an input of the tool: it rides beside them.
   const { [SESSION_ARG]: named, ...inputs } = args ?? {}
   const session = sessionOf(named)
   if (session === null) throw new Error(SPEC.sessions.refused)
-  const bound = ACTION_OF[name] ? { ...inputs, action: ACTION_OF[name] } : inputs
-  const result = await bridgeCall(method, bound, identity(session), onAlive)
+  if (name === LEAN.batch.name) return await callBatch(inputs, session, onAlive)
+  const result = await callBridge(name, inputs, session, onAlive)
 
   // A screenshot is returned as an image block, not as a data URL in text: a
   // 2 MB base64 string pasted into a transcript is unreadable and expensive.
@@ -220,7 +309,7 @@ async function callTool(name, args = {}, onAlive = () => {}) {
     }
   }
   return {
-    content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    content: [{ type: 'text', text: asText(result) }],
     structuredContent: result && typeof result === 'object' ? result : { value: result },
   }
 }
@@ -242,7 +331,7 @@ async function handleRequest(req) {
           protocolVersion: params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: {}, resources: {}, prompts: {} },
           serverInfo: SERVER_INFO,
-          instructions: SPEC.instructions,
+          instructions: SPEC.instructions + LEAN.instructions,
         },
       })
       return
@@ -360,6 +449,6 @@ function startServer() {
   process.stderr.write(`REDBEAM MCP server ready. Discovery: ${DISCOVERY_FILE}\n`)
 }
 
-export { bridgeCall, callTool, tools, toolsWithAgent, identity, startSession, sessionOf, guide, SKILL, SKILL_URI, skillHandout, METHOD_OF, ACTION_OF, startServer }
+export { bridgeCall, callTool, tools, toolsWithAgent, resolveRefs, leanSchema, identity, startSession, sessionOf, guide, SKILL, SKILL_URI, skillHandout, METHOD_OF, ACTION_OF, startServer }
 
 if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, '/')) startServer()
