@@ -114,6 +114,9 @@ const READS_ANY_SHEET = new Set(['find_text', 'get_words', 'list_sheets', 'list_
  * reach it meanwhile, so silence over that stretch says nothing about them.
  */
 export const STALL_MS = 10_000
+/** What a session that called redbeam_end_session is told when it calls again. */
+export const SESSION_OVER = 'This session ended when it called redbeam_end_session, so this call was not run and nothing was changed. Start a new session with redbeam_start_session and pass its `session` value.'
+
 /**
  * How long the PDFs of a session whose app stopped answering wait for it to
  * come back before the ones it only read are closed. Its app may only be
@@ -145,6 +148,20 @@ export class BridgeRouter {
     const params = req.params ?? {}
     const who = identityOf(req.agent)
     const before = who === null ? undefined : this.deps.roster.agent(who.id)
+    /*
+     * A session that finished itself stays finished. Its next call, alone or
+     * as one of a batch (each call of a batch arrives here on its own), is
+     * refused before it reaches a PDF or brings the session back to life.
+     * Benchmark logs, 0.3.129, 2026-11-27: a redbeam_batch sent after
+     * redbeam_end_session ran its calls. Sessions the person ended, or whose
+     * app was lost, still come back with their next call, as before.
+     */
+    if (before?.state === 'gone' && before.ended?.by === 'agent' && req.action !== 'agent_bye' && req.action !== 'agent_alive') {
+      if (req.action === 'invoke_ui_action' && params['action'] === 'end_session') return { ended: true, note: 'This session had already finished.' }
+      const error = SESSION_OVER
+      signal('agent', `${req.action}:failed`, [before.app, error].join(' · '), 0)
+      return { error }
+    }
     const agent = who === null ? null : this.deps.roster.see(who)
     /*
      * A session coming back after its app's server was lost or restarted
@@ -524,7 +541,7 @@ export class BridgeRouter {
     this.deps.roster.settle(agentId, handedBack, closed)
     return {
       ended: true, handedBack, closed, why,
-      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). A new job starts with redbeam_start_session.',
+      note: 'The session is finished. PDFs you changed are now the person\'s own tabs; PDFs you only read were closed, except any the person had on screen (`why` says, per PDF). Any further call with this session is refused: a new job starts with redbeam_start_session.',
     }
   }
 

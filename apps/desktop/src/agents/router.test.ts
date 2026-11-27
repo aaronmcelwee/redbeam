@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type BridgeActions, type CallContext } from '../bridge/useBridgeRequests.js'
 import { agentTabs, lightFileOf, samePath, tabFor, withHanded, withOwner, type LightFile } from '../lightTabs.js'
 import { RosterStore } from './roster.js'
-import { BridgeRouter, LOST_AFTER_MS, LOST_GRACE_MS } from './router.js'
+import { BridgeRouter, LOST_AFTER_MS, LOST_GRACE_MS, SESSION_OVER } from './router.js'
 
 const MINE = 'C:\\Jobs\\Mine.pdf'
 const A = { id: 'a', client: 'claude-ai' }
@@ -454,11 +454,21 @@ describe('how a session ends', () => {
     expect(tabFor(w.tabs, SPEC)).toMatchObject({ owner: 'srv5/AAA' })
   })
 
-  it('keeps what a session said when it finished, if it only looks around before its app closes', async () => {
+  it('refuses every call of a session that ended itself, and keeps what it said', async () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
     await act(A, 'end_session', { summary: 'Checked the ceilings, nothing to change.' })
-    await call(A, 'get_ui_state')
+    const made = w.log.length
+    // A batch reaches the window as its calls, one after another: each is refused.
+    for (const out of [
+      await call(A, 'get_ui_state'),
+      await act(A, 'create_markup', { kind: 'shape', rings: [] }),
+      await act(A, 'list_scopes'),
+      await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true }),
+      await call(A, 'screenshot'),
+    ]) expect(out).toEqual({ error: SESSION_OVER })
+    expect(w.log.length).toBe(made)
+    expect(await act(A, 'end_session', {})).toMatchObject({ ended: true })
     await call(A, 'agent_bye')
     const a = w.roster.get().agents[0]!
     expect(a.state).toBe('gone')
