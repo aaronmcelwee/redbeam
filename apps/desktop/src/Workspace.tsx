@@ -186,6 +186,8 @@ import {
   EMPTY_DRAFT, REPORT_KINDS, SUMMARY_MAX, buildPayload, captureStage, gatherContext, sendReport, whereLine,
   type ReportDraft, type ReportKind,
 } from './report/report.js'
+import { RELEASES } from './whatsnew/changelogSource.js'
+import { reportForAgent, whatsNewForAgent } from './agents/appWide.js'
 import { APP_VERSION } from './update/updates.js'
 import { UpdateChip } from './update/UpdateChip.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
@@ -5077,18 +5079,22 @@ export default function Workspace({
    */
   const documentsRef = useRef(documents)
   documentsRef.current = documents
-  const convertAnnotations = useCallback(async (list: PageAnnotation[], scopeId: string | null = activeScopeRef.current) => {
+  const convertAnnotations = useCallback(async (
+    list: PageAnnotation[], scopeId: string | null = activeScopeRef.current,
+    // An agent converts on ITS sheet, which need not be the one on screen.
+    at: { page: number; origin: 'user' | 'agent' } = { page: pageIndexRef.current, origin: 'user' },
+  ): Promise<{ converted: number; cutouts: number; cutoutsUnread: boolean }> => {
     const docId = docIdRef.current
-    const pageIndexNow = pageIndexRef.current
-    const pageId = pageIdFor(docId, pageIndexRef.current)
+    const targetPage = at.page
+    const pageId = pageIdFor(docId, targetPage)
     let found: RawCutouts[] = []
     let cutoutsUnread = false
     if (list.some((a) => a.hasCutouts && kindForAnnotation(a) === 'area')) {
       const doc = documentsRef.current.find((d) => d.id === docId)
       try {
         if (doc === undefined) throw new Error('no document')
-        found = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.cutouts(pageIndexNow)))?.value
-          ?? await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), pageIndexNow)
+        found = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.cutouts(targetPage)))?.value
+          ?? await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), targetPage)
       } catch {
         cutoutsUnread = true
       }
@@ -5110,18 +5116,24 @@ export default function Workspace({
         if (openings.length > 0) { holes += openings.length; holed++ }
         cmds.push(cmdCreate({
           id: uid(), documentId: docId, pageId, scopeId, kind,
-          rings, origin: 'user', reviewState: 'accepted',
+          rings, origin: at.origin, reviewState: 'accepted',
           content: openings.length === 0 ? content : { ...content, cutouts: openings.length },
         }))
       }
     }
-    if (cmds.length === 0) { setStatus('nothing there to convert'); return }
+    if (cmds.length === 0) {
+      if (at.origin === 'user') setStatus('nothing there to convert')
+      return { converted: 0, cutouts: 0, cutoutsUnread }
+    }
     await runCommand(cmds.length === 1 ? cmds[0]! : cmdBatch(`convert ${cmds.length} PDF markups`, cmds))
-    selectAnnots([])
     const shapes = cmds.length
+    // A session's conversion leaves the person's selection and status line alone.
+    if (at.origin === 'agent') return { converted: shapes, cutouts: holes, cutoutsUnread }
+    selectAnnots([])
     setStatus(`${shapes} PDF markup${shapes === 1 ? '' : 's'} converted`
       + (holes > 0 ? `, ${holed === 1 ? 'one area' : `${holed} areas`} with ${holes} cutout${holes === 1 ? '' : 's'}` : '')
       + (cutoutsUnread ? '. Their cutouts could not be read from the file' : ''))
+    return { converted: shapes, cutouts: holes, cutoutsUnread }
   }, [runCommand, selectAnnots, projectPath])
 
   /** Every convertible annotation on the open sheet, converted. */
@@ -8466,9 +8478,74 @@ export default function Workspace({
           const tails = SETTINGS.filter((x) => x.id.split('.').pop() === sid)
           const d = SETTINGS.find((x) => x.id === sid) ?? (tails.length === 1 ? tails[0] : undefined)
           if (d === undefined || LIGHT_HIDDEN_SETTINGS.includes(d.id)) return { error: `no setting ${sid}; get_settings lists them` }
-          const why = settings.set(d.id, params['value'])
+          // Back to its default: the Settings page's reset, one setting at a time.
+          const why = settings.set(d.id, params['reset'] === true ? d.default : params['value'])
           if (why !== null) return { error: why }
-          return { setting: d.id, value: settings.all()[d.id] }
+          return { setting: d.id, value: settings.all()[d.id], ...(params['reset'] === true ? { reset: true } : {}) }
+        }
+        /*
+         * Report a bug, as Settings › Report a bug and the prompt's "Report a
+         * bug…" do (Aaron, 2026-11-27: "add the report problem or bug report
+         * feature as an agent usable tool"). The same Worker and the same
+         * GitHub issue labelled "bug report"; the issue says an AI agent sent
+         * it. The session name is left out: it carries the client's job name,
+         * and issues on a public repo show what was typed.
+         */
+        case 'report_problem': {
+          const agent = agentCtxRef.current.agent
+          const box = bridgeRect(params['region'] ?? params['rect'])
+          if (box === null) return { error: 'region must be {x0,y0,x1,y1} in normalized [0,1] page coordinates' }
+          const doc = documents.find((d) => d.id === activeDocId)
+          const targetPage = ap.index
+          const view = agentView()
+          return reportForAgent({
+            params, app: agent?.app ?? null, agentId: agent?.id ?? null,
+            where: whereLine([
+              projectName, doc === undefined ? null : (doc.displayName || doc.relativePath.split('/').pop()),
+              doc === undefined ? null : sheetLabelFor(targetPage),
+            ]),
+            // A picture of the session's own sheet with the takeoff on it, as the form's "attach a picture" would.
+            picture: async () => {
+              const v = viewerRef.current
+              if (v === null || activeDocId === null) return null
+              const out = await v.renderRegion(box ?? view?.rect ?? { x0: 0, y0: 0, x1: 1, y1: 1 }, 1600, {
+                page: targetPage,
+                overlaySet: toOverlay(docMarkupsRef.current.filter((m) => m.pageId === pageIdFor(docIdRef.current, targetPage) && !isCutId(m.id)), scopesRef.current, pendingIdsRef.current),
+              })
+              return out.canvas.toDataURL('image/jpeg', 0.85)
+            },
+          })
+        }
+        /* What changed in each release, as the What's new dialog shows it. */
+        case 'whats_new':
+          return whatsNewForAgent(params, RELEASES, APP_VERSION)
+        /*
+         * Turn the PDF's own markups (a Bluebeam area, polyline or count drawn
+         * before REDBEAM) into takeoff in a scope: the drawing menu's "Convert
+         * the PDF's markups". `names` are list_annotations' `name`s; without
+         * them, every convertible markup on the sheet.
+         */
+        case 'convert_annotations': {
+          const v = viewerRef.current
+          if (!v || activeDocId === null) return { error: 'no document is open' }
+          const target = ap.index
+          const scopeId = typeof params['scopeId'] === 'string' ? params['scopeId'] : agentScope()
+          if (scopeId !== null && !scopesRef.current.some((x) => x.id === scopeId)) return { error: `no such scope: ${scopeId}; list_scopes has them` }
+          let all: PageAnnotation[] = []
+          try { all = await v.requestAnnotations(target) } catch { return { error: 'could not read the markups on that sheet' } }
+          // As the sheet offers them to Select: not REDBEAM's own, not ones already taken in as markups.
+          const adopted = adoptedNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+          const held = heldNmsRef.current.get(docIdRef.current) ?? new Set<string>()
+          const convertible = all.filter((a) => a.shape !== 'other' && !isRedbeamNm(a.name) && !adopted.has(a.name) && !held.has(a.name))
+          const names = Array.isArray(params['names']) ? (params['names'] as unknown[]).map(String) : null
+          const picked = names === null ? convertible : convertible.filter((a) => names.includes(a.name))
+          const missing = names === null ? [] : names.filter((n) => !picked.some((a) => a.name === n))
+          if (picked.length === 0) return { error: names === null ? 'nothing on this sheet to convert: only areas, lines and counts convert' : `none of those can be converted; list_annotations names the markups on the sheet`, ...(missing.length > 0 ? { notConvertible: missing } : {}) }
+          const r = await convertAnnotations(picked, scopeId, { page: target, origin: 'agent' })
+          return {
+            page: target, sheet: sheetLabelFor(target), scopeId, ...r,
+            ...(missing.length > 0 ? { notConvertible: missing, note: 'these are not areas, lines or counts, or are not on this sheet' } : {}),
+          }
         }
         /*
          * ---- agent usability study, priority 2 ----
@@ -8478,6 +8555,20 @@ export default function Workspace({
           const id = String(params['id'] ?? '')
           const m = docMarkupsRef.current.find((x) => x.id === id)
           if (!m) return { error: `no such markup: ${id}` }
+          /*
+           * Recolour another app's markup held in place (a Bluebeam cloud,
+           * text box, arrow): the markup menu's colour row. Takeoff markups
+           * wear their scope's colour, which update_scope changes.
+           */
+          if (params['color'] !== undefined) {
+            if (m.kind !== 'annot') return { error: 'only markups from Bluebeam or another app (kind annot) carry their own colour; a takeoff markup shows its scope\'s, which update_scope changes' }
+            const hex = String(params['color']).trim().toLowerCase()
+            const named = HELD_COLORS.find((c) => c.name.toLowerCase() === hex)?.hex ?? hex
+            if (!/^#[0-9a-f]{6}$/.test(named)) return { error: `color must be #rrggbb or one of ${HELD_COLORS.map((c) => c.name).join(', ')}` }
+            const was = heldColorOf(m)
+            if (was !== named) await runCommand(cmdEditAnnotColor(id, was, named, { documentId: m.documentId, pageId: m.pageId }, 'agent'))
+            if (params['rings'] === undefined && params['dx'] === undefined && params['dy'] === undefined) return { id, kind: m.kind, color: named }
+          }
           let after: Markup['rings']
           if (params['rings'] !== undefined) {
             const built = agentMarkup({ kind: m.kind, rings: params['rings'], ...(m.scopeId !== null ? { scopeId: m.scopeId } : {}) }, m.documentId, m.pageId)

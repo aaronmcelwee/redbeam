@@ -5,6 +5,15 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.116 — 2026-11-27
+
+### AI agents can do what you can
+
+- **Agents can report a bug.** When Claude or ChatGPT hits a problem in REDBEAM, it can send a bug report the same way *Report a bug* does, with a picture of its sheet if that helps. The report says it came from an AI agent, and the agent tells you what it reported.
+- **Agents can turn Bluebeam markups into takeoff.** An agent can convert the areas, lines and counts already drawn in a PDF into a scope, as *Convert the PDF's markups* does, cutouts included.
+- **Agents can recolour Bluebeam markups.** Clouds, text boxes and arrows from other apps can be recoloured by an agent as well as moved and deleted, and saving writes the change into the PDF.
+- **Agents can read What's new and reset a setting.** An agent can see what changed in recent releases, and put a setting back to its default.
+
 ## 0.3.113 — 2026-11-26
 
 ### Opening several sets, counts and lengths, sharper thumbnails
