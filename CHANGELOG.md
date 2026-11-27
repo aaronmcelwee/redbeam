@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.128 — 2026-11-27
+
+### New agent tools appear after an update without restarting Claude
+
+- **No restart needed.** An AI app left open while REDBEAM updated kept the tool list of the old version, so newer tools, such as sending several calls together, were missing until the AI app was restarted. REDBEAM now tells the AI app to read the list again each time it connects.
+
 ## 0.3.127 — 2026-11-27
 
 ### Agents in Claude Code now receive the takeoff skill

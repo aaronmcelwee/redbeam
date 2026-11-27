@@ -722,6 +722,14 @@ fn handle(spec: &Spec, req: &Value) -> Option<Value> {
 /// tools/call reports progress to an AI app that asked for it
 /// (`_meta.progressToken`), so the app knows the work is still going.
 fn handle_with(spec: &Spec, req: &Value, notify: &dyn Fn(Value)) -> Option<Value> {
+    // An AI app that stays open across a REDBEAM update reconnects with the
+    // tool list it took from the old version. Telling it the list changed on
+    // every connection makes it ask again, so new tools appear without a
+    // restart of the AI app.
+    if req.get("method").and_then(Value::as_str) == Some("notifications/initialized") {
+        notify(json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }));
+        return None;
+    }
     let id = req.get("id").cloned()?;
     let method = req.get("method").and_then(Value::as_str).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(Value::Null);
@@ -735,7 +743,7 @@ fn handle_with(spec: &Spec, req: &Value, notify: &dyn Fn(Value)) -> Option<Value
             }
             ok(json!({
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
-            "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
+            "capabilities": { "tools": { "listChanged": true }, "resources": {}, "prompts": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
             "instructions": format!("{}{}", spec.instructions.as_str().unwrap_or(""), spec.lean["instructions"].as_str().unwrap_or("")),
             }))
@@ -881,7 +889,15 @@ mod tests {
         assert_eq!(r["result"]["serverInfo"]["name"], "redbeam");
         let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).unwrap();
         assert!(r["result"]["tools"].as_array().unwrap().len() >= 14);
-        assert!(handle(&s, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
+        assert_eq!(r["result"]["tools"].as_array().map(Vec::is_empty), Some(false));
+        // Each connection is told to list the tools again, so an AI app left
+        // open across an update picks up the new ones.
+        let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} })).unwrap();
+        assert_eq!(r["result"]["capabilities"]["tools"]["listChanged"], true);
+        let told = std::cell::RefCell::new(Vec::new());
+        assert!(handle_with(&s, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            &|v| told.borrow_mut().push(v)).is_none());
+        assert_eq!(told.borrow()[0]["method"], "notifications/tools/list_changed");
     }
 
     #[test]
