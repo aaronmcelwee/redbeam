@@ -12,6 +12,13 @@ All are unsigned; SmartScreen will ask once.
 - **The sheet is drawn once.** To check a hatched ceiling against what is on the page, REDBEAM drew the sheet again for every trace an agent asked for. It now keeps that drawing while the agent stays on the sheet, which takes about a second and a half off each later trace of a dense sheet. The outlines are the same.
 
 
+## 0.3.139 — 2026-11-27
+
+### Drawing colours: Dark, Dark gray, True black and Sepia
+
+- **Show the sheet dark or warm.** The zoom menu under the drawing and Settings › Drawing › Appearance now have Drawing colours: Normal, Dark, Dark gray, True black and Sepia. The dark ones turn the paper dark and the linework light, and keep the drawing's own colours recognisable, so a red line stays red. Sepia warms the paper and browns the ink. The thumbnails follow.
+- **Only the screen changes.** The PDF, saving, exports, printing and the pictures AI agents take keep the drawing's own colours. Your markups keep their scope colours in every mode, so they still match the sidebar.
+
 ## 0.3.136 — 2026-11-27
 
 ### Layout settings belong to each scope

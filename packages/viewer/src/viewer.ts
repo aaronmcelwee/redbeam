@@ -1084,8 +1084,18 @@ export class Viewer {
     const t0 = performance.now()
     rc.save()
     rc.setTransform(1, 0, 0, 1, 0, 0)
-    rc.fillStyle = background
-    rc.fillRect(0, 0, snapped.vw, snapped.vh)
+    /*
+     * 'transparent' leaves the surround to the element behind the canvas.
+     * Drawing colours filter this canvas with CSS, and a filter would recolour
+     * a painted surround along with the sheet; cleared, only the sheet is in
+     * the canvas for it to touch.
+     */
+    if (background === 'transparent') {
+      rc.clearRect(0, 0, snapped.vw, snapped.vh)
+    } else {
+      rc.fillStyle = background
+      rc.fillRect(0, 0, snapped.vw, snapped.vh)
+    }
 
     let blitted = 0
     let stale = 0

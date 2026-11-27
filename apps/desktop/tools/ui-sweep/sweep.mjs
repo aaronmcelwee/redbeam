@@ -443,6 +443,45 @@ const STEPS = [
     }
     return problems
   }],
+  /*
+   * Drawing colours (0.3.139): picked from the zoom menu, they filter the
+   * sheet's raster and the thumbnails and nothing else, and Normal takes the
+   * filter off again.
+   */
+  ['drawing-colours', async (page) => {
+    const problems = []
+    // The zoom menu where the dock has room for it, else the More menu.
+    const pick = async (name) => {
+      const zoom = page.locator('.dockzoom').filter({ visible: true })
+      if (await zoom.count() > 0) {
+        await zoom.first().click()
+        await page.waitForTimeout(250)
+        await page.getByRole('menuitemradio', { name, exact: true }).click()
+      } else {
+        // Narrow: the zoom menu folds into the sheet pill's "More" menu.
+        await page.getByRole('button', { name: 'More', exact: true }).filter({ visible: true }).last().click()
+        await page.waitForTimeout(250)
+        await page.getByRole('menuitemradio', { name, exact: true }).click()
+      }
+      await page.waitForTimeout(500)
+    }
+    const filters = () => page.evaluate(() => ({
+      raster: getComputedStyle(document.querySelector('.wshost[data-showing="true"] .stage canvas.rb-raster') ?? document.querySelector('.stage canvas.rb-raster')).filter,
+      overlay: getComputedStyle(document.querySelectorAll('.stage canvas')[1]).filter,
+      thumb: (() => { const t = document.querySelector('.thumb canvas'); return t === null ? null : getComputedStyle(t).filter })(),
+    }))
+    await pick('Dark')
+    const on = await filters()
+    if (!String(on.raster).includes('rb-drawing-dark')) problems.push(`drawing-colours: Dark did not filter the sheet (${on.raster})`)
+    if (on.overlay !== 'none') problems.push('drawing-colours: the markup overlay was filtered too; markups must keep their scope colours')
+    if (on.thumb !== null && !String(on.thumb).includes('rb-drawing-dark')) problems.push('drawing-colours: the thumbnails did not follow')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}drawing-colours-dark.png`) })
+    await pick('Normal')
+    const off = await filters()
+    if (off.raster !== 'none') problems.push(`drawing-colours: Normal left a filter on the sheet (${off.raster})`)
+    return problems
+  }],
   ['settings', async (page) => {
     await button(page, 'Settings').last().click()
     await page.waitForTimeout(400)
