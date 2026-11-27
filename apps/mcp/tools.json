@@ -1,4 +1,33 @@
 {
+  "lean": {
+    "hidden": ["redbeam_invoke_ui_action"],
+    "file": "The PDF this call is about: full path, file name or document id. Default: the PDF you opened or named last.",
+    "session": "REQUIRED: the `session` redbeam_start_session returned to this chat.",
+    "instructions": " FEWER ROUND TRIPS: every call is a turn of yours, and turns are what make a takeoff slow. When the next calls do not depend on you reading the previous answer, send them together with redbeam_batch (several sheets' words, scales or close-ups; a scope and its markups, using \"$0.scopeId\"; the closing list_markups, get_bom and save). Ask for what you need and no more: `rect` on get_words and get_lines, `scope` and `brief` on get_bom, `region` on a screenshot.",
+    "batch": {
+      "name": "redbeam_batch",
+      "description": "Run several REDBEAM calls in ONE round trip, in order, and get every answer back together. Use it whenever the next calls do not depend on reading the previous answer yourself: reading several sheets (get_words, find_text, read_scale, close-up screenshots), setting a scope up and drawing in it, or checking at the end (list_markups, get_bom, save). Each entry is {tool, arguments} exactly as the tool takes them, without `session`. A string argument \"$N.path\" is replaced by that value from the answer of call N (zero-based), e.g. \"$0.scopeId\" for the scope call 0 made. A call that fails stops the batch (pass continueOnError:true to carry on); the answer says which ran. Screenshots come back as images after the text, in call order.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calls": {
+            "type": "array",
+            "description": "The calls, in order: [{tool:\"redbeam_get_words\", arguments:{page:3}}, ...].",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": { "type": "string", "description": "A REDBEAM tool name, e.g. redbeam_create_markup." },
+                "arguments": { "type": "object", "description": "That tool's inputs, without `session`." }
+              },
+              "required": ["tool"]
+            }
+          },
+          "continueOnError": { "type": "boolean", "description": "Carry on after a call fails. Default false: the batch stops there." }
+        },
+        "required": ["calls"]
+      }
+    }
+  },
   "methodOf": {
     "redbeam_get_state": "get_state",
     "redbeam_open_file": "open_file",
@@ -2163,7 +2192,7 @@
     },
     {
       "name": "redbeam_get_words",
-      "description": "Every word on a sheet with its box, optionally inside a rect. A sheet with more words than `limit` returns `nextOffset`; pass it as `offset` for the rest.",
+      "description": "Every word on a sheet with its box, optionally inside a rect, as rows [text, x0, y0, x1, y1] (normalized, y down). A sheet with more words than `limit` returns `nextOffset`; pass it as `offset` for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {

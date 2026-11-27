@@ -39,6 +39,8 @@ struct Spec {
     instructions: Value,
     /// The session tool, the `session` input's words, and what a call without one is told.
     sessions: Value,
+    /// What keeps the listed tools small, and the batch tool (tools.json `lean`).
+    lean: Value,
 }
 
 fn spec() -> Spec {
@@ -49,6 +51,7 @@ fn spec() -> Spec {
         action_of: v["actionOf"].clone(),
         instructions: v["instructions"].clone(),
         sessions: v["sessions"].clone(),
+        lean: v["lean"].clone(),
     }
 }
 
@@ -362,32 +365,79 @@ fn identity(code: &str, task: &str) -> Value {
     json!({ "id": id, "client": client, "label": task })
 }
 
-/// The tool list: the session tool first, then every tool with the required `session` input.
-fn tools_with_agent(spec: &Spec) -> Value {
-    let mut tools = spec.tools.clone();
-    if let Some(list) = tools.as_array_mut() {
-        for tool in list.iter_mut() {
-            let schema = &mut tool["inputSchema"];
-            if !schema.is_object() {
-                *schema = json!({ "type": "object", "properties": {} });
+const BATCH_TOOL: &str = "redbeam_batch";
+
+/// `For a, b and c: rest` -> `Rest`. Those words name the actions of the
+/// catch-all tool; on a tool of its own they say nothing.
+fn without_action_list(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("For ")?;
+    let (list, tail) = rest.split_once(": ")?;
+    let names_only = list
+        .split(|c: char| c == ',' || c == ' ')
+        .filter(|w| !w.is_empty() && *w != "and")
+        .all(|w| w.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
+    if !names_only || list.is_empty() {
+        return None;
+    }
+    let mut chars = tail.chars();
+    let first = chars.next()?;
+    Some(first.to_uppercase().collect::<String>() + chars.as_str())
+}
+
+fn lean_schema(node: &mut Value) {
+    match node {
+        Value::Array(list) => list.iter_mut().for_each(lean_schema),
+        Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                lean_schema(v);
             }
-            if !schema["properties"].is_object() {
-                schema["properties"] = json!({});
-            }
-            if schema["properties"].get(SESSION_ARG).is_none() {
-                schema["properties"][SESSION_ARG] = json!({
-                    "type": "string",
-                    "description": spec.sessions["input"],
-                });
-                match schema["required"].as_array_mut() {
-                    Some(list) => list.push(json!(SESSION_ARG)),
-                    None => schema["required"] = json!([SESSION_ARG]),
-                }
+            if let Some(shorter) = map.get("description").and_then(Value::as_str).and_then(without_action_list) {
+                map.insert("description".into(), json!(shorter));
             }
         }
-        list.insert(0, spec.sessions["tool"].clone());
+        _ => {}
     }
-    tools
+}
+
+/// The tool list as an AI app is given it: the session tool, the batch tool,
+/// then every tool with the required `session` input.
+///
+/// Every chat pays for all of this text before its first call, so what is
+/// listed is kept lean without touching what a tool does (apps/mcp/index.mjs
+/// `toolsWithAgent` does the same): the catch-all redbeam_invoke_ui_action is
+/// not listed (every action has a tool of its own; a call to it still works),
+/// and `file` and `session`, which are on every tool, carry one short line.
+fn tools_with_agent(spec: &Spec) -> Value {
+    let hidden: Vec<&str> = spec.lean["hidden"].as_array().map(|l| l.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let mut list: Vec<Value> = vec![spec.lean["batch"].clone()];
+    list.extend(
+        spec.tools
+            .as_array()
+            .map(|l| l.iter().filter(|t| !hidden.contains(&t["name"].as_str().unwrap_or(""))).cloned().collect::<Vec<_>>())
+            .unwrap_or_default(),
+    );
+    for tool in list.iter_mut() {
+        let schema = &mut tool["inputSchema"];
+        if !schema.is_object() {
+            *schema = json!({ "type": "object", "properties": {} });
+        }
+        if !schema["properties"].is_object() {
+            schema["properties"] = json!({});
+        }
+        lean_schema(schema);
+        if schema["properties"].get("file").is_some() {
+            schema["properties"]["file"] = json!({ "type": "string", "description": spec.lean["file"] });
+        }
+        if schema["properties"].get(SESSION_ARG).is_none() {
+            schema["properties"][SESSION_ARG] = json!({ "type": "string", "description": spec.lean["session"] });
+            match schema["required"].as_array_mut() {
+                Some(list) => list.push(json!(SESSION_ARG)),
+                None => schema["required"] = json!([SESSION_ARG]),
+            }
+        }
+    }
+    list.insert(0, spec.sessions["tool"].clone());
+    Value::Array(list)
 }
 
 /// Tell REDBEAM this server's agents are gone, if it is running. Never
@@ -504,42 +554,157 @@ fn bridge_call(method: &str, params: &Value, agent: &Value, alive: &dyn Fn()) ->
     }
 }
 
+/// The text of an answer: JSON with no indentation. Indented, the same
+/// answers were two thirds bigger for nothing a model reads.
+fn as_text(v: &Value) -> String {
+    serde_json::to_string(v).unwrap_or_default()
+}
+
+/// `"$N.path"`: the value at `path` in the answer of call N of this batch; anything else is itself.
+fn resolve_refs(value: &Value, answers: &[Value]) -> Result<Value, String> {
+    match value {
+        Value::String(text) => {
+            let Some((n, path)) = text.strip_prefix('$').and_then(|r| r.split_once('.')) else { return Ok(value.clone()) };
+            let plain = !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
+                && !path.is_empty() && path.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+            if !plain {
+                return Ok(value.clone());
+            }
+            let missing = || format!("{text}: call {n} has no such value");
+            let mut at = n.parse::<usize>().ok().and_then(|i| answers.get(i)).ok_or_else(missing)?;
+            for key in path.split('.') {
+                at = match at {
+                    Value::Object(map) => map.get(key),
+                    Value::Array(list) => key.parse::<usize>().ok().and_then(|i| list.get(i)),
+                    _ => None,
+                }
+                .ok_or_else(missing)?;
+            }
+            Ok(at.clone())
+        }
+        Value::Array(list) => list.iter().map(|v| resolve_refs(v, answers)).collect::<Result<Vec<_>, _>>().map(Value::Array),
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, v) in map {
+                out.insert(k.clone(), resolve_refs(v, answers)?);
+            }
+            Ok(Value::Object(out))
+        }
+        other => Ok(other.clone()),
+    }
+}
+
+/// One bridge call for a session: the answer as REDBEAM gave it.
+fn call_bridge(spec: &Spec, name: &str, mut params: Value, agent: &Value, alive: &dyn Fn()) -> Result<Value, String> {
+    let method = spec.method_of.get(name).and_then(Value::as_str)
+        .ok_or_else(|| format!("Unknown REDBEAM tool: {name}"))?;
+    if !params.is_object() {
+        params = json!({});
+    }
+    if let Some(o) = params.as_object_mut() {
+        o.remove(SESSION_ARG);
+    }
+    if let Some(action) = spec.action_of.get(name).and_then(Value::as_str) {
+        params["action"] = json!(action);
+    }
+    bridge_call(method, &params, agent, alive)
+}
+
+/// The PNG of a screenshot answer, without its data-URL prefix.
+fn image_of(name: &str, result: &Value) -> Option<String> {
+    if name != "redbeam_screenshot" {
+        return None;
+    }
+    let url = result.get("dataUrl").and_then(Value::as_str)?;
+    Some(url.split_once(',').map(|(_, d)| d).unwrap_or(url).to_string())
+}
+
+/// Several calls in one round trip (tools.json `lean.batch`). Mirrors apps/mcp/index.mjs callBatch.
+fn call_batch(spec: &Spec, args: &Value, agent: &Value, alive: &dyn Fn()) -> Result<Value, String> {
+    let calls = args.get("calls").and_then(Value::as_array).cloned().unwrap_or_default();
+    if calls.is_empty() {
+        return Err("Give `calls`: [{tool, arguments}, ...].".into());
+    }
+    let carry_on = args.get("continueOnError").and_then(Value::as_bool) == Some(true);
+    let mut answers: Vec<Value> = Vec::new();
+    let mut results: Vec<Value> = Vec::new();
+    let mut images: Vec<Value> = Vec::new();
+    let mut failed = 0usize;
+    for (i, call) in calls.iter().enumerate() {
+        let tool = call.get("tool").and_then(Value::as_str).unwrap_or("");
+        let ran = (|| {
+            if tool == SESSION_TOOL || tool == BATCH_TOOL {
+                return Err(format!("{tool} cannot run inside a batch"));
+            }
+            let inputs = resolve_refs(call.get("arguments").unwrap_or(&json!({})), &answers)?;
+            call_bridge(spec, tool, inputs, agent, alive)
+        })();
+        match ran {
+            Ok(result) => {
+                if let Some(data) = image_of(tool, &result) {
+                    images.push(json!({ "type": "image", "data": data, "mimeType": "image/png" }));
+                    results.push(json!({ "call": i, "tool": tool, "ok": true, "result": { "image": images.len() } }));
+                } else {
+                    results.push(json!({ "call": i, "tool": tool, "ok": true, "result": result }));
+                }
+                answers.push(result);
+            }
+            Err(e) => {
+                failed += 1;
+                answers.push(Value::Null);
+                results.push(json!({ "call": i, "tool": tool, "ok": false, "error": e }));
+                if !carry_on {
+                    break;
+                }
+            }
+        }
+    }
+    let ran = results.len();
+    let mut summary = json!({ "ran": ran, "of": calls.len(), "failed": failed });
+    if ran < calls.len() {
+        summary["stoppedAt"] = json!(ran - 1);
+        summary["note"] = json!("A call failed, so the calls after it were not run. Fix it and send the rest.");
+    }
+    summary["results"] = Value::Array(results);
+    let mut content = vec![json!({ "type": "text", "text": as_text(&summary) })];
+    content.extend(images);
+    let mut out = json!({ "content": content, "structuredContent": summary });
+    if failed > 0 && ran == failed {
+        out["isError"] = json!(true);
+    }
+    Ok(out)
+}
+
 /// One tools/call, as MCP content. Mirrors apps/mcp/index.mjs callTool.
 fn call_tool(spec: &Spec, name: &str, args: &Value, alive: &dyn Fn()) -> Result<Value, String> {
     if name == SESSION_TOOL {
         let session = start_session(args.get("task").and_then(Value::as_str).unwrap_or(""))?;
-        let text = serde_json::to_string_pretty(&json!({ "session": session,
+        let text = as_text(&json!({ "session": session,
             "use": "Pass this exact value as `session` on every other REDBEAM call in this chat.",
-            "takeoffSkill": SKILL_URI }))
-            .unwrap_or_default();
+            "takeoffSkill": SKILL_URI }));
         return Ok(json!({
             "content": [{ "type": "text", "text": text }, { "type": "text", "text": skill_handout() }],
             "structuredContent": { "session": session, "takeoffSkill": SKILL_URI },
         }));
     }
-    let method = spec.method_of.get(name).and_then(Value::as_str)
-        .ok_or_else(|| format!("Unknown REDBEAM tool: {name}"))?;
-    let mut params = if args.is_object() { args.clone() } else { json!({}) };
-    // Who is calling is not an input of the tool: it rides beside them.
-    let named = params
-        .as_object_mut()
-        .and_then(|o| o.remove(SESSION_ARG))
-        .and_then(|v| v.as_str().map(str::to_owned));
-    let (code, task) = session_of(named.as_deref())
-        .ok_or_else(|| spec.sessions["refused"].as_str().unwrap_or("Call redbeam_start_session first.").to_string())?;
-    if let Some(action) = spec.action_of.get(name).and_then(Value::as_str) {
-        params["action"] = json!(action);
+    if name != BATCH_TOOL && spec.method_of.get(name).is_none() {
+        return Err(format!("Unknown REDBEAM tool: {name}"));
     }
-    let result = bridge_call(method, &params, &identity(&code, &task), alive)?;
+    // Who is calling is not an input of the tool: it rides beside them.
+    let named = args.get(SESSION_ARG).and_then(Value::as_str);
+    let (code, task) = session_of(named)
+        .ok_or_else(|| spec.sessions["refused"].as_str().unwrap_or("Call redbeam_start_session first.").to_string())?;
+    let agent = identity(&code, &task);
+    if name == BATCH_TOOL {
+        return call_batch(spec, args, &agent, alive);
+    }
+    let result = call_bridge(spec, name, args.clone(), &agent, alive)?;
 
     // A screenshot goes back as an image, not a 2 MB data URL in text.
-    if name == "redbeam_screenshot" {
-        if let Some(url) = result.get("dataUrl").and_then(Value::as_str) {
-            let data = url.split_once(',').map(|(_, d)| d).unwrap_or(url);
-            return Ok(json!({ "content": [{ "type": "image", "data": data, "mimeType": "image/png" }] }));
-        }
+    if let Some(data) = image_of(name, &result) {
+        return Ok(json!({ "content": [{ "type": "image", "data": data, "mimeType": "image/png" }] }));
     }
-    let text = serde_json::to_string_pretty(&result).unwrap_or_default();
+    let text = as_text(&result);
     let structured = if result.is_object() { result } else { json!({ "value": result }) };
     Ok(json!({ "content": [{ "type": "text", "text": text }], "structuredContent": structured }))
 }
@@ -568,7 +733,7 @@ fn handle_with(spec: &Spec, req: &Value, notify: &dyn Fn(Value)) -> Option<Value
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2024-11-05")),
             "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
             "serverInfo": { "name": "redbeam", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": spec.instructions,
+            "instructions": format!("{}{}", spec.instructions.as_str().unwrap_or(""), spec.lean["instructions"].as_str().unwrap_or("")),
             }))
         }
         "ping" => ok(json!({})),
@@ -774,6 +939,57 @@ mod tests {
         let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/call",
             "params": { "name": "redbeam_start_session", "arguments": { "task": "Level 2 ceilings" } } })).unwrap();
         assert!(r["result"]["structuredContent"]["session"].as_str().unwrap().starts_with("Level 2 ceilings #"));
+    }
+
+    #[test]
+    fn the_listed_tools_are_lean() {
+        // Every chat pays for the whole list before its first call. 0.3.113 listed 160 KB.
+        let s = spec();
+        let listed = tools_with_agent(&s);
+        let listed = listed.as_array().unwrap();
+        assert_eq!(listed[0]["name"], SESSION_TOOL);
+        assert_eq!(listed[1]["name"], BATCH_TOOL);
+        assert!(listed.iter().all(|t| t["name"] != "redbeam_invoke_ui_action"));
+        for t in &listed[1..] {
+            let p = &t["inputSchema"]["properties"];
+            assert!(p["session"]["description"].as_str().unwrap().len() < 90, "{}", t["name"]);
+            if let Some(f) = p.get("file") {
+                assert!(f["description"].as_str().unwrap().len() < 130, "{}", t["name"]);
+            }
+        }
+        let bytes = serde_json::to_string(&listed).unwrap().len();
+        assert!(bytes < 125_000, "tools/list is {bytes} bytes");
+        assert_eq!(without_action_list("For set_page_scale and find_text: explicit pages.").as_deref(), Some("Explicit pages."));
+        assert_eq!(without_action_list("For a, b and c: x").as_deref(), Some("X"));
+        assert_eq!(without_action_list("For export: an absolute path").as_deref(), Some("An absolute path"));
+        assert!(without_action_list("For a small field give sizeFeet: roughly").is_none());
+        assert!(without_action_list("The sheet.").is_none());
+        // The catch-all is not listed, but a chat that still calls it is served.
+        assert!(s.method_of.get("redbeam_invoke_ui_action").is_some());
+    }
+
+    #[test]
+    fn a_batch_fills_in_values_from_earlier_answers() {
+        let answers = vec![json!({ "scopeId": "sc_1", "scope": { "label": "CL-1" } }), json!({ "pages": [3, 4] })];
+        let got = resolve_refs(&json!({ "scopeId": "$0.scopeId", "label": "$0.scope.label", "page": "$1.pages.1",
+            "note": "$5 each", "rings": [[{ "x": 0.1 }]] }), &answers).unwrap();
+        assert_eq!(got, json!({ "scopeId": "sc_1", "label": "CL-1", "page": 4, "note": "$5 each", "rings": [[{ "x": 0.1 }]] }));
+        assert!(resolve_refs(&json!({ "a": "$0.nope" }), &answers).is_err());
+        assert!(resolve_refs(&json!({ "a": "$7.scopeId" }), &answers).is_err());
+    }
+
+    #[test]
+    fn a_batch_needs_a_session_and_refuses_to_nest() {
+        let s = spec();
+        assert!(call_tool(&s, BATCH_TOOL, &json!({ "calls": [{ "tool": "redbeam_get_ui_state" }] }), &|| {}).is_err());
+        let session = start_session("Batch check").unwrap();
+        assert!(call_tool(&s, BATCH_TOOL, &json!({ "session": session, "calls": [] }), &|| {}).is_err());
+        let out = call_tool(&s, BATCH_TOOL, &json!({ "session": session,
+            "calls": [{ "tool": "redbeam_batch", "arguments": { "calls": [] } }, { "tool": "redbeam_get_ui_state" }] }), &|| {}).unwrap();
+        assert_eq!(out["structuredContent"]["ran"], 1);
+        assert_eq!(out["structuredContent"]["of"], 2);
+        assert_eq!(out["isError"], true);
+        assert!(out["content"][0]["text"].as_str().unwrap().contains("cannot run inside a batch"));
     }
 
     #[test]

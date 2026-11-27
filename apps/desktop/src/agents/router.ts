@@ -24,6 +24,7 @@
 import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
 import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
 import { signal } from '../signals/install.js'
+import { pause } from './wait.js'
 import { type Agent, type AgentIdentity, callPage, callPoint, callWrites, describeCall, type EndedBy, identityOf, type RosterStore } from './roster.js'
 
 export interface RouterDeps {
@@ -126,7 +127,8 @@ export class BridgeRouter {
 
   constructor(private readonly deps: RouterDeps) {
     this.now = deps.now ?? (() => Date.now())
-    this.sleep = deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
+    // A clock a covered window does not slow (agents/wait.ts).
+    this.sleep = deps.sleep ?? pause
   }
 
   /** Answer one request, or null when it is for another window. */
@@ -306,7 +308,7 @@ export class BridgeRouter {
       const host = this.deps.host(file)
       if (host !== undefined) return host
       if (this.now() >= until) return undefined
-      await this.sleep(60)
+      await this.sleep(15)
     }
   }
 
@@ -375,7 +377,7 @@ export class BridgeRouter {
         return { error: `${nameOf(tab.file)} could not be opened` }
       }
       if (this.now() >= until) break
-      await this.sleep(150)
+      await this.sleep(25)
     }
     if (agent !== null) this.deps.roster.end(agent.id, { failed: false, file: tab.file })
     return {
