@@ -89,6 +89,9 @@ function amounts(specs: Record<string, string>, markups: unknown[], dir = ALONG_
 const PLANK = {
   productType: 'planks', plankWidth: '6', plankWidthUnit: 'in',
   stockLength: '12', stockLengthUnit: 'ft', yieldGranularity: 'full',
+  // The arithmetic below is for runs laid from their own wall (seams free);
+  // seams line up by default since #142.
+  alignSeams: 'false',
 }
 
 describe('planks, against arithmetic', () => {

@@ -45,8 +45,23 @@ describe('measuresAsText', () => {
 describe('mixed members', () => {
   it('are offered on baffles only, and known keys', async () => {
     const { describeProduct, unknownSpecKeys } = await import('./products.js')
-    expect(describeProduct('baffle').options?.map((o) => o.key)).toEqual(['mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel'])
+    expect(describeProduct('baffle').options?.map((o) => o.key)).toEqual(['mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'spacingSource', 'spacingSourceRef'])
     expect(describeProduct('panels').options).toBeUndefined()
     expect(unknownSpecKeys('baffle', { mixedEvery: '3', mixedLabel: 'Beam' })).toEqual([])
+  })
+
+  it('offers a cassette its length, gap, removable share and trim, and no other product (#175)', async () => {
+    const { describeProduct, unknownSpecKeys } = await import('./products.js')
+    expect(describeProduct('baffle_cassette').options?.map((o) => o.key)).toEqual(expect.arrayContaining(['cassetteLength', 'cassetteGap', 'removableShare', 'perimeterTrimLength', 'spacingSource']))
+    expect(unknownSpecKeys('baffle_cassette', { cassetteLength: '48', cassetteLengthUnit: 'in', removableShare: '10', spacingSource: 'section' })).toEqual([])
+    expect(unknownSpecKeys('baffle', { cassetteGap: '1' })).toEqual(['cassetteGap'])
+  })
+
+  it('flags spacing with only the RCP, or nothing, behind it (#179)', async () => {
+    const { spacingSourceFlag } = await import('./products.js')
+    expect(spacingSourceFlag({ productType: 'baffle', spacingSource: 'section' })).toBeNull()
+    expect(spacingSourceFlag({ productType: 'baffle', spacingSource: 'RCP' })).toContain('RCP only')
+    expect(spacingSourceFlag({ productType: 'baffle_cassette' })).toContain('not recorded')
+    expect(spacingSourceFlag({ productType: 'panels' })).toBeNull()
   })
 })

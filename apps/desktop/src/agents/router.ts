@@ -98,6 +98,13 @@ export function readsOnly(action: string, params: Record<string, unknown>): bool
   // Some reads turn the window to the sheet they name first; those wait their turn.
   return params['page'] === undefined || READS_ANY_SHEET.has(what)
 }
+/** Reads whose answer is a quantity, so reading the wrong PDF's is a wrong number. */
+const QUANTITY_READS = new Set(['get_bom', 'get_piece_list', 'export'])
+/** A write, or a quantity read: calls that must name their PDF when the session has two open (#135). */
+export function needsFile(action: string, params: Record<string, unknown>): boolean {
+  if (callWrites(action, params)) return true
+  return action === 'invoke_ui_action' && typeof params['action'] === 'string' && QUANTITY_READS.has(params['action'])
+}
 /** Reads that answer for any sheet without showing it. */
 const READS_ANY_SHEET = new Set(['find_text', 'get_words', 'list_sheets', 'list_markups', 'get_bom', 'get_piece_list', 'get_history'])
 
@@ -228,6 +235,24 @@ export class BridgeRouter {
     // blind test, 2026-11-27: list_annotations on the original, then get_bom
     // with no file read the original's empty BOM). Only a write, or a call
     // with no PDF of the session's own yet, moves where unnamed calls go.
+    /*
+     * With two or more of its PDFs open, a session's writes and BOM reads
+     * must say which (Coinbase blind test, 2026-11-27, #135: an empty BOM was
+     * read from the wrong file with no warning). A wrong guess here costs a
+     * quantity; a refusal costs one argument.
+     */
+    if (agent !== null && named === '' && needsFile(action, params)) {
+      const key = (f: string): string => f.replace(/\\/g, '/').toLowerCase()
+      const seen = this.filesSeen.get(agent.id) ?? new Set<string>()
+      // Its own tabs, and every PDF it has called into.
+      const open = [...new Set(this.deps.tabs().filter((t) => t.owner === agent.id || seen.has(key(t.file))).map((t) => t.file))]
+      if (open.length > 1) {
+        return {
+          error: `you have ${open.length} PDFs open (${open.map(nameOf).join(', ')}); pass \`file\` to say which this ${typeof params['action'] === 'string' ? params['action'] : action} is for`,
+          files: open.map(nameOf),
+        }
+      }
+    }
     const look = named !== '' && readsOnly(action, params) && agent !== null && agent.current !== null
       && tabFor(this.deps.tabs(), agent.current) !== undefined
     if (agent !== null && !glance && !look) this.deps.roster.setCurrent(agent.id, tab.file)

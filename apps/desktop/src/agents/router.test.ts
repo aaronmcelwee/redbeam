@@ -152,6 +152,20 @@ describe('where a call lands', () => {
     await act(A, 'list_markups')
     expect(w.log.at(-1)!.file).toBe(MINE)
   })
+  it('asks for `file` on writes and BOM reads once a session has two PDFs open (#135)', async () => {
+    const { w, call, act } = world()
+    await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
+    await act(A, 'list_scopes', { file: 'mine.pdf' })
+    const before = w.log.length
+    const bom = await act(A, 'get_bom')
+    expect(String(bom?.['error'])).toContain('pass `file`')
+    expect(bom?.['files']).toEqual(expect.arrayContaining(['Tower A.pdf', 'Mine.pdf']))
+    expect(String((await act(A, 'create_markup', {}))?.['error'])).toContain('pass `file`')
+    expect(w.log.length).toBe(before)
+    // Reads that are not quantities still go, with a note; naming the file works.
+    expect(await act(A, 'list_markups')).not.toHaveProperty('error')
+    expect(await act(A, 'get_bom', { file: 'Tower A.pdf' })).not.toHaveProperty('error')
+  })
   it('sends an agent with no PDF of its own to the one the person is looking at, to read and draw', async () => {
     const { w, act } = world()
     expect(await act(A, 'create_markup', {})).toMatchObject({ ok: true })
