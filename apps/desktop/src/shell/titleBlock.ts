@@ -54,17 +54,38 @@ function ordered(b: NormBox): NormBox {
  * reading order on a title block (the Newark set writes the title's lines
  * after the stamp beside them), so the lines are rebuilt from the boxes.
  */
-export function textInBox(page: { text: string; runs: readonly TextRun[] }, box: NormBox): string {
+export function textInBox(page: { text: string; runs: readonly TextRun[] }, box: NormBox, opts: { wrapped?: boolean } = {}): string {
   const b = ordered(box)
   const words: Array<{ t: string; cx: number; cy: number; h: number }> = []
+  const outside: typeof words = []
   for (const r of page.runs) {
     const t = page.text.slice(r.start, r.start + r.length).trim()
     if (t === '') continue
     const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2
-    if (cx < b.x0 || cx > b.x1 || cy < b.y0 || cy > b.y1) continue
-    words.push({ t, cx, cy, h: Math.abs(r.y1 - r.y0) })
+    const w = { t, cx, cy, h: Math.abs(r.y1 - r.y0) }
+    if (cx < b.x0 || cx > b.x1 || cy < b.y0 || cy > b.y1) outside.push(w)
+    else words.push(w)
   }
   if (words.length === 0) return ''
+  /*
+   * A title that wraps: the next line, in the same lettering, just above or
+   * below the box, belongs to it (Coinbase blind test, 2026-11-27: a box
+   * drawn round "REFLECTED CEILING" left "PLAN - FLOOR 7" outside). Taken
+   * one line at a time while each is within a line and a half of the last.
+   */
+  if (opts.wrapped === true) {
+    const h = words.reduce((n, w) => n + w.h, 0) / words.length
+    const like = outside.filter((w) => w.cx >= b.x0 && w.cx <= b.x1 && w.h >= 0.7 * h && w.h <= 1.4 * h)
+    for (let grew = true; grew;) {
+      grew = false
+      const top = Math.min(...words.map((w) => w.cy)), bottom = Math.max(...words.map((w) => w.cy))
+      for (let i = like.length - 1; i >= 0; i--) {
+        const w = like[i]!
+        const gap = w.cy > bottom ? w.cy - bottom : w.cy < top ? top - w.cy : 0
+        if (gap > 0.4 * h && gap <= 1.5 * h) { words.push(w); like.splice(i, 1); grew = true }
+      }
+    }
+  }
   words.sort((a, c) => a.cy - c.cy)
   const lines: Array<typeof words> = []
   for (const w of words) {
@@ -92,7 +113,7 @@ export function readSheetName(
 ): ReadName | null {
   const number = textInBox(page, regions.number).replace(NUMBER_LABEL, '').trim()
   if (number === '') return null
-  const title = regions.title === null ? '' : textInBox(page, regions.title).replace(TITLE_LABEL, '').trim()
+  const title = regions.title === null ? '' : textInBox(page, regions.title, { wrapped: true }).replace(TITLE_LABEL, '').trim()
   return { number, title }
 }
 

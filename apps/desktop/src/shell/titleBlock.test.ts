@@ -124,3 +124,24 @@ describe('bookmarksHaveLabels', () => {
     expect(bookmarksHaveLabels([], [null])).toBe(true)
   })
 })
+
+describe('a title that wraps past its box (Coinbase blind test, 2026-11-27)', () => {
+  // Sheet A-307.00, 3024 x 2160 pt, normalized.
+  const n = (t: string, x0: number, y0: number, x1: number, y1: number): [string, number, number, number, number] => [t, x0 / 3024, y0 / 2160, x1 / 3024, y1 / 2160]
+  const coinbase = page([
+    n('A-307.00', 2779.2, 2006.6, 2988.8, 2094.3),
+    n('REFLECTED', 2770.7, 1899.3, 2893.7, 1934.7),
+    n('CEILING', 2899.4, 1899.3, 2982.5, 1934.7),
+    n('PLAN', 2819.8, 1928.0, 2875.6, 1963.4),
+    n('-', 2881.3, 1928.0, 2888.1, 1963.4),
+    n('FLOOR', 2893.8, 1928.0, 2965.6, 1963.4),
+    n('7', 2971.3, 1928.0, 2982.7, 1963.4),
+  ])
+  it('reads the second line too, and not the number under it', () => {
+    const r = readSheetName(coinbase, {
+      number: { x0: 0.915, y0: 0.925, x1: 0.99, y1: 0.975 },
+      title: { x0: 0.912, y0: 0.875, x1: 0.99, y1: 0.896 },
+    })
+    expect(r).toEqual({ number: 'A-307.00', title: 'REFLECTED CEILING PLAN - FLOOR 7' })
+  })
+})

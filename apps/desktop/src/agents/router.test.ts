@@ -142,7 +142,13 @@ describe('where a call lands', () => {
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
     await act(A, 'list_scopes', { file: 'mine.pdf' })
     expect(w.log.at(-1)).toMatchObject({ file: MINE, drives: false })
-    // And stays there for the calls after it that name none.
+    // A read that names another PDF is a look: the calls after it that name
+    // none still go to the agent's own PDF, and say so (Coinbase blind test).
+    const out = await act(A, 'list_markups')
+    expect(w.log.at(-1)!.file).toBe('C:\\Jobs\\Tower A.pdf')
+    expect(String(out?.['fileNote'])).toContain('Tower A.pdf')
+    // A write that names it moves there, and the unnamed calls follow.
+    await act(A, 'create_markup', { file: 'mine.pdf' })
     await act(A, 'list_markups')
     expect(w.log.at(-1)!.file).toBe(MINE)
   })

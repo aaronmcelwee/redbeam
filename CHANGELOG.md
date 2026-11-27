@@ -5,6 +5,14 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.120 — 2026-11-27
+
+### Sharper agent takeoffs (Coinbase blind test fixes)
+
+- **Every cutout counts.** When Claude or ChatGPT cuts several openings out of an area in one go, all of them are now cut, not just the last. A cutout that crosses the edge of an area trims the edge instead of leaving a hole that pokes outside it, and an agent's cut can be undone like any other step.
+- **Traced fields match the drawing.** Tracing a ceiling field gives the same area however the agent frames it. Stair-stepped edges now follow the drawn wall, curve or slanted line, and an agent can choose to end the field at the hatch rather than the wall line.
+- **Counts that agree.** End caps are counted one per run end, so 475 runs give 950. The piece list's stock figures now say plainly how much stock to order and why, and the pieces CSV has columns for start caps, end caps, connectors and joiners.
+- **Better reading of sheets.** Two-line sheet titles are read in full, a scale check reads the sheet you asked about, and agents can read the shape and measured value of existing markups. An agent working across several open PDFs is told which file each call went to.
 ## 0.3.119 — 2026-11-27
 
 ### AI agents can do what you can

@@ -1229,7 +1229,7 @@
     },
     {
       "name": "redbeam_trace_field",
-      "description": "A hatched or patterned field (a wood slat, baffle or cassette ceiling, a tiled or textured finish) traced from the pattern itself, for a field with no line drawn around it, where trace_area says it landed on drawing content and get_lines returns thousands of strokes. Give a point inside the field. REDBEAM finds the pattern's stroke direction there, joins the strokes into a solid field (bridging the breaks a dashed hatch has at every grid line, column and panel joint, and ignoring grid lines, dimensions, text and walls at other angles), and returns its outline where the strokes stop, as normalized rings ready for create_markup, with its area. Columns, light troughs and shafts the pattern stops around come back as cutouts (holes in the rings, listed under `cutouts`); specks smaller than minCutoutSqFt are filled. It then checks the outline against the sheet as rendered: strokes painted over in white are cut out and flagged, and `onTheSheet` says how dark the field is, how much of the band just past its edge looks the same (`edgeContinues`, 0 is a clean edge) and how much of it the sheet shows blank. Every outline is also checked for crossing itself and for points in the title block; `warnings` says so. all:true also returns every other field of the same pattern on the sheet (rooms of the same ceiling separated by walls). Look at each field's `lookAt` box with redbeam_screenshot (region, overlay on) before you trust an edge. When several stroke directions meet at the point, the one that is solid AT the point wins and the rest come back as `pattern.alternatives`; if the outline followed the wrong linework, call again with `angle` from that list or with `strokeSpacingFeet`. Reads the whole sheet unless `rect` narrows it. create:true places each field as an area of scopeId (or your scope), one undo step. Needs a window.",
+      "description": "A hatched or patterned field (a wood slat, baffle or cassette ceiling, a tiled or textured finish) traced from the pattern itself, for a field with no line drawn around it, where trace_area says it landed on drawing content and get_lines returns thousands of strokes. Give a point inside the field. REDBEAM finds the pattern's stroke direction there, joins the strokes into a solid field (bridging dashed breaks, ignoring linework at other angles), and returns its outline where the strokes stop, as normalized rings with its area. Columns, light troughs and shafts the pattern stops around come back as cutouts (holes in the rings, listed under `cutouts`); specks smaller than minCutoutSqFt are filled. It checks the outline against the rendered sheet: white-painted strokes are cut out, and `onTheSheet` gives darkness, `edgeContinues` (0 is a clean edge) and blank share. Every outline is also checked for crossing itself and for points in the title block; `warnings` says so. all:true also returns every other field of the same pattern on the sheet. Look at each field's `lookAt` box with redbeam_screenshot (region, overlay on) before you trust an edge. When several stroke directions meet at the point, the one that is solid AT the point wins and the rest come back as `pattern.alternatives`; if the outline followed the wrong linework, call again with `angle` from that list or with `strokeSpacingFeet`. Reads the whole sheet unless `rect` narrows it (same field either way). create:true places each field as an area of scopeId (or your scope), one undo step. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1288,6 +1288,18 @@
           "strokeSpacingFeet": {
             "type": "number",
             "description": "For trace_field: how far apart the hatch's strokes are, in feet, when you know it (from get_lines or detect_pattern). The stroke direction at the point whose spacing is nearest wins."
+          },
+          "edge": {
+            "type": "string",
+            "enum": [
+              "wall",
+              "hatch"
+            ],
+            "description": "\"wall\" (default) or \"hatch\": stop at the hatch's last member, leaving out a soffit band."
+          },
+          "fitEdges": {
+            "type": "boolean",
+            "description": "Fit stair steps to the drawn edge line. Default true."
           }
         },
         "required": [
@@ -1504,7 +1516,7 @@
     },
     {
       "name": "redbeam_create_markups",
-      "description": "Add several markups in one call and one undo step: each {kind, rings, scopeId?, page?} as create_markup takes them, including holes, arcs (bulge) and circles. A cutout cuts the areas under it, including ones made earlier in the same call. Needs a window.",
+      "description": "Add several markups in one call and one undo step: each {kind, rings, scopeId?, page?} as create_markup takes them, including holes, arcs (bulge) and circles. A cutout cuts the areas under it, including ones made earlier in the same call, and every cutout lands: inside an area it is a hole, across its outline it notches it. `areasCut` gives square feet before and after. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1525,7 +1537,7 @@
     },
     {
       "name": "redbeam_get_piece_list",
-      "description": "A run product's piece list: every run with its length and pieces, each piece's cut length and whether it is cut to fit at an edge or curve, the cutting list (identical cuts counted), stock lengths used by size, offcut, rails, and parts (connectors, end caps, joiners, trim). export what:\"pieces-csv\" writes it as a sheet. Needs a window. `longerThanStock` lists the runs longer than the stock length, the joints they need, and `fitsWithoutJoints`: the shortest stock, in whole feet, that would run every one of them in one piece.",
+      "description": "A run product's piece list: every run with its length and pieces, each piece's cut length and whether it is cut to fit at an edge or curve, the cutting list (identical cuts counted), stock lengths used by size, offcut, rails, and parts (connectors, end caps, joiners, trim). export what:\"pieces-csv\" writes it as a sheet. Needs a window. `longerThanStock` lists the runs longer than the stock length, the joints they need, and `fitsWithoutJoints`: the shortest stock, in whole feet, that would run every one of them in one piece. `stock.stockToOrder` matches the BOM; `stock.howCounted` explains it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2494,6 +2506,10 @@
           "file": {
             "type": "string",
             "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "withGeometry": {
+            "type": "boolean",
+            "description": "Add each markup's kind, rings, holes and measured value."
           }
         }
       },
@@ -3430,7 +3446,7 @@
           },
           "withGeometry": {
             "type": "boolean",
-            "description": "For list_markups: include each markup's rings. Default false."
+            "description": "For list_markups: include each markup's rings. For list_annotations: also holes and measure."
           },
           "includeArchived": {
             "type": "boolean",
@@ -3715,6 +3731,18 @@
           "fontPt": {
             "type": "number",
             "description": "For notes: text size in points. Default 12."
+          },
+          "edge": {
+            "type": "string",
+            "enum": [
+              "wall",
+              "hatch"
+            ],
+            "description": "For trace_field: where the field ends across its strokes, \"wall\" (default) or \"hatch\" (at the hatch's last member)."
+          },
+          "fitEdges": {
+            "type": "boolean",
+            "description": "For trace_field: fit stair-stepped edges to the drawn line. Default true."
           }
         },
         "required": [

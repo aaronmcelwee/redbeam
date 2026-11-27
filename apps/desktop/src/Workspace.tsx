@@ -21,7 +21,7 @@ import {
   checkOutline, type OutlineIssue,
   PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, scopeProductLabel, readPatternRecipe, builtInAsRecipe,
   approvePatternRecipe, approvePatternLayer, removePatternLayer,
-  type PatternRecipe,
+  type PatternRecipe, type Polygon, type FieldFrame, areaRegion, regionArea,
 } from '@redbeam/domain'
 import {
   ensureDocumentAndPage, ensureDocumentAndPageStatements, runBatch, getCalibration, listCalibrations, listMarkups, listScopes, listActivity,
@@ -147,7 +147,7 @@ import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sh
 import { adoptForeignAnnots } from './export/adopt.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import {
-  cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts,
+  cutAllEdits, cutEdits, cutOwner, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits, uncutEdits, withCutouts,
   type GeometryEdit,
   CUT_PREFIX,
 } from './cutouts.js'
@@ -8132,14 +8132,15 @@ export default function Workspace({
             } catch (err) { return { error: err instanceof Error ? err.message : String(err) } }
           }
           if (what === 'pieces-csv') {
-            const rowsOut = ['scope,page,area,run,run length,piece,cut,cut ft,cut to fit,stock fraction,family,offcut ft']
+            // Caps, connectors and joiners per piece (Coinbase blind test #9): the columns add up to the BOM's lines.
+            const rowsOut = ['scope,page,area,run,run length,piece,cut,cut ft,cut to fit,stock fraction,family,offcut ft,start cap,end cap,connectors,joiners']
             for (const p of piecesRef.current) {
               if (p.result.blockers.length > 0 || p.result.runs.length === 0) continue
               const list = pieceList(p.result)
               const q = (t: string) => `"${t.replace(/"/g, '""')}"`
               for (const r of list.runs) {
                 const pg = pageNumberFrom(r.pageId, docIdRef.current)
-                r.pieces.forEach((pc, i) => rowsOut.push([q(p.scope.label), pg === null ? '' : q(sheetLabelFor(pg)), r.area + 1, r.run + 1, q(r.length), i + 1, q(pc.cut), pc.cutFeet, pc.cutToFit ? 'yes' : '', pc.stockFraction, pc.family, pc.offcutFeet].join(',')))
+                r.pieces.forEach((pc, i) => rowsOut.push([q(p.scope.label), pg === null ? '' : q(sheetLabelFor(pg)), r.area + 1, r.run + 1, q(r.length), i + 1, q(pc.cut), pc.cutFeet, pc.cutToFit ? 'yes' : '', pc.stockFraction, pc.family, pc.offcutFeet, pc.startCap ? 1 : 0, pc.endCap ? 1 : 0, pc.connectors, pc.joiners].join(',')))
               }
             }
             return toFile('pieces-csv', rowsOut.join('\r\n') + '\r\n')
@@ -8267,12 +8268,18 @@ export default function Workspace({
             // With a scope named, only that scope's areas are cut: an opening
             // drawn for one product is not an opening in the one beside it.
             const named = typeof params['scopeId'] === 'string' ? params['scopeId'] : null
-            const edits = cutEdits(ap.markups, pageId, ring as Array<{ x: number; y: number }>)
+            const edits = cutEdits(ap.markups, pageId, ring as Array<{ x: number; y: number }>, { notch: true })
               .filter((e) => named === null || ap.markups.find((m) => m.id === e.id)?.scopeId === named)
             if (edits.length === 0) return { error: named === null ? 'the cutout crosses no area on this sheet' : 'the cutout crosses no area of that scope on this sheet' }
             await runCommand(editsCommand(edits, 'cut area', 'agent')!)
             // Each hole's id, which delete_markup takes to remove that one hole.
-            return { cut: edits.map((e) => e.id), holes: edits.map((e) => `${CUT_PREFIX}${e.id}:${e.after.length - 1}`), kind, pageId }
+            // A cut across an outline notches it instead and adds no hole.
+            return {
+              cut: edits.map((e) => e.id),
+              holes: edits.filter((e) => e.after.length > e.before.length).map((e) => `${CUT_PREFIX}${e.id}:${e.after.length - 1}`),
+              notched: edits.filter((e) => e.after.length <= e.before.length).map((e) => e.id),
+              kind, pageId,
+            }
           }
           const id = uid()
           // Awaited: an id reported before the write lands is a markup the next call cannot find.
@@ -9090,14 +9097,58 @@ export default function Workspace({
             ])
             if (all === undefined) { stillReading.push(sweepPage); continue }
             covered.push(sweepPage)
+            /*
+             * withGeometry (Coinbase blind test #7): each markup's rings in
+             * the normalized frame every tool takes, Bluebeam's /Cutouts as
+             * holes, and what REDBEAM measures them at on this sheet's scale,
+             * so an agent can compare or copy a takeoff without parsing the PDF.
+             */
+            const geo = params['withGeometry'] === true
+            let found: RawCutouts[] = []
+            if (geo && all.some((a) => a.hasCutouts && !isRedbeamNm(a.name))) {
+              const doc = documentsRef.current.find((d) => d.id === docIdRef.current)
+              try {
+                if (doc !== undefined) {
+                  found = (await withRanged(projectBridge, projectPath, doc.relativePath, (big) => big.cutouts(sweepPage)))?.value
+                    ?? await readPdfCutouts(await projectBridge.readDocument(projectPath, doc.relativePath), sweepPage)
+                }
+              } catch { found = [] }
+            }
+            const gPid = pageIdFor(docIdRef.current, sweepPage)
+            const gFpp = projectCalibrations.get(gPid) ?? (sweepPage === ap.index ? ap.feetPerPoint : null)
+            const gSize = sweepPage === ap.index ? ap.size : (v.getPageSize(sweepPage) ?? pageSizesRef.current[sweepPage] ?? null)
             for (const a of all) {
               if (isRedbeamNm(a.name)) continue
+              let geometry: Record<string, unknown> = {}
+              if (geo) {
+                const kind = kindForAnnotation(a)
+                const outlines = ringsForAnnotation(a)
+                const holes = kind === 'area' ? cutoutsFor(a, found) : []
+                const rings = kind === 'area' && outlines.length > 0 ? areaWithCutouts(outlines[0]!, holes) : outlines
+                const ptsRings = gSize === null ? null : rings.map((r) => r.map((q) => ({ x: q.x * gSize.width, y: q.y * gSize.height })))
+                let measured: Record<string, unknown> | null = null
+                if (ptsRings !== null && gFpp !== null && gFpp > 0) {
+                  if (kind === 'area') measured = { squareFeet: Math.round(regionArea(areaRegion(ptsRings)) * gFpp * gFpp * 100) / 100 }
+                  else if (kind === 'polyline') {
+                    let L = 0
+                    for (const r of ptsRings) for (let k = 1; k < r.length; k++) L += Math.hypot(r[k]!.x - r[k - 1]!.x, r[k]!.y - r[k - 1]!.y)
+                    measured = { feet: Math.round(L * gFpp * 100) / 100 }
+                  }
+                }
+                geometry = {
+                  kind, rings: rings.map((r) => r.map((q) => ({ x: r5(q.x), y: r5(q.y) }))),
+                  ...(kind === 'area' ? { holes: holes.length } : {}),
+                  measured: measured ?? (gFpp === null ? 'this sheet has no scale' : null),
+                }
+              }
               out.push({
                 page: sweepPage, type: a.subtypeName, ...(a.subject !== '' ? { subject: a.subject } : {}),
                 ...(a.contents !== '' ? { text: a.contents } : {}), ...(a.author !== '' ? { author: a.author } : {}),
                 ...(a.name !== '' ? { name: a.name } : {}), ...(a.color !== null ? { color: a.color } : {}),
                 rect: { x0: r5(a.rect.x0), y0: r5(a.rect.y0), x1: r5(a.rect.x1), y1: r5(a.rect.y1) },
                 ...(a.vertices.length > 0 ? { vertices: a.vertices.length } : {}),
+                ...(a.hasCutouts ? { cutouts: true } : {}),
+                ...geometry,
               })
             }
           }
@@ -9649,9 +9700,9 @@ export default function Workspace({
           ]]))
           const fpp = region?.feetPerPoint ?? ap.feetPerPoint
           const pageSize = { width: ap.size.width, height: ap.size.height }
-          // Every segment in the box: a read that fills up is split in four, to the end.
+          // Every segment in a box: a read that fills up is split in four, to the end.
           let readsCut = false
-          const readAll = async (clip: typeof frame, depth: number): Promise<Float32Array[]> => {
+          const readAll = async (clip: FieldFrame, depth: number): Promise<Float32Array[]> => {
             const g = await v.requestGeometry(pageIdx, { clip, priority: PRIORITY_THUMBNAIL, maxSegments: 1_000_000 })
             if (!g.truncated) return [g.segments]
             if (depth >= 6) { readsCut = true; return [g.segments] }
@@ -9662,25 +9713,6 @@ export default function Workspace({
             ].map((q) => readAll(q, depth + 1)))
             return parts.flat()
           }
-          const chunks = await readAll(frame, 0)
-          const segments = new Float32Array(chunks.reduce((n, c) => n + c.length, 0))
-          let at = 0
-          for (const c of chunks) { segments.set(c, at); at += c.length }
-          // The sheet as PDFium draws it, without anyone's markups, about a pixel a grid cell.
-          const fwPts = (frame.x1 - frame.x0) * ap.size.width, fhPts = (frame.y1 - frame.y0) * ap.size.height
-          const cellGuess = Math.max(0.75, Math.sqrt((fwPts * fhPts * 1.5) / 8_000_000))
-          let image: { data: Uint8Array; width: number; height: number; channels: 1 } | undefined
-          if (params['visual'] !== false) {
-            try {
-              const out = await v.renderRegion(frame, Math.max(64, Math.min(12_000, Math.round(fwPts / cellGuess))), { annots: false, overlay: false })
-              const px = out.canvas.getContext('2d')?.getImageData(0, 0, out.width, out.height)
-              if (px !== undefined) {
-                const grey = new Uint8Array(out.width * out.height)
-                for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = (px.data[j]! * 299 + px.data[j + 1]! * 587 + px.data[j + 2]! * 114) / 1000
-                image = { data: grey, width: out.width, height: out.height, channels: 1 }
-              }
-            } catch { image = undefined }
-          }
           const num = (k: string): number | undefined => {
             const n = Number(params[k])
             return params[k] !== undefined && Number.isFinite(n) && n >= 0 ? n : undefined
@@ -9690,19 +9722,89 @@ export default function Workspace({
           const minWidth = ptsOf(num('minWidthFeet') ?? 1.25)
           const minCut = num('minCutoutSqFt') ?? 1.5
           const minField = num('minFieldSqFt')
-          const result = await traceFieldInWorker({
-            segments, page: pageSize, seed: pt, frame,
-            options: {
-              ...(num('angle') !== undefined ? { angleDeg: num('angle')! } : {}),
-              ...(ptsOf(num('strokeSpacingFeet')) !== undefined ? { strokeSpacingPoints: ptsOf(num('strokeSpacingFeet'))! } : {}),
-              ...(bridge !== undefined ? { bridgePoints: bridge } : {}),
-              ...(minWidth !== undefined ? { minWidthPoints: minWidth } : {}),
-              ...(fpp !== null && fpp > 0 ? { minCutoutPoints2: minCut / (fpp * fpp) } : {}),
-              ...(fpp !== null && fpp > 0 && minField !== undefined ? { minFieldPoints2: minField / (fpp * fpp) } : {}),
-              all: params['all'] === true,
-              ...(image !== undefined ? { image } : {}),
-            },
-          })
+          const edgeAt = params['edge'] === 'hatch' ? 'hatch' as const : 'wall' as const
+          const fitEdges = params['fitEdges'] !== false
+          /*
+           * The finest cell, on a lattice fixed to the page (Coinbase blind
+           * test #3): a box that holds the field at this cell traces it the
+           * same whatever else is in the box. A box too big for it is read
+           * coarse first and each field then traced again on its own.
+           */
+          const FINE = 0.75, MAX_CELLS = 8_000_000
+          const snap = (f: FieldFrame, c: number): FieldFrame => {
+            const W = pageSize.width, H = pageSize.height
+            return {
+              x0: Math.max(0, Math.floor((f.x0 * W) / c) * c / W), y0: Math.max(0, Math.floor((f.y0 * H) / c) * c / H),
+              x1: Math.min(1, Math.ceil((f.x1 * W) / c) * c / W), y1: Math.min(1, Math.ceil((f.y1 * H) / c) * c / H),
+            }
+          }
+          /** Cells a frame needs at the fine cell, the grid turned the worst way. */
+          const cellsAtFine = (f: FieldFrame) => {
+            const fw = (f.x1 - f.x0) * pageSize.width, fh = (f.y1 - f.y0) * pageSize.height
+            return ((fw + fh) * 0.7072) ** 2 / (FINE * FINE)
+          }
+          const traceIn = async (box: FieldFrame, seed: { x: number; y: number }, extra: { all?: boolean; angleDeg?: number; cellPoints?: number }) => {
+            const chunks = await readAll(box, 0)
+            const segments = new Float32Array(chunks.reduce((n, c) => n + c.length, 0))
+            let at = 0
+            for (const c of chunks) { segments.set(c, at); at += c.length }
+            // The sheet as PDFium draws it, without anyone's markups, a pixel a grid cell.
+            const fwPts = (box.x1 - box.x0) * pageSize.width, fhPts = (box.y1 - box.y0) * pageSize.height
+            const cellGuess = extra.cellPoints ?? Math.max(FINE, Math.sqrt((fwPts * fhPts * 1.5) / 8_000_000))
+            let image: { data: Uint8Array; width: number; height: number; channels: 1 } | undefined
+            if (params['visual'] !== false) {
+              try {
+                const out = await v.renderRegion(box, Math.max(64, Math.round(fwPts / cellGuess)), { annots: false, overlay: false })
+                const px = out.canvas.getContext('2d')?.getImageData(0, 0, out.width, out.height)
+                if (px !== undefined) {
+                  const grey = new Uint8Array(out.width * out.height)
+                  for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = (px.data[j]! * 299 + px.data[j + 1]! * 587 + px.data[j + 2]! * 114) / 1000
+                  image = { data: grey, width: out.width, height: out.height, channels: 1 }
+                }
+              } catch { image = undefined }
+            }
+            const angle = extra.angleDeg ?? num('angle')
+            return traceFieldInWorker({
+              segments, page: pageSize, seed, frame: box,
+              options: {
+                ...(angle !== undefined ? { angleDeg: angle } : {}),
+                ...(extra.cellPoints !== undefined ? { cellPoints: extra.cellPoints } : {}),
+                ...(ptsOf(num('strokeSpacingFeet')) !== undefined ? { strokeSpacingPoints: ptsOf(num('strokeSpacingFeet'))! } : {}),
+                ...(bridge !== undefined ? { bridgePoints: bridge } : {}),
+                ...(minWidth !== undefined ? { minWidthPoints: minWidth } : {}),
+                ...(fpp !== null && fpp > 0 ? { minCutoutPoints2: minCut / (fpp * fpp) } : {}),
+                ...(fpp !== null && fpp > 0 && minField !== undefined ? { minFieldPoints2: minField / (fpp * fpp) } : {}),
+                all: extra.all === true,
+                edge: edgeAt,
+                fitEdges,
+                maxCells: MAX_CELLS,
+                ...(image !== undefined ? { image } : {}),
+              },
+            })
+          }
+          const fine = cellsAtFine(frame) <= MAX_CELLS
+          const searched = fine ? snap(frame, FINE) : frame
+          let result = await traceIn(searched, pt, { all: params['all'] === true, ...(fine ? { cellPoints: FINE } : {}) })
+          if (result.ok && !fine) {
+            // Each field again in a box of its own at the fine cell, from a point inside it.
+            const pad = Math.max(40, 6 * (minWidth ?? 10))
+            const angle = result.diagnostics.angleDeg ?? undefined
+            const again: typeof result.fields = []
+            for (const f of result.fields) {
+              const xs = f.rings[0]!.map((q) => q.x), ys = f.rings[0]!.map((q) => q.y)
+              const box = snap({
+                x0: Math.max(frame.x0, Math.min(...xs) - pad / pageSize.width), y0: Math.max(frame.y0, Math.min(...ys) - pad / pageSize.height),
+                x1: Math.min(frame.x1, Math.max(...xs) + pad / pageSize.width), y1: Math.min(frame.y1, Math.max(...ys) + pad / pageSize.height),
+              }, FINE)
+              const seed = f.seed ? pt : f.inside
+              const one = cellsAtFine(box) <= MAX_CELLS
+                ? await traceIn(box, seed, { ...(angle !== undefined ? { angleDeg: angle } : {}), cellPoints: FINE })
+                : null
+              const hit = one !== null && one.ok ? one.fields.find((x) => x.seed) : undefined
+              again.push(hit !== undefined ? { ...hit, seed: f.seed } : f)
+            }
+            result = { ...result, fields: again }
+          }
           if (!result.ok) return { error: `no hatched field there: ${result.message}`, reason: result.reason }
           const r5 = (n: number) => Math.round(n * 1e5) / 1e5
           const sqft = (pts2: number) => (fpp !== null && fpp > 0 ? Math.round(pts2 * fpp * fpp * 100) / 100 : null)
@@ -9741,6 +9843,10 @@ export default function Workspace({
                 ifWrong: 'if the outline followed the wrong linework, call again with `angle` set to the hatch\'s direction from alternatives, or with strokeSpacingFeet',
               } : {}),
             },
+            edge: edgeAt,
+            ...(d.hatch !== undefined ? { hatch: { spacingPoints: d.hatch.periodPoints, spacingFeet: fpp !== null && fpp > 0 ? Math.round(d.hatch.periodPoints * fpp * 1000) / 1000 : null, strokesKept: d.hatch.members, strokesRead: d.hatch.strokes } } : {}),
+            ...(edgeAt === 'hatch' && d.hatch === undefined ? { hatchNote: 'could not read the hatch spacing here, so the field ends at the wall line; pass strokeSpacingFeet (the member spacing)' } : {}),
+            ...(d.fittedCorners !== undefined ? { cornersFittedToLines: d.fittedCorners } : {}),
             totalSquareFeet: fpp !== null && fpp > 0 ? Math.round(fields.reduce((n, f) => n + (f.areaSquareFeet ?? 0), 0) * 100) / 100 : null,
             ...(readsCut ? { note: 'the sheet holds more geometry than could be read; trace with a smaller `rect`' } : {}),
             ...(fpp === null ? { scale: 'the sheet has no scale, so areas are null; set_page_scale first' } : {}),
@@ -9961,12 +10067,17 @@ export default function Workspace({
           const dim = typeof params['dimension'] === 'string' ? params['dimension'] : null
           if (dim !== null) {
             if (pts.length !== 2 || pts.some((p) => p === null)) return { error: 'a dimension check needs `points`: the two ends the written dimension spans, normalized', sheets: out }
-            const here = ap.id
+            // The check is on the sheet asked for, not the one showing (Coinbase blind test #12).
+            if (pages.pages.length !== 1) return { error: 'a dimension check is on one sheet: give `page` (or one entry in `pages`)', sheets: out }
+            const targetPage = pages.pages[0]!
+            const here = pageIdFor(docIdRef.current, targetPage)
+            const size = targetPage === ap.index ? ap.size : (v.getPageSize(targetPage) ?? pageSizesRef.current[targetPage] ?? null)
+            if (size === null || size.width === 0) return { error: `sheet ${targetPage} has no size yet; show it once with redbeam_go_to_page`, sheets: out }
             const regs = projectRegions.get(here) ?? []
             const mid = { x: (pts[0]!.x + pts[1]!.x) / 2, y: (pts[0]!.y + pts[1]!.y) / 2 }
             const reg = regs.find((r) => mid.x >= Math.min(r.rect.x0, r.rect.x1) && mid.x <= Math.max(r.rect.x0, r.rect.x1) && mid.y >= Math.min(r.rect.y0, r.rect.y1) && mid.y <= Math.max(r.rect.y0, r.rect.y1))
-            const checked = reg?.feetPerPoint ?? ap.feetPerPoint
-            return { sheets: out, check: { page: ap.index, ...(reg !== undefined ? { region: reg.id } : {}), ...checkScale(pts[0]!, pts[1]!, dim, { width: ap.size.width, height: ap.size.height }, checked) } }
+            const checked = reg?.feetPerPoint ?? (targetPage === ap.index ? ap.feetPerPoint : projectCalibrations.get(here) ?? null)
+            return { sheets: out, check: { page: targetPage, sheet: sheetLabelFor(targetPage), ...(reg !== undefined ? { region: reg.id } : {}), ...checkScale(pts[0]!, pts[1]!, dim, { width: size.width, height: size.height }, checked) } }
           }
           return {
             sheets: out,
@@ -10036,7 +10147,9 @@ export default function Workspace({
           // Any number in one call and one undo step (the old 500 cap is gone).
           const docId = docIdRef.current
           const pending: Markup[] = []
-          const edits: Array<{ id: string; before: Markup['rings']; after: Markup['rings'] }> = []
+          // Cutouts into areas already in the PDF are cut after the loop, all
+          // together, each into the shape the ones before it left.
+          const cuts: Array<{ index: number; pageId: string; ring: Polygon; pendingHit: string[] }> = []
           const results: Array<Record<string, unknown>> = []
           for (let i = 0; i < list.length; i++) {
             // Each entry may name its own ZERO-based page; otherwise the sheet showing.
@@ -10049,15 +10162,13 @@ export default function Workspace({
             if ('error' in built) return { error: `markup ${i}: ${built.error}`, created: 0 }
             if (built.markup.kind === 'cutout') {
               const ring = built.markup.rings[0]!
-              const pendingEdits = cutEdits(pending, pageId, ring)
+              const pendingEdits = cutEdits(pending, pageId, ring, { notch: true })
               for (const e of pendingEdits) {
                 const m = pending.find((x) => x.id === e.id)!
                 m.rings = e.after
               }
-              const existing = cutEdits(docMarkupsRef.current, pageId, ring)
-              edits.push(...existing)
-              if (pendingEdits.length + existing.length === 0) return { error: `markup ${i}: the cutout crosses no area on this sheet`, created: 0 }
-              results.push({ index: i, kind: 'cutout', cut: [...pendingEdits, ...existing].map((e) => e.id) })
+              cuts.push({ index: i, pageId, ring, pendingHit: pendingEdits.map((e) => e.id) })
+              results.push({ index: i, kind: 'cutout' })
               continue
             }
             pending.push(built.markup)
@@ -10068,10 +10179,25 @@ export default function Workspace({
             })
           }
           const cmds = pending.map((m) => cmdCreate({ ...m, origin: 'agent', reviewState: 'accepted' }))
-          const editCmd = edits.length > 0 ? editsCommand(edits, 'cut area') : null
+          const { edits, cutBy } = cutAllEdits(docMarkupsRef.current, cuts, { notch: true })
+          for (let k = 0; k < cuts.length; k++) {
+            const hit = [...cuts[k]!.pendingHit, ...cutBy[k]!]
+            if (hit.length === 0) return { error: `markup ${cuts[k]!.index}: the cutout crosses no area on this sheet`, created: 0 }
+            const row = results.find((r) => r['index'] === cuts[k]!.index)!
+            row['cut'] = hit
+          }
+          // What each cut area measures now, so a cut that took less than meant shows.
+          const changed = edits.map((e) => {
+            const m = docMarkupsRef.current.find((x) => x.id === e.id)!
+            const size = projectPageBoxes.get(m.pageId), fpp = projectCalibrations.get(m.pageId)
+            const sq = (rings: Markup['rings']) => (size === undefined || fpp === undefined ? null
+              : Math.round(areaSquareFeet([{ ...m, rings }], { feetPerPoint: fpp, pageWidth: size.width, pageHeight: size.height }) * 100) / 100)
+            return { id: e.id, squareFeetBefore: sq(e.before), squareFeetAfter: sq(e.after), holes: Math.max(0, e.after.length - 1) }
+          })
+          const editCmd = edits.length > 0 ? editsCommand(edits, 'cut area', 'agent') : null
           const all = [...cmds, ...(editCmd !== null ? [editCmd] : [])]
           await runCommand(all.length === 1 ? all[0]! : cmdBatch(`add ${pending.length} markups`, all))
-          return { created: pending.length, markups: results }
+          return { created: pending.length, markups: results, ...(changed.length > 0 ? { areasCut: changed } : {}) }
         }
         /*
          * The piece list of a run product (round 3 #14): runs, pieces and

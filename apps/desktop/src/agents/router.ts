@@ -118,6 +118,8 @@ export const LOST_GRACE_MS = 10 * 60_000
 export class BridgeRouter {
   private readonly queues = new Map<string, Promise<unknown>>()
   private lastSweep: number | null = null
+  /** The PDFs each session has called into, to say which one an unnamed call went to. */
+  private readonly filesSeen = new Map<string, Set<string>>()
   /** Read-only tabs of lost sessions, waiting out LOST_GRACE_MS before they close. */
   private readonly lingering = new Map<string, { agentId: string; at: number }>()
   /** When each AI app's server last said it was alive, by the part of an agent's id before the last "/". */
@@ -221,7 +223,19 @@ export class BridgeRouter {
     // What this agent's calls mean when they name no file, from here on: the
     // PDF it just addressed. "Open A, open B, then work" stays in B, and the
     // person switching tabs does not carry a half-drawn takeoff to another PDF.
-    if (agent !== null && !glance) this.deps.roster.setCurrent(agent.id, tab.file)
+    //
+    // A READ that names another PDF is a look at it, not a move (Coinbase
+    // blind test, 2026-11-27: list_annotations on the original, then get_bom
+    // with no file read the original's empty BOM). Only a write, or a call
+    // with no PDF of the session's own yet, moves where unnamed calls go.
+    const look = named !== '' && readsOnly(action, params) && agent !== null && agent.current !== null
+      && tabFor(this.deps.tabs(), agent.current) !== undefined
+    if (agent !== null && !glance && !look) this.deps.roster.setCurrent(agent.id, tab.file)
+    if (agent !== null && !glance) {
+      const seen = this.filesSeen.get(agent.id) ?? new Set<string>()
+      seen.add(tab.file.replace(/\\/g, '/').toLowerCase())
+      this.filesSeen.set(agent.id, seen)
+    }
     // Mounts it if it was let go, and counts as use either way (agents/live.ts).
     this.deps.wake(tab.file)
     const text = describeCall(action, params)
@@ -253,6 +267,14 @@ export class BridgeRouter {
       const now = tabFor(this.deps.tabs(), tab.file)
       if (now !== undefined && !glance) {
         this.deps.roster.touch(agent.id, tab.file, { wrote: !failed && callWrites(action, params), guest: now.owner !== agent.id })
+      }
+    }
+    // Unnamed calls by a session that has worked in more than one PDF say
+    // where they went, so a call that went to the other one is noticed.
+    if (agent !== null && named === '' && (this.filesSeen.get(agent.id)?.size ?? 0) > 1) {
+      const others = [...new Set(this.deps.tabs().map((t) => t.file))].filter((f) => !samePath(f, tab.file)).map(nameOf)
+      if (others.length > 0) {
+        result = { ...result, fileNote: `no \`file\` given, so this went to ${nameOf(tab.file)}; also open: ${others.join(', ')}. Pass \`file\` to choose.` }
       }
     }
     return action === 'get_ui_state' ? { ...result, ...this.about(agent, tab.file) } : result
