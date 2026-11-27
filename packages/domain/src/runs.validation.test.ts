@@ -237,6 +237,7 @@ describe('baffle cassettes, against arithmetic', () => {
   const CASSETTE = {
     productType: 'baffle_cassette', spacing: '6', spacingUnit: 'in',
     stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in',
+    cassetteLength: '8', cassetteLengthUnit: 'ft',
   }
 
   it('counts whole modules, the baffles they hold, and two caps per baffle', () => {

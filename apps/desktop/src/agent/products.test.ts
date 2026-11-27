@@ -52,7 +52,8 @@ describe('mixed members', () => {
 
   it('offers a cassette its length, gap, removable share and trim, and no other product (#175)', async () => {
     const { describeProduct, unknownSpecKeys } = await import('./products.js')
-    expect(describeProduct('baffle_cassette').options?.map((o) => o.key)).toEqual(expect.arrayContaining(['cassetteLength', 'cassetteGap', 'removableShare', 'perimeterTrimLength', 'spacingSource']))
+    expect(describeProduct('baffle_cassette').options?.map((o) => o.key)).toEqual(expect.arrayContaining(['cassetteGap', 'removableShare', 'perimeterTrimLength', 'spacingSource']))
+    expect(describeProduct('baffle_cassette').fields.find((f) => f.key === 'cassetteLength')?.required).toBe(true)
     expect(unknownSpecKeys('baffle_cassette', { cassetteLength: '48', cassetteLengthUnit: 'in', removableShare: '10', spacingSource: 'section' })).toEqual([])
     expect(unknownSpecKeys('baffle', { cassetteGap: '1' })).toEqual(['cassetteGap'])
   })

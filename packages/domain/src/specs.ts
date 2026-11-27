@@ -160,13 +160,17 @@ export function requiredMeasures(product: ProductType): MeasureField[] {
     case 'planks':
       return [measure('plankWidth', 'Plank W'), measure('stockLength', 'Stock')]
     case 'baffle_cassette':
-      // A cassette is a module: its width, the baffle length, and the
-      // spacing that says how many baffles it holds (Aaron, 2026-09-18).
+      // A cassette is a module: its width and length, the baffle stock
+      // length, and the spacing that says how many baffles it holds
+      // (Aaron, 2026-09-18 and 2026-11-27).
       // Backing spacing is inside the module and is not asked for.
       return [
         measure('spacing', 'Spacing OC'),
         measure('stockLength', 'Stock'),
         measure('cassetteWidth', 'Cassette W'),
+        // The module's own length is asked for, never assumed from the
+        // stock (Aaron, 2026-11-27).
+        measure('cassetteLength', 'Cassette L'),
       ]
     case 'baffle':
       return [
@@ -262,7 +266,9 @@ export function measureHelp(valueKey: string): string {
     case 'panelWidth': return 'face width'
     case 'panelLength': return 'face length'
     case 'plankWidth': return 'face width'
-    case 'cassetteWidth': return 'face and trim'
+    case 'cassetteWidth': return 'N × spacing'
+    case 'cassetteLength': return 'along baffles'
+    case 'cassetteGap': return 'between modules'
     case 'stockLength': return 'length you buy'
     case 'spacing': return 'centre to centre'
     case 'revealSpacing': return 'gap between'
@@ -340,13 +346,17 @@ export function editableMeasures(product: ProductType): MeasureField[] {
         ...common,
       ]
     case 'baffle_cassette':
-      // A cassette's perimeter trim length is read from `cassetteWidth`, not
-      // from `perimeterTrimLength` — so that is the field to offer, and the
-      // generic Trim Len would be inert.
-      // Nothing beyond the module's three measures: cassettes are laid as
-      // whole panels, so a profile width (the run preview's band) and a rail
-      // length (rails are inside the module) would change no number.
-      return [...requiredMeasures(product)]
+      /*
+       * The module's four measures, then the gap between modules, and the trim piece
+       * length: trim is reported in feet, and in pieces only at Trim Len
+       * (#175, #177; it used to be cut at the cassette width). No profile
+       * width or rail length: rails are inside the module.
+       */
+      return [
+        ...requiredMeasures(product),
+        measure('cassetteGap', 'Gap'),
+        ...common,
+      ]
     case 'baffle':
       /*
        * No Trim Len here. resolveRunInputs reads a trim length for planks and,

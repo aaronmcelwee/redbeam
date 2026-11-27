@@ -156,8 +156,8 @@ describe('blockers rather than zeros', () => {
         base({ productType: t, spacing: '2', spacingUnit: 'ft', stockLength: '10',
                stockLengthUnit: 'ft', plankWidth: '1', plankWidthUnit: 'ft',
                maxConnectorSpacing: '3', maxConnectorSpacingUnit: 'ft',
-               // A cassette is a module and needs its width (unread by the other two).
-               cassetteWidth: '4', cassetteWidthUnit: 'ft' }),
+               // A cassette is a module and needs its width and length (unread by the other two).
+               cassetteWidth: '4', cassetteWidthUnit: 'ft', cassetteLength: '10', cassetteLengthUnit: 'ft' }),
         [areaMarkup()], cal, { scopeDirection: dir, pageSize: page },
       )
       expect(r.blockers, t).toEqual([])

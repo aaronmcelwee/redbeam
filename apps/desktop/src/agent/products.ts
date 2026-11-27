@@ -44,7 +44,7 @@ export interface ProductDescription {
 
 /** A plausible value for an example, in inches. Illustration only. */
 const EXAMPLE_INCHES: Record<string, string> = {
-  spacing: '6', stockLength: '96', maxConnectorSpacing: '48', cassetteWidth: '24',
+  spacing: '6', stockLength: '96', maxConnectorSpacing: '48', cassetteWidth: '24', cassetteLength: '96',
   panelWidth: '24', panelLength: '48', plankWidth: '6', partLength: '96',
 }
 
@@ -99,9 +99,8 @@ const MIXED_OPTIONS = [
   { key: 'memberLabel', help: 'the members between (e.g. "Slab"); the stock line is named after it', default: 'Baffle' },
 ]
 
-/** A cassette's own settings beyond the three required measures (#175, #177). Read by domain cassettes.ts. */
+/** A cassette's own settings beyond its required measures (#175, #177). Read by domain cassettes.ts. */
 const CASSETTE_OPTIONS = [
-  { key: 'cassetteLength', help: 'module length along the baffles, with cassetteLengthUnit; default: the Stock length', default: '' },
   { key: 'cassetteGap', help: 'gap between neighbouring cassettes, both ways, with cassetteGapUnit', default: '0' },
   { key: 'removableShare', help: 'share of cassettes that are removable for access, percent ("10") or fraction ("0.1")', default: '0' },
   { key: 'perimeterTrimLength', help: 'trim piece length, with perimeterTrimLengthUnit; trim is always given in LF, and in pieces when this is set', default: '' },

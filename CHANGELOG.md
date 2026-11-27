@@ -5,11 +5,21 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.131 — 2026-11-27
+## 0.3.132 — 2026-11-27
 
 ### Agents trace a dense sheet in about half the time
 
 - **The sheet is read once.** When an agent traced hatched ceilings, REDBEAM went back to the PDF for the same linework on every pass and every call, which was more than half the wait on a dense sheet. It now reads the sheet once and works from that. The outlines are the same.
+- **Piece lists a sixth the size.** An agent's piece list for a big scope was hundreds of pages of repeated labels. Every run and piece is still there, now as compact rows.
+- **Fewer names in the way.** When an agent has two of its PDFs open and does not say which one it means, REDBEAM names only that agent's PDFs, not every tab in the window.
+
+## 0.3.131 — 2026-11-27
+
+### Cassette settings in the scope editor
+
+- **New cassette fields in Setup.** Cassette L, Gap, Trim Len and Removable % sit with the other cassette measures, and a "Spacing from" choice records whether the spacing came from a section, detail, schedule or only the ceiling plan, with a note of where.
+- **Cassette length is required.** A cassette scope is counted only once its length is set; it no longer borrows the stock length. Older cassette scopes show Cassette L as needed until it is filled in.
+- **Widths must hold whole baffles.** A cassette width that is not a whole number of spacings is refused rather than counted, and Setup names the nearest widths that work (22 1/2" or 30" at 7 1/2").
 
 ## 0.3.130 — 2026-11-27
 

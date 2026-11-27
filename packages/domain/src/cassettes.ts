@@ -3,8 +3,7 @@
  * #174-#177).
  *
  * A cassette is a module: `cassetteWidth` across its baffles by
- * `cassetteLength` along them (the baffle stock length when no length is
- * given), laid on a grid whose pitch adds `cassetteGap` both ways. Every
+ * `cassetteLength` along them, laid on a grid whose pitch adds `cassetteGap` both ways. Every
  * module the field covers completely is a FULL cassette. A module the field
  * only partly covers is a PARTIAL cassette, built to fit: its baffles are cut
  * to the length the field gives each of them, and the scope's yield
@@ -51,20 +50,42 @@ export function readShare(specs: Specifications, key: string): number {
   return Math.min(1, n > 1 ? n / 100 : n)
 }
 
-/** The scope's cassette inputs, or the labels of what is missing. */
+/**
+ * Why the scope's cassette width cannot be used, or null. A cassette holds
+ * whole baffles, so its width must be a whole number of spacings; any other
+ * width is refused, not counted (Aaron, 2026-11-27).
+ */
+export function cassetteWidthProblem(specs: Specifications): string | null {
+  const width = measure(specs, 'cassetteWidth', 'Cassette W')
+  const spacing = measure(specs, 'spacing', 'Spacing OC')
+  if (width === null || spacing === null || !(spacing > 0)) return null
+  const a = cassetteWidthAdvice(width, spacing)
+  if (a.wholeMultiple) return null
+  return `Cassette W ${inches(width)} is not a whole number of ${inches(spacing)} spacings. Use ${inches(a.belowFeet)} or ${inches(a.aboveFeet)}.`
+}
+
+/**
+ * The scope's cassette inputs, or what stops them: the labels of missing
+ * measures (Cassette L is required, Aaron 2026-11-27), or the reason the
+ * width is refused.
+ */
 export function readCassetteInputs(specs: Specifications): CassetteInputs | { missing: string[] } {
   const width = measure(specs, 'cassetteWidth', 'Cassette W')
+  const length = measure(specs, 'cassetteLength', 'Cassette L')
   const stock = measure(specs, 'stockLength', 'Stock')
   const spacing = measure(specs, 'spacing', 'Spacing OC')
   const missing = [
     ...(spacing === null ? ['Spacing OC'] : []),
     ...(stock === null ? ['Stock'] : []),
     ...(width === null ? ['Cassette W'] : []),
+    ...(length === null ? ['Cassette L'] : []),
   ]
-  if (width === null || stock === null || spacing === null) return { missing }
+  if (width === null || length === null || stock === null || spacing === null) return { missing }
+  const problem = cassetteWidthProblem(specs)
+  if (problem !== null) return { missing: [problem] }
   return {
     widthFeet: width,
-    lengthFeet: measure(specs, 'cassetteLength', 'Cassette L') ?? stock,
+    lengthFeet: length,
     gapFeet: measure(specs, 'cassetteGap', 'Cassette gap') ?? 0,
     spacingFeet: spacing,
     stockLengthFeet: stock,
