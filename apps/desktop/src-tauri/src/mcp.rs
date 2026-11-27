@@ -670,7 +670,8 @@ fn call_batch(spec: &Spec, args: &Value, agent: &Value, alive: &dyn Fn()) -> Res
     summary["results"] = Value::Array(results);
     let mut content = vec![json!({ "type": "text", "text": as_text(&summary) })];
     content.extend(images);
-    let mut out = json!({ "content": content, "structuredContent": summary });
+    // No structuredContent: a client that has it shows the agent only that, which hides the screenshots.
+    let mut out = json!({ "content": content });
     if failed > 0 && ran == failed {
         out["isError"] = json!(true);
     }
@@ -685,8 +686,9 @@ fn call_tool(spec: &Spec, name: &str, args: &Value, alive: &dyn Fn()) -> Result<
             "use": "Pass this exact value as `session` on every other REDBEAM call in this chat.",
             "takeoffSkill": SKILL_URI }));
         return Ok(json!({
+            // No structuredContent: a client that has it shows the agent only that
+            // (Claude Code, 2026-11-27), and the skill and the batching note went unread.
             "content": [{ "type": "text", "text": text }, { "type": "text", "text": skill_handout() }],
-            "structuredContent": { "session": session, "takeoffSkill": SKILL_URI },
         }));
     }
     if name != BATCH_TOOL && spec.method_of.get(name).is_none() {
@@ -831,7 +833,9 @@ mod tests {
         assert!(!skill().contains("\ndescription:"));
         let started = call_tool(&spec, SESSION_TOOL, &json!({ "task": "Skill check" }), &|| {}).unwrap();
         assert!(started["content"][1]["text"].as_str().unwrap().contains("typical module or pattern detail"));
-        assert_eq!(started["structuredContent"]["takeoffSkill"], SKILL_URI);
+        assert!(started["content"][0]["text"].as_str().unwrap().contains(SKILL_URI));
+        assert!(started.get("structuredContent").is_none());
+        assert!(started["content"][1]["text"].as_str().unwrap().contains("redbeam_batch {session, calls"));
         let listed = handle(&spec, &json!({ "jsonrpc": "2.0", "id": 1, "method": "resources/list" })).unwrap();
         assert!(listed["result"]["resources"].as_array().unwrap().iter().any(|r| r["uri"] == SKILL_URI));
         let read = handle(&spec, &json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/read", "params": { "uri": SKILL_URI } })).unwrap();
@@ -940,7 +944,7 @@ mod tests {
         }
         let r = handle(&s, &json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/call",
             "params": { "name": "redbeam_start_session", "arguments": { "task": "Level 2 ceilings" } } })).unwrap();
-        assert!(r["result"]["structuredContent"]["session"].as_str().unwrap().starts_with("Level 2 ceilings #"));
+        assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("\"session\":\"Level 2 ceilings #"));
     }
 
     #[test]
@@ -988,8 +992,10 @@ mod tests {
         assert!(call_tool(&s, BATCH_TOOL, &json!({ "session": session, "calls": [] }), &|| {}).is_err());
         let out = call_tool(&s, BATCH_TOOL, &json!({ "session": session,
             "calls": [{ "tool": "redbeam_batch", "arguments": { "calls": [] } }, { "tool": "redbeam_get_ui_state" }] }), &|| {}).unwrap();
-        assert_eq!(out["structuredContent"]["ran"], 1);
-        assert_eq!(out["structuredContent"]["of"], 2);
+        let summary: Value = serde_json::from_str(out["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(summary["ran"], 1);
+        assert_eq!(summary["of"], 2);
+        assert!(out.get("structuredContent").is_none());
         assert_eq!(out["isError"], true);
         assert!(out["content"][0]["text"].as_str().unwrap().contains("cannot run inside a batch"));
     }

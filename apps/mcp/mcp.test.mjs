@@ -195,7 +195,7 @@ test('a chat starts a session, and a call without one is refused', async () => {
   }
   await assert.rejects(callTool('redbeam_get_ui_state', { agent: 'framing' }), /redbeam_start_session/)
   const started = await callTool('redbeam_start_session', { task: '  Level 2   ceilings ' })
-  assert.match(started.structuredContent.session, /^Level 2 ceilings #[2-9A-Z]{3}$/)
+  assert.match(JSON.parse(started.content[0].text).session, /^Level 2 ceilings #[2-9A-Z]{3}$/)
   await assert.rejects(callTool('redbeam_start_session', {}), /task/)
 })
 
@@ -221,7 +221,9 @@ test('every agent is handed the takeoff skill when its session starts', async ()
     assert.ok(name === 'redbeam_start_session' || tools.some((t) => t.name === name), `the skill names ${name}, which is not a tool`)
   }
   const started = await callTool('redbeam_start_session', { task: 'Skill check' })
-  assert.equal(started.structuredContent.takeoffSkill, SKILL_URI)
+  assert.equal(JSON.parse(started.content[0].text).takeoffSkill, SKILL_URI)
+  // A client given structuredContent shows the agent only that, and the skill went unread (Claude Code, 2026-11-27).
+  assert.equal(started.structuredContent, undefined)
   assert.equal(started.content[1].text, skillHandout())
   // Benchmark run 3 (2026-11-27): no agent batched from the tool description alone, so the handout says when to.
   assert.match(skillHandout(), /redbeam_batch \{session, calls/)
@@ -270,8 +272,10 @@ test('a batch needs a session and refuses to nest', async () => {
   const session = startSession('Batch check')
   await assert.rejects(callTool('redbeam_batch', { session, calls: [] }), /calls/)
   const out = await callTool('redbeam_batch', { session, calls: [{ tool: 'redbeam_batch', arguments: { calls: [] } }, { tool: 'redbeam_get_ui_state' }] })
-  assert.equal(out.structuredContent.ran, 1)
-  assert.equal(out.structuredContent.of, 2)
-  assert.match(out.structuredContent.results[0].error, /cannot run inside a batch/)
+  const summary = JSON.parse(out.content[0].text)
+  assert.equal(summary.ran, 1)
+  assert.equal(summary.of, 2)
+  assert.match(summary.results[0].error, /cannot run inside a batch/)
+  assert.equal(out.structuredContent, undefined)
   assert.equal(out.isError, true)
 })
