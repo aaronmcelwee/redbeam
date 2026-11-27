@@ -45,8 +45,11 @@ describe('measuresAsText', () => {
 describe('mixed members', () => {
   it('are offered on baffles only, and known keys', async () => {
     const { describeProduct, unknownSpecKeys } = await import('./products.js')
-    expect(describeProduct('baffle').options?.map((o) => o.key)).toEqual(['mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'spacingSource', 'spacingSourceRef'])
-    expect(describeProduct('panels').options).toBeUndefined()
+    const layout = ['layoutPatternStart', 'layoutPerArea', 'layoutShowOverflow', 'layoutShowRails', 'layoutShowTrim', 'layoutShowSeams']
+    expect(describeProduct('baffle').options?.map((o) => o.key)).toEqual(['mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'spacingSource', 'spacingSourceRef', ...layout])
+    // Panels have no members or spacing, only their own layout settings (Aaron, 2026-11-27).
+    expect(describeProduct('panels').options?.map((o) => o.key)).toEqual(layout)
+    expect(unknownSpecKeys('panels', { layoutPatternStart: 'automatic', layoutShowSeams: 'false' })).toEqual([])
     expect(unknownSpecKeys('baffle', { mixedEvery: '3', mixedLabel: 'Beam' })).toEqual([])
   })
 

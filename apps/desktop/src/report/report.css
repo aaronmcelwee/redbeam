@@ -95,7 +95,7 @@
 
 .rpt-field { position: relative; display: flex; flex-direction: column; gap: 6px; }
 .rpt-label { color: var(--rb-ink-2); font-size: var(--rb-caption); line-height: 16px; font-weight: 600; }
-.rpt-label i, .rpt-wherelabel i { margin-left: 4px; color: var(--rb-ink-4); font-style: normal; font-weight: 400; }
+.rpt-label i, .rpt-wherelabel i { margin-left: 4px; color: var(--rb-ink-3); font-style: normal; font-weight: 400; }
 
 /* Fluent's TextBox: a quiet field whose bottom edge turns accent on focus. */
 .rpt-input {

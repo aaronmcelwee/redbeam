@@ -443,6 +443,45 @@ const STEPS = [
     }
     return problems
   }],
+  /*
+   * Drawing colours (0.3.139): picked from the zoom menu, they filter the
+   * sheet's raster and the thumbnails and nothing else, and Normal takes the
+   * filter off again.
+   */
+  ['drawing-colours', async (page) => {
+    const problems = []
+    // The zoom menu where the dock has room for it, else the More menu.
+    const pick = async (name) => {
+      const zoom = page.locator('.dockzoom').filter({ visible: true })
+      if (await zoom.count() > 0) {
+        await zoom.first().click()
+        await page.waitForTimeout(250)
+        await page.getByRole('menuitemradio', { name, exact: true }).click()
+      } else {
+        // Narrow: the zoom menu folds into the sheet pill's "More" menu.
+        await page.getByRole('button', { name: 'More', exact: true }).filter({ visible: true }).last().click()
+        await page.waitForTimeout(250)
+        await page.getByRole('menuitemradio', { name, exact: true }).click()
+      }
+      await page.waitForTimeout(500)
+    }
+    const filters = () => page.evaluate(() => ({
+      raster: getComputedStyle(document.querySelector('.wshost[data-showing="true"] .stage canvas.rb-raster') ?? document.querySelector('.stage canvas.rb-raster')).filter,
+      overlay: getComputedStyle(document.querySelectorAll('.stage canvas')[1]).filter,
+      thumb: (() => { const t = document.querySelector('.thumb canvas'); return t === null ? null : getComputedStyle(t).filter })(),
+    }))
+    await pick('Dark')
+    const on = await filters()
+    if (!String(on.raster).includes('rb-drawing-dark')) problems.push(`drawing-colours: Dark did not filter the sheet (${on.raster})`)
+    if (on.overlay !== 'none') problems.push('drawing-colours: the markup overlay was filtered too; markups must keep their scope colours')
+    if (on.thumb !== null && !String(on.thumb).includes('rb-drawing-dark')) problems.push('drawing-colours: the thumbnails did not follow')
+    problems.push(...await inspect(page))
+    await page.screenshot({ path: join(out, `${shotPrefix}drawing-colours-dark.png`) })
+    await pick('Normal')
+    const off = await filters()
+    if (off.raster !== 'none') problems.push(`drawing-colours: Normal left a filter on the sheet (${off.raster})`)
+    return problems
+  }],
   ['settings', async (page) => {
     await button(page, 'Settings').last().click()
     await page.waitForTimeout(400)
@@ -774,6 +813,52 @@ const STEPS = [
     await page.screenshot({ path: join(out, `${shotPrefix}markup-jump-all-the-way-in.png`) })
     await page.keyboard.press('Control+0')
     await page.waitForTimeout(300)
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()
+    await page.waitForTimeout(300)
+    return problems
+  }],
+  /*
+   * A scope's own layout settings (Aaron, 2026-11-27): where its areas start
+   * and what its preview draws, in Setup, one scope at a time.
+   */
+  ['scope-layout', async (page) => {
+    const problems = []
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    await act('go_to_page', { page: 0 })
+    await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
+    const mk = async (label) => {
+      const sc = await act('create_scope', { label, productType: 'panels', specifications: { panelWidth: '2', panelWidthUnit: 'ft', panelLength: '4', panelLengthUnit: 'ft' } })
+      return sc.scopeId
+    }
+    const a = await mk('LAY-A'), b = await mk('LAY-B')
+    if (typeof a !== 'string' || typeof b !== 'string') return ['scope-layout: could not add scopes']
+    await act('create_markup', { kind: 'area', scopeId: a, rings: [[{ x: 0.3, y: 0.3 }, { x: 0.5, y: 0.3 }, { x: 0.5, y: 0.5 }, { x: 0.3, y: 0.5 }]] })
+    await act('set_scope_direction', { scopeId: a, x1: 0.3, y1: 0.3, x2: 0.5, y2: 0.3 })
+    await act('update_scope', { scopeId: a, specifications: { layoutPatternStart: 'automatic', layoutPerArea: 'true', layoutShowSeams: 'false' } })
+    const pa = await act('get_pattern', { scopeId: a }), pb = await act('get_pattern', { scopeId: b })
+    if (pa.layoutSettings?.patternStart !== 'automatic' || pa.layoutSettings?.showSeams !== false) problems.push(`scope-layout: LAY-A did not keep its own settings: ${JSON.stringify(pa.layoutSettings).slice(0, 200)}`)
+    if (pb.layoutSettings?.patternStart !== 'top-left' || pb.layoutSettings?.showSeams !== true) problems.push(`scope-layout: LAY-B took LAY-A's settings: ${JSON.stringify(pb.layoutSettings).slice(0, 200)}`)
+    await act('set_active_scope', { scopeId: a })
+    await page.waitForTimeout(800)
+    const prior = await page.locator('nav.crumbs .crumb.current').first().textContent().catch(() => null)
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    await page.locator('button.es-row', { hasText: 'LAY-A' }).first().click()
+    await page.waitForTimeout(800)
+    const setup = page.getByRole('button', { name: /^Setup/ }).first()
+    if (await setup.count() > 0 && await page.locator('#scope-pattern-start').count() === 0) await setup.click()
+    await page.waitForTimeout(500)
+    for (const id of ['#scope-pattern-start', '#scope-per-area', '#scope-layoutShowOverflow', '#scope-layoutShowRails', '#scope-layoutShowTrim', '#scope-layoutShowSeams']) {
+      if (await page.locator(id).count() === 0) problems.push(`scope-layout: Setup has no ${id}`)
+    }
+    if (await page.locator('#scope-layoutShowSeams').getAttribute('aria-checked').catch(() => null) !== 'false') problems.push('scope-layout: Seams switch does not show the scope\'s Off')
+    for (const p of await inspect(page)) problems.push(`scope-layout: ${p}`)
+    await page.locator('#scope-layoutShowSeams').scrollIntoViewIfNeeded().catch(() => {})
+    await page.mouse.move(5, 5)
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}scope-layout-setup.png`) })
     if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
     await page.waitForTimeout(300)
     if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()

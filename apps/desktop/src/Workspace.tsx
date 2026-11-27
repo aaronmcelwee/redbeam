@@ -70,6 +70,7 @@ import { loadNoteStyles, saveNoteStyles, type NoteStyles } from './tools/noteSty
 import { NoteStrip, type NotePatch } from './shell/NoteStrip.js'
 import { SEED_SCOPES } from './seed.js'
 import { PageStrip } from './pages/PageStrip.js'
+import { isDrawingColors } from './drawingColors.js'
 import './shell/shell.css'
 import {
   DocumentTabStrip, FileList, Sidebar, SidebarTabs, TitleBar,
@@ -208,8 +209,9 @@ import { reportForAgent, suggestForAgent, whatsNewForAgent } from './agents/appW
 import { APP_VERSION } from './update/updates.js'
 import { UpdateChip } from './update/UpdateChip.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Lightbulb, Sparkles } from './shell/icons.js'
+import { defaultCornerOf, LAYOUT_KEYS, scopeLayout } from './layout/scopeLayout.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
-import { SettingsStore, browserStorage } from './settings/store.js'
+import { SettingsStore, browserStorage, restoreFromFile as restoreSettingsFromFile } from './settings/store.js'
 import { provideNames, signal } from './signals/install.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -1065,7 +1067,14 @@ export default function Workspace({
   }, [])
   /** The drawing as it is on screen, for the report's picture. */
   const captureView = useCallback(
-    () => (rasterRef.current === null ? null : captureStage([rasterRef.current, overlayRef.current])),
+    () => {
+      if (rasterRef.current === null) return null
+      const el = stageRef.current
+      const ground = el === null ? '' : getComputedStyle(el).getPropertyValue('--rb-canvas').trim()
+      return ground === ''
+        ? captureStage([rasterRef.current, overlayRef.current])
+        : captureStage([rasterRef.current, overlayRef.current], 1600, ground)
+    },
     [],
   )
 
@@ -1118,6 +1127,17 @@ export default function Workspace({
     setOpenScopeId(id)
   }, [only])
   useEffect(() => settings.subscribe(setPrefs), [settings])
+  /*
+   * Keep this window's settings in step with every other window's, and bring
+   * back the copy on disk if the webview lost the last write (an update ends
+   * the process to install). See settings/store.ts.
+   */
+  useEffect(() => {
+    const unwatch = settings.watch()
+    let live = true
+    void restoreSettingsFromFile().then((restored) => { if (restored && live) settings.reload() })
+    return () => { live = false; unwatch() }
+  }, [settings])
 
   /**
    * Derived, not duplicated. Holding a separate `snapOn` state seeded from the
@@ -1152,19 +1172,18 @@ export default function Workspace({
   const drawLayoutsRef = useRef<(oc: CanvasRenderingContext2D, view: Viewport, here: string, pageWidth: number, pageHeight: number, feetPerPoint: number) => void>(() => {})
   drawLayoutsRef.current = (oc, view, here, pageWidth, pageHeight, feetPerPoint) => {
     for (const entry of piecesRef.current) {
+      const look = scopeLayout(entry.scope.specifications, prefsRef.current)
       const opts = {
         color: entry.scope.color,
         pageWidth: pageWidth,
         pageHeight: pageHeight,
-        // What to draw is a global reading preference, not a property of a
-        // scope: waste and coverage are two different questions asked of
-        // every scope, not two kinds of scope.
-        showOverflow: prefsRef.current['takeoff.layoutOverflow'] === true,
-        // The same preference, spelled the way the panel path names it.
-        showFullCells: prefsRef.current['takeoff.layoutOverflow'] === true,
-        showRails: prefsRef.current['takeoff.layoutRails'] !== false,
-        showTrim: prefsRef.current['takeoff.layoutTrim'] !== false,
-        showSeams: prefsRef.current['takeoff.layoutSeams'] !== false,
+        // What to draw is the scope's own setting (Aaron, 2026-11-27).
+        showOverflow: look.showOverflow,
+        // The same setting, spelled the way the panel path names it.
+        showFullCells: look.showOverflow,
+        showRails: look.showRails,
+        showTrim: look.showTrim,
+        showSeams: look.showSeams,
         lineWeight: strokeScaleFor(view.zoom),
         // The face width, in this sheet's points, when the scope states one.
         ...(entry.result.componentWidthFeet !== undefined && feetPerPoint > 0
@@ -1500,7 +1519,11 @@ export default function Workspace({
     if (zoomShownTimer.current !== null) clearTimeout(zoomShownTimer.current)
     zoomShownTimer.current = setTimeout(() => { zoomShownTimer.current = null; setZoomShown(viewRef.current.zoom) }, 100)
     const t0 = performance.now()
-    const bg = surround()
+    // With drawing colours on, the surround comes from the stage behind the
+    // canvas, so the CSS filter recolours the sheet and nothing else.
+    const bg = prefsRef.current['viewer.drawingColors'] !== undefined && prefsRef.current['viewer.drawingColors'] !== 'normal'
+      ? 'transparent'
+      : surround()
     if (bg === undefined) v.paint(viewRef.current)
     else v.paint(viewRef.current, bg)
     const oc = overlayRef.current?.getContext('2d')
@@ -3039,12 +3062,11 @@ export default function Workspace({
         // AREA beats PAGE beats SCOPE. See `directionFrom` in the domain.
         pageDirections: pageDirectionsFrom(s.specifications),
         areaDirections: areaDirectionsFrom(s.specifications),
-        perAreaOrigin: prefs['takeoff.perAreaOrigin'] === true,
+        // Where areas start is the scope's own setting (Aaron, 2026-11-27).
+        perAreaOrigin: scopeLayout(s.specifications, prefs).perAreaOrigin,
         // A drawn edge within 1" of a panel line is on it (NOIC CL115).
         edgeSnapFeet: 1 / 12,
-        defaultPatternCorner: isAreaCorner(prefs['takeoff.patternStart'])
-          ? prefs['takeoff.patternStart']
-          : prefs['takeoff.patternStart'] === 'automatic' ? null : 'top-left',
+        defaultPatternCorner: defaultCornerOf(scopeLayout(s.specifications, prefs)),
         pageSize,
         calibrations,
         pageSizes: pageBoxes,
@@ -6907,23 +6929,31 @@ export default function Workspace({
    * always wins, and an area with none starts at the corner `patternStart`
    * names. The per-area switch only matters when that is automatic.
    */
-  const layoutSettingsAnswer = (): Record<string, unknown> => {
-    const start = prefsRef.current['takeoff.patternStart'] ?? 'top-left'
+  const layoutSettingsAnswer = (sc?: Scope): Record<string, unknown> => {
+    if (sc === undefined) {
+      // Project-wide: each scope's own settings.
+      return {
+        layoutPreview: prefsRef.current['takeoff.layoutPreview'] === true,
+        perScope: scopesRef.current.map((s) => ({ scopeId: s.id, label: s.label, ...scopeLayout(s.specifications, prefsRef.current) })),
+        note: `Each scope sets these itself: update_scope {specifications: {${Object.values(LAYOUT_KEYS).join(', ')}}}. redbeam_get_pattern explains one scope's starts.`,
+      }
+    }
+    const look = scopeLayout(sc.specifications, prefsRef.current)
+    const start = look.patternStart
     const automatic = start === 'automatic'
-    const perArea = prefsRef.current['takeoff.perAreaOrigin'] === true
-    let placed = 0
-    for (const sc of scopesRef.current) placed += areaOriginsFrom(sc.specifications).size
+    const perArea = look.perAreaOrigin
+    const placed = areaOriginsFrom(sc.specifications).size
     return {
-      'takeoff.patternStart': start,
-      'takeoff.perAreaOrigin': perArea,
-      'takeoff.layoutPreview': prefsRef.current['takeoff.layoutPreview'] === true,
+      ...look,
+      keys: LAYOUT_KEYS,
+      layoutPreview: prefsRef.current['takeoff.layoutPreview'] === true,
       areasWithPlacedStart: placed,
       edgeSnap: '1" (an area edge within 1" of a module line is on it; a pattern recipe can set its own edgeSnap)',
       howStartsAreChosen: [
         'An area with a start point placed on it (set_pattern_origin, or the Origin tool) starts there, whatever the settings say.',
         automatic
           ? `Other areas: automatic. ${perArea ? 'Panels start a whole panel at each area\'s own edge (perAreaOrigin on).' : 'Panels share one grid across the sheet (perAreaOrigin off).'} Runs pick the phase with the fewest pieces per area either way.`
-          : `Other areas start at their own ${String(start)} corner, each on its own; perAreaOrigin has no effect unless patternStart is automatic.`,
+          : `Other areas start at their own ${String(start)} corner, each on its own; the per-area switch (${LAYOUT_KEYS.perAreaOrigin}) has no effect unless ${LAYOUT_KEYS.patternStart} is automatic.`,
       ],
     }
   }
@@ -7345,6 +7375,10 @@ export default function Workspace({
       out.height = raster.height
       const g = out.getContext('2d')
       if (!g) return null
+      // The raster is see-through around the sheet while drawing colours are
+      // on (the stage paints the surround), so the picture gets it here.
+      const ground = surround()
+      if (ground !== undefined) { g.fillStyle = ground; g.fillRect(0, 0, out.width, out.height) }
       g.drawImage(raster, 0, 0)
       if (overlay && params['overlay'] !== false) g.drawImage(overlay, 0, 0)
       return out.toDataURL('image/png')
@@ -8135,7 +8169,7 @@ export default function Workspace({
             needsAttention: bom.needsAttention,
             // The bill is project-wide; so is this.
             calibrated: projectCalibrations.size > 0,
-            // Settings that change the counts (P1-6); set_setting changes them.
+            // Settings that change the counts (P1-6); each scope sets its own.
             layoutSettings: layoutSettingsAnswer(),
           }
         }
@@ -9541,7 +9575,7 @@ export default function Workspace({
               const read = await agentGridIn(m, params['angle'])
               if ('error' in read) return read
               const fromCorner = isAreaCorner(corner) ? corner
-                : isAreaCorner(prefs['takeoff.patternStart']) ? prefs['takeoff.patternStart'] : 'top-left'
+                : defaultCornerOf(scopeLayout(sc.specifications, prefs)) ?? 'top-left'
               const to = pt ?? areaCornerPoint(m.rings, fromCorner, pageBox)
               const hit = to === null ? null : nearestCrossing(read.grid, to, pageBox)
               if (hit === null) return { error: `no drawn grid crossing inside ${m.id}; redbeam_detect_grid shows what lines were found` }
@@ -9640,6 +9674,7 @@ export default function Workspace({
             if (box === undefined || box.width === 0) continue
             used.set(`${e.pageId}:${used.size}`, { x: e.layout.origin.x / box.width, y: e.layout.origin.y / box.height })
           }
+          const look = scopeLayout(sc.specifications, prefsRef.current)
           const areas = docMarkupsRef.current.filter((m) => m.scopeId === sc.id && m.kind === 'area').map((m) => {
             const ad = areaDirs.get(m.id), pd = pageDirs.get(m.pageId)
             const o = origins.get(m.id)
@@ -9648,9 +9683,9 @@ export default function Workspace({
               pageId: m.pageId,
               direction: ad !== undefined ? { source: 'area', ...dirOut(ad)! } : pd !== undefined ? { source: 'page', ...dirOut(pd)! } : scopeDirectionOf(specs) !== null ? { source: 'scope', ...dirOut(scopeDirectionOf(specs))! } : null,
               origin: o !== undefined ? { source: 'placed', x: o.x, y: o.y }
-                : isAreaCorner(prefsRef.current['takeoff.patternStart'] ?? 'top-left')
-                  ? { source: 'corner', corner: prefsRef.current['takeoff.patternStart'] ?? 'top-left', setting: 'takeoff.patternStart' }
-                  : { source: 'automatic', perAreaOrigin: prefsRef.current['takeoff.perAreaOrigin'] === true },
+                : look.patternStart !== 'automatic'
+                  ? { source: 'corner', corner: look.patternStart, setting: LAYOUT_KEYS.patternStart }
+                  : { source: 'automatic', perAreaOrigin: look.perAreaOrigin },
             }
           })
           return {
@@ -9660,8 +9695,8 @@ export default function Workspace({
             pageDirections: Object.fromEntries([...pageDirs].map(([k, d]) => [k, dirOut(d)])),
             areas,
             layoutOrigins: [...used.values()],
-            layoutSettings: layoutSettingsAnswer(),
-            note: 'direction precedence: area, then page, then scope. Start precedence: a placed start, then the patternStart corner (each area on its own), then automatic.',
+            layoutSettings: layoutSettingsAnswer(sc),
+            note: `direction precedence: area, then page, then scope. Start precedence: a placed start, then the scope's ${LAYOUT_KEYS.patternStart} corner (each area on its own), then automatic.`,
           }
         }
         /*
@@ -13641,7 +13676,7 @@ export default function Workspace({
           {/* Size comes from useStageSize, never from width/height props: the
               backing store must be device pixels while the CSS box is layout
               pixels, and a React-managed `width` would fight that. */}
-          <canvas ref={rasterRef} />
+          <canvas ref={rasterRef} className="rb-raster" />
           <canvas ref={overlayRef} />
           {light && quickView !== undefined && (
             <AgentCursors ref={cursorsRef} file={quickView.file} page={pageIndex} place={placeAgentPoint} />
@@ -14293,6 +14328,10 @@ export default function Workspace({
               onZoom={setZoom}
               onZoomBox={armZoomBox}
               onRotate={(d) => { void rotateSheet(d) }}
+              drawingColors={{
+                value: isDrawingColors(prefs['viewer.drawingColors']) ? prefs['viewer.drawingColors'] : 'normal',
+                onPick: (v) => { settings.set('viewer.drawingColors', v) },
+              }}
               onFitPage={() => applyFit('page')}
               onFitWidth={() => applyFit('width')}
             />
@@ -14400,6 +14439,7 @@ export default function Workspace({
         })()}
         layoutOn={layoutOn}
         onToggleLayout={setLayoutOn}
+        layoutDefaults={prefs}
         {...(commitState !== undefined ? { commit: commitState } : {})}
         onTakeOff={(id) => { setActiveScope(id); beginTakeoff(true); setTool(firstToolFor(id)) }}
         takingOff={takeoff && openScopeId !== null && activeScope === openScopeId}

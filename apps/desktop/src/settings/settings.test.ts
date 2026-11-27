@@ -11,6 +11,13 @@ import { SettingsStore, memoryStorage, load, type SettingsStorage } from './stor
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SRC = join(HERE, '..')
 
+/** The stored object without its write stamp. */
+function settingsOnly(text: string): Record<string, unknown> {
+  const o = JSON.parse(text) as Record<string, unknown>
+  delete o['$savedAt']
+  return o
+}
+
 describe('registry', () => {
   it('has a unique, dotted, category-prefixed id for every setting', () => {
     const ids = SETTINGS.map((s) => s.id)
@@ -213,7 +220,7 @@ describe('load', () => {
     }
     const s = SettingsStore.open(storage)
     s.set('takeoff.snapEnabled', false)
-    expect(Object.keys(JSON.parse(written))).toEqual(['takeoff.snapEnabled'])
+    expect(Object.keys(settingsOnly(written))).toEqual(['takeoff.snapEnabled'])
   })
 })
 
@@ -247,7 +254,7 @@ describe('SettingsStore', () => {
     const storage: SettingsStorage = { read: () => null, write: (t) => { written = t } }
     const s = SettingsStore.open(storage)
     s.set('takeoff.snapEnabled', false)
-    const parsed = JSON.parse(written)
+    const parsed = settingsOnly(written)
     expect(Object.keys(parsed)).toEqual(['takeoff.snapEnabled'])
   })
 
@@ -257,7 +264,7 @@ describe('SettingsStore', () => {
     const s = SettingsStore.open(storage)
     s.set('takeoff.snapEnabled', false)
     s.set('takeoff.snapEnabled', true)
-    expect(JSON.parse(written)).toEqual({})
+    expect(settingsOnly(written)).toEqual({})
   })
 
   it('resets one category and leaves the others alone', () => {
