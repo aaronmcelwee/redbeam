@@ -65,8 +65,9 @@ import { clickMarkupRow } from './markupSelection.js'
 import { saveOutcomeText, saveReportFile } from '../bom/exports.js'
 import { openFor, scopeStage, summaryToTsv, type SummaryLine } from './scopeSummary.js'
 import { PatternCard, type PatternControls } from './PatternCard.js'
+import { PrimitiveCard } from './PrimitiveCard.js'
 import { LAYOUT_KEYS, PATTERN_STARTS, scopeLayout, type ScopeLayout } from '../layout/scopeLayout.js'
-import { productLabelFor, readPatternRecipe, scopeProductLabel } from '@redbeam/domain'
+import { productLabelFor, readPatternRecipe, PRIMITIVE_KEY, scopeProductLabel } from '@redbeam/domain'
 
 /**
  * What a scope counts, in the order an estimator meets them: most ceiling
@@ -1637,6 +1638,20 @@ function partsView(
      */
     const hardware = new Set((pieces.layers ?? []).filter((l) => l.kind === 'hardware').map((l) => l.name))
     for (const item of pieces.quantities) {
+      /*
+       * A primitive's cut list (2026-11-27): one row per SKU, its linear feet
+       * beside it (the length is in the SKU), and the totals as one row.
+       */
+      if (item.itemKey === 'pieces.total') {
+        const lf = pieces.quantities.find((x) => x.itemKey === 'pieces.lf')
+        view.primary.push({ itemKey: item.itemKey, label: 'Total', quantity: item.quantity, unit: 'EA', ...(lf !== undefined ? { chip: `${fmt(Math.round(lf.quantity))} LF` } : {}) })
+        continue
+      }
+      if (item.itemKey === 'pieces.lf') continue
+      if (item.lengthInches !== undefined) {
+        view.primary.push({ itemKey: item.itemKey, label: item.label, quantity: item.quantity, unit: item.unit, ...(item.linearFeet !== undefined ? { chip: `${fmt(Math.round(item.linearFeet * 10) / 10)} LF` } : {}) })
+        continue
+      }
       if (item.detail === true) {
         const parent = view.primary[view.primary.length - 1]
         if (parent !== undefined && item.unit === 'EA') parent.detail = [parent.detail, `${fmt(item.quantity)} ${item.label.split(', ').pop()}`].filter(Boolean).join(' · ')
@@ -2037,7 +2052,10 @@ function SetupGrid({
           </span>
         </>
       )}
-      {isPattern && patterns !== undefined && (
+      {isPattern && patterns !== undefined && scope.specifications[PRIMITIVE_KEY] != null && (
+        <PrimitiveCard scopeId={scope.id} specs={scope.specifications} pieces={pieces} controls={patterns.primitive} />
+      )}
+      {isPattern && patterns !== undefined && scope.specifications[PRIMITIVE_KEY] == null && (
         <PatternCard
           scopeId={scope.id}
           scopeColor={scope.color}

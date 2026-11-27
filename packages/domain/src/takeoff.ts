@@ -37,8 +37,9 @@ import {
   measureToFeet, missingRequiredMeasures, readGranularity,
   readProductType, type ProductType, type Specifications,
 } from './specs.js'
-import { checkPatternRecipe, readPatternRecipe, PATTERN_RECIPE_KEY, type ResolvedRecipe } from './patternRecipe.js'
+import { checkPatternRecipe, readPatternRecipe, slugOf, PATTERN_RECIPE_KEY, type ResolvedRecipe } from './patternRecipe.js'
 import { layoutPattern, type BuiltInGeometry, type PatternShape } from './patternEngine.js'
+import { layoutPrimitive, readScopePrimitive, PRIMITIVE_KEY, type PrimitiveLayout } from './primitives.js'
 import { cassetteQuantities, layoutCassettes, readCassetteInputs, type CassetteLayout } from './cassettes.js'
 
 /**
@@ -87,6 +88,9 @@ export interface PieceQuantity {
   layer?: string
   /** A breakdown of the line above it (whole / cut); folded in the sidebar, kept in the BOM. */
   detail?: boolean
+  /** A finished piece (stored primitives): its length in inches, and the line's linear feet. */
+  lengthInches?: number
+  linearFeet?: number
 }
 
 export interface PieceResult {
@@ -128,6 +132,8 @@ export interface PieceResult {
   shapes?: PatternShape[]
   /** The product's own name when it is not the type's: a pattern's name. */
   productLabel?: string
+  /** A stored primitive's layout: the cut list, per-area sizes and overrides, warnings. */
+  primitive?: Omit<PrimitiveLayout, 'shapes'> & { id: string; version: number; name: string; status: 'draft' | 'approved' }
   /** A pattern's layers, in order, for the layer list and the preview legend. */
   layers?: Array<{ id: string; name: string; kind: string; draft: boolean }>
   /**
@@ -362,6 +368,8 @@ interface GroupedRegion {
   directionLine: Segment
   /** A placed pattern origin in PDF points. Absent means the automatic seed. */
   origin?: Point
+  /** The area this group was made from (every area is its own group). */
+  markupId: string
 }
 
 /**
@@ -513,7 +521,7 @@ function groupRegions(
     const existing = byKey.get(key)
     if (existing) existing.region.push(...rings)
     else byKey.set(key, {
-      pageId: m.pageId, region: rings, calibration: pageCal, directionLine,
+      pageId: m.pageId, region: rings, calibration: pageCal, directionLine, markupId: m.id,
       ...(origin !== undefined ? { origin } : {}),
     })
   }
@@ -830,6 +838,9 @@ export function calculatePattern(
 ): PieceResult {
   const specs = scope.specifications as Specifications
   const empty = { productType: 'custom_pattern' as const, quantities: [], cells: [], runs: [] }
+  if (recipeOverride === undefined && specs[PRIMITIVE_KEY] !== undefined && specs[PRIMITIVE_KEY] !== null) {
+    return calculatePrimitive(scope, markups, cal, opts)
+  }
   const raw = recipeOverride ?? readPatternRecipe(specs)
   if (raw === null) {
     return { ...empty, blockers: ['a pattern: pick one from the library, or have an agent design one (redbeam_save_pattern)'] }
@@ -883,11 +894,28 @@ export function calculatePattern(
   const laid = layoutPattern(resolved, groups, geometry)
   if (laid.blockers.length > 0) return { ...labelled, blockers: laid.blockers }
 
-  const quantities: PieceQuantity[] = []
+  const listed: PieceQuantity[] = []
   for (const layer of resolved.layers) {
     const fromBuiltIn = builtInQuantities.get(layer.id)
-    if (fromBuiltIn !== undefined) { quantities.push(...fromBuiltIn); continue }
-    quantities.push(...laid.quantities.filter((q) => q.itemKey.startsWith(`${layer.id}.`)))
+    if (fromBuiltIn !== undefined) { listed.push(...fromBuiltIn); continue }
+    listed.push(...laid.quantities.filter((q) => q.itemKey.startsWith(`${layer.id}.`)))
+  }
+  /*
+   * Layers with the same name are one product to the estimator (700 Bay,
+   * 2026-11-27: eight "Mains E-W" layers listed eight blocks). Their lines
+   * with the same label and unit are summed into the first one's line;
+   * percentages are not summed. Hardware items stay apart: hardwareKeys.
+   */
+  const quantities: PieceQuantity[] = []
+  const hardwareNames = new Set(resolved.layers.filter((l) => l.kind === 'hardware').map((l) => l.name))
+  const merged = new Map<string, PieceQuantity>()
+  for (const q of listed) {
+    const k = `${q.layer ?? ''}\u0000${q.label}\u0000${q.unit}\u0000${q.detail === true ? 1 : 0}`
+    const prior = merged.get(k)
+    if (prior !== undefined && q.unit !== '%' && !hardwareNames.has(q.layer ?? '')) { prior.quantity = Math.round((prior.quantity + q.quantity) * 1000) / 1000; continue }
+    const copy = { ...q }
+    if (prior === undefined) merged.set(k, copy)
+    quantities.push(copy)
   }
   const draft = resolved.draft
   return {
@@ -899,5 +927,57 @@ export function calculatePattern(
     quantities,
     confidence: draft ? 'unverified' : 'verified',
     ...(draft ? { confidenceNote: `${recipe.name} is a draft pattern: the counts follow its recipe, but nobody has approved it yet` } : {}),
+  }
+}
+
+/**
+ * A stored primitive (primitives.ts): its generator lays every area out on
+ * its own, with that area's parameter overrides, and the summary is the cut
+ * list. A primitive needs no pattern direction: mainsDirection, else the
+ * scope's direction, else left to right.
+ */
+export function calculatePrimitive(scope: Scope, markups: readonly Markup[], cal: Calibration, opts: PieceOptions): PieceResult {
+  const specs = scope.specifications as Specifications
+  const empty = { productType: 'custom_pattern' as const, quantities: [], cells: [], runs: [] }
+  const prim = readScopePrimitive(specs)
+  if (prim === null) return { ...empty, blockers: ['a primitive'] }
+  if ('error' in prim) return { ...empty, blockers: [prim.error] }
+  const def = prim.definition
+  const labelled = {
+    ...empty, productLabel: def.name,
+    layers: [{ id: 'pieces', name: 'Pieces', kind: 'primitive', draft: def.status === 'draft' }, { id: 'hardware', name: 'Hardware', kind: 'hardware', draft: def.status === 'draft' }],
+  }
+  const mine = markups.filter((m) => m.scopeId === scope.id)
+  const pageDirections = opts.pageDirections ?? pageDirectionsFrom(specs)
+  const areaDirections = opts.areaDirections ?? areaDirectionsFrom(specs)
+  const stated = !(opts.scopeDirection == null && pageDirections.size === 0 && areaDirections.size === 0)
+  const fallback: NormalizedDirection = [{ x: 0, y: 0.5 }, { x: 1, y: 0.5 }]
+  const withDirections: PieceOptions = { ...opts, pageDirections, areaDirections, scopeDirection: opts.scopeDirection ?? fallback }
+  const grouped = groupRegions(mine, cal, withDirections)
+  if (grouped.length === 0) return { ...labelled, blockers: noGroups(mine) }
+  const groups = grouped.map((g) => ({
+    pageId: g.pageId, markupId: g.markupId, region: g.region, feetPerPoint: g.calibration.feetPerPoint, directionStated: stated,
+    direction: { x: g.directionLine.b.x - g.directionLine.a.x, y: g.directionLine.b.y - g.directionLine.a.y },
+  }))
+  const laid = layoutPrimitive(prim, groups)
+  const { shapes, ...summary } = laid
+  const primitive = { ...summary, id: def.id, version: def.primitiveVersion, name: def.name, status: def.status }
+  if (laid.blockers.length > 0) return { ...labelled, blockers: laid.blockers, primitive }
+  const quantities: PieceQuantity[] = laid.skus.map((s) => ({
+    itemKey: `pieces.${slugOf(s.sku)}`, label: s.sku, quantity: s.count, unit: 'EA', layer: 'Pieces',
+    lengthInches: s.lengthInches, linearFeet: s.linearFeet,
+  }))
+  quantities.push({ itemKey: 'pieces.total', label: 'Pieces, total', quantity: laid.totalPieces, unit: 'EA', layer: 'Pieces', detail: true })
+  quantities.push({ itemKey: 'pieces.lf', label: 'Pieces, linear feet', quantity: laid.totalLinearFeet, unit: 'LF', layer: 'Pieces', detail: true })
+  for (const h of laid.hardware) quantities.push({ itemKey: `hardware.${h.key}`, label: h.label, quantity: h.qty, unit: h.unit ?? 'EA', layer: 'Hardware' })
+  const draft = def.status === 'draft'
+  return {
+    ...labelled,
+    blockers: [],
+    shapes: shapes.map((sh) => ({ pageId: sh.pageId, layer: sh.family === 'Frame main' || sh.family === 'Frame end' ? 'frame' : 'pieces', layerIndex: sh.family.startsWith('Frame') ? 0 : sh.family === 'Main' ? 1 : 2, kind: 'polygon' as const, points: sh.points, cut: false })),
+    quantities,
+    primitive,
+    confidence: draft ? 'unverified' : 'verified',
+    ...(draft ? { confidenceNote: `${def.name} is a draft primitive: the counts follow its parameters, but nobody has approved it yet` } : {}),
   }
 }

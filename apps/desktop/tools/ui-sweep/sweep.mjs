@@ -672,6 +672,84 @@ const STEPS = [
     await page.waitForTimeout(300)
     return problems
   }],
+  ['stored-primitive', async (page) => {
+    /*
+     * Stored primitives (2026-11-27): an agent saves Parallel Open Cell as a
+     * draft, lays one scope over four islands with island 4's own cross
+     * positions, and the summary is the 700 Bay cut list. The person
+     * approves it once, in Setup, and the library then lists it approved.
+     */
+    const problems = []
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    await act('set_setting', { setting: 'beta.customPatterns', value: true })
+    await act('go_to_page', { page: 0 })
+    await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
+    const about = await act('describe_primitive', {})
+    const saved = await act('save_primitive', { definition: about.example })
+    if (saved.status !== 'draft') return [`stored-primitive: save_primitive did not save a draft: ${JSON.stringify(saved).slice(0, 200)}`]
+    const bad = await act('save_primitive', { definition: { ...about.example, parameters: { maxPeice: 120 } } })
+    if (!/parameters\.maxPeice/.test(String(bad.error))) problems.push(`stored-primitive: a misspelt parameter should be named in the error, said ${JSON.stringify(bad).slice(0, 200)}`)
+    const scope = await act('create_scope', {
+      label: 'SC-1', primitive: saved.primitiveId,
+      parameters: { mainPositions: [8.875, 42.75, 103.25, 135.125], crossPositions: [8.875, 40.75, 108, 175.25, 207.125] },
+    })
+    if (typeof scope.scopeId !== 'string') return [`stored-primitive: create_scope with a primitive failed: ${JSON.stringify(scope).slice(0, 200)}`]
+    // Four islands drawn roughly; their exact outside sizes are stated per area.
+    const box = (x, y, w, h) => [[{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }]]
+    const ids = []
+    // At 1/8" = 1'-0" on this sheet: 18' is 0.1324 of its width, 12' is 0.1364 of its height.
+    for (const [x, y, w] of [[0.12, 0.2, 0.1324], [0.4, 0.2, 0.1324], [0.12, 0.5, 0.1324], [0.4, 0.5, 0.1103]]) {
+      const m = await act('create_markup', { kind: 'area', scopeId: scope.scopeId, rings: box(x, y, w, 0.1364) })
+      ids.push(m.id ?? m.markupId)
+    }
+    const size = (l) => ({ length: l, width: 144 })
+    const upd = await act('update_scope', {
+      scopeId: scope.scopeId,
+      areaParameters: {
+        [ids[0]]: size(216), [ids[1]]: size(216), [ids[2]]: size(216),
+        [ids[3]]: { ...size(180), crossPositions: [8.875, 40.75, 90, 139.25, 171.125] },
+      },
+    })
+    if (upd.error !== undefined) problems.push(`stored-primitive: areaParameters refused: ${JSON.stringify(upd).slice(0, 300)}`)
+    await page.waitForTimeout(900)
+    const bom = await act('get_bom', { scopeId: scope.scopeId })
+    const skus = Object.fromEntries((bom.lines ?? []).filter((l) => l.lengthInches !== undefined).map((l) => [l.label, l.quantity]))
+    const want = { "Frame main 9'-0 mitre 1 end": 12, "Frame main 7'-6 mitre 1 end": 4, "Frame end 6'-0 mitre 1 end": 16, "Main 8'-10": 24, "Main 7'-4": 8, 'Cross 58-1/2in': 20, 'Cross 31-7/8in': 20, 'Cross 29-7/8in': 20, 'Cross 5-7/8in': 40 }
+    if (JSON.stringify(skus) !== JSON.stringify(want)) problems.push(`stored-primitive: the cut list is not 700 Bay's: ${JSON.stringify(skus)}`)
+    if ((bom.lines ?? []).some((l) => /, whole$/.test(l.label))) problems.push('stored-primitive: the BOM repeats SKUs as ", whole" lines')
+    await act('set_active_scope', { scopeId: scope.scopeId })
+    await page.waitForTimeout(900)
+    await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-sheet.png`) })
+    const prior = await page.locator('nav.crumbs .crumb.current').first().textContent().catch(() => null)
+    const root = page.locator('nav.crumbs button').first()
+    if (await root.count() > 0) await root.click()
+    await page.waitForTimeout(300)
+    await page.locator('.es-row', { hasText: 'SC-1' }).first().click()
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-parts.png`) })
+    const setup = page.getByRole('button', { name: /^Setup/ }).first()
+    if (await setup.getAttribute('aria-expanded') !== 'true') await setup.click()
+    await page.waitForTimeout(500)
+    if (await page.locator('.pm-params').count() === 0) problems.push('stored-primitive: the scope\'s Setup shows no primitive card')
+    for (const p of await inspect(page)) problems.push(`stored-primitive: ${p}`)
+    await page.evaluate(() => document.querySelector('.pt-wrap')?.scrollIntoView({ block: 'end' }))
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-setup.png`) })
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}stored-primitive-card.png`) })
+    await page.getByRole('button', { name: 'Approve primitive' }).click()
+    await page.waitForTimeout(900)
+    const listed = await act('list_primitives', {})
+    const entry = (listed.library ?? []).find((e) => e.primitiveId === saved.primitiveId)
+    if (entry?.status !== 'approved') problems.push(`stored-primitive: after Approve the library should list it approved: ${JSON.stringify(listed.library).slice(0, 200)}`)
+    const after = await act('get_bom', { scopeId: scope.scopeId })
+    if ((after.lines ?? []).some((l) => l.confidence !== 'verified')) problems.push('stored-primitive: an approved primitive\'s lines should be verified')
+    await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}stored-primitive-card-approved.png`) })
+    if (await page.locator('nav.crumbs button').count() > 0) await page.locator('nav.crumbs button').first().click()
+    await page.waitForTimeout(300)
+    if (prior !== null) await page.locator('.es-row', { hasText: prior }).first().click()
+    await page.waitForTimeout(300)
+    return problems
+  }],
   /*
    * Clicking a markup in a scope's list, zoomed far in, has to land ON the
    * markup. It used to show the sheet's top-left corner at that zoom (Aaron,

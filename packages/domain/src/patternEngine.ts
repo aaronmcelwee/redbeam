@@ -353,6 +353,7 @@ export function layoutPattern(
     const signs = ringSigns(region)
     const b = bounds(region)
     if (b === null) continue
+    const region0 = region, b0 = b
     areaSquareFeet += regionArea(region)
     for (const acc of accs.values()) { acc.runs = []; acc.polys = [] }
 
@@ -415,6 +416,11 @@ export function layoutPattern(
         continue
       }
       if (layer.kind === 'members') {
+        // Members across the pattern: lay them in a frame turned a quarter, then turn back (as lines do).
+        const turned = layer.run === 'across'
+        const turn = (p: Point): Point => (turned ? { x: p.y, y: p.x } : p)
+        const region = turned ? region0.map((r) => r.map(turn)) : region0
+        const b = turned ? { minX: b0.minY, maxX: b0.maxY, minY: b0.minX, maxY: b0.maxX } : b0
         const c = {
           minX: Math.min(...layer.members.map((m) => m.along)), maxX: Math.max(...layer.members.map((m) => m.along + m.length)),
           minY: Math.min(...layer.members.map((m) => m.across)), maxY: Math.max(...layer.members.map((m) => m.across)),
@@ -437,7 +443,7 @@ export function layoutPattern(
               touched = true
               // Within the snap of whole is whole, and is ordered at its full length.
               const whole = m.length - (z - a) <= Math.max(1e-6, snap)
-              const piece: RunPiece = { a: { x: a, y }, b: { x: z, y }, length: whole ? m.length : z - a, full: whole }
+              const piece: RunPiece = { a: turn({ x: a, y }), b: turn({ x: z, y }), length: whole ? m.length : z - a, full: whole }
               addRun(acc, layer, piece)
               shape(layer.id, 'segment', [piece.a, piece.b], !piece.full, layer.width)
             }
@@ -496,11 +502,14 @@ export function layoutPattern(
     // Hardware, per group: it needs this group's geometry.
     for (const layer of recipe.layers) {
       if (layer.kind !== 'hardware') continue
-      for (const it of layer.items) {
-        const key = `${layer.id}.${slugOf(it.name)}`
+      const keys = hardwareKeys(layer)
+      layer.items.forEach((it, index) => {
+        const key = keys[index]!
         hardwareLayer.set(key, layer.name)
         const add = (n: number) => hardwareTotals.set(key, (hardwareTotals.get(key) ?? 0) + n)
-        const src = it.of[0] === undefined ? undefined : accs.get(it.of[0])
+        // Every layer named in `of` (700 Bay: one splice item over four member layers).
+        const sources = it.per === 'crossing' ? [] : it.of.map((id) => ({ id, acc: accs.get(id) }))
+        for (const { id: srcId, acc: src } of sources.length > 0 ? sources : [{ id: '', acc: undefined }]) {
         switch (it.per) {
           case 'piece': {
             if (src === undefined) break
@@ -527,7 +536,7 @@ export function layoutPattern(
           }
           case 'joint': {
             if (src === undefined) break
-            add(jointsOf(src, recipe.layers.find((l) => l.id === it.of[0])!) * it.qty)
+            add(jointsOf(src, recipe.layers.find((l) => l.id === srcId)!) * it.qty)
             break
           }
           case 'crossing': {
@@ -557,7 +566,9 @@ export function layoutPattern(
           }
           case 'area': break // from the total area below
         }
-      }
+        if (it.per === 'crossing' || it.per === 'edge' || it.per === 'area') break
+        }
+      })
     }
   }
 
@@ -580,7 +591,8 @@ export function layoutPattern(
         orderedArea += order * t.tileArea
         const k = `${layer.id}.${slugOf(name)}`
         quantities.push({ itemKey: k, label: name, quantity: order, unit: 'EA', layer: layer.name })
-        quantities.push({ itemKey: `${k}.whole`, label: `${name}, whole`, quantity: t.full, unit: 'EA', layer: layer.name, detail: true })
+        // Only when some were cut: with none, "whole" repeats the line above (700 Bay, 2026-11-27).
+        if (cut > 0) quantities.push({ itemKey: `${k}.whole`, label: `${name}, whole`, quantity: t.full, unit: 'EA', layer: layer.name, detail: true })
         quantities.push({ itemKey: `${k}.cut`, label: `${name}, cut at the edge`, quantity: cut, unit: 'EA', layer: layer.name, detail: true })
       }
       if (ordered > 0 && orderedArea > 0) {
@@ -597,10 +609,11 @@ export function layoutPattern(
       continue
     }
     if (layer.kind === 'hardware') {
-      for (const it of layer.items) {
-        const key = `${layer.id}.${slugOf(it.name)}`
+      const keys = hardwareKeys(layer)
+      for (const [index, it] of layer.items.entries()) {
+        const key = keys[index]!
         let q = hardwareTotals.get(key) ?? 0
-        if (it.per === 'module') q = (accs.get(it.of[0] ?? '')?.modules ?? 0) * it.qty
+        if (it.per === 'module') q = it.of.reduce((n, id) => n + (accs.get(id)?.modules ?? 0), 0) * it.qty
         if (it.per === 'area') q = Math.ceil(areaSquareFeet / it.every - 1e-9) * it.qty
         q = it.unit === 'LF' ? r1(q) : roundUpQuantity(q)
         quantities.push({ itemKey: key, label: it.name, quantity: q, unit: it.unit, layer: layer.name })
@@ -608,6 +621,21 @@ export function layoutPattern(
     }
   }
   return { quantities: quantities.filter((q) => q.quantity > 0 || !q.detail), shapes, blockers, areaSquareFeet }
+}
+
+/**
+ * One key per hardware item. Two items with the same name used to share one
+ * key and so each reported the pooled total (700 Bay: 4 x 18 splices instead
+ * of 6 + 6 + 3 + 3); a repeated name now gets its own key.
+ */
+export function hardwareKeys(layer: { id: string; items: ReadonlyArray<{ name: string }> }): string[] {
+  const seen = new Map<string, number>()
+  return layer.items.map((it) => {
+    const base = `${layer.id}.${slugOf(it.name)}`
+    const n = (seen.get(base) ?? 0) + 1
+    seen.set(base, n)
+    return n === 1 ? base : `${base}-${n}`
+  })
 }
 
 function addRun(acc: LayerAcc, layer: ResolvedLayer & ResolvedRunMaterial, piece: RunPiece): void {

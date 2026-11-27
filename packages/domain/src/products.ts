@@ -23,6 +23,7 @@ import { isVerifiedProduct } from './bom.js'
 import {
   BUILT_IN_LAYER_KINDS, checkPatternRecipe, readPatternRecipe, type BuiltInLayerKind, type LayerKind, type PatternRecipe,
 } from './patternRecipe.js'
+import { readScopePrimitive } from './primitives.js'
 import {
   PRODUCT_TYPES, PRODUCT_TYPE_LABEL, editableMeasures, granularityKey, readProductType, requiredMeasures,
   scopeTypeForProduct, type MeasureField, type ProductType, type Specifications,
@@ -97,7 +98,19 @@ export function patternDefinition(raw: unknown): ProductDefinition {
 /** The definition of whatever product a scope is. */
 export function productDefinitionFor(specs: Specifications): ProductDefinition {
   const product = readProductType(specs)
-  if (product === 'custom_pattern') return patternDefinition(readPatternRecipe(specs) ?? {})
+  if (product === 'custom_pattern') {
+    const prim = readScopePrimitive(specs)
+    if (prim !== null && !('error' in prim)) {
+      const d = prim.definition
+      return {
+        productType: 'custom_pattern', id: `primitive:${d.id}`, label: d.name, builtIn: false, measuredAs: 'area',
+        verified: d.status === 'approved', draft: d.status === 'draft',
+        layers: [{ id: 'pieces', name: 'Pieces', kind: 'manual', draft: d.status === 'draft' }],
+        fields: [], required: [],
+      }
+    }
+    return patternDefinition(readPatternRecipe(specs) ?? {})
+  }
   return builtInDefinition(product)
 }
 

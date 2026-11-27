@@ -97,6 +97,8 @@ export interface TilesLayer extends LayerBase {
 
 export interface MembersLayer extends LayerBase {
   kind: 'members'
+  /** Which way the members run: along the pattern (default), or across it (700 Bay: both ways of a grid in one scope). */
+  run?: 'along' | 'across'
   module: PatternModule
   members: MemberSpec[]
   /** Face width, for the drawing. */
@@ -206,7 +208,7 @@ export interface ResolvedRunMaterial {
 
 export type ResolvedLayer =
   | (ResolvedBase & { kind: 'tiles'; module: ResolvedModule; tiles: ResolvedTile[]; joint: number; cuts: CutRule })
-  | (ResolvedBase & { kind: 'members'; module: ResolvedModule; members: ResolvedMember[] } & ResolvedRunMaterial)
+  | (ResolvedBase & { kind: 'members'; run: 'along' | 'across'; module: ResolvedModule; members: ResolvedMember[] } & ResolvedRunMaterial)
   | (ResolvedBase & { kind: 'lines'; run: 'along' | 'across'; spacing: number; offset: number } & ResolvedRunMaterial)
   | (ResolvedBase & { kind: BuiltInLayerKind; specifications: Record<string, unknown> })
   | (ResolvedBase & { kind: 'hardware'; items: ResolvedHardware[] })
@@ -406,7 +408,9 @@ export function checkPatternRecipe(raw: unknown): RecipeCheck {
           const outside = members.filter((x) => x.across < 0 || x.across >= m.across + 1e-9).length
           if (outside > 0) warnings.push(`${where}: ${outside} member(s) sit outside the module across; they will overlap the next row`)
         }
-        resolved.push({ ...base, kind: 'members', module: m, members, ...material(where, lr) })
+        const mrun = lr['run']
+        if (mrun !== undefined && mrun !== 'along' && mrun !== 'across') errors.push(`${where}.run: along (default) or across`)
+        resolved.push({ ...base, kind: 'members', run: mrun === 'across' ? 'across' : 'along', module: m, members, ...material(where, lr) })
         return
       }
       case 'lines': {
@@ -437,7 +441,7 @@ export function checkPatternRecipe(raw: unknown): RecipeCheck {
           const ofRaw = ir['of']
           const of = Array.isArray(ofRaw) ? ofRaw.map(String) : typeof ofRaw === 'string' ? [ofRaw] : []
           if (per === 'crossing' && of.length !== 2) errors.push(`${iw}.of: a crossing names two layers, e.g. ["rails", "panels"]`)
-          if (per !== 'crossing' && per !== 'edge' && per !== 'area' && of.length !== 1) errors.push(`${iw}.of: name the layer it is counted on`)
+          if (per !== 'crossing' && per !== 'edge' && per !== 'area' && of.length === 0) errors.push(`${iw}.of: name the layer it is counted on, or a list of layers to count on each`)
           const qty = ir['qty'] === undefined ? 1 : Number(ir['qty'])
           if (!Number.isFinite(qty) || qty < 0) errors.push(`${iw}.qty: a number`)
           let every = 0
@@ -682,14 +686,15 @@ export const PATTERN_FORMAT = {
       + 'One module repeats along and across; each next row slides `shift` along (half the module for triangles, hexagons, running bond). '
       + 'Tiles must be convex: give an L or chevron as two tiles with the same name. Several tiles with different names count separately. '
       + 'Leave cells empty for coffers in every other cell (a 2x2 module with two tiles). cuts: whole = every cut piece is a tile (default); halves = a cut piece of half or less is half a tile; nest = cut pieces share tiles by area.',
-    members: '{ id, kind:"members", name?, module:{along, across, shift?}, members:[{along, across, length}], width?, stock? | partLength?, yield? }. '
+    members: '{ id, kind:"members", name?, run?:"along"|"across", module:{along, across, shift?}, members:[{along, across, length}], width?, stock? | partLength?, yield? }. '
+      + 'run:"across" turns the layer a quarter: its module and members are read in a frame where along is across the pattern, so one scope holds both ways of a grid. '
       + 'Runs at set places in one module, repeated: a "random" baffle field that is really one module tiled. Each member starts at `along`, sits at `across`, and runs `length` along. '
       + 'stock: cut from this length with offcuts nested; partLength: each run in whole parts; neither: counted and measured only.',
     lines: '{ id, kind:"lines", name?, run:"along"|"across", spacing, offset?, width?, stock? | partLength?, yield? }. '
       + 'Runs at a spacing across the whole area: suspension rails (run across the panels), open cell mains (along) and cross tees (across, partLength = the cell).',
     'panels|planks|baffle|baffle_cassette|linear_parts': '{ id, kind:"panels", specifications:{ panelWidth:"24", panelWidthUnit:"in", ... } }. '
       + 'A built-in product as a layer, counted exactly as a scope of that product is (describe_product lists its keys). Use it to put rails or hardware on a standard product.',
-    hardware: '{ id, kind:"hardware", items:[{ name, per, of?, qty?, every?, fromEnds?, over?, qtyOver?, stock?, unit? }] }.',
+    hardware: '{ id, kind:"hardware", items:[{ name, per, of?, qty?, every?, fromEnds?, over?, qtyOver?, stock?, unit? }] }. `of` may list several layers (not for crossing): the item counts on each. Items never share counts, even with the same name. Layers with the same name are one line each item in the summary.',
   },
   hardwarePer: {
     piece: 'qty per piece of layer `of` (each tile, each installed run piece). over/qtyOver: runs longer than `over` take qtyOver (2 hangers under 6\', else 3).',
@@ -702,3 +707,9 @@ export const PATTERN_FORMAT = {
   },
   examples: PATTERN_EXAMPLES,
 } as const
+
+/** The refusal in one line, field first, for an `error` string a client may show alone (700 Bay, 2026-11-27). */
+export function recipeErrorLine(errors: readonly string[]): string {
+  if (errors.length === 0) return 'no detail (report this)'
+  return errors.length === 1 ? errors[0]! : `${errors[0]} (and ${errors.length - 1} more: see errors)`
+}

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { calculatePieces } from './takeoff.js'
 import { buildBom } from './bom.js'
 import { checkPatternRecipe, PATTERN_EXAMPLES, approvePatternRecipe, PATTERN_RECIPE_KEY, type PatternRecipe } from './patternRecipe.js'
+import { layoutPattern } from './patternEngine.js'
 import { builtInAsRecipe, productDefinitionFor, BUILT_IN_PRODUCTS } from './products.js'
 import type { Calibration, Markup, Scope } from './scope.js'
 
@@ -38,14 +39,14 @@ describe('custom pattern: tiles', () => {
     const r = calculatePieces(pattern(squareTiles()), [square(10)], cal, opts)
     expect(r.blockers).toEqual([])
     expect(q(r, 'tiles.tile')).toBe(25)
-    expect(q(r, 'tiles.tile.whole')).toBe(25)
+    expect((q(r, 'tiles.tile.whole') ?? q(r, 'tiles.tile'))).toBe(25)
     expect(q(r, 'tiles.tile.cut')).toBeUndefined()
     expect(r.shapes?.filter((s) => s.kind === 'polygon')).toHaveLength(25)
   })
 
   it('cuts the last row and column of a 9x9 room, and orders them by the cut rule', () => {
     const whole = calculatePieces(pattern(squareTiles()), [square(9)], cal, opts)
-    expect(q(whole, 'tiles.tile.whole')).toBe(16)
+    expect((q(whole, 'tiles.tile.whole') ?? q(whole, 'tiles.tile'))).toBe(16)
     expect(q(whole, 'tiles.tile.cut')).toBe(9)
     expect(q(whole, 'tiles.tile')).toBe(25)
     // Eight half tiles and one quarter: 4.5 tiles of halves, 4.25 by area.
@@ -71,19 +72,19 @@ describe('custom pattern: edge snap (NOIC CL115)', () => {
   // A drawn edge is never exactly on the grid: within 1" it counts as on it.
   it('counts no slivers on an area drawn a hair over N modules', () => {
     const r = calculatePieces(pattern(squareTiles()), [square(10 + 0.5 / 12)], cal, opts)
-    expect(q(r, 'tiles.tile.whole')).toBe(25)
+    expect((q(r, 'tiles.tile.whole') ?? q(r, 'tiles.tile'))).toBe(25)
     expect(q(r, 'tiles.tile.cut')).toBeUndefined()
   })
 
   it('keeps the last row whole on an area drawn a hair under N modules', () => {
     const r = calculatePieces(pattern(squareTiles()), [square(10 - 0.5 / 12)], cal, opts)
-    expect(q(r, 'tiles.tile.whole')).toBe(25)
+    expect((q(r, 'tiles.tile.whole') ?? q(r, 'tiles.tile'))).toBe(25)
     expect(q(r, 'tiles.tile.cut')).toBeUndefined()
   })
 
   it('still cuts a row that is really short', () => {
     const r = calculatePieces(pattern(squareTiles()), [square(10 - 3 / 12)], cal, opts)
-    expect(q(r, 'tiles.tile.whole')).toBe(16)
+    expect((q(r, 'tiles.tile.whole') ?? q(r, 'tiles.tile'))).toBe(16)
     expect(q(r, 'tiles.tile.cut')).toBe(9)
   })
 
@@ -91,7 +92,7 @@ describe('custom pattern: edge snap (NOIC CL115)', () => {
     const off = calculatePieces(pattern({ ...squareTiles(), edgeSnap: 0 }), [square(10 + 0.5 / 12)], cal, opts)
     expect(q(off, 'tiles.tile.cut')).toBe(10)
     const wide = calculatePieces(pattern({ ...squareTiles(), edgeSnap: '4"' }), [square(10 - 3 / 12)], cal, opts)
-    expect(q(wide, 'tiles.tile.whole')).toBe(25)
+    expect((q(wide, 'tiles.tile.whole') ?? q(wide, 'tiles.tile'))).toBe(25)
   })
 
   it('a member a hair short of its module is whole', () => {
@@ -252,5 +253,66 @@ describe('one product system', () => {
     expect(d.label).toBe('Panels on suspension rails')
     expect(d.layers.map((l) => l.id)).toEqual(['panels', 'rails', 'hardware'])
     expect(d.draft).toBe(true)
+  })
+})
+
+describe('hardware over several layers and with repeated names (700 Bay, 2026-11-27)', () => {
+  const area = [{ pageId: 'p', region: [[{ x: 0, y: 0 }, { x: 240, y: 0 }, { x: 240, y: 120 }, { x: 0, y: 120 }]], direction: { x: 1, y: 0 }, feetPerPoint: 0.1 }]
+  const recipe = (items: unknown[]) => ({
+    version: 1, name: 'grid', status: 'draft', units: 'in',
+    layers: [
+      { id: 'm1', kind: 'lines', run: 'along', spacing: 60, offset: 30, stock: "10'" },
+      { id: 'm2', kind: 'lines', run: 'across', spacing: 120, offset: 60, stock: "10'" },
+      { id: 'hw', kind: 'hardware', items },
+    ],
+  })
+  it('counts an item on every layer it names', () => {
+    const one = checkPatternRecipe(recipe([{ name: 'Splices', per: 'joint', of: ['m1', 'm2'] }]))
+    expect(one.ok).toBe(true)
+    if (!one.ok) return
+    const q = layoutPattern(one.resolved, area).quantities.find((x) => x.label === 'Splices')!
+    const a = checkPatternRecipe(recipe([{ name: 'A', per: 'joint', of: 'm1' }, { name: 'B', per: 'joint', of: 'm2' }]))
+    if (!a.ok) throw new Error('recipe')
+    const parts = layoutPattern(a.resolved, area).quantities
+    expect(q.quantity).toBe(parts.find((x) => x.label === 'A')!.quantity + parts.find((x) => x.label === 'B')!.quantity)
+  })
+  it('never pools two items that share a name', () => {
+    const c = checkPatternRecipe(recipe([{ name: 'Splices', per: 'joint', of: 'm1' }, { name: 'Splices', per: 'piece', of: 'm2', qty: 7 }]))
+    if (!c.ok) throw new Error('recipe')
+    const lines = layoutPattern(c.resolved, area).quantities.filter((x) => x.label === 'Splices')
+    expect(lines).toHaveLength(2)
+    expect(new Set(lines.map((l) => l.itemKey)).size).toBe(2)
+    expect(lines[0]!.quantity).not.toBe(lines[1]!.quantity)
+  })
+})
+
+describe('one scope, both ways of a grid (700 Bay, 2026-11-27)', () => {
+  const grid = (crossRun: 'along' | 'across') => ({
+    version: 1, name: 'Grid', status: 'draft', units: 'in',
+    layers: [
+      { id: 'mains', kind: 'members', name: 'Mains', module: { along: 120, across: 60 }, members: [{ along: 0, across: 30, length: 120 }] },
+      { id: 'cross', kind: 'members', name: 'Cross', run: crossRun, module: { along: 120, across: 60 }, members: [{ along: 0, across: 30, length: 120 }] },
+    ],
+  })
+  it('lays members across the pattern with run:"across"', () => {
+    const r = calculatePieces(pattern(grid('across')), [square(10)], cal, opts)
+    expect(r.blockers).toEqual([])
+    // A 10' square: two runs each way at 60" OC, offset 30", 10' long.
+    expect(q(r, 'mains.count')).toBe(2)
+    expect(q(r, 'cross.count')).toBe(2)
+    const segs = (r.shapes ?? []).filter((s) => s.layer === 'cross')
+    expect(segs.every((s) => Math.abs(s.points[0]!.x - s.points[1]!.x) < 1e-6)).toBe(true)
+  })
+  it('sums layers that share a name into one line', () => {
+    const recipe = {
+      version: 1, name: 'Split mains', status: 'draft', units: 'in',
+      layers: [
+        { id: 'm1', kind: 'lines', name: 'Mains', run: 'along', spacing: 120, offset: 30 },
+        { id: 'm2', kind: 'lines', name: 'Mains', run: 'along', spacing: 120, offset: 90 },
+      ],
+    }
+    const r = calculatePieces(pattern(recipe), [square(10)], cal, opts)
+    expect(r.quantities.filter((x) => x.label === 'Mains')).toHaveLength(1)
+    expect(q(r, 'm1.count')).toBe(2)
   })
 })

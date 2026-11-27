@@ -131,7 +131,10 @@
     "redbeam_convert_annotations": "invoke_ui_action",
     "redbeam_create_links": "invoke_ui_action",
     "redbeam_find_callout_links": "invoke_ui_action",
-    "redbeam_create_note": "invoke_ui_action"
+    "redbeam_create_note": "invoke_ui_action",
+    "redbeam_save_primitive": "invoke_ui_action",
+    "redbeam_list_primitives": "invoke_ui_action",
+    "redbeam_describe_primitive": "invoke_ui_action"
   },
   "actionOf": {
     "redbeam_get_bom": "get_bom",
@@ -212,7 +215,10 @@
     "redbeam_convert_annotations": "convert_annotations",
     "redbeam_create_links": "create_links",
     "redbeam_find_callout_links": "find_callout_links",
-    "redbeam_create_note": "create_note"
+    "redbeam_create_note": "create_note",
+    "redbeam_save_primitive": "save_primitive",
+    "redbeam_list_primitives": "list_primitives",
+    "redbeam_describe_primitive": "describe_primitive"
   },
   "tools": [
     {
@@ -1188,6 +1194,74 @@
       }
     },
     {
+      "name": "redbeam_save_primitive",
+      "description": "Save a stored primitive (beta): a named, versioned, parametric product kept in the person's library across jobs, laid out per area by one of REDBEAM's generators (redbeam_describe_primitive lists its parameters). It is a DRAFT until the person approves it once in the app; drafts count, as unverified. Saving a changed definition makes the next version; scopes keep the version they were made with.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "type": "object",
+            "description": "For save_primitive: {name, generator:\"parallel_open_cell\", description?, parameters:{key:{default, required?, label?, help?}}}. Keys the generator does not take are refused; left-out keys keep the generator's defaults."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        },
+        "required": [
+          "definition"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "redbeam_list_primitives",
+      "description": "The stored primitives (beta) in the person's library, which carry from job to job: id, name, generator, newest version and status (draft or approved), and the scopes in this PDF that use one. Check here before building a product from scratch.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_describe_primitive",
+      "description": "A primitive's parameters: key, kind (measure, measures, choice, bool, angle), unit, choices, default, required, and what each means, plus the generator's rules. Without primitiveId, a generator's schema and a worked example to save.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "primitiveId": {
+            "type": "string",
+            "description": "For describe_primitive: a primitiveId from redbeam_list_primitives (or its name)."
+          },
+          "version": {
+            "type": "number",
+            "description": "A primitive version. Default: the newest approved, else the newest draft."
+          },
+          "generator": {
+            "type": "string",
+            "description": "For describe_primitive without primitiveId: a generator's parameters and rules (default parallel_open_cell)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
       "name": "redbeam_trace_area",
       "description": "The closed boundary around a point inside a field (a hatched ceiling, a room), read from the drawing's own lines, as normalized rings ready for create_markup, with its area. create:true places it as an area. Needs a window. For a hatched or slatted field with no line around it (its edge is where the hatch stops), use redbeam_trace_field.",
       "inputSchema": {
@@ -1919,7 +1993,7 @@
     },
     {
       "name": "redbeam_create_scope",
-      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. A custom pattern can be made in the same call: send `recipe` (or specifications.patternRecipe) and the scope is made and the recipe saved on it through redbeam_save_pattern's checks, as a draft; `pattern` in the answer is save_pattern's answer. A recipe that does not check makes no scope.",
+      "description": "Create a scope (a product being taken off). With productType it is ready to measure; the answer lists what the product still needs. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. A custom pattern can be made in the same call: send `recipe` (or specifications.patternRecipe) and the scope is made and the recipe saved on it through redbeam_save_pattern's checks, as a draft; `pattern` in the answer is save_pattern's answer. A recipe that does not check makes no scope. `primitive` with `parameters` lays the scope out by a stored primitive (redbeam_list_primitives); a primitive that does not check makes no scope.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1955,6 +2029,18 @@
           "recipe": {
             "type": "object",
             "description": "For preview_pattern and save_pattern: the pattern recipe, {version:1, name, units?, layers:[...]}. Layers are tiles (convex shapes in a repeating module), members (runs at set places in a module, for a repeating 'random' layout), lines (runs at a spacing), a built-in product (panels, planks, baffle, baffle_cassette, linear_parts with its specifications), and hardware (counted per piece, module, along a run, per joint, where runs cross another layer, per edge or per area). describe_product {productType:\"custom_pattern\"} returns the full format and worked examples."
+          },
+          "primitive": {
+            "type": "string",
+            "description": "For create_scope and update_scope: a stored primitive (redbeam_list_primitives) the scope is laid out by."
+          },
+          "version": {
+            "type": "number",
+            "description": "A primitive version. Default: the newest approved, else the newest draft."
+          },
+          "parameters": {
+            "type": "object",
+            "description": "For create_scope and update_scope: the primitive's values for every area, {key: value}; merged on update, null removes one. Lengths are numbers in inches or text (\"8 7/8\", \"10'\")."
           }
         },
         "required": [
@@ -1968,7 +2054,7 @@
     },
     {
       "name": "redbeam_update_scope",
-      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. productType changes the product (a custom pattern can become a baffle and back; the recipe is kept), and a new laid-out product makes the scope an area scope unless scopeType says otherwise; `needs` lists what the new product still needs. `recipe` (or specifications.patternRecipe) saves a custom pattern in the same call, through redbeam_save_pattern's checks, as a draft. A baffle can mix two members (\"Beam every Nth, Slab between\"): mixedEvery N, mixedLabel, memberLabel, mixedStart; the Nth lines are ordered on their own (describe_product lists them).",
+      "description": "Change a scope's name, colour, product or specification. Specifications are merged, never replaced. Measures are text (\"24\", \"7 1/2\") with a unit key beside them; a number is accepted and stored as text. productType changes the product (a custom pattern can become a baffle and back; the recipe is kept), and a new laid-out product makes the scope an area scope unless scopeType says otherwise; `needs` lists what the new product still needs. `recipe` (or specifications.patternRecipe) saves a custom pattern in the same call, through redbeam_save_pattern's checks, as a draft. A baffle can mix two members (\"Beam every Nth, Slab between\"): mixedEvery N, mixedLabel, memberLabel, mixedStart; the Nth lines are ordered on their own (describe_product lists them). `primitive` with `parameters` lays the scope out by a stored primitive (redbeam_list_primitives); `areaParameters` overrides values for one area.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2008,6 +2094,22 @@
           "recipe": {
             "type": "object",
             "description": "For preview_pattern and save_pattern: the pattern recipe, {version:1, name, units?, layers:[...]}. Layers are tiles (convex shapes in a repeating module), members (runs at set places in a module, for a repeating 'random' layout), lines (runs at a spacing), a built-in product (panels, planks, baffle, baffle_cassette, linear_parts with its specifications), and hardware (counted per piece, module, along a run, per joint, where runs cross another layer, per edge or per area). describe_product {productType:\"custom_pattern\"} returns the full format and worked examples."
+          },
+          "primitive": {
+            "type": "string",
+            "description": "For create_scope and update_scope: a stored primitive (redbeam_list_primitives) the scope is laid out by."
+          },
+          "version": {
+            "type": "number",
+            "description": "A primitive version. Default: the newest approved, else the newest draft."
+          },
+          "parameters": {
+            "type": "object",
+            "description": "For create_scope and update_scope: the primitive's values for every area, {key: value}; merged on update, null removes one. Lengths are numbers in inches or text (\"8 7/8\", \"10'\")."
+          },
+          "areaParameters": {
+            "type": "object",
+            "description": "For update_scope: overrides per area, {markupId: {key: value}}, e.g. an island's own crossPositions or exact length/width; merged, null clears."
           }
         },
         "required": [
@@ -3120,7 +3222,10 @@
               "convert_annotations",
               "create_links",
               "find_callout_links",
-              "create_note"
+              "create_note",
+              "save_primitive",
+              "list_primitives",
+              "describe_primitive"
             ]
           },
           "tool": {
@@ -3760,6 +3865,34 @@
           "exact": {
             "type": "boolean",
             "description": "create_markups: fail if a cutout takes less than it measures."
+          },
+          "definition": {
+            "type": "object",
+            "description": "For save_primitive: {name, generator:\"parallel_open_cell\", description?, parameters:{key:{default, required?, label?, help?}}}. Keys the generator does not take are refused; left-out keys keep the generator's defaults."
+          },
+          "primitiveId": {
+            "type": "string",
+            "description": "For describe_primitive: a primitiveId from redbeam_list_primitives (or its name)."
+          },
+          "version": {
+            "type": "number",
+            "description": "A primitive version. Default: the newest approved, else the newest draft."
+          },
+          "generator": {
+            "type": "string",
+            "description": "For describe_primitive without primitiveId: a generator's parameters and rules (default parallel_open_cell)."
+          },
+          "primitive": {
+            "type": "string",
+            "description": "For create_scope and update_scope: a stored primitive (redbeam_list_primitives) the scope is laid out by."
+          },
+          "parameters": {
+            "type": "object",
+            "description": "For create_scope and update_scope: the primitive's values for every area, {key: value}; merged on update, null removes one. Lengths are numbers in inches or text (\"8 7/8\", \"10'\")."
+          },
+          "areaParameters": {
+            "type": "object",
+            "description": "For update_scope: overrides per area, {markupId: {key: value}}, e.g. an island's own crossPositions or exact length/width; merged, null clears."
           }
         },
         "required": [
