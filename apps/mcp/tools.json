@@ -65,6 +65,7 @@
     "redbeam_accept_imported": "invoke_ui_action",
     "redbeam_list_links": "invoke_ui_action",
     "redbeam_list_bookmarks": "invoke_ui_action",
+    "redbeam_edit_bookmarks": "invoke_ui_action",
     "redbeam_close_tab": "invoke_ui_action",
     "redbeam_rotate_pages": "invoke_ui_action",
     "redbeam_create_dimension": "invoke_ui_action",
@@ -138,6 +139,7 @@
     "redbeam_accept_imported": "accept_imported",
     "redbeam_list_links": "list_links",
     "redbeam_list_bookmarks": "list_bookmarks",
+    "redbeam_edit_bookmarks": "edit_bookmarks",
     "redbeam_close_tab": "close_tab",
     "redbeam_rotate_pages": "rotate_pages",
     "redbeam_create_dimension": "create_dimension",
@@ -2451,7 +2453,7 @@
     },
     {
       "name": "redbeam_list_bookmarks",
-      "description": "The PDF's bookmark tree, with the page each entry opens. A very long tree returns `nextOffset`; pass it as `offset` for the rest.",
+      "description": "The PDF's bookmarks as the Contents list shows them: per entry an `id` to edit by (redbeam_edit_bookmarks), title, page (ZERO-based, null for a folder with no page), depth, parent id, color (hex or null), bold, italic, and `view` when it opens a zoomed spot. A very long tree returns `nextOffset`; pass it as `offset` for the rest.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2471,6 +2473,91 @@
       },
       "annotations": {
         "readOnlyHint": true
+      }
+    },
+    {
+      "name": "redbeam_edit_bookmarks",
+      "description": "Change the PDF's bookmarks (the Contents list), the same list the person edits and Bluebeam shows: add a bookmark or folder, rename, recolour, bold or italicise, move or nest, delete. Edits apply in order in one call; one bad id, page or colour refuses the whole call and nothing changes. Get ids from redbeam_list_bookmarks; each `add` returns its new id in `added`, in order. Saved into the PDF's own bookmarks (/Outlines) with the next save. Not on the undo stack: edit again to put things back. Deleting a folder deletes what is in it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Optional on every call: the PDF this call is about, as a full path, file name or document id. REDBEAM keeps several PDFs open at once and the call goes to this one, whichever the person is looking at. Leave it out and the call goes to the PDF you opened or named last, so name it whenever you work in more than one. Every result names the file it acted on."
+          },
+          "edits": {
+            "type": "array",
+            "description": "Edits, applied in order.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "update",
+                    "move",
+                    "delete"
+                  ],
+                  "description": "add: a new bookmark (a folder is one with no page, or one others are added into). update: change title, page, color, bold or italic. move: put it elsewhere. delete: remove it and everything under it."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "update, move, delete: the bookmark's id from redbeam_list_bookmarks."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "add, update: the name shown."
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "add, update: the page it opens, ZERO-based; null for a folder that opens nothing. add defaults to no page."
+                },
+                "parent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "add, move: the folder to put it in, by id or exact title; null or left out for the top level. Goes at the end of that folder unless `after` is given."
+                },
+                "after": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "add, move: put it right after this bookmark (by id or exact title), in that bookmark's folder."
+                },
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "add, update: #rrggbb, or one of Red, Orange, Yellow, Green, Teal, Blue, Purple, Grey; null for none."
+                },
+                "bold": {
+                  "type": "boolean",
+                  "description": "add, update."
+                },
+                "italic": {
+                  "type": "boolean",
+                  "description": "add, update."
+                }
+              },
+              "required": [
+                "op"
+              ]
+            }
+          }
+        },
+        "required": [
+          "edits"
+        ]
+      },
+      "annotations": {
+        "destructiveHint": true
       }
     },
     {
@@ -2642,7 +2729,7 @@
     },
     {
       "name": "redbeam_invoke_ui_action",
-      "description": "Drive the app the way a person would. Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page, and where each came from), set_title_blocks (name every sheet from a number box and a title box on the title block), rename_sheets (name pages yourself), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), detect_grid (module, rows, columns and first crossing of a drawn panel or tile grid), detect_directions (a field split into regions by the direction its members run, as polygons with angles), match_hatch (which legend mark a hatch belongs to), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: set_title_blocks and rename_sheets are not undone (call them again to change a name); commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
+      "description": "Drive the app the way a person would. Custom patterns (beta): preview_pattern, save_pattern, clear_pattern_preview, list_patterns, use_pattern. Navigation and reads: set_tool, set_active_scope, go_to_page, set_layout_preview, open_panel, get_scale_presets, get_bom, export. Reading the sheets: list_sheets (sheet number and title per page, and where each came from), set_title_blocks (name every sheet from a number box and a title box on the title block), rename_sheets (name pages yourself), find_text (where text is, with boxes), get_words (every word on a page with its box), zoom_to_region (frame and mark a box in the window), set_markup_visibility (hide the PDF's own markups and/or REDBEAM's for a clean look; nothing is written). Measuring without drawing: measure (distance or area between points at the sheet's scale), get_lines (the drawing's own line segments in a box). Working on a copy: save_copy (a copy of the open PDF beside it, the original untouched; withoutEmbeddedMarkups leaves other apps' markups out). Setting a product up: describe_product (every input a product needs: key, unit key, units, default). Patterns: set_pattern_origin, set_pattern_direction, get_pattern. Reading the drawing: trace_area (the closed outline around a point), detect_pattern (spacing, member length, runs and rows of a drawn pattern), detect_grid (module, rows, columns and first crossing of a drawn panel or tile grid), detect_directions (a field split into regions by the direction its members run, as polygons with angles), match_hatch (which legend mark a hatch belongs to), read_scale (scales the sheets state, and a check against a written dimension), track_addenda (sheets replaced by a later issue, and scopes on them). Writing many: create_markups (one call, one undo step). Output: get_piece_list (runs, cut lengths, stock use, parts), get_history (who changed what and when; kept in the PDF). Takeoff writes: create_markup, delete_markup, set_calibration, reassign_markup, set_scope_direction. Setting a takeoff up: create_scope, update_scope, duplicate_scope, archive_scope, set_page_scale, begin_scale_region, set_region_scale, cancel_scale_region, delete_scale_region. Saving an answer now (the app also saves each scope by itself once a change settles): commit_scope. Everything goes through the same handlers a click uses, so writes land on the undo stack with an origin of `agent` and are broadcast to other windows — a takeoff change is never invisible to the person who owns it. THE EXCEPTIONS, by name: set_title_blocks and rename_sheets are not undone (call them again to change a name); commit_scope is a RECORD rather than an edit and is superseded rather than undone; set_page_scale, begin_scale_region/set_region_scale and delete_scale_region are project setup that the undo stack has never covered, for the buttons either — so a scale written over a range CANNOT be taken back, and overwriting one nobody asked you to change silently re-measures every markup on those sheets. Read the existing scale first. Saving and undo: save (write the takeoff into the PDF now and say how it went), undo, redo. Settings: get_settings, set_setting. Editing: update_markup (reshape or move), duplicate_markups, select_markups, create_dimension, rotate_pages. Other PDFs: import_scopes. The PDF's own content: list_annotations, list_links, list_bookmarks, edit_bookmarks (add, rename, recolour, move and delete bookmarks; saved into the PDF and not undone), accept_imported. Tabs: close_tab. Lists: list_markups, list_scopes. Every action here also has a tool of its own named redbeam_<action>, with only its own inputs; prefer those.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2704,6 +2791,7 @@
               "accept_imported",
               "list_links",
               "list_bookmarks",
+              "edit_bookmarks",
               "close_tab",
               "rotate_pages",
               "create_dimension",
@@ -3224,6 +3312,72 @@
             "description": "For match_hatch: [{rect:{x0,y0,x1,y1}, label}] legend swatches named by you, instead of legendRect.",
             "items": {
               "type": "object"
+            }
+          },
+          "edits": {
+            "type": "array",
+            "description": "edit_bookmarks: the edits, applied in order (see redbeam_edit_bookmarks).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "add",
+                    "update",
+                    "move",
+                    "delete"
+                  ],
+                  "description": "add: a new bookmark (a folder is one with no page, or one others are added into). update: change title, page, color, bold or italic. move: put it elsewhere. delete: remove it and everything under it."
+                },
+                "id": {
+                  "type": "string",
+                  "description": "update, move, delete: the bookmark's id from redbeam_list_bookmarks."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "add, update: the name shown."
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "add, update: the page it opens, ZERO-based; null for a folder that opens nothing. add defaults to no page."
+                },
+                "parent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "add, move: the folder to put it in, by id or exact title; null or left out for the top level. Goes at the end of that folder unless `after` is given."
+                },
+                "after": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "add, move: put it right after this bookmark (by id or exact title), in that bookmark's folder."
+                },
+                "color": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "add, update: #rrggbb, or one of Red, Orange, Yellow, Green, Teal, Blue, Purple, Grey; null for none."
+                },
+                "bold": {
+                  "type": "boolean",
+                  "description": "add, update."
+                },
+                "italic": {
+                  "type": "boolean",
+                  "description": "add, update."
+                }
+              },
+              "required": [
+                "op"
+              ]
             }
           }
         },

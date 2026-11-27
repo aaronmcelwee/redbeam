@@ -263,6 +263,7 @@ export function describeCall(method: string, params: Record<string, unknown>): s
     case 'list_annotations': return 'Reading the PDF’s own markups'
     case 'list_links': return 'Reading the links'
     case 'list_bookmarks': return 'Reading the bookmarks'
+    case 'edit_bookmarks': return 'Editing the bookmarks'
     case 'get_history': return 'Reading the change history'
     case 'get_settings': return 'Reading the settings'
     case 'set_setting': return 'Changing a setting'

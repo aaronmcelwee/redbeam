@@ -58,3 +58,35 @@ describe('bookmarks', () => {
     expect(both.at(-1)!.children.map((c) => c.id)).toEqual(['A3.000', 'A3.001'])
   })
 })
+
+describe('agent edits', () => {
+  it('adds into a folder, recolours by name, moves and deletes, in order', async () => {
+    const { applyBookmarkEdits } = await import('./bookmarks.js')
+    const out = applyBookmarkEdits(tree, [
+      { op: 'add', title: 'Check bulkheads', page: 5, parent: 'Architectural', color: 'Red', bold: true },
+      { op: 'update', id: 'G0.00', color: '#0F6CBD', title: 'Cover' },
+      { op: 'move', id: 'G1.01', after: 'Architectural' },
+      { op: 'delete', id: 'Enlarged' },
+    ], 12)
+    if ('error' in out) throw new Error(out.error)
+    const added = findBookmark(out.tree, out.added[0]!)!
+    expect(added).toMatchObject({ title: 'Check bulkheads', page: 5, color: '#d13438', bold: true })
+    expect(findBookmark(out.tree, 'Architectural')!.children.map((c) => c.title)).toEqual(['A1.103', 'Check bulkheads'])
+    expect(findBookmark(out.tree, 'G0.00')).toMatchObject({ title: 'Cover', color: '#0f6cbd' })
+    expect(out.tree.map((b) => b.id)).toEqual(['General', 'Architectural', 'G1.01'])
+  })
+  it('finds a parent by its title when no id matches', async () => {
+    const { applyBookmarkEdits } = await import('./bookmarks.js')
+    const named = updateBookmark(tree, 'Enlarged', { title: 'Enlarged plans' })
+    const out = applyBookmarkEdits(named, [{ op: 'add', title: 'Note', parent: 'Enlarged plans' }], 12)
+    if ('error' in out) throw new Error(out.error)
+    expect(findBookmark(out.tree, 'Enlarged')!.children.map((c) => c.title)).toEqual(['A3.000', 'A3.001', 'Note'])
+  })
+  it('refuses the whole call on a bad id, page or colour', async () => {
+    const { applyBookmarkEdits } = await import('./bookmarks.js')
+    expect(applyBookmarkEdits(tree, [{ op: 'add', title: 'x', page: 40 }], 12)).toHaveProperty('error')
+    expect(applyBookmarkEdits(tree, [{ op: 'delete', id: 'nope' }], 12)).toHaveProperty('error')
+    expect(applyBookmarkEdits(tree, [{ op: 'update', id: 'G0.00', color: 'mauve' }], 12)).toHaveProperty('error')
+    expect(applyBookmarkEdits(tree, [{ op: 'move', id: 'Architectural', parent: 'Enlarged' }], 12)).toHaveProperty('error')
+  })
+})

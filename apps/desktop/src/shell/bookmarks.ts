@@ -225,3 +225,93 @@ export function shownTitle(n: FileBookmark, labelFor: (page: number) => string):
   if (n.title.trim() !== '') return n.title
   return n.page === null ? 'Untitled' : labelFor(n.page)
 }
+
+// ------------------------------------------------------- agents' edits --
+
+/** One change an agent asks for (redbeam_edit_bookmarks). */
+export type BookmarkEdit =
+  | { op: 'add'; title: string; page?: number | null; parent?: string | null; after?: string | null
+      color?: string | null; bold?: boolean; italic?: boolean; view?: FileBookmark['view'] }
+  | { op: 'update'; id: string; title?: string; page?: number | null; color?: string | null; bold?: boolean; italic?: boolean }
+  | { op: 'move'; id: string; parent?: string | null; after?: string | null }
+  | { op: 'delete'; id: string }
+
+/** A colour as an agent may say it: '#rrggbb', a name from the palette, or null for none. */
+export function bookmarkColor(c: unknown): string | null | undefined {
+  if (c === undefined) return undefined
+  if (c === null || c === '' || c === 'none') return null
+  if (typeof c !== 'string') return undefined
+  const named = BOOKMARK_COLORS.find((x) => x.name.toLowerCase() === c.trim().toLowerCase())
+  if (named !== undefined) return named.color
+  return /^#[0-9a-f]{6}$/i.test(c.trim()) ? c.trim().toLowerCase() : undefined
+}
+
+/** Where `parent` / `after` put a bookmark: after a sibling, at the end of a folder, or at the end of the list. */
+function placeFor(parent: string | null | undefined, after: string | null | undefined): BookmarkPlace {
+  if (after !== undefined && after !== null) return { id: after, where: 'after' }
+  if (parent !== undefined && parent !== null) return { id: parent, where: 'inside' }
+  return { id: null, where: 'after' }
+}
+
+/**
+ * Apply an agent's edits in order. Each one is checked before anything
+ * changes: one that names a bookmark that is not there, or a page past the
+ * end, refuses the whole call so a half-made list is never saved.
+ */
+export function applyBookmarkEdits(
+  tree: readonly FileBookmark[], edits: readonly BookmarkEdit[], pageCount: number,
+): { tree: FileBookmark[]; added: string[] } | { error: string } {
+  let cur = [...tree]
+  const added: string[] = []
+  const has = (id: string | null | undefined) => id === undefined || id === null || findBookmark(cur, id) !== undefined
+  /** `parent` / `after` by id, or by exact title when no id matches and one bookmark has it. */
+  const ref = (r: string | null | undefined): string | null | undefined => {
+    if (r === undefined || r === null || findBookmark(cur, r) !== undefined) return r
+    const named: string[] = []
+    const walk = (ns: readonly FileBookmark[]) => { for (const n of ns) { if (n.title === r) named.push(n.id); walk(n.children) } }
+    walk(cur)
+    return named.length === 1 ? named[0] : r
+  }
+  const pageOk = (p: number | null | undefined) => p === undefined || p === null || (Number.isInteger(p) && p >= 0 && p < pageCount)
+  for (let [i, e] of edits.entries()) {
+    const at = `edits[${i}]`
+    if (typeof e !== 'object' || e === null) return { error: `${at}: each edit is an object with an op` }
+    if (e.op === 'add' || e.op === 'move') e = { ...e, parent: ref(e.parent) ?? null, after: ref(e.after) ?? null }
+    if (e.op === 'add') {
+      if (typeof e.title !== 'string' || e.title.trim() === '') return { error: `${at}: add needs a title` }
+      if (!pageOk(e.page)) return { error: `${at}: page ${e.page} is not in this PDF (pages are 0 to ${pageCount - 1})` }
+      if (!has(e.parent) || !has(e.after)) return { error: `${at}: no bookmark ${e.after ?? e.parent}; list_bookmarks gives the ids` }
+      const color = bookmarkColor(e.color)
+      if (e.color !== undefined && color === undefined) return { error: `${at}: colour ${String(e.color)} is not '#rrggbb' or one of ${BOOKMARK_COLORS.map((c) => c.name).join(', ')}` }
+      const b: FileBookmark = {
+        ...makeBookmark(e.title.trim(), e.page ?? null, e.view ?? null),
+        color: color ?? null, bold: e.bold === true, italic: e.italic === true,
+      }
+      cur = insertBookmarks(cur, [b], placeFor(e.parent, e.after))
+      added.push(b.id)
+    } else if (e.op === 'update') {
+      if (!has(e.id) || e.id === undefined) return { error: `${at}: no bookmark ${e.id}; list_bookmarks gives the ids` }
+      if (!pageOk(e.page)) return { error: `${at}: page ${e.page} is not in this PDF` }
+      const color = bookmarkColor(e.color)
+      if (e.color !== undefined && color === undefined) return { error: `${at}: colour ${String(e.color)} is not '#rrggbb' or a palette name` }
+      cur = updateBookmark(cur, e.id, {
+        ...(typeof e.title === 'string' && e.title.trim() !== '' ? { title: e.title.trim() } : {}),
+        ...(e.page !== undefined ? { page: e.page, view: null } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(typeof e.bold === 'boolean' ? { bold: e.bold } : {}),
+        ...(typeof e.italic === 'boolean' ? { italic: e.italic } : {}),
+      })
+    } else if (e.op === 'move') {
+      if (!has(e.id) || !has(e.parent) || !has(e.after)) return { error: `${at}: no such bookmark; list_bookmarks gives the ids` }
+      const place = placeFor(e.parent, e.after)
+      if (place.id !== null && isWithin(cur, e.id, place.id)) return { error: `${at}: a bookmark cannot go inside itself` }
+      cur = moveBookmarks(cur, [e.id], place)
+    } else if (e.op === 'delete') {
+      if (!has(e.id) || e.id === undefined) return { error: `${at}: no bookmark ${e.id}` }
+      cur = removeBookmarks(cur, new Set([e.id]))
+    } else {
+      return { error: `${at}: op must be add, update, move or delete` }
+    }
+  }
+  return { tree: cur, added }
+}

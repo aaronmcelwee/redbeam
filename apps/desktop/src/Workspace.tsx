@@ -129,6 +129,7 @@ import { keptDrawingFile, projectDrawingFile } from './export/drawingSync.js'
 import { embedInWorker } from './export/embedInWorker.js'
 import { sheetSizes, sliceStamp, isRedbeamNm, readSheetEmbed } from './export/sheetEmbed.js'
 import type { BookmarkView, FileBookmark } from './export/sheetOutline.js'
+import { applyBookmarkEdits, flatIds, type BookmarkEdit } from './shell/bookmarks.js'
 import { adoptForeignAnnots } from './export/adopt.js'
 import { areaWithCutouts, cutoutsFor, readPdfCutouts, type RawCutouts } from './export/pdfCutouts.js'
 import {
@@ -5658,6 +5659,9 @@ export default function Workspace({
   const [fileBookmarks, setFileBookmarks] = useState<ReadonlyMap<string, FileBookmark[]>>(new Map())
   const bookmarksEditedRef = useRef(new Map<string, FileBookmark[]>())
   const [bookmarksTick, setBookmarksTick] = useState(0)
+  /** The same lists for agent calls (redbeam_list_bookmarks / redbeam_edit_bookmarks), which can run between renders. */
+  const fileBookmarksRef = useRef(fileBookmarks)
+  fileBookmarksRef.current = fileBookmarks
   /**
    * A small picture of the sheet each Light tab is on, for its hover card
    * (Shell.tsx `TabCard`). Taken from the viewer's thumbnail whenever the
@@ -5694,6 +5698,7 @@ export default function Workspace({
   }, [previewFile, pageIndex, pageCount])
   const changeBookmarks = useCallback((docId: string, next: FileBookmark[]) => {
     bookmarksEditedRef.current.set(docId, next)
+    fileBookmarksRef.current = new Map(fileBookmarksRef.current).set(docId, next)
     setFileBookmarks((prev) => new Map(prev).set(docId, next))
     setBookmarksTick((n) => n + 1)
   }, [])
@@ -8619,19 +8624,45 @@ export default function Workspace({
           }
         }
         case 'list_bookmarks': {
-          type Node = { title: string; page: number | null; children: Node[] }
+          // The Contents list as the person sees it, with an id to edit by;
+          // before it is read from the file, the viewer's own outline.
+          const mine = activeDocId === null ? undefined : fileBookmarksRef.current.get(activeDocId)
+          type Node = { id?: string; title: string; page: number | null; color?: string | null; bold?: boolean; italic?: boolean
+            view?: FileBookmark['view']; children: Node[] }
           let count = 0
-          const walkOut = (nodes: readonly Node[], depth: number): Array<Record<string, unknown>> => nodes.flatMap((n) => {
+          const walkOut = (nodes: readonly Node[], depth: number, parent: string | null): Array<Record<string, unknown>> => nodes.flatMap((n) => {
             count++
-            return [{ title: n.title, page: n.page, depth }, ...walkOut(n.children, depth + 1)]
+            const row: Record<string, unknown> = mine === undefined
+              ? { title: n.title, page: n.page, depth }
+              : { id: n.id, title: n.title, page: n.page, depth, parent, color: n.color ?? null, bold: n.bold === true, italic: n.italic === true,
+                ...(n.view ? { view: n.view } : {}), ...(n.children.length > 0 ? { folder: true } : {}) }
+            return [row, ...walkOut(n.children, depth + 1, n.id ?? null)]
           })
           // Every bookmark is reachable: a page of them, and `offset` for the next.
-          const every = walkOut(docIndex.outline as readonly Node[], 0)
+          const every = walkOut((mine ?? docIndex.outline) as readonly Node[], 0, null)
           const limit = Math.max(1, Math.min(5000, Number(params['limit'] ?? 2000) || 2000))
           const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           return {
             bookmarks: every.slice(offset, offset + limit), total: count,
+            ...(mine === undefined ? { note: 'the bookmarks are still being read from the PDF; ask again for ids to edit by' } : {}),
             ...(count > offset + limit ? { nextOffset: offset + limit, note: 'more bookmarks follow; ask again with `offset` set to nextOffset' } : {}),
+          }
+        }
+        /* Add, rename, recolour, move and delete bookmarks: saved into the PDF's own bookmarks like the Contents list. */
+        case 'edit_bookmarks': {
+          if (activeDocId === null) return { error: 'no document is open' }
+          if (identity.role === 'context') return { error: 'this PDF is open for reference only; its bookmarks cannot be changed' }
+          if (light && fileLoadRef.current.get(activeDocId)?.state === 'blocked') return { error: 'this PDF cannot be saved, so its bookmarks cannot be changed' }
+          const current = fileBookmarksRef.current.get(activeDocId)
+          if (current === undefined) return { error: 'the bookmarks are still being read from the PDF; try again in a moment' }
+          const edits = params['edits']
+          if (!Array.isArray(edits) || edits.length === 0) return { error: '`edits` must be a list of {op: add|update|move|delete, ...}' }
+          const out = applyBookmarkEdits(current, edits as BookmarkEdit[], pageCount)
+          if ('error' in out) return { error: out.error, note: 'nothing was changed' }
+          changeBookmarks(activeDocId, out.tree)
+          return {
+            edited: edits.length, ...(out.added.length > 0 ? { added: out.added } : {}), total: flatIds(out.tree).length,
+            note: 'saved into the PDF\'s bookmarks with the next save, so Bluebeam shows them too. Not on the undo stack: edit again to change them back.',
           }
         }
         /*
