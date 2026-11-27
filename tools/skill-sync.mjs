@@ -11,13 +11,14 @@
 //   node tools/skill-sync.mjs check  <master SKILL.md> <copy>      exit 0 in sync, 10 behind, 20 hand-edited
 //   node tools/skill-sync.mjs stamp  <master SKILL.md> <copy> [YYYY-MM-DD]
 //   node tools/skill-sync.mjs notion <master SKILL.md> [YYYY-MM-DD]  prints the Notion page body
-//   node tools/skill-sync.mjs loose  <file>                         fingerprint ignoring formatting (for Notion)
+//   node tools/skill-sync.mjs notion-check <master SKILL.md> <page.md> same exit codes, for the page's markdown
+//   node tools/skill-sync.mjs loose  <file>                         fingerprint ignoring formatting
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const STAMP = /^master: .*\n/m
-const NOTION_STAMP = /^.*Synced from Aaron's Claude skill.*$/m
+const NOTION_STAMP = /^(?:---\s*\n+)?.*Synced from Aaron's Claude skill.*$/m
 
 /** Line endings and trailing spaces never count as a change. */
 export const normalize = (text) => text.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\s+$/, '') + '\n'
@@ -75,12 +76,6 @@ const frontMatter = (text) => {
   return { meta, body: t.slice(end + 4).replace(/^\n+/, '') }
 }
 
-/** The Notion page body: the description as a quote, the skill, and the stamp. */
-export const notionBody = (master, date) => {
-  const { meta, body } = frontMatter(master)
-  return `> ${meta.description ?? ''}\n\n${body}\n---\n\n_Synced from Aaron's Claude skill \`${meta.name}\` · master ${date} · sha256:${fingerprint(master)} · edit the Claude skill, not this page._\n`
-}
-
 /**
  * A fingerprint that ignores formatting: letters and digits only, front matter,
  * quote markers and the Notion stamp left out. Notion rewrites markdown when it
@@ -91,6 +86,38 @@ export const loose = (text) => {
   const { meta, body } = frontMatter(t)
   if (meta.description) t = meta.description + '\n' + body
   return sha(t.toLowerCase().replace(/[^a-z0-9]+/g, ''))
+}
+
+/**
+ * The Notion page body: the description as a quote, the skill, and the stamp.
+ * "4b." style steps become sub-bullets, which Notion keeps inside its lists.
+ * The stamp also carries `text:`, the loose fingerprint of the page as
+ * written, so a later hand edit in Notion shows even though Notion reformats.
+ */
+export const notionBody = (master, date) => {
+  const { meta, body } = frontMatter(master)
+  const page = `> ${meta.description ?? ''}\n\n${body.replace(/^(\d+[a-z])\. \*\*/gm, '   - **$1. ')}`
+  return `${page}\n---\n\n_Synced from Aaron's Claude skill \`${meta.name}\` · master ${date} · sha256:${fingerprint(master)} · text:${loose(page)} · edit the Claude skill, not this page._\n`
+}
+
+/** The stamp a Notion page carries, or null. */
+export const readNotionStamp = (markdown) => {
+  const m = /master (\d{4}-\d{2}-\d{2}) · sha256:([0-9a-f]{12}) · text:([0-9a-f]{12})/.exec(markdown)
+  return m ? { date: m[1], fingerprint: m[2], text: m[3] } : null
+}
+
+/**
+ * Compares a Notion page (its markdown as Notion returns it) with the master.
+ * An unstamped page that reads the same as the master counts as behind, so the
+ * first sync can stamp it; any other unstamped page counts as hand-edited.
+ */
+export const checkNotion = (master, markdown) => {
+  const masterFp = fingerprint(master)
+  const st = readNotionStamp(markdown)
+  const pageFp = loose(markdown)
+  if (!st) return { status: pageFp === loose(master) ? 'behind' : 'hand_edited', masterFp, stamp: null, pageFp }
+  if (st.text !== pageFp) return { status: 'hand_edited', masterFp, stamp: st, pageFp }
+  return { status: st.fingerprint === masterFp ? 'in_sync' : 'behind', masterFp, stamp: st, pageFp }
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -104,12 +131,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
   else if (cmd === 'stamp') {
     fs.writeFileSync(b, stamp(read(a), c ?? today()))
     console.log(`${b}: master ${c ?? today()} sha256:${fingerprint(read(a))}`)
+  } else if (cmd === 'notion-check') {
+    const r = checkNotion(read(a), read(b))
+    console.log(JSON.stringify(r))
+    process.exit(r.status === 'in_sync' ? 0 : r.status === 'behind' ? 10 : 20)
   } else if (cmd === 'check') {
     const r = check(read(a), read(b))
     console.log(JSON.stringify(r))
     process.exit(r.status === 'in_sync' ? 0 : r.status === 'behind' ? 10 : 20)
   } else {
-    console.error('usage: skill-sync.mjs fingerprint|check|stamp|notion|loose …')
+    console.error('usage: skill-sync.mjs fingerprint|check|stamp|notion|notion-check|loose …')
     process.exit(2)
   }
 }
