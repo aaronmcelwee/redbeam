@@ -168,6 +168,12 @@ export interface PieceOptions {
    */
   edgeSnapFeet?: number
   /**
+   * The shortest end piece a baffle or plank run may be left with, feet,
+   * when the scope does not set `minPieceLength`. Absent is the Qt rule
+   * (any piece over half a point); the app passes 2'.
+   */
+  minPieceFeet?: number
+  /**
    * A direction stated for a whole sheet, by page id — the FIRST one set on
    * that sheet for this scope. Beaten by an area's own, beats the scope
    * default. See `directionFrom`.
@@ -784,7 +790,7 @@ export function calculatePieces(
 
   let entries
   try {
-    entries = layoutRuns(groups, inputs)
+    entries = layoutRuns(groups, inputs.minPieceFeet === undefined && opts.minPieceFeet !== undefined ? { ...inputs, minPieceFeet: opts.minPieceFeet } : inputs)
   } catch (err) {
     // pieces.ts raises rather than grinding when a spacing is so small relative
     // to the region that the layout would be unbounded — a units mistake, most

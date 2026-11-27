@@ -12,7 +12,7 @@
  * round-trip through this module unchanged.
  */
 
-import { parseNumberOrFraction, unitToFeet } from './units.js'
+import { granularityWord, parseNumberOrFraction, unitToFeet } from './units.js'
 
 /**
  * The product types the layout engine actually branches on.
@@ -428,7 +428,7 @@ export type Granularity = 'full' | 'half' | 'quarter'
 export const GRANULARITIES: readonly Granularity[] = ['full', 'half', 'quarter'] as const
 
 export function readGranularity(specs: Specifications, key: string): Granularity {
-  const v = (readString(specs, key) ?? '').trim().toLowerCase()
+  const v = granularityWord(readString(specs, key) ?? '')
   return v === 'half' || v === 'quarter' ? v : 'full'
 }
 

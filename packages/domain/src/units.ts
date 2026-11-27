@@ -213,3 +213,16 @@ export function formatMeasureValue(value: number): string {
   if (text.endsWith('.')) text = text.slice(0, -1)
   return text
 }
+
+/**
+ * The granularity word for what an agent or a person may write: "quarter",
+ * "quarters", "1/4", "0.25" and "¼" are all quarter (a blind run set
+ * "quarters" and got whole lengths, 2026-11-27).
+ */
+export function granularityWord(value: string): string {
+  const v = value.trim().toLowerCase().replace(/\s+/g, '')
+  if (['half', 'halves', '1/2', '0.5', '.5', '½'].includes(v)) return 'half'
+  if (['quarter', 'quarters', '1/4', '0.25', '.25', '¼'].includes(v)) return 'quarter'
+  if (['third', 'thirds', '1/3', '⅓'].includes(v)) return 'third'
+  return v
+}

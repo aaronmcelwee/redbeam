@@ -248,6 +248,8 @@ export interface DetectedPattern {
   sequence?: string
   /** A kind that recurs every Nth member, as a beam every 4th member with slabs between. */
   repeat?: { every: number; pattern: string; summary: string }
+  /** Parallel lines left out because they do not repeat with the members (lights, sprinklers). */
+  ignoredLines?: number
   note?: string
 }
 
@@ -328,11 +330,32 @@ export function detectPattern(
     // Faces need a clear break and at least two members drawn with them.
     if (!(bestRatio >= 2 && lineGroups.length >= 4 && faceGaps >= 2)) faceBelow = 0
   }
+  /*
+   * Lines that are not members. A baffle drawn as two faces with lights and
+   * sprinkler lines between them read as 184 members 3 5/8" apart instead of
+   * 56 baffles at 13 1/2" (2026-11-27): the extra lines broke the gaps up so
+   * no clean face break was found. The members are the lines that repeat:
+   * find the period the lines repeat at, fold every line onto one period, and
+   * keep the one or two phases that carry most of the drawn length (one line,
+   * or a member's two faces). Lines at other phases are left out and counted.
+   * Three or more strong phases is a field of mixed members (beams and slabs)
+   * and keeps the reading above.
+   */
+  let groupsIn = lineGroups
+  let ignoredLines = 0
+  {
+    const periodic = periodicMembers(lineGroups)
+    if (periodic !== null && periodic.ignored > 0) {
+      groupsIn = periodic.kept
+      ignoredLines = periodic.ignored
+      faceBelow = periodic.faceBelow
+    }
+  }
   const memberGroups: Array<{ across: number; face: number; lines: number; spans: Array<[number, number]> }> = []
-  for (let i = 0; i < lineGroups.length;) {
+  for (let i = 0; i < groupsIn.length;) {
     let j = i
-    while (j + 1 < lineGroups.length && lineGroups[j + 1]!.across - lineGroups[j]!.across < faceBelow) j++
-    const run = lineGroups.slice(i, j + 1)
+    while (j + 1 < groupsIn.length && groupsIn[j + 1]!.across - groupsIn[j]!.across < faceBelow) j++
+    const run = groupsIn.slice(i, j + 1)
     memberGroups.push({
       across: (run[0]!.across + run.at(-1)!.across) / 2,
       face: run.at(-1)!.across - run[0]!.across,
@@ -347,6 +370,10 @@ export function detectPattern(
   let note: string | undefined
   if (memberGroups.some((g) => g.lines > 1)) {
     note = 'members drawn with two faces count once, at their centre line; spacing is centre to centre'
+  }
+  if (ignoredLines > 0) {
+    const left = `${ignoredLines} parallel line${ignoredLines === 1 ? '' : 's'} between the members left out (they do not repeat with the members: lights, sprinkler lines, other trades)`
+    note = note === undefined ? left : `${note}; ${left}`
   }
   if (gaps.length === 0) gaps = allGaps
   const spacing = median(gaps)
@@ -464,6 +491,117 @@ export function detectPattern(
     memberTypes,
     ...(kinds.length > 1 ? { sequence } : {}),
     ...(repeat !== undefined ? { repeat } : {}),
+    ...(ignoredLines > 0 ? { ignoredLines } : {}),
     ...(note !== undefined ? { note } : {}),
   }
+}
+
+type LineGroup = { across: number; spans: Array<[number, number]> }
+
+const coveredLength = (spans: Array<[number, number]>): number => {
+  const sp = [...spans].sort((a, b) => a[0] - b[0])
+  let total = 0
+  let cur: [number, number] | null = null
+  for (const s of sp) {
+    if (cur !== null && s[0] <= cur[1]) cur[1] = Math.max(cur[1], s[1])
+    else { if (cur !== null) total += cur[1] - cur[0]; cur = [s[0], s[1]] }
+  }
+  if (cur !== null) total += cur[1] - cur[0]
+  return total
+}
+
+/**
+ * The lines of a field that repeat at one period, by drawn length: the
+ * members. Null when there is no clear period, or when three or more phases
+ * are strong (mixed members, read the usual way).
+ */
+export function periodicMembers(groups: LineGroup[]): { kept: LineGroup[]; ignored: number; period: number; faceBelow: number } | null {
+  const n = groups.length
+  if (n < 6) return null
+  const across = groups.map((g) => g.across)
+  const w = groups.map((g) => coveredLength(g.spans))
+  const total = w.reduce((a, b) => a + b, 0)
+  if (!(total > 0)) return null
+  const span = across[n - 1]! - across[0]!
+  const tolFor = (p: number) => Math.max(0.4, 0.04 * p)
+  // Index of the group nearest `x`, by binary search on the sorted offsets.
+  const nearest = (x: number): number => {
+    let lo = 0, hi = n - 1
+    while (lo < hi) { const m = (lo + hi) >> 1; if (across[m]! < x) lo = m + 1; else hi = m }
+    if (lo > 0 && Math.abs(across[lo - 1]! - x) < Math.abs(across[lo]! - x)) lo--
+    return lo
+  }
+  /*
+   * Share of drawn length that repeats at period p: a line counts when like
+   * lines sit two steps along it (one each side, or two on one side). Two
+   * steps, so a member's face width (one face a step from the other, then
+   * nothing) is not taken for the spacing.
+   */
+  const score = (p: number): number => {
+    const tol = tolFor(p)
+    let hit = 0
+    for (let i = 0; i < n; i++) {
+      const at = (x: number) => { const j = nearest(x); return Math.abs(across[j]! - x) <= tol ? w[j]! : 0 }
+      const a = across[i]!
+      const m1 = at(a - p), p1 = at(a + p)
+      const best = Math.max(Math.min(m1, p1), Math.min(p1, at(a + 2 * p)), Math.min(m1, at(a - 2 * p)))
+      hit += Math.min(w[i]!, best)
+    }
+    return hit / total
+  }
+  // Candidate periods: offsets between nearby lines, at quarter-point steps.
+  const cands = new Set<number>()
+  for (let i = 0; i < n; i++) {
+    for (let k = 1; k <= 8 && i + k < n; k++) {
+      const d = across[i + k]! - across[i]!
+      if (d > 0.5 && d <= span / 2) cands.add(Math.round(d * 4) / 4)
+    }
+  }
+  if (cands.size === 0) return null
+  const scored = [...cands].map((p) => ({ p, s: score(p) }))
+  const top = Math.max(...scored.map((c) => c.s))
+  if (top < 0.6) return null
+  // The shortest period that scores near the best (not a multiple of it).
+  const period = scored.filter((c) => c.s >= 0.9 * top).sort((a, b) => a.p - b.p)[0]!.p
+  // Refine: median of the offsets between lines a period apart.
+  const tol = tolFor(period)
+  const fine: number[] = []
+  for (let i = 0; i < n; i++) {
+    const j = nearest(across[i]! + period)
+    if (j !== i && Math.abs(across[j]! - across[i]! - period) <= tol) fine.push(across[j]! - across[i]!)
+  }
+  const P = fine.length > 0 ? median(fine) : period
+  // Fold onto one period, from the heaviest line; cluster the phases.
+  let heaviest = 0
+  for (let i = 1; i < n; i++) if (w[i]! > w[heaviest]!) heaviest = i
+  const origin = across[heaviest]!
+  const phase = across.map((a) => ((((a - origin) % P) + P) % P))
+  const order = phase.map((_, i) => i).sort((a, b) => phase[a]! - phase[b]!)
+  const ptol = tolFor(P)
+  const clusters: Array<{ phase: number; members: number[]; weight: number }> = []
+  for (const i of order) {
+    const c = clusters.at(-1)
+    if (c && phase[i]! - c.phase <= ptol) { c.members.push(i); c.weight += w[i]! }
+    else clusters.push({ phase: phase[i]!, members: [i], weight: w[i]! })
+  }
+  // The first and last clusters meet across the fold.
+  if (clusters.length > 1 && clusters[0]!.phase + P - clusters.at(-1)!.phase <= ptol) {
+    const last = clusters.pop()!
+    clusters[0]!.members.push(...last.members); clusters[0]!.weight += last.weight
+  }
+  const maxW = Math.max(...clusters.map((c) => c.weight))
+  const strong = clusters.filter((c) => c.weight >= 0.5 * maxW)
+  if (strong.length > 2) return null
+  // Strong phases must hold most of the drawn length to be the field's members.
+  if (strong.reduce((a, c) => a + c.weight, 0) < 0.5 * total) return null
+  const keep = new Set(strong.flatMap((c) => c.members))
+  const kept = groups.filter((_, i) => keep.has(i))
+  let faceBelow = 0
+  if (strong.length === 2) {
+    let d = Math.abs(strong[0]!.phase - strong[1]!.phase)
+    d = Math.min(d, P - d)
+    // Faces of one member sit closer together than half the spacing.
+    if (d < P / 2) faceBelow = (d + Math.min(P - d, P / 2)) / 2
+  }
+  return { kept, ignored: n - kept.length, period: P, faceBelow }
 }

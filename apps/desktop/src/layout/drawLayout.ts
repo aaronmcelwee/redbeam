@@ -377,6 +377,22 @@ export function drawRunLayout(
         ctx.stroke()
       }
     }
+    // A short solid line across the run at a cut, as wide as the band (6px at least).
+    const cutMark = (at: Point, toward: Point) => {
+      const a = toScreen(toward, v, o)
+      const p = toScreen(at, v, o)
+      const dx = p.x - a.x, dy = p.y - a.y
+      const len = Math.hypot(dx, dy)
+      if (!(len > 0)) return
+      const half = Math.max(3, bandPx / 2 + 2)
+      const nx = (-dy / len) * half, ny = (dx / len) * half
+      ctx.globalAlpha = 0.9
+      ctx.lineWidth = 1.5 * lw
+      ctx.beginPath()
+      ctx.moveTo(p.x + nx, p.y + ny)
+      ctx.lineTo(p.x - nx, p.y - ny)
+      ctx.stroke()
+    }
     const cutPieces = o.factoryCut?.pieces
     // A factory-cut piece: its band, cross-hatched. Below 2px of band there is
     // nothing to hatch, so it is drawn heavier instead, which still separates it.
@@ -410,7 +426,16 @@ export function drawRunLayout(
     for (const piece of entry.layout.pieces) {
       if (show.overflow) {
         // The two ends past the region, if any: fullSegment minus insideSegment.
-        for (const [pa, pb] of overhangs(piece.fullSegment, piece.insideSegment)) band(pa, pb, 0.11, 0.42)
+        // Fainter than the piece, and a cut mark where it leaves the area, so
+        // the piece reads as ending at the edge (blind runs read the offcut as
+        // the member running past the wall, #147).
+        const im = { x: (piece.insideSegment.a.x + piece.insideSegment.b.x) / 2, y: (piece.insideSegment.a.y + piece.insideSegment.b.y) / 2 }
+        for (const [pa, pb] of overhangs(piece.fullSegment, piece.insideSegment)) {
+          band(pa, pb, 0.07, 0.25)
+          // The cut is the overhang's end nearer the piece.
+          const nearA = Math.hypot(pa.x - im.x, pa.y - im.y) < Math.hypot(pb.x - im.x, pb.y - im.y)
+          cutMark(nearA ? pa : pb, nearA ? pb : pa)
+        }
       }
       band(piece.insideSegment.a, piece.insideSegment.b, 0.22, 0.85)
       if (cutPieces !== undefined && cutPieces.has(piece)) {

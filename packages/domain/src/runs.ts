@@ -57,6 +57,8 @@ export interface RunInputs {
   railSpacingFeet: number
   yieldGranularity: string
   alignSeams: boolean
+  /** Shortest end piece a run may be left with, feet (spec key minPieceLength); 0 is off. */
+  minPieceFeet?: number
   /**
    * Mixed members (NOIC report, 2026-11-26: "Beam every Nth member, Slab
    * between"): every `every`th line is a different member, counted and
@@ -202,6 +204,7 @@ export function resolveRunInputs(
     railLengthFeet,
     railSpacingFeet,
     yieldGranularity: readString(specs, 'yieldGranularity') ?? 'full',
+    ...(readString(specs, 'minPieceLength') !== null && readString(specs, 'minPieceLength')!.trim() !== '' ? { minPieceFeet: Math.max(0, optionalFeet(specs, 'minPieceLength')) } : {}),
     alignSeams: alignSeamsOf(specs),
     ...(mixed !== null ? { mixed } : {}),
   }
@@ -491,6 +494,7 @@ export function layoutRuns(
       maxConnectorSpacingPoints: toPoints(inputs.maxConnectorSpacingFeet),
       origin: group.origin ?? null,
       componentWidthPoints: toPoints(inputs.componentWidthFeet),
+      ...(inputs.minPieceFeet !== undefined && inputs.minPieceFeet > 0 ? { minPiecePoints: toPoints(inputs.minPieceFeet) } : {}),
       // Rails need BOTH specs; the Qt call site gates on exactly this pair.
       ...(inputs.railSpacingFeet > 0 && inputs.railLengthFeet > 0
         ? {

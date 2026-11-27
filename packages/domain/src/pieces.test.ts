@@ -682,3 +682,37 @@ describe('end caps (Coinbase blind test, 2026-11-27)', () => {
     expect(pieces.filter((p) => p.jointPoints.length > 0)).toHaveLength(3)
   })
 })
+
+describe('short end pieces (blind run, 2026-11-27)', () => {
+  // 1 point = 1 inch here: 24'-4" is 292, 8' stock is 96.
+  const lengths = (ps: ReturnType<typeof buildPieces>) => ps.map((p) => Math.round(segmentLength(p.insideSegment) * 100) / 100)
+  it('lays 8 + 8 + 8 + 4" without a minimum, as the Qt build did', () => {
+    expect(lengths(buildPieces([seg(0, 0, 292, 0)], opts({ stockLengthPoints: 96 })))).toEqual([96, 96, 96, 4])
+  })
+  it('moves the last joint back so no end piece is under 2\'', () => {
+    const ps = buildPieces([seg(0, 0, 292, 0)], opts({ stockLengthPoints: 96, minPiecePoints: 24 }))
+    expect(lengths(ps)).toEqual([96, 96, 76, 24])
+    expect(ps.at(-1)!.endCap).toBe(true)
+    expect(ps.filter((p) => p.jointPoints.length > 0)).toHaveLength(3)
+  })
+  it('does the same on 12\' stock (12 + 12 + 4" becomes 12 + 10\'-4" + 2\')', () => {
+    expect(lengths(buildPieces([seg(0, 0, 292, 0)], opts({ stockLengthPoints: 144, minPiecePoints: 24 })))).toEqual([144, 124, 24])
+  })
+  it('lengthens a short seam-aligned lead piece from the next one, keeping the other joints on the grid', () => {
+    // Origin 4" before the run start: the lead piece to the grid is 92", fine; origin 92" before gives a 4" lead.
+    const ps = buildPieces([seg(0, 0, 292, 0)], opts({ stockLengthPoints: 96, minPiecePoints: 24, alignSeams: true, origin: { x: -92, y: 0 } }))
+    const ls = lengths(ps)
+    expect(ls[0]).toBe(24)
+    expect(ls[1]).toBe(76)
+    expect(Math.min(...ls)).toBeGreaterThanOrEqual(24)
+    expect(ls.reduce((a, b) => a + b, 0)).toBeCloseTo(292, 2)
+  })
+  it('buys a 3/4 for an 8\'-4" tail on 16\' stock at quarter yield, written "quarters"', () => {
+    const ps = buildPieces([seg(0, 0, 292, 0)], opts({ stockLengthPoints: 192, yieldGranularity: 'quarters', minPiecePoints: 24 }))
+    expect(lengths(ps)).toEqual([192, 100])
+    expect(ps.map((p) => p.stockFraction)).toEqual([1, 0.75])
+  })
+  it('leaves a run shorter than two minimums alone', () => {
+    expect(lengths(buildPieces([seg(0, 0, 40, 0)], opts({ stockLengthPoints: 96, minPiecePoints: 24 })))).toEqual([40])
+  })
+})

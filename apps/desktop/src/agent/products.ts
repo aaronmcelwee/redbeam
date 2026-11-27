@@ -147,6 +147,7 @@ const OTHER_KNOWN = [
   'pageDirections', 'areaDirections', 'areaOrigins', 'panelGranularity', 'yieldGranularity',
   'layoutPreviewActive', 'showConnectors', 'showEndCaps', 'showJoiners', 'showOverflowPreview', 'dimPageContent',
   'patternRecipe', 'mixedEvery', 'mixedStart', 'mixedLabel', 'memberLabel', 'spacingSource', 'spacingSourceRef',
+  'minPieceLength', 'minPieceLengthUnit',
 ]
 
 /** Keys one product reads beyond its measures (a cassette's length, gap, removable share and trim). */
