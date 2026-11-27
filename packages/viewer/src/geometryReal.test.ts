@@ -20,6 +20,7 @@ import {
   GEOMETRY_DEFAULTS,
   normalizePathPoint,
   readPdfiumPageBox,
+  segmentsInClip,
   type GeometryBackend,
   type PageGeometry,
   type PdfiumLike,
@@ -88,6 +89,22 @@ suite('page geometry against the real Barclays sheet', () => {
     // whole trap: `x / FPDF_GetPageWidthF(page)` type-checks and looks correct.
     expect(box.left).not.toBe(0)
     expect(box.bottom).not.toBe(0)
+  })
+
+  it('a box filtered out of the whole sheet is the box read on its own', () => {
+    const whole = extractPageGeometry(backend, pageHandle, HEAVY_PAGE, { maxSegments: 1_000_000 })
+    expect(whole.truncated).toBe(false)
+    for (const clip of [
+      { x0: 0.3, y0: 0.3, x1: 0.5, y1: 0.45 }, { x0: 0, y0: 0, x1: 0.5, y1: 1 }, { x0: 0.62, y0: 0.1, x1: 0.97, y1: 0.33 },
+      { x0: 0.4, y0: 0.4, x1: 0.41, y1: 0.41 }, { x0: 0.05, y0: 0.55, x1: 0.95, y1: 0.9 },
+    ]) {
+      const own = extractPageGeometry(backend, pageHandle, HEAVY_PAGE, { clip, maxSegments: 1_000_000 })
+      const cut = segmentsInClip(whole.segments, clip)
+      expect(cut.length, JSON.stringify(clip)).toBe(own.segments.length)
+      let differ = 0
+      for (let i = 0; i < cut.length; i++) if (cut[i] !== own.segments[i]) differ++
+      expect(differ, JSON.stringify(clip)).toBe(0)
+    }
   })
 
   it('extracts hundreds of thousands of segments, all inside [0,1]', () => {
