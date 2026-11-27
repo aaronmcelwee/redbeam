@@ -437,7 +437,7 @@ export function checkPatternRecipe(raw: unknown): RecipeCheck {
           const ofRaw = ir['of']
           const of = Array.isArray(ofRaw) ? ofRaw.map(String) : typeof ofRaw === 'string' ? [ofRaw] : []
           if (per === 'crossing' && of.length !== 2) errors.push(`${iw}.of: a crossing names two layers, e.g. ["rails", "panels"]`)
-          if (per !== 'crossing' && per !== 'edge' && per !== 'area' && of.length !== 1) errors.push(`${iw}.of: name the layer it is counted on`)
+          if (per !== 'crossing' && per !== 'edge' && per !== 'area' && of.length === 0) errors.push(`${iw}.of: name the layer it is counted on, or a list of layers to count on each`)
           const qty = ir['qty'] === undefined ? 1 : Number(ir['qty'])
           if (!Number.isFinite(qty) || qty < 0) errors.push(`${iw}.qty: a number`)
           let every = 0
@@ -702,3 +702,9 @@ export const PATTERN_FORMAT = {
   },
   examples: PATTERN_EXAMPLES,
 } as const
+
+/** The refusal in one line, field first, for an `error` string a client may show alone (700 Bay, 2026-11-27). */
+export function recipeErrorLine(errors: readonly string[]): string {
+  if (errors.length === 0) return 'no detail (report this)'
+  return errors.length === 1 ? errors[0]! : `${errors[0]} (and ${errors.length - 1} more: see errors)`
+}

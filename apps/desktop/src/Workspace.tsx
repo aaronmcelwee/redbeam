@@ -19,7 +19,7 @@ import {
   editableMeasures, measureHelp, readString, unitDisplayText, readBool, alignSeamsOf, cassettePieceList,
   deviceLocations, factoryCutPieces, perimeterTrimLengthFeet, resolveScaleForRings, type FactoryCut,
   checkOutline, type OutlineIssue,
-  PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, productLabelFor, scopeProductLabel, readPatternRecipe, builtInAsRecipe,
+  PATTERN_RECIPE_KEY, PATTERN_FORMAT, checkPatternRecipe, recipeErrorLine, productLabelFor, scopeProductLabel, readPatternRecipe, builtInAsRecipe,
   approvePatternRecipe, approvePatternLayer, removePatternLayer,
   type PatternRecipe, type Polygon, type FieldFrame, areaRegion, regionArea,
 } from '@redbeam/domain'
@@ -8440,7 +8440,7 @@ export default function Workspace({
           }
           if (recipeSent !== undefined && recipeSent !== null) {
             const check = checkPatternRecipe(typeof recipeSent === 'string' ? ((): unknown => { try { return JSON.parse(recipeSent) } catch { return recipeSent } })() : recipeSent)
-            if (!check.ok) return { error: 'the recipe does not check, so no scope was made', errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
+            if (!check.ok) return { error: `the recipe does not check, so no scope was made: ${recipeErrorLine(check.errors)}`, errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
           }
           const implied = product === null
             ? (recipeSent !== undefined && recipeSent !== null ? 'area' : null)
@@ -9421,7 +9421,7 @@ export default function Workspace({
           if (!sc) return noScope(id)
           const raw = typeof params['recipe'] === 'string' ? ((): unknown => { try { return JSON.parse(params['recipe'] as string) } catch { return params['recipe'] } })() : params['recipe']
           const check = checkPatternRecipe(raw)
-          if (!check.ok) return { error: 'the recipe does not check', errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
+          if (!check.ok) return { error: `the recipe does not check: ${recipeErrorLine(check.errors)}`, errors: check.errors, warnings: check.warnings, format: 'describe_product {productType:"custom_pattern"}' }
           const by = agentCtxRef.current.agent?.name ?? agentCtxRef.current.agent?.app ?? 'an AI app'
           const recipe = asAgentDraft(check.recipe, sc, by)
           if (action === 'preview_pattern') {
