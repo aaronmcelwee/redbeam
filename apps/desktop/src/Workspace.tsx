@@ -10577,6 +10577,11 @@ export default function Workspace({
               ...(p.result.warnings !== undefined ? { warnings: p.result.warnings } : {}),
             }
           }
+          if (p.result.primitive !== undefined) {
+            // A primitive's pieces are its cut list: one line per finished piece.
+            const { blockers: _b, ...cut } = p.result.primitive
+            return { scopeId: id, label: sc.label, productType: p.result.productType, primitive: cut, parts: p.result.quantities }
+          }
           if (p.result.runs.length === 0) {
             return { scopeId: id, productType: p.result.productType, note: 'this product is laid out as panels, not runs; get_bom has the panel counts', parts: p.result.quantities }
           }

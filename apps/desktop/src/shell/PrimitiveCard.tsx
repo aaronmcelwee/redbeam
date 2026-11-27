@@ -82,7 +82,7 @@ export function PrimitiveCard({ scopeId, specs, pieces, controls }: {
                 <span className="pm-k">{p.label}</span>
                 <span className="pm-v">
                   {(p.key === 'length' || p.key === 'width') && (prim.parameters[p.key] ?? null) === null ? 'From the drawing' : show(p, prim.parameters[p.key] ?? p.default)}
-                  {n > 0 && <span className="pt-pill agent">{n} area{n === 1 ? '' : 's'} differ</span>}
+                  {n > 0 && <span className="pt-pill agent">{n === 1 ? '1 area differs' : `${n} areas differ`}</span>}
                 </span>
               </div>
             )

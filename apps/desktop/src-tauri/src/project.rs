@@ -1629,7 +1629,7 @@ pub async fn write_export_file(request: tauri::ipc::Request<'_>) -> Result<Strin
     Ok(path.to_string_lossy().into_owned())
 }
 
-const EXPORT_EXTENSIONS: [&str; 9] = ["pdf", "csv", "tsv", "html", "htm", "json", "txt", "md", "xml"];
+const EXPORT_EXTENSIONS: [&str; 10] = ["pdf", "csv", "tsv", "html", "htm", "json", "txt", "md", "xml", "png"];
 
 pub(crate) fn export_target_ok(path: &Path, overwrite: bool) -> Result<(), String> {
     if !path.is_absolute() {
@@ -1983,6 +1983,7 @@ mod tests {
         let _ = fs::remove_file(&csv);
         assert!(export_target_ok(Path::new("takeoff.csv"), false).is_err());
         assert!(export_target_ok(&dir.join("x.exe"), false).is_err());
+        export_target_ok(&dir.join("shot.png"), false).unwrap();
         assert!(export_target_ok(&dir.join("missing").join("x.csv"), false).is_err());
         export_target_ok(&csv, false).unwrap();
         write_export(&csv, b"a,b", false).unwrap();

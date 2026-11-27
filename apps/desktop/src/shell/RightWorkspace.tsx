@@ -67,7 +67,7 @@ import { openFor, scopeStage, summaryToTsv, type SummaryLine } from './scopeSumm
 import { PatternCard, type PatternControls } from './PatternCard.js'
 import { PrimitiveCard } from './PrimitiveCard.js'
 import { LAYOUT_KEYS, PATTERN_STARTS, scopeLayout, type ScopeLayout } from '../layout/scopeLayout.js'
-import { productLabelFor, readPatternRecipe, PRIMITIVE_KEY, scopeProductLabel } from '@redbeam/domain'
+import { productLabelFor, readPatternRecipe, readScopePrimitive, PRIMITIVE_KEY, scopeProductLabel } from '@redbeam/domain'
 
 /**
  * What a scope counts, in the order an estimator meets them: most ceiling
@@ -1556,6 +1556,13 @@ function Expander({ id, title, summary, count, open, onToggle, children }: {
 
 /** Setup in one line, for when it is folded: the product, its measures, yield and seams. */
 function setupLine(product: ProductType, specs: Specifications, denominator: number, scopeType: ScopeType = 'area'): string {
+  if (product === 'custom_pattern' && specs[PRIMITIVE_KEY] != null) {
+    // A primitive is its name, version and whether it is approved; it has no layers.
+    const prim = readScopePrimitive(specs)
+    if (prim !== null && !('error' in prim)) {
+      return [prim.definition.name, `version ${prim.definition.primitiveVersion}`, prim.definition.status === 'approved' ? 'approved' : 'draft'].join(' · ')
+    }
+  }
   if (product === 'custom_pattern') {
     const raw = readPatternRecipe(specs) as { layers?: unknown[]; status?: string } | null
     const n = Array.isArray(raw?.layers) ? raw!.layers.length : 0
@@ -2068,7 +2075,8 @@ function SetupGrid({
         <>
           <span className="es-k">Direction</span>
           <span className="es-ro wide">
-            <span className={direction === null ? 'es-rotext unset' : 'es-rotext'}>{direction ?? 'not set'}</span>
+            {/* A primitive with no direction runs its mains left to right on the sheet. */}
+            <span className={direction === null && scope.specifications[PRIMITIVE_KEY] == null ? 'es-rotext unset' : 'es-rotext'}>{direction ?? (scope.specifications[PRIMITIVE_KEY] != null ? 'mains left to right' : 'not set')}</span>
             <span className="es-sp" />
             {onSetDirection !== undefined && (
               <button className="es-link" onClick={onSetDirection}>Set on sheet</button>
