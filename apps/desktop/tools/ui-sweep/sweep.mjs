@@ -762,8 +762,15 @@ const STEPS = [
   ['segment-bar', async (page) => {
     const problems = []
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: /^Take off/ }).first().click()
+    // Its own area scope: an earlier step may leave a count scope active, which arms Count.
+    const act = (name, params) => page.evaluate(([a, b]) => window.__sweepAgent(null, 'invoke_ui_action', { action: a, ...b }), [name, params ?? {}])
+    const scope = await act('create_scope', { label: 'Sweep arcs', scopeType: 'area' })
+    if (scope.scopeId !== undefined) await act('set_active_scope', { scopeId: scope.scopeId })
     await page.waitForTimeout(300)
+    if (await page.getByRole('button', { name: /^Take off/ }).count() > 0) await page.getByRole('button', { name: /^Take off/ }).first().click()
+    await page.waitForTimeout(200)
+    await page.keyboard.press('a')
+    await page.waitForTimeout(200)
     const box = await page.locator('.viewport').boundingBox()
     await page.mouse.click(box.x + box.width / 2 - 100, box.y + box.height / 2 - 60)
     await page.keyboard.press('a')
