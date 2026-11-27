@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { pause, until } from './agents/wait.js'
 import { PRIORITY_THUMBNAIL, Viewer, clampViewport, linkAt, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation, type PageLink } from '@redbeam/viewer'
 import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
@@ -6441,14 +6442,10 @@ export default function Workspace({
     }
     if (n === pageIndexRef.current && (viewerRef.current?.pageInfo.width ?? 0) > 0) return
     goToPage(n)
-    const until = performance.now() + 10_000
-    while (performance.now() < until) {
-      await new Promise((r) => setTimeout(r, 50))
-      if (pageIndexRef.current === n && (viewerRef.current?.pageInfo.width ?? 0) > 0) {
-        // One more beat for the fit that follows a page change.
-        await new Promise((r) => setTimeout(r, 150))
-        return
-      }
+    if (await until(() => pageIndexRef.current === n && (viewerRef.current?.pageInfo.width ?? 0) > 0, 10_000)) {
+      // One more beat for the fit that follows a page change.
+      await pause(150)
+      return
     }
     throw new Error(`page ${n} did not show within 10s`)
   }
@@ -6498,11 +6495,8 @@ export default function Workspace({
    * productType in update_scope's answer).
    */
   const scopeWhen = async (id: string, ready: (sc: Scope) => boolean): Promise<Scope | undefined> => {
-    for (let waited = 0; waited < 10_000; waited += 25) {
-      const sc = scopesRef.current.find((x) => x.id === id)
-      if (sc !== undefined && ready(sc)) return sc
-      await new Promise((res) => setTimeout(res, 25))
-    }
+    // As soon as it is there: no poll interval, and no timer a covered window slows (agents/wait.ts).
+    await until(() => { const sc = scopesRef.current.find((x) => x.id === id); return sc !== undefined && ready(sc) }, 10_000)
     return scopesRef.current.find((x) => x.id === id)
   }
   /**
@@ -6525,11 +6519,7 @@ export default function Workspace({
       return e !== undefined && readProductType(e.scope.specifications) === 'custom_pattern'
         && stable(e.scope.specifications[PATTERN_RECIPE_KEY]) === want ? e.result : undefined
     }
-    for (let waited = 0; waited < 30_000; waited += 40) {
-      const r = current()
-      if (r !== undefined) return r
-      await new Promise((res) => setTimeout(res, 40))
-    }
+    await until(() => current() !== undefined, 30_000)
     return current() ?? (piecesRef.current.some((p) => p.scope.id === scopeId) ? 'pending' : undefined)
   }
   /*
@@ -7366,7 +7356,16 @@ export default function Workspace({
             page: p,
             sheet: sheetLabelFor(p),
             scanned: pt.scanned,
-            words: all.slice(offset, offset + limit),
+            /*
+             * One row per word, not an object with a named box each: a sheet
+             * has thousands of words, and the names were most of the answer
+             * (an E-size sheet read 108 KB; as rows it reads about half).
+             */
+            wordFormat: '[text, x0, y0, x1, y1]: the box in normalized [0,1] page coordinates, y down',
+            words: all.slice(offset, offset + limit).map((w) => {
+              const r4 = (n: number) => Math.round(n * 1e4) / 1e4
+              return [w.text, r4(w.box.x0), r4(w.box.y0), r4(w.box.x1), r4(w.box.y1)]
+            }),
             total: all.length,
             // Nothing is dropped: the rest comes with `offset`.
             ...(all.length > offset + limit ? { nextOffset: offset + limit, note: 'more words follow; ask again with `offset` set to nextOffset' } : {}),
@@ -11069,12 +11068,8 @@ export default function Workspace({
     const liveScope = (id: string): Scope | undefined => scopesRef.current.find((x) => x.id === id)
     const scopeByLabel = async (label: string): Promise<Scope | null> => {
       // The state may not have flushed on the tick the scope was written.
-      for (let i = 0; i < 20; i++) {
-        const hit = scopesRef.current.find((x) => x.label === label)
-        if (hit !== undefined) return hit
-        await new Promise((r) => setTimeout(r, 25))
-      }
-      return null
+      await until(() => scopesRef.current.some((x) => x.label === label), 500)
+      return scopesRef.current.find((x) => x.label === label) ?? null
     }
     /** A choose step listing the round's scopes, each leading into `then`. */
     const pickScope = (label: string, then: (sc: Scope) => Command): Step => ({

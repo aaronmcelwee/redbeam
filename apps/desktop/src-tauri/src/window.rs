@@ -117,8 +117,16 @@ fn open_or_focus(
             // replaces them rather than adding to them. Deliberately NOT
             // `--disable-pinch`: suppressing the gesture upstream can only take
             // it away from the page that wants to handle it.
+            //
+            // The three after the features keep the page running at full
+            // speed while REDBEAM is covered or minimized, which is where
+            // it is whenever an AI agent is at work in it: Chromium slows a
+            // hidden page's timers to one a second and its renderer to
+            // background priority, and every agent call paid for that.
+            // tauri.conf.json carries the SAME string for the first window:
+            // WebView2 refuses a second window whose arguments differ.
             .additional_browser_args(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection",
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows",
             )
             /*
              * THIS IS WHAT MAKES A TRACKPAD PINCH REACH THE PAGE.

@@ -5,6 +5,16 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.118 — 2026-11-27
+
+### Faster AI agents that use far fewer tokens
+
+- **Agents keep their speed when REDBEAM is behind another window.** While Claude or ChatGPT works, REDBEAM is usually covered by the chat or minimized, and Windows can slow a hidden app's clock to one tick a second. Many agent actions waited on that clock. They now wait for the work itself, and REDBEAM asks Windows to keep it at full speed in the background.
+- **Several actions in one step.** Agents can send a group of actions together (read five sheets, or set up a scope and draw in it) and get every answer back at once, instead of taking a turn for each. Fewer turns is the biggest saving in how long a takeoff takes.
+- **Answers are about 60% smaller.** What REDBEAM sends back to an agent is packed tightly, and a sheet's words come back as short rows. On an 80 MB set, the same 124 actions returned 0.68 MB of text instead of 1.81 MB, so chats run longer before filling up and cost less.
+- **A lighter tool list.** The list of tools every chat loads before its first action is about 30% smaller, with nothing removed that an agent could do before.
+- **Quicker waits after a change.** Making or changing a scope answers as soon as the change lands, instead of after a fixed pause.
+
 ## 0.3.113 — 2026-11-26
 
 ### Opening several sets, counts and lengths, sharper thumbnails
