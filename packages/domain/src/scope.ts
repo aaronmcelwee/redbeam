@@ -38,6 +38,11 @@ export type MarkupKind =
   // /Rect, as rings[0]) and its colour, so it can be moved, recoloured and
   // deleted, and the save rewrites the annotation itself (export/adopt.ts).
   | 'annot'
+  // A text box, cloud, leader, shape or pen stroke: something said on the
+  // sheet, not measured. No scope, no quantity; its shape, colours and text
+  // are in `content`, and the save writes it as the annotation Bluebeam
+  // would write for it (apps/desktop/src/tools/noteGeometry.ts).
+  | 'note'
 
 export interface Calibration {
   /** Drawing feet represented by one PDF point on this page. */

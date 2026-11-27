@@ -40,6 +40,9 @@ export function hitTest(
   pageH: number,
 ): Hit | null {
   const p = { x: sx, y: sy }
+  // Notes answer for themselves (tools/notes.ts hitTestNote): a pen stroke's
+  // samples are not corners, and a text box is not a polygon to reshape.
+  if (markups.some((m) => m.kind === 'note')) markups = markups.filter((m) => m.kind !== 'note')
 
   // pass 1: vertices, newest first. Another app's markup held in place
   // (`annot`) is moved whole, never reshaped: its ring is only its box.
@@ -134,11 +137,13 @@ function drawOne(
   if (ring.length === 0) return
 
   ctx.save()
+  const shape = markup.kind === 'note' ? (markup as { content?: { shape?: string } }).content?.shape : undefined
 
   // halo so the selection reads against any drawing; an area's holes too
   if (ring.length >= 2) {
     ctx.beginPath()
     const closed = markup.kind === 'area' || markup.kind === 'cutout' || markup.kind === 'shape' || markup.kind === 'annot' || markup.kind === 'link'
+      || (shape !== undefined && shape !== 'arrow' && shape !== 'line' && shape !== 'pen')
     const outlined = markup.kind === 'area' && markup.rings.length > 1
       ? areaRegion(markup.rings).map((r) => toScreenRing(r, view, pageW, pageH))
       : [ring]
@@ -154,7 +159,8 @@ function drawOne(
 
   // vertex handles
   ctx.setLineDash([])
-  if (!withHandles || markup.kind === 'annot') { ctx.restore(); return }
+  // A note's box resizes by its edges and a pen stroke has no corners to grab.
+  if (!withHandles || markup.kind === 'annot' || shape === 'pen' || shape === 'text' || shape === 'rect' || shape === 'ellipse') { ctx.restore(); return }
   for (let i = 0; i < ring.length; i++) {
     const p = ring[i]!
     const active = hoverVertex === i

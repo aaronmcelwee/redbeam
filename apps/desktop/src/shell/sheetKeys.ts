@@ -6,6 +6,7 @@
 export type ToolKey =
   | 'select' | 'pan' | 'area' | 'polyline' | 'count' | 'cutout' | 'shape'
   | 'calibrate' | 'scale-region' | 'text' | 'dimension' | 'origin'
+  | 'callout' | 'rect' | 'ellipse' | 'polygon' | 'pen'
 
 export interface KeyMods {
   ctrlKey: boolean
@@ -18,6 +19,11 @@ const TOOL_KEYS: Record<string, ToolKey> = {
   s: 'shape', k: 'calibrate', K: 'scale-region', t: 'text',
   // Dimension had no key at all, and the Origin tool is new (#68, #69).
   d: 'dimension', o: 'origin',
+  // The note tools, on Revu's letters where ours are free (Kenneth,
+  // 2026-11-26): Q callout, R rectangle, E ellipse, N polygon, P pen. Revu's
+  // C, A and L are Count, Area and Linear here, so Cloud, Arrow and Line
+  // are in the Markup menu.
+  q: 'callout', r: 'rect', e: 'ellipse', n: 'polygon', p: 'pen',
 }
 
 /**
