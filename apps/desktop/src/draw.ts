@@ -28,9 +28,12 @@ export type Tool =
   // takeoff: it reaches no scope and no quantity, which is why it carries no
   // scope id and is drawn on the annotation layer rather than the overlay.
   | 'calibrate' | 'direction' | 'scale-region' | 'dimension'
-  // `text` selects the sheet's own words with a box, for Ctrl+C. It reads the
-  // drawing and leaves nothing on it.
-  | 'text'
+  // The note tools (tools/notes.ts): a text box, a cloud, a cloud with a
+  // leader, an arrow, a line, a rectangle, an ellipse, a polygon and a pen.
+  // Each leaves a `note` markup with no scope. `text` selected the words on the sheet
+  // until 0.3.115; the Select tool does that now, on a drag over
+  // text where there are no markups (Kenneth, 2026-11-26).
+  | 'text' | 'cloud' | 'callout' | 'arrow' | 'line' | 'rect' | 'ellipse' | 'polygon' | 'pen'
   // `origin` sets where an area's pattern starts (its 0,0): one click on a
   // corner, an edge or a point inside the area, with snapping. It was a
   // right-click menu item only (#69).

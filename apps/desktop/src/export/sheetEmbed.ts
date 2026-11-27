@@ -55,6 +55,8 @@ import { openLazyPdf } from './lazyPdf.js'
 import { incrementalTail, newRefsSince, reserveExistingNumbers, updateBaseOf, type UpdateBase } from './pdfIncremental.js'
 import { sheetOutlineCurrent, writeSheetOutline } from './sheetOutline.js'
 import { annotColor, appearanceInfo, recolorAnnot, rectOf, rewriteNeeds, translateAnnot, type AnnotRewrite } from './annotRewrite.js'
+import { buildNoteAnnots } from './noteAnnots.js'
+import type { NoteContent } from '../tools/noteGeometry.js'
 import { assembleSlice, pageSlicesFor, parsePageSlice, type FoundAnnot, type PageSlice, type Rebound } from './sliceAssemble.js'
 import {
   COUNT_RADIUS, MIN_POINTS, appearanceOps, centroidOf, fromUserSpace, pdfText, regionAt, shapeForKind,
@@ -124,6 +126,11 @@ export interface EmbedMarkup extends WritableMarkup {
   folded?: readonly string[]
   /** The source markup's revision, recorded in the slice. */
   rev?: string
+  /**
+   * A note's shape, colours and text (kind `note`): written as the
+   * annotation Revu would write for it (noteAnnots.ts) rather than as takeoff.
+   */
+  noteContent?: NoteContent
   /** A link markup's target page: written as a /Link that jumps there. */
   linkTo?: number
 }
@@ -1462,6 +1469,26 @@ function embedInto(
     const fpp = ring === undefined || ring.length === 0
       ? input.pageScales.get(markup.pageIndex)
       : (regionAt(centroidOf(ring), regions)?.feetPerPoint ?? input.pageScales.get(markup.pageIndex))
+    if (markup.kind === 'note') {
+      if (markup.noteContent === undefined) continue
+      const built = buildNoteAnnots(ctx, page, markup.rings, markup.noteContent, (part) => redbeamNm(markup.id + part), when)
+      let head: PDFRef | null = null
+      for (const b of built ?? []) {
+        const bnm = redbeamNm(markup.id + b.part)
+        b.dict.set(PDFName.of(KEY), ctx.obj({ MarkupId: pdfText(markup.id) }))
+        b.dict.set(PDFName.of('P'), page.ref)
+        // A cloud+'s callout is grouped to its cloud, so Revu moves them together.
+        if (head !== null) { b.dict.set(PDFName.of('IRT'), head); b.dict.set(PDFName.of('RT'), PDFName.of('Group')) }
+        annots[bnm] = {
+          markupId: markup.id, fp: annotFingerprint(b.dict),
+          ...(markup.rev === undefined ? {} : { rev: markup.rev }),
+        }
+        const ref = ctx.register(b.dict)
+        head ??= ref
+        annotRefs.push([markup.pageIndex, ref])
+      }
+      continue
+    }
     const nm = redbeamNm(markup.id)
     const annot = markup.kind === 'link'
       ? buildLinkAnnot(ctx, page, pages[markup.linkTo ?? -1], markup, nm, when)
