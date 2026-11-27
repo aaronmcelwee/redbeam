@@ -11,6 +11,13 @@ All are unsigned; SmartScreen will ask once.
 
 - **Settings no longer reset.** A switch such as the Custom patterns beta could turn itself back off after an update. A REDBEAM window opened before the change still held the old value and wrote it back the next time it saved anything. Each window now saves only the setting you changed and picks up changes made in other windows.
 - **A copy on disk.** Settings are also kept in a file in your Windows profile, so an update that closes REDBEAM straight after a change, or a reset of the built-in browser's storage, can no longer lose them.
+## 0.3.132 — 2026-11-27
+
+### Agents trace a dense sheet in about half the time
+
+- **The sheet is read once.** When an agent traced hatched ceilings, REDBEAM went back to the PDF for the same linework on every pass and every call, which was more than half the wait on a dense sheet. It now reads the sheet once and works from that. The outlines are the same.
+- **Piece lists a sixth the size.** An agent's piece list for a big scope was hundreds of pages of repeated labels. Every run and piece is still there, now as compact rows.
+- **Fewer names in the way.** When an agent has two of its PDFs open and does not say which one it means, REDBEAM names only that agent's PDFs, not every tab in the window.
 
 ## 0.3.131 — 2026-11-27
 

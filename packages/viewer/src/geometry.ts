@@ -181,6 +181,28 @@ export const GEOMETRY_DEFAULTS = {
   overflow: 0.02,
 } as const
 
+/**
+ * The segments a read with `clip` would have returned, taken from a read of a
+ * box that holds `clip` (an untruncated one, with the same filters). The test
+ * is the one the extraction applies to each segment; the bounds prefilter on
+ * whole objects only skips segments this test drops too. So a caller that has
+ * the sheet in hand does not go back to PDFium for every box inside it: on a
+ * dense sheet that read is seconds.
+ */
+export function segmentsInClip(segments: Float32Array, clip: NormClip, overflow: number = GEOMETRY_DEFAULTS.overflow): Float32Array {
+  const x0 = clip.x0 - overflow, y0 = clip.y0 - overflow, x1 = clip.x1 + overflow, y1 = clip.y1 + overflow
+  const out = new Float32Array(segments.length)
+  let n = 0
+  for (let i = 0; i + 3 < segments.length; i += 4) {
+    const ax = segments[i]!, ay = segments[i + 1]!, bx = segments[i + 2]!, by = segments[i + 3]!
+    if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1)) continue
+    if ((ay < y0 && by < y0) || (ay > y1 && by > y1)) continue
+    out[n] = ax; out[n + 1] = ay; out[n + 2] = bx; out[n + 3] = by
+    n += 4
+  }
+  return out.slice(0, n)
+}
+
 /** Compose so a point is transformed by `inner`, then by `outer`. */
 export function multiplyMatrix(inner: Matrix, outer: Matrix): Matrix {
   return {

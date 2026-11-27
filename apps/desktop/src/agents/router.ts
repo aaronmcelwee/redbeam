@@ -297,7 +297,11 @@ export class BridgeRouter {
     // Unnamed calls by a session that has worked in more than one PDF say
     // where they went, so a call that went to the other one is noticed.
     if (agent !== null && named === '' && (this.filesSeen.get(agent.id)?.size ?? 0) > 1) {
-      const others = [...new Set(this.deps.tabs().map((t) => t.file))].filter((f) => !samePath(f, tab.file)).map(nameOf)
+      // Only the PDFs this session has worked in: the person's tabs and other
+      // sessions' are not its choice to make, and a window can hold ninety.
+      const mine = [...(this.filesSeen.get(agent.id) ?? [])]
+      const others = [...new Set(this.deps.tabs().map((t) => t.file))]
+        .filter((f) => !samePath(f, tab.file) && mine.some((m) => samePath(m, f))).map(nameOf)
       if (others.length > 0) {
         result = { ...result, fileNote: `no \`file\` given, so this went to ${nameOf(tab.file)}; also open: ${others.join(', ')}. Pass \`file\` to choose.` }
       }

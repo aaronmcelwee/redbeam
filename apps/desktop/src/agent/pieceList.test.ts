@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { calculatePieces, type Markup, type Scope } from '@redbeam/domain'
-import { pieceList } from './pieceList.js'
+import { agentPieceList, pieceList } from './pieceList.js'
 
 // A 1000 x 1000 pt sheet at 0.05 ft/pt: the area below is 20 ft x 10 ft.
 const cal = { feetPerPoint: 0.05, pageWidth: 1000, pageHeight: 1000 }
@@ -71,5 +71,29 @@ describe('cutouts with panel patterns', () => {
     const big = [{ x: 0.26, y: 0.16 }, { x: 0.34, y: 0.16 }, { x: 0.34, y: 0.24 }, { x: 0.26, y: 0.24 }]
     const n = (rings: Markup['rings']) => calculatePieces(panels, area(rings), cal, opts).quantities.find((q) => q.itemKey === 'panel_count')!.quantity
     expect(n([outer, big])).toBeLessThan(n([outer]))
+  })
+})
+
+describe('agentPieceList', () => {
+  it('sends every run and piece as rows that read back to the same list', () => {
+    const list = pieceList(calculatePieces(scope, area([outer, hole]), cal, opts))
+    const sent = agentPieceList(list, (id) => (id === 'p0' ? 7 : null)) as {
+      runs: Array<[number, number, number, number, number[][]]>; runFormat: string; family?: string; cutList: unknown; stock: unknown; parts: unknown
+    }
+    expect(sent.runs.length).toBe(list.runs.length)
+    expect(sent.cutList).toEqual(list.cutList)
+    expect(sent.stock).toEqual(list.stock)
+    expect(sent.parts).toEqual(list.parts)
+    expect(sent.runFormat).toContain('[page, area, run, lengthFeet, pieces]')
+    sent.runs.forEach(([page, areaAt, run, lengthFeet, pieces], i) => {
+      const from = list.runs[i]!
+      expect([page, areaAt, run, lengthFeet]).toEqual([7, from.area, from.run, from.lengthFeet])
+      expect(pieces.map(([cutFeet, stockFraction, cutToFit, offcutFeet, caps, connectors, joiners]) => ({
+        cutFeet, stockFraction, cutToFit: cutToFit === 1, offcutFeet, startCap: (caps! & 1) === 1, endCap: (caps! & 2) === 2, connectors, joiners,
+      }))).toEqual(from.pieces.map(({ cut: _cut, family: _family, ...p }) => p))
+    })
+    expect(new Set(list.runs.flatMap((r) => r.pieces.map((p) => p.family)))).toEqual(new Set([sent.family]))
+    // The point of it: well under half the size of an object per piece.
+    expect(JSON.stringify(sent).length).toBeLessThan(JSON.stringify(list).length * 0.5)
   })
 })
