@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.125 — 2026-11-27
+
+### Agents in Claude Code now receive the takeoff skill
+
+- **The skill reaches every agent.** When a session started, Claude Code showed the agent only the session name and dropped the takeoff skill and the note on sending calls together. REDBEAM now sends them in a form every AI app shows. Screenshots asked for in a batch of calls are no longer dropped either.
+
+
 ## 0.3.122 — 2026-11-27
 
 ### AI agents are told when to send calls together

@@ -278,7 +278,8 @@ async function callBatch(args, session, onAlive) {
     ...(results.length < calls.length ? { stoppedAt: results.length - 1, note: 'A call failed, so the calls after it were not run. Fix it and send the rest.' } : {}),
     results,
   }
-  return { content: [{ type: 'text', text: asText(summary) }, ...images], structuredContent: summary, ...(failed > 0 && results.length === failed ? { isError: true } : {}) }
+  // No structuredContent, for the same reason as the session start: it would hide the screenshots.
+  return { content: [{ type: 'text', text: asText(summary) }, ...images], ...(failed > 0 && results.length === failed ? { isError: true } : {}) }
 }
 
 async function callTool(name, args = {}, onAlive = () => {}) {
@@ -289,7 +290,8 @@ async function callTool(name, args = {}, onAlive = () => {}) {
         { type: 'text', text: asText({ session, use: 'Pass this exact value as `session` on every other REDBEAM call in this chat.', takeoffSkill: SKILL_URI }) },
         { type: 'text', text: skillHandout() },
       ],
-      structuredContent: { session, takeoffSkill: SKILL_URI },
+      // No structuredContent: a client that has it shows the agent only that
+      // (Claude Code, 2026-11-27), and the skill and the batching note went unread.
     }
   }
   if (name !== LEAN.batch.name && !METHOD_OF[name]) throw new Error(`Unknown REDBEAM tool: ${name}`)
