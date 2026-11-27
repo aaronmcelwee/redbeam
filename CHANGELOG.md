@@ -13,6 +13,14 @@ All are unsigned; SmartScreen will ask once.
 - **Traced fields match the drawing.** Tracing a ceiling field gives the same area however the agent frames it. Stair-stepped edges now follow the drawn wall, curve or slanted line, and an agent can choose to end the field at the hatch rather than the wall line.
 - **Counts that agree.** End caps are counted one per run end, so 475 runs give 950. The piece list's stock figures now say plainly how much stock to order and why, and the pieces CSV has columns for start caps, end caps, connectors and joiners.
 - **Better reading of sheets.** Two-line sheet titles are read in full, a scale check reads the sheet you asked about, and agents can read the shape and measured value of existing markups. An agent working across several open PDFs is told which file each call went to.
+## 0.3.114 — 2026-11-26
+
+### Arcs, circles and links between sheets
+
+- **Arcs while you draw.** In Area, Cutout and Linear, press A (or pick Arc on the bar at the top of the drawing), click a point the arc passes through, then where it ends. The area and length follow the true curve.
+- **Circles.** Press Shift+C, click the centre, then a point on the edge. Handy for round cutouts and round clouds.
+- **Link tool.** Drag a box over a callout and pick the sheet it should open. The sheet named inside the box is listed first. Links are saved in the PDF, so they work in Bluebeam and any other viewer too.
+- **Link all detail callouts.** REDBEAM reads every sheet and lists each reference to another sheet, like 3/A5.01. Click a row to see it on the drawing, untick any you don't want, and add them all in one step.
 
 ## 0.3.113 — 2026-11-26
 
