@@ -209,7 +209,7 @@ import { APP_VERSION } from './update/updates.js'
 import { UpdateChip } from './update/UpdateChip.js'
 import { Glyph, Check, Compass, Minus, Plus, Trash2, Pentagon, Ruler, Highlighter, Copy, Duplicate, Crosshair, Eye, EyeOff, Bug, Sparkles } from './shell/icons.js'
 import { LIGHT_HIDDEN_SETTINGS, LIGHT_PANELS, LIGHT_REACHES, lightCommands } from './light.js'
-import { SettingsStore, browserStorage } from './settings/store.js'
+import { SettingsStore, browserStorage, restoreFromFile as restoreSettingsFromFile } from './settings/store.js'
 import { provideNames, signal } from './signals/install.js'
 import { SETTINGS, CATEGORY_LABEL } from './settings/registry.js'
 
@@ -1113,6 +1113,17 @@ export default function Workspace({
     setOpenScopeId(id)
   }, [only])
   useEffect(() => settings.subscribe(setPrefs), [settings])
+  /*
+   * Keep this window's settings in step with every other window's, and bring
+   * back the copy on disk if the webview lost the last write (an update ends
+   * the process to install). See settings/store.ts.
+   */
+  useEffect(() => {
+    const unwatch = settings.watch()
+    let live = true
+    void restoreSettingsFromFile().then((restored) => { if (restored && live) settings.reload() })
+    return () => { live = false; unwatch() }
+  }, [settings])
 
   /**
    * Derived, not duplicated. Holding a separate `snapOn` state seeded from the
