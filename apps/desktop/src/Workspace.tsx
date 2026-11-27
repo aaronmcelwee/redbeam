@@ -169,7 +169,7 @@ import { ringsAreaPoints, snapToLinework } from './agent/snapTrace.js'
 import { traceFieldInWorker } from './agent/fieldTraceInWorker.js'
 import { expandRing } from './agent/arcs.js'
 import { checkScale, statedScales } from './agent/statedScale.js'
-import { pieceList } from './agent/pieceList.js'
+import { agentPieceList, pieceList } from './agent/pieceList.js'
 import { openHeadlessDocument } from './project/headlessDocument.js'
 import { laneCount, PageTextPool } from './search/textPool.js'
 import { hitTestDimension } from './tools/dimension.js'
@@ -10321,7 +10321,7 @@ export default function Workspace({
           const limit = Math.max(1, Number(params['limit'] ?? 1000) || 1000)
           const offset = Math.max(0, Math.floor(Number(params['offset'] ?? 0)) || 0)
           const list = pieceList(p.result, { maxRuns: limit, offset })
-          return { scopeId: id, label: sc.label, ...list, ...(list.nextOffset !== undefined ? { note: 'more runs follow; ask again with `offset` set to nextOffset' } : {}) }
+          return { scopeId: id, label: sc.label, ...agentPieceList(list, (pid) => pageNumberFrom(pid, docIdRef.current)), ...(list.nextOffset !== undefined ? { note: 'more runs follow; ask again with `offset` set to nextOffset' } : {}) }
         }
         /*
          * Who changed what, and when: the activity trail, which travels in

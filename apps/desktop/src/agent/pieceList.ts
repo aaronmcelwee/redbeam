@@ -203,3 +203,31 @@ function longerThan(
     },
   }
 }
+
+/**
+ * The piece list as an agent is sent it: the same runs and pieces, as rows
+ * instead of an object per piece (Heineken, 2026-11-27: 1,595 runs were
+ * 676 KB of repeated key names, and agents hit the size on every scope).
+ * Nothing is left out but the feet-and-inches spellings of numbers that are
+ * there in feet; `runFormat` says what each column is.
+ */
+export function agentPieceList(list: PieceList, pageOf: (pageId: string) => number | null): Record<string, unknown> {
+  const families = [...new Set(list.runs.flatMap((r) => r.pieces.map((p) => p.family)))]
+  const many = families.length > 1
+  const { runs, longerThanStock, ...rest } = list
+  return {
+    ...rest,
+    runFormat: `[page, area, run, lengthFeet, pieces]; each piece [cutFeet, stockFraction, cutToFit (1 = cut to fit at an edge, cutout or curve), offcutFeet, caps (0 none, 1 start, 2 end, 3 both), connectors, joiners${many ? ', family (index into families)' : ''}]; pieces are in order along the run`,
+    ...(many ? { families } : families.length === 1 ? { family: families[0] } : {}),
+    runs: runs.map((r) => [
+      pageOf(r.pageId), r.area, r.run, r.lengthFeet,
+      r.pieces.map((p) => [
+        p.cutFeet, p.stockFraction, p.cutToFit ? 1 : 0, p.offcutFeet, (p.startCap ? 1 : 0) + (p.endCap ? 2 : 0), p.connectors, p.joiners,
+        ...(many ? [families.indexOf(p.family)] : []),
+      ]),
+    ]),
+    ...(longerThanStock !== undefined ? {
+      longerThanStock: { ...longerThanStock, where: longerThanStock.where.map(({ pageId, ...w }) => ({ page: pageOf(pageId), ...w })) },
+    } : {}),
+  }
+}
