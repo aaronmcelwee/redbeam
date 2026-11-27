@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.135 — 2026-11-27
+
+### Suggest a skill improvement
+
+- **Ideas for how agents do takeoffs.** Settings › About now has **Suggest a skill improvement**, beside Report a bug (also in the prompt). Pick the skill (Takeoff, Intake, or Not sure), say what the agent should do differently, and why. It goes to the same place as a bug report and is queued for review; nothing changes in the skill until its owner approves.
+- **Agents can suggest too.** Claude and ChatGPT have a new tool to send a skill suggestion. They show you what they would send and send it only once you agree. At the end of a session they also list the REDBEAM problems they hit, so you can choose which to report.
+
 ## 0.3.133 — 2026-11-27
 
 ### A finished agent session stays finished

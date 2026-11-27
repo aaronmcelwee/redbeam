@@ -3,7 +3,7 @@
  * on a public repo, and never filing one twice.
  */
 import { describe, expect, it } from 'vitest'
-import { LABEL, fence, fileReports, filedIds, issueFor } from '../file-reports.mjs'
+import { LABEL, SKILL_LABEL, fence, fileReports, filedIds, issueFor } from '../file-reports.mjs'
 
 const STORED = {
   id: '0b6f3c1e-9d2a-4e5b-8c7d-1a2b3c4d5e6f',
@@ -73,6 +73,27 @@ describe('the issue', () => {
   })
 })
 
+describe('a skill suggestion', () => {
+  const SKILL = { ...STORED, kind: 'skill', kind_label: 'Skill suggestion', skill: 'precon-takeoff', summary: 'Read the RCP legend before counting' }
+
+  it('is titled by skill and labelled for the skill sync', () => {
+    const issue = issueFor(SKILL)
+    expect(issue.title).toBe('Skill suggestion (precon-takeoff): Read the RCP legend before counting')
+    expect(issue.labels).toEqual([SKILL_LABEL])
+    expect(issue.body).toContain('for `precon-takeoff`')
+    expect(issue.body).toContain('tools/skill-sync.md')
+  })
+
+  it('says so when the sender was not sure which skill, and never prints a strange name', () => {
+    expect(issueFor({ ...SKILL, skill: 'unsure' }).title).toBe('Skill suggestion: Read the RCP legend before counting')
+    expect(issueFor({ ...SKILL, skill: '`@x`' }).body).toContain('not sure which')
+  })
+
+  it('keeps the same privacy as a bug report', () => {
+    expect(issueFor(SKILL).body).not.toContain('Barclays')
+  })
+})
+
 type Call = { url: string; method: string; body?: unknown }
 
 function fakeServices(inbox: unknown[], existing: unknown[] = [], failCreate = false, isPrivate = false) {
@@ -128,6 +149,16 @@ describe('filing', () => {
     const { calls, fetchImpl } = fakeServices([STORED], [], true)
     expect(await fileReports({ ...OPTS, fetchImpl })).toEqual({ filed: 0, failed: 1, seen: 1 })
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+  })
+
+  it('files bug reports and skill suggestions under their own labels in one pass', async () => {
+    const skill = { ...STORED, id: '1b6f3c1e-9d2a-4e5b-8c7d-1a2b3c4d5e6f', kind: 'skill', skill: 'precon-intake' }
+    const { calls, fetchImpl } = fakeServices([STORED, skill])
+    expect(await fileReports({ ...OPTS, fetchImpl })).toEqual({ filed: 2, failed: 0, seen: 2 })
+    const labels = calls.filter((c) => c.url.endsWith('/labels')).map((c) => (c.body as { name: string }).name)
+    expect(labels.sort()).toEqual([LABEL, SKILL_LABEL].sort())
+    const made = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/issues')).map((c) => (c.body as { labels: string[] }).labels[0])
+    expect(made).toEqual([LABEL, SKILL_LABEL])
   })
 
   it('does nothing on GitHub when the inbox is empty', async () => {

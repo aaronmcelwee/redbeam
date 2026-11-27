@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { agentDraft, forgetSentReports, reportForAgent, whatsNewForAgent } from './appWide.js'
+import { agentDraft, agentSuggestion, forgetSentReports, reportForAgent, suggestForAgent, whatsNewForAgent } from './appWide.js'
 import { parseChangelog } from '../whatsnew/changelog.js'
 import type { ReportPayload } from '../report/report.js'
 
@@ -75,5 +75,45 @@ describe('an agent reads what is new', () => {
     const out = whatsNewForAgent({ since: 'v0.3.1' }, releases, '0.3.3') as { releases: Array<{ version: string }> }
     expect(out.releases.map((r) => r.version)).toEqual(['0.3.3', '0.3.2'])
     expect(whatsNewForAgent({ since: 'last week' }, releases, '0.3.3')).toMatchObject({ error: expect.any(String) })
+  })
+})
+
+describe('an agent suggests a skill improvement', () => {
+  beforeEach(() => forgetSentReports())
+
+  it('sends a skill suggestion for the named skill, with the wording and the reason', async () => {
+    const bodies: ReportPayload[] = []
+    const out = await suggestForAgent({
+      params: {
+        skill: 'precon-takeoff', summary: 'Read the RCP legend before counting fixtures',
+        suggestion: 'Before any count, list every legend symbol with its tag.', why: 'I counted diffusers as lights on A-201.',
+      },
+      app: 'Claude', agentId: 'srv/1', where: 'Tender.pdf · A-201', context: ctx,
+      send: async (p) => { bodies.push(p); return { ok: true, id: 'sg1', filed: 'kept' } },
+    })
+    expect(out).toMatchObject({ sent: true, id: 'sg1', skill: 'precon-takeoff', where: 'Tender.pdf · A-201' })
+    expect(bodies[0]!.kind).toBe('skill')
+    expect(bodies[0]!.skill).toBe('precon-takeoff')
+    expect(bodies[0]!.screenshot).toBeNull()
+    expect(bodies[0]!.details).toBe(
+      "Suggested wording:\nBefore any count, list every legend symbol with its tag.\n\nWhy:\nI counted diffusers as lights on A-201.\n\nSuggested by an AI agent (Claude) through REDBEAM's agent tools.",
+    )
+  })
+
+  it('leaves the skill to the reviewer when not named, and refuses one it does not know', () => {
+    const d = agentSuggestion({ summary: 'Ask for the addenda first' }, null)
+    expect('error' in d ? null : d.skill).toBe('unsure')
+    expect(agentSuggestion({ skill: 'estimating', summary: 'x' }, null)).toMatchObject({ error: expect.stringMatching(/^skill must be one of/) })
+    expect(agentSuggestion({ skill: 'precon-intake' }, null)).toMatchObject({ error: expect.stringMatching(/summary/) })
+  })
+
+  it('sends the same suggestion once per session, apart from a bug report with the same words', async () => {
+    let calls = 0
+    const send = async () => { calls++; return { ok: true as const, id: `i${calls}`, filed: 'kept' as const } }
+    const input = { params: { summary: 'Same words' }, app: null, agentId: 'a', where: '', context: ctx, send }
+    await suggestForAgent(input)
+    expect(await suggestForAgent(input)).toMatchObject({ duplicate: true, id: 'i1' })
+    await reportForAgent(input)
+    expect(calls).toBe(2)
   })
 })

@@ -252,6 +252,17 @@ The screenshot, the "where you were" line (client project and sheet names)
 and their name stay in R2, and the issue says which came with it. Once the
 repo is private, the issue carries all of it, with the screenshot inline.
 
+### Skill suggestions
+
+**Suggest a skill improvement** (Settings › About, and the prompt) and the
+agent tool `redbeam_suggest_skill_improvement` send the same JSON with
+`kind: "skill"` and `skill` (`precon-takeoff`, `precon-intake` or `unsure`).
+They take the same path and the same privacy rules, but the issue is titled
+`Skill suggestion (<skill>): …` and labelled **skill suggestion**. The daily
+"Sync precon skills" run reviews the open ones (tools/skill-sync.md): it
+drafts the worthwhile ones as a skill edit for the owner to approve, and
+closes the rest with a reason.
+
 The inbox key is the Worker secret `SYNC_KEY`. Nobody types it:
 `worker.yml` derives it from `CLOUDFLARE_API_TOKEN` and sets it on every
 deploy, and `reports.yml` derives the same value, so there is no extra

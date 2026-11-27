@@ -90,6 +90,8 @@
   color: var(--rb-ink);
 }
 .rpt-kind.on svg { color: var(--rb-accent); }
+/* Which skill a suggestion is about: words only, so the padding is even. */
+.rpt-skills .rpt-kind { padding: 0 14px; }
 
 .rpt-field { position: relative; display: flex; flex-direction: column; gap: 6px; }
 .rpt-label { color: var(--rb-ink-2); font-size: var(--rb-caption); line-height: 16px; font-weight: 600; }

@@ -21,7 +21,7 @@
  * No React here: App.tsx supplies the tabs and the ways to change them, and
  * the tests supply fakes.
  */
-import { reportForAgent, whatsNewForAgent } from './appWide.js'
+import { reportForAgent, suggestForAgent, whatsNewForAgent } from './appWide.js'
 import { RELEASES } from '../whatsnew/changelogSource.js'
 import { type BridgeActions, type BridgeRequest, type CallContext, runOnHost, UNNAMED_CALL } from '../bridge/useBridgeRequests.js'
 import { agentTabs, samePath, tabFor, tabNamed, type LightFile } from '../lightTabs.js'
@@ -236,6 +236,7 @@ export class BridgeRouter {
       const what = action === 'invoke_ui_action' && typeof params['action'] === 'string' ? params['action'] : ''
       if (what === 'whats_new') return whatsNewForAgent(params, RELEASES, this.deps.appVersion)
       if (what === 'report_problem') return reportForAgent({ params, app: agent?.app ?? null, agentId: agent?.id ?? null, where: '' })
+      if (what === 'suggest_skill_improvement') return suggestForAgent({ params, app: agent?.app ?? null, agentId: agent?.id ?? null, where: '' })
       return { error: 'No PDF is open in REDBEAM. Open one with redbeam_open_file (wait:true), then call again.' }
     }
 

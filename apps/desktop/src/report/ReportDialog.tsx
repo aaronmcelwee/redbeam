@@ -14,6 +14,11 @@
  * described: the version and machine as chips, and "where you were" as the
  * exact line that will be sent, with a switch to leave it out.
  *
+ * The same card also takes a skill suggestion (`mode="skill"`): an idea for
+ * one of the precon skills agents follow, sent the same way and filed as a
+ * "skill suggestion" issue the daily skill sync reviews. It asks which
+ * skill, what the agent should do differently, and why.
+ *
  * A draft outlives the card. Closing it, or a send that fails, keeps every
  * word for the next time it opens; only a sent report clears it.
  */
@@ -22,22 +27,49 @@ import { createPortal } from 'react-dom'
 import { useReturnFocus } from '../returnFocus.js'
 import { useFocusTrap } from '../shell/focusTrap.js'
 import {
-  Bug, Calculator, Camera, Check, ClipboardPaste, Clock, Copy, ErrorCircle, Eye, Glyph, MoreCircle, Send,
+  Bug, Calculator, Camera, Check, ClipboardPaste, Clock, Copy, ErrorCircle, Eye, Glyph, Lightbulb, MoreCircle, Send,
   TriangleAlert, X, type Icon,
 } from '../shell/icons.js'
 import {
-  DETAILS_MAX, EMPTY_DRAFT, REPORT_KINDS, SUMMARY_MAX, buildPayload, dataUrlSize, draftProblem, gatherContext,
+  DETAILS_MAX, EMPTY_DRAFT, EMPTY_SUGGESTION, REPORT_KINDS, SKILLS, SUMMARY_MAX, buildPayload, dataUrlSize, draftProblem, gatherContext,
   imageFileToDataUrl, reportAsText, sendReport, type ReportContext, type ReportDraft, type ReportKind, type SendResult,
 } from './report.js'
 import './report.css'
 
 const KIND_ICON: Record<ReportKind, Icon> = {
-  broke: ErrorCircle, quantity: Calculator, looks: Eye, slow: Clock, other: MoreCircle,
+  broke: ErrorCircle, quantity: Calculator, looks: Eye, slow: Clock, other: MoreCircle, skill: Lightbulb,
 }
 
-/* The draft between openings. Module state, not storage: a report half
-   written in one session is not worth resurrecting after a restart. */
-let kept: ReportDraft = EMPTY_DRAFT
+/* The draft between openings, one per mode. Module state, not storage: a
+   report half written in one session is not worth resurrecting after a
+   restart. */
+const keptDrafts: Record<ReportMode, ReportDraft> = { bug: EMPTY_DRAFT, skill: EMPTY_SUGGESTION }
+
+export type ReportMode = 'bug' | 'skill'
+
+/** The words that change between a bug report and a skill suggestion. */
+const WORDS = {
+  bug: {
+    title: 'Report a bug', lede: 'Goes to the people who maintain REDBEAM, with this copy’s version.', icon: Bug,
+    summary: 'What happened?', details: 'Anything that would help us see it',
+    detailsPlaceholder: 'What you did just before, what you expected, and what you saw instead.',
+    send: 'Send report', sent: 'Report sent', noun: 'report',
+  },
+  skill: {
+    title: 'Suggest a skill improvement',
+    lede: 'An idea for how agents do takeoffs. Claude reviews it, and nothing changes in the skill until its owner approves.',
+    icon: Lightbulb,
+    summary: 'What should the agent do differently?', details: 'Why, an example, or the wording you would use',
+    detailsPlaceholder: 'What the agent did, what it should have done, and the sheet or spec section that shows it.',
+    send: 'Send suggestion', sent: 'Suggestion sent', noun: 'suggestion',
+  },
+} as const
+
+const SKILL_PLACEHOLDER: Record<string, string> = {
+  'precon-takeoff': 'List every reflected ceiling plan legend symbol before counting fixtures',
+  'precon-intake': 'Ask for the addenda list before reading the specifications',
+  unsure: 'Check the finish schedule before choosing a product',
+}
 
 const CONTACT_KEY = 'redbeam.report.contact'
 function rememberedContact(): string {
@@ -52,6 +84,8 @@ export interface ReportDialogProps {
   captureView?: (() => string | null) | undefined
   /** Start from this instead of the kept draft — the prompt's quick report, carried over. */
   initial?: Partial<ReportDraft> | undefined
+  /** A bug report (the default) or a skill suggestion. */
+  mode?: ReportMode | undefined
 }
 
 type Phase =
@@ -60,7 +94,9 @@ type Phase =
   | { kind: 'sent'; id: string; filed: 'notion' | 'kept' }
   | { kind: 'failed'; reason: string }
 
-export function ReportDialog({ onClose, where, captureView, initial }: ReportDialogProps) {
+export function ReportDialog({ onClose, where, captureView, initial, mode = 'bug' }: ReportDialogProps) {
+  const words = WORDS[mode]
+  const kept = keptDrafts[mode]
   useReturnFocus(true)
   const trap = useFocusTrap<HTMLDivElement>(true)
   const [draft, setDraftState] = useState<ReportDraft>(() => ({
@@ -78,18 +114,19 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
   const setDraft = useCallback((patch: Partial<ReportDraft>) => {
     setDraftState((d) => {
       const next = { ...d, ...patch }
-      kept = next
+      keptDrafts[mode] = next
       return next
     })
     setProblem(null)
     setPhase((p) => (p.kind === 'failed' ? { kind: 'editing' } : p))
-  }, [])
+  }, [mode])
 
   useEffect(() => { void gatherContext(where).then(setCtx) }, [where])
   useEffect(() => { summaryRef.current?.focus() }, [])
 
   const canCapture = captureView !== undefined
   const kind = REPORT_KINDS.find((k) => k.value === draft.kind) ?? REPORT_KINDS[0]!
+  const placeholder = mode === 'skill' ? (SKILL_PLACEHOLDER[draft.skill] ?? SKILL_PLACEHOLDER['unsure']) : kind.placeholder
 
   const send = useCallback(async () => {
     if (phase.kind === 'sending' || phase.kind === 'sent') return
@@ -100,12 +137,12 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
     try { localStorage.setItem(CONTACT_KEY, draft.contact.trim()) } catch { /* private window */ }
     const result: SendResult = await sendReport(buildPayload(draft, context))
     if (result.ok) {
-      kept = { ...EMPTY_DRAFT, contact: draft.contact }
+      keptDrafts[mode] = { ...(mode === 'skill' ? EMPTY_SUGGESTION : EMPTY_DRAFT), contact: draft.contact }
       setPhase({ kind: 'sent', id: result.id, filed: result.filed })
     } else {
       setPhase({ kind: 'failed', reason: result.reason })
     }
-  }, [ctx, draft, phase.kind, where])
+  }, [ctx, draft, mode, phase.kind, where])
 
   const copy = useCallback(async () => {
     const context = ctx ?? await gatherContext(where)
@@ -201,12 +238,20 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
         {phase.kind === 'sent' ? (
           <div className="rpt-sent" role="status">
             <span className="rpt-sentmark" aria-hidden="true"><Glyph icon={Check} role="empty" /></span>
-            <h2 id="rpt-title">Report sent</h2>
-            <p>
-              Thank you. It is filed{phase.filed === 'notion' ? ' in the REDBEAM reports list' : ''} as
-              {' '}<span className="rpt-id selectable">#{phase.id.slice(0, 8)}</span>, with
-              {draft.screenshot === null ? ' no picture' : ' the picture'} and version {ctx?.version}.
-            </p>
+            <h2 id="rpt-title">{words.sent}</h2>
+            {mode === 'skill' ? (
+              <p>
+                Thank you. It is queued for review as
+                {' '}<span className="rpt-id selectable">#{phase.id.slice(0, 8)}</span>. Claude drafts the change
+                to the skill, and once its owner approves it, every agent gets it with the next skill update.
+              </p>
+            ) : (
+              <p>
+                Thank you. It is filed{phase.filed === 'notion' ? ' in the REDBEAM reports list' : ''} as
+                {' '}<span className="rpt-id selectable">#{phase.id.slice(0, 8)}</span>, with
+                {draft.screenshot === null ? ' no picture' : ' the picture'} and version {ctx?.version}.
+              </p>
+            )}
             <div className="rpt-actions">
               <span className="grow" />
               <button type="button" className="rpt-btn primary" onClick={onClose} autoFocus>Done</button>
@@ -215,10 +260,10 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
         ) : (
           <>
             <header className="rpt-head">
-              <span className="rpt-mark" aria-hidden="true"><Glyph icon={Bug} role="inline" /></span>
+              <span className="rpt-mark" aria-hidden="true"><Glyph icon={words.icon} role="inline" /></span>
               <div className="rpt-headtext">
-                <h2 id="rpt-title">Report a bug</h2>
-                <p>Goes to the people who maintain REDBEAM, with this copy’s version.</p>
+                <h2 id="rpt-title">{words.title}</h2>
+                <p>{words.lede}</p>
               </div>
               <button type="button" className="rpt-x" aria-label="Close" title="Close (Esc)" onClick={onClose}>
                 <Glyph icon={X} role="small" />
@@ -226,6 +271,26 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
             </header>
 
             <div className="rpt-body">
+              {mode === 'skill' ? (
+              <div className="rpt-kinds rpt-skills" role="radiogroup" aria-label="Which skill">
+                {SKILLS.map((k) => {
+                  const on = k.value === draft.skill
+                  return (
+                    <button
+                      key={k.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      className={`rpt-kind${on ? ' on' : ''}`}
+                      title={k.hint}
+                      onClick={() => setDraft({ skill: k.value })}
+                    >
+                      <span>{k.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              ) : (
               <div className="rpt-kinds" role="radiogroup" aria-label="What kind of problem">
                 {REPORT_KINDS.map((k) => {
                   const on = k.value === draft.kind
@@ -245,15 +310,16 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
                   )
                 })}
               </div>
+              )}
 
               <label className="rpt-field">
-                <span className="rpt-label">What happened?</span>
+                <span className="rpt-label">{words.summary}</span>
                 <input
                   ref={summaryRef}
                   className="rpt-input"
                   value={draft.summary}
                   maxLength={SUMMARY_MAX + 40}
-                  placeholder={kind.placeholder}
+                  placeholder={placeholder}
                   onChange={(e) => setDraft({ summary: e.target.value })}
                   aria-invalid={problem !== null && draft.summary.trim() === ''}
                 />
@@ -263,13 +329,13 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
               </label>
 
               <label className="rpt-field">
-                <span className="rpt-label">Anything that would help us see it <i>optional</i></span>
+                <span className="rpt-label">{words.details} <i>optional</i></span>
                 <textarea
                   className="rpt-input rpt-details"
                   value={draft.details}
                   rows={4}
                   maxLength={DETAILS_MAX}
-                  placeholder="What you did just before, what you expected, and what you saw instead."
+                  placeholder={words.detailsPlaceholder}
                   onChange={(e) => setDraft({ details: e.target.value })}
                 />
               </label>
@@ -292,14 +358,14 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
                   <div className={`rpt-shot full${dragging ? ' drag' : ''}`}>
                     <img src={draft.screenshot} alt="The picture that will be sent" />
                     <div className="rpt-shotmeta">
-                      <span>{dataUrlSize(draft.screenshot)} · sent with the report</span>
+                      <span>{dataUrlSize(draft.screenshot)} · sent with the {words.noun}</span>
                       <button type="button" className="rpt-link" onClick={() => setDraft({ screenshot: null })}>Remove</button>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="rpt-sends" aria-label="Sent with the report">
+              <div className="rpt-sends" aria-label={`Sent with the ${words.noun}`}>
                 <div className="rpt-chips">
                   <span className="rpt-chip">REDBEAM {ctx?.version ?? '…'}</span>
                   <span className="rpt-chip">{machineChip}</span>
@@ -333,7 +399,7 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
             {phase.kind === 'failed' && (
               <div className="rpt-bar caution" role="alert">
                 <Glyph icon={TriangleAlert} role="inline" />
-                <span className="grow">{phase.reason} Your report is kept here.</span>
+                <span className="grow">{phase.reason} Your {words.noun} is kept here.</span>
                 <button type="button" className="rpt-link" onClick={() => void copy()}>
                   <Glyph icon={copied ? Check : Copy} role="row" /> {copied ? 'Copied' : 'Copy it instead'}
                 </button>
@@ -347,7 +413,7 @@ export function ReportDialog({ onClose, where, captureView, initial }: ReportDia
               <span className="grow" />
               <button type="button" className="rpt-btn subtle" onClick={onClose} disabled={busy}>Cancel</button>
               <button type="button" className="rpt-btn primary" onClick={() => void send()} disabled={busy}>
-                <Glyph icon={Send} role="inline" /> {phase.kind === 'failed' ? 'Try again' : busy ? 'Sending' : 'Send report'}
+                <Glyph icon={Send} role="inline" /> {phase.kind === 'failed' ? 'Try again' : busy ? 'Sending' : words.send}
               </button>
             </footer>
           </>

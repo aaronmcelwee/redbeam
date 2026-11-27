@@ -998,7 +998,7 @@ mod tests {
             }
         }
         let bytes = serde_json::to_string(&listed).unwrap().len();
-        assert!(bytes < 125_000, "tools/list is {bytes} bytes");
+        assert!(bytes < 127_000, "tools/list is {bytes} bytes"); // 0.3.135: suggest_skill_improvement
         assert_eq!(without_action_list("For set_page_scale and find_text: explicit pages.").as_deref(), Some("Explicit pages."));
         assert_eq!(without_action_list("For a, b and c: x").as_deref(), Some("X"));
         assert_eq!(without_action_list("For export: an absolute path").as_deref(), Some("An absolute path"));

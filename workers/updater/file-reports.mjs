@@ -21,6 +21,12 @@
 import { pathToFileURL } from 'node:url'
 
 export const LABEL = 'bug report'
+/** Ideas for the precon skills (kind "skill"). The daily skill sync reviews these (tools/skill-sync.md). */
+export const SKILL_LABEL = 'skill suggestion'
+const LABELS = {
+  [LABEL]: { color: 'd73a4a', description: 'Sent from Report a bug in the app' },
+  [SKILL_LABEL]: { color: '8250df', description: 'Sent from Suggest a skill improvement; reviewed by the daily skill sync' },
+}
 const MARKER = /<!-- redbeam-report:([0-9a-f-]{36}) -->/
 
 /** A fence longer than any run of backticks in the text, so the text cannot close it. */
@@ -31,7 +37,9 @@ export function fence(text) {
 
 /** The issue for one stored report (the JSON the Worker keeps). */
 export function issueFor(report, { full = false } = {}) {
-  const kind = report.kind_label || 'Bug report'
+  const isSkill = report.kind === 'skill'
+  const skill = isSkill ? (/^[a-z-]{1,40}$/.test(String(report.skill ?? '')) ? report.skill : 'unsure') : ''
+  const kind = isSkill ? 'Skill suggestion' : (report.kind_label || 'Bug report')
   const machine = [report.machine, report.os].filter((p) => p).join(' · ')
   const received = String(report.received_at ?? '')
   const said = [
@@ -55,7 +63,9 @@ export function issueFor(report, { full = false } = {}) {
   const day = received.slice(0, 10)
   const body = [
     `<!-- redbeam-report:${report.id} -->`,
-    `**${kind}**, reported from the app${day === '' ? '' : ` on ${day}`}.`,
+    isSkill
+      ? `**${kind}** for ${skill === 'unsure' ? 'a precon skill (the sender was not sure which)' : `\`${skill}\``}, sent from the app${day === '' ? '' : ` on ${day}`}. The daily skill sync reviews it and brings a proposed change to the skill's owner (tools/skill-sync.md).`
+      : `**${kind}**, reported from the app${day === '' ? '' : ` on ${day}`}.`,
     '',
     `${f}text`,
     said,
@@ -66,8 +76,9 @@ export function issueFor(report, { full = false } = {}) {
       ? `Report \`${report.id}\`.`
       : `Report \`${report.id}\`. It also came with ${joinWords(kept)}, kept privately in the \`redbeam-updates\` bucket at \`reports/${day}/${report.id}.json\`.`,
   ].join('\n')
-  const title = `${kind}: ${String(report.summary ?? '').replace(/\s+/g, ' ')}`.slice(0, 250)
-  return { title, body, labels: [LABEL] }
+  const titled = isSkill && skill !== 'unsure' ? `${kind} (${skill})` : kind
+  const title = `${titled}: ${String(report.summary ?? '').replace(/\s+/g, ' ')}`.slice(0, 250)
+  return { title, body, labels: [isSkill ? SKILL_LABEL : LABEL] }
 }
 
 function joinWords(words) {
@@ -105,18 +116,22 @@ export async function fileReports({ endpoint, syncKey, repo, token, fetchImpl = 
   const { reports } = await res.json()
   if (!Array.isArray(reports) || reports.length === 0) return { filed: 0, failed: 0, seen: 0 }
 
-  // The label, once. 422 means it is already there.
-  const label = await fetchImpl(`${api}/labels`, {
-    method: 'POST',
-    headers: { ...github, 'content-type': 'application/json' },
-    body: JSON.stringify({ name: LABEL, color: 'd73a4a', description: 'Sent from Report a bug in the app' }),
-  })
-  if (!label.ok && label.status !== 422) throw new Error(`creating the label answered ${label.status}`)
+  // Each label this page needs, once. 422 means it is already there.
+  const needed = new Set(reports.map((r) => (r?.kind === 'skill' ? SKILL_LABEL : LABEL)))
+  const already = new Set()
+  for (const name of needed) {
+    const label = await fetchImpl(`${api}/labels`, {
+      method: 'POST',
+      headers: { ...github, 'content-type': 'application/json' },
+      body: JSON.stringify({ name, ...LABELS[name] }),
+    })
+    if (!label.ok && label.status !== 422) throw new Error(`creating the label answered ${label.status}`)
 
-  // A run that opened an issue and then lost the DELETE must not open it again.
-  const existing = await fetchImpl(`${api}/issues?labels=${encodeURIComponent(LABEL)}&state=all&per_page=100`, { headers: github })
-  if (!existing.ok) throw new Error(`listing issues answered ${existing.status}`)
-  const already = filedIds(await existing.json())
+    // A run that opened an issue and then lost the DELETE must not open it again.
+    const existing = await fetchImpl(`${api}/issues?labels=${encodeURIComponent(name)}&state=all&per_page=100`, { headers: github })
+    if (!existing.ok) throw new Error(`listing issues answered ${existing.status}`)
+    for (const id of filedIds(await existing.json())) already.add(id)
+  }
 
   // Full detail only in a private repo; anything unclear counts as public.
   const about = await fetchImpl(api, { headers: github })
