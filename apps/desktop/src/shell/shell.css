@@ -3283,6 +3283,8 @@ html[data-backdrop="tabbed"] .prefs {
   gap: 4px 8px; align-items: center; padding: 2px var(--rb-pad-row) 4px;
 }
 .es-sg.one { grid-template-columns: auto minmax(0, 1fr); }
+/* A label that always opens a row, so a wide field after a half row lines up with the others. */
+.es-sg > .es-newrow { grid-column: 1; }
 .es-k { display: flex; align-items: center; height: 24px; color: var(--rb-ink-3); white-space: nowrap; }
 .es-k.needed { color: var(--rb-warn); }
 .es-fieldwrap { display: flex; min-width: 0; }
@@ -3381,6 +3383,8 @@ select.es-field > option { background: var(--rb-panel); color: var(--rb-ink); }
 .es-expb { display: flex; flex-direction: column; padding-bottom: 4px; }
 .es-expb > .es-sg { padding-top: 8px; padding-bottom: 8px; }
 .es-exprow { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 var(--rb-pad-row); border-top: 1px solid var(--rb-line); }
+/* A scope's own drawing toggles, under Show layout on sheet: indented, no rule between them. */
+.es-exprow.es-subrow { min-height: 32px; padding-left: calc(var(--rb-pad-row) + 16px); border-top: 0; }
 .es-exprow.es-exptools { min-height: 28px; border-top: 0; }
 .es-swlabel { flex: 1 1 auto; min-width: 0; color: var(--rb-ink); }
 .es-swrow.off .es-swlabel { color: var(--rb-ink-4); }

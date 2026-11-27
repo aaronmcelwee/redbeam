@@ -271,11 +271,10 @@ export const SETTINGS: readonly SettingDescriptor[] = [
   /*
    * What the layout preview draws.
    *
-   * Global and persisted, because these are how an estimator reads a layout
-   * rather than a property of one scope: someone checking waste wants overhang
-   * on for every scope they look at, and someone checking coverage wants it
-   * off everywhere. Making them per-scope would mean setting the same
-   * preference five times on one sheet.
+   * Only the master switch is a setting people see. The children below are
+   * each scope's own now (Aaron, 2026-11-27: "these should be per-scope
+   * settings"; layout/scopeLayout.ts). They stay registered, hidden in Light,
+   * because a scope that has never set its own reads the value they hold.
    */
   {
     id: 'takeoff.layoutPreview',
@@ -288,7 +287,8 @@ export const SETTINGS: readonly SettingDescriptor[] = [
     label: 'Show the layout preview',
     description:
       'Draw the pieces the engine laid out, over the drawing. Applies to '
-      + 'every scope and every sheet, and is remembered between sessions.',
+      + 'every scope and every sheet, and is remembered between sessions. '
+      + 'What each scope draws, and where its pattern starts, is set in the scope’s Setup.',
   },
   {
     id: 'takeoff.perAreaOrigin',
