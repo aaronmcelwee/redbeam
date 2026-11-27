@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.131 — 2026-11-27
+
+### Agents trace a dense sheet in about half the time
+
+- **The sheet is read once.** When an agent traced hatched ceilings, REDBEAM went back to the PDF for the same linework on every pass and every call, which was more than half the wait on a dense sheet. It now reads the sheet once and works from that. The outlines are the same.
+
 ## 0.3.130 — 2026-11-27
 
 ### Faster tracing of hatched ceilings for agents

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { pause, until } from './agents/wait.js'
-import { PRIORITY_THUMBNAIL, Viewer, clampViewport, linkAt, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation, type PageLink } from '@redbeam/viewer'
+import { PRIORITY_THUMBNAIL, Viewer, clampViewport, segmentsInClip, linkAt, zoomAbout, type OverlaySet, type Viewport, type PageAnnotation, type PageLink } from '@redbeam/viewer'
 import PdfWorker from '@redbeam/viewer/worker?worker'
 import {
   calibrationFromReference, calculateScopeQuantities, parseNumberOrFraction, parseLengthInput, isLengthUnit,
@@ -2849,6 +2849,7 @@ export default function Workspace({
       frameRef.current = 0
       viewer.destroy()
       viewerRef.current = null
+      fieldGeometryRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docUrl, readerGen])
@@ -6003,6 +6004,8 @@ export default function Workspace({
    * PDF opens turned in Bluebeam as well as here.
    */
   const pageRotationsRef = useRef(new Map<string, Map<number, number>>())
+  /** The last sheet an agent's trace_field read whole, so boxes inside it are not read again. */
+  const fieldGeometryRef = useRef<{ viewer: Viewer; doc: string | null; page: number; turned: number; width: number; height: number; clip: { x0: number; y0: number; x1: number; y1: number }; segments: Float32Array } | null>(null)
   const [rotationTick, setRotationTick] = useState(0)
 
   const [loadBlock, setLoadBlock] = useState<string | null>(null)
@@ -9746,6 +9749,32 @@ export default function Workspace({
             ].map((q) => readAll(q, depth + 1)))
             return parts.flat()
           }
+          /*
+           * One read of the sheet serves every box inside it: this call's
+           * later passes (a field traced again in its own box) and the next
+           * calls on the same sheet. Going back to PDFium for each was more
+           * than half of a trace on a dense sheet (Heineken, 2026-11-27:
+           * 5.7 s of 10 s over nine passes). Kept only for a read that came
+           * back whole in one piece, and only while the sheet is the same
+           * sheet, turned the same way, in the same viewer.
+           */
+          const turned = pageRotationsRef.current.get(docIdRef.current)?.get(pageIdx) ?? 0
+          const sameSheet = (c: NonNullable<typeof fieldGeometryRef.current>) =>
+            c.viewer === v && c.doc === docIdRef.current && c.page === pageIdx && c.turned === turned && c.width === pageSize.width && c.height === pageSize.height
+          const readBox = async (box: FieldFrame): Promise<Float32Array[]> => {
+            const held = fieldGeometryRef.current
+            if (held !== null && sameSheet(held) && held.clip.x0 <= box.x0 && held.clip.y0 <= box.y0 && held.clip.x1 >= box.x1 && held.clip.y1 >= box.y1) {
+              return [segmentsInClip(held.segments, box)]
+            }
+            const g = await v.requestGeometry(pageIdx, { clip: box, priority: PRIORITY_THUMBNAIL, maxSegments: 1_000_000 })
+            if (g.truncated) return readAll(box, 0)
+            const area = (f: FieldFrame) => (f.x1 - f.x0) * (f.y1 - f.y0)
+            const now = fieldGeometryRef.current
+            if (now === null || !sameSheet(now) || area(box) >= area(now.clip)) {
+              fieldGeometryRef.current = { viewer: v, doc: docIdRef.current, page: pageIdx, turned, width: pageSize.width, height: pageSize.height, clip: box, segments: g.segments }
+            }
+            return [g.segments]
+          }
           const num = (k: string): number | undefined => {
             const n = Number(params[k])
             return params[k] !== undefined && Number.isFinite(n) && n >= 0 ? n : undefined
@@ -9780,7 +9809,7 @@ export default function Workspace({
           const spent = { readMs: 0, renderMs: 0, traceMs: 0, passes: 0 }
           const traceIn = async (box: FieldFrame, seed: { x: number; y: number }, extra: { all?: boolean; angleDeg?: number; cellPoints?: number }) => {
             const T0 = performance.now()
-            const chunks = await readAll(box, 0)
+            const chunks = await readBox(box)
             const T1 = performance.now()
             const segments = new Float32Array(chunks.reduce((n, c) => n + c.length, 0))
             let at = 0
