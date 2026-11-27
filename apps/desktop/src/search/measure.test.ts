@@ -150,4 +150,27 @@ describe('detectPattern', () => {
     expect(r.repeat).toBeUndefined()
     expect(r.spacingPoints).toBeCloseTo(20, 1)
   })
+
+  it('counts baffles drawn as two faces once, with lights and sprinkler lines between (bug 2026-11-27)', () => {
+    // 56 vertical baffles 13 pt apart (13 1/2" at the sheet scale), each two faces 1.9 pt apart and 400 pt long.
+    // Between them: light fixtures (two short lines 0.6 pt apart) in most bays, and a sprinkler branch line every 3rd bay.
+    const flat: number[] = []
+    for (let i = 0; i < 56; i++) {
+      const x = 100 + i * 13
+      flat.push((x - 0.95) / 1000, 0.1, (x - 0.95) / 1000, 0.5)
+      flat.push((x + 0.95) / 1000, 0.1, (x + 0.95) / 1000, 0.5)
+      if (i < 55 && i % 4 !== 3) {
+        for (const off of [4.7, 5.3]) flat.push((x + off) / 1000, (150 + (i % 5) * 40) / 1000, (x + off) / 1000, (174 + (i % 5) * 40) / 1000)
+      }
+      if (i < 55 && i % 3 === 1) flat.push((x + 8.5) / 1000, 0.12, (x + 8.5) / 1000, 0.46)
+    }
+    const r = detectPattern(flat, pg, { feetPerPoint: 13.5 / 12 / 13 })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.direction).toBe('vertical')
+    expect(r.runs).toBe(56)
+    expect(r.spacingPoints).toBeCloseTo(13, 1)
+    expect(r.spacing).toBe(`1' - 1 1/2"`)
+    expect(r.ignoredLines).toBeGreaterThan(0)
+    expect(r.memberTypes[0]).toMatchObject({ drawnAs: 'faces' })
+  })
 })

@@ -70,16 +70,23 @@ export interface PieceList {
   /**
    * Runs longer than the stock length (NOIC report, 2026-11-26: "warn when a
    * run is longer than the stock length, and offer the next stock size").
-   * Each is jointed in the field; `fitsWithoutJoints` is the shortest stock,
-   * in whole feet, that would run every one of them in one piece.
+   * Each is jointed in the field; `stockFeetWithoutJoints` is the shortest
+   * stock, in whole feet, that would run every one of them in one piece. It
+   * was `fitsWithoutJoints`, which a blind run read as "25 runs fit without
+   * joints" at every stock length (2026-11-27), so it says feet now, and
+   * `summary` says it in words.
    */
   longerThanStock?: {
     stockFeet: number
+    /** Runs longer than the stock, so jointed. */
     runs: number
+    /** Runs that fit one stock length, no joint. */
+    runsWithinStock: number
     longestFeet: number
     longest: string
     joints: number
-    fitsWithoutJoints: number
+    stockFeetWithoutJoints: number
+    summary: string
     where: Array<{ pageId: string; area: number; run: number; lengthFeet: number }>
   }
 }
@@ -191,14 +198,19 @@ function longerThan(
   const over = runs.filter((r) => r.lengthFeet > stockFeet + 1 / 96)
   if (over.length === 0) return {}
   const longest = Math.max(...over.map((r) => r.lengthFeet))
+  const joints = over.reduce((n, r) => n + Math.max(0, Math.ceil(r.lengthFeet / stockFeet - 1e-9) - 1), 0)
+  const within = runs.length - over.length
+  const whole = Math.ceil(longest - 1e-9)
   return {
     longerThanStock: {
       stockFeet: r3(stockFeet),
       runs: over.length,
+      runsWithinStock: within,
       longestFeet: r3(longest),
       longest: formatFeetInches(longest),
-      joints: over.reduce((n, r) => n + Math.max(0, Math.ceil(r.lengthFeet / stockFeet - 1e-9) - 1), 0),
-      fitsWithoutJoints: Math.ceil(longest - 1e-9),
+      joints,
+      stockFeetWithoutJoints: whole,
+      summary: `${over.length} of ${runs.length} runs are longer than the ${r3(stockFeet)}' stock and need ${joints} joint${joints === 1 ? '' : 's'}; ${within === 0 ? 'no run fits' : within === 1 ? '1 run fits' : `${within} runs fit`} in one length. Every run would fit in one piece only on stock of ${whole}' or longer`,
       where: over.slice(0, 50).map(({ pageId, area, run, lengthFeet }) => ({ pageId, area, run, lengthFeet })),
     },
   }

@@ -5,6 +5,17 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.138 — 2026-11-27
+
+### Baffles, stock and the layout preview
+
+- **Baffles drawn as two faces are counted once, even with lights between them.** When the drawing has lights and sprinkler lines between the baffles, an agent reading the pattern used to count every line as a baffle, giving 184 baffles at 3 5/8". Now it finds the lines that repeat and counts 56 baffles at 13 1/2". It also says how many lines it left out.
+- **No short pieces at the end of a run.** A run no longer ends in a piece shorter than 2'. 24'-4" on 8' stock was cut 8' + 8' + 8' + 4" and is now 8' + 8' + 6'-4" + 2'. The other joints stay where they were. A scope's `minPieceLength` setting changes the minimum (0 turns it off).
+- **Quarter yield, however it is written.** "quarters", "1/4" and "¼" now mean quarter yield, the same as "quarter". "Quarters" used to fall back to whole lengths. Halves and thirds work the same way.
+- **A clearer stock check.** The note about runs longer than the stock now says in words how many runs fit and how many need joints, and the shortest stock that would need none. It used to show a bare "25", which read like a count of runs.
+- **Offcuts read as offcuts.** With offcuts shown, the stock that hangs past an area's edge is fainter, with a mark where it is cut off, so a piece no longer looks like it runs past the wall.
+
+
 ## 0.3.134 — 2026-11-27
 
 ### Settings stay as you set them after an update

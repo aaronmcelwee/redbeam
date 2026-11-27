@@ -37,7 +37,9 @@ describe('pieceList', () => {
     expect(over.stockFeet).toBeCloseTo(8, 3)
     expect(over.runs).toBe(pieceList(r).runs.length)
     expect(over.longestFeet).toBeCloseTo(20, 1)
-    expect(over.fitsWithoutJoints).toBe(20)
+    expect(over.stockFeetWithoutJoints).toBe(20)
+    expect(over.runsWithinStock).toBe(0)
+    expect(over.summary).toMatch(/^\d+ of \d+ runs are longer than the 8' stock and need \d+ joints; no run fits in one length\. Every run would fit in one piece only on stock of 20' or longer$/)
     // 20 ft of 8 ft stock is three pieces, two joints, on every run.
     expect(over.joints).toBe(over.runs * 2)
     const long = calculatePieces({ ...scope, specifications: { ...scope.specifications, stockLength: '25', stockLengthUnit: 'ft' } }, area([outer]), cal, opts)

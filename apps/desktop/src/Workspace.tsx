@@ -3048,6 +3048,8 @@ export default function Workspace({
         perAreaOrigin: prefs['takeoff.perAreaOrigin'] === true,
         // A drawn edge within 1" of a panel line is on it (NOIC CL115).
         edgeSnapFeet: 1 / 12,
+        // No end piece under 2' (Aaron's blind run: 8' + 8' + 8' + 4").
+        minPieceFeet: 2,
         defaultPatternCorner: isAreaCorner(prefs['takeoff.patternStart'])
           ? prefs['takeoff.patternStart']
           : prefs['takeoff.patternStart'] === 'automatic' ? null : 'top-left',
@@ -7986,7 +7988,12 @@ export default function Workspace({
             return { layoutPreview: on, note: 'the layout preview on screen is the person\'s to turn on; redbeam_get_piece_list and redbeam_get_bom give you the layout\'s pieces either way' }
           }
           setLayoutOn(on)
-          return { layoutPreview: on }
+          return {
+            layoutPreview: on,
+            ...(on && prefsRef.current['takeoff.layoutOverflow'] === true
+              ? { overflowShown: true, note: 'offcuts are shown: the faint band past an area edge is stock cut off at the mark, not a member running past the edge' }
+              : {}),
+          }
         }
         /*
          * Open a panel, the way the icon rail and the palette do.
@@ -8101,7 +8108,7 @@ export default function Workspace({
               const warn = entries.filter((e) => e.result.blockers.length === 0 && e.result.runs.length > 0)
                 .map((e) => ({ e, over: pieceList(e.result).longerThanStock }))
                 .filter((x) => x.over !== undefined)
-                .map(({ e, over }) => ({ scopeId: e.scope.id, scope: e.scope.label, stockFeet: over!.stockFeet, runs: over!.runs, longest: over!.longest, joints: over!.joints, fitsWithoutJoints: over!.fitsWithoutJoints }))
+                .map(({ e, over }) => ({ scopeId: e.scope.id, scope: e.scope.label, stockFeet: over!.stockFeet, runs: over!.runs, longest: over!.longest, joints: over!.joints, stockFeetWithoutJoints: over!.stockFeetWithoutJoints, summary: over!.summary }))
               return warn.length > 0 ? { longerThanStock: warn } : {}
             })(),
             /*

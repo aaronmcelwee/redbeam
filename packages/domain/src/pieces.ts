@@ -48,6 +48,7 @@
 import type { Point, Region } from './geometry.js'
 import { normalizedBoundingRect, pointInRegion } from './pattern.js'
 import type { Segment } from './pattern.js'
+import { granularityWord } from './units.js'
 
 // ---------------------------------------------------------------------------
 // Constants carried over from the C++
@@ -318,7 +319,7 @@ export function generateLayoutSegments(
  * need.
  */
 export function allowedPieceFractions(yieldGranularity: string): number[] {
-  const normalized = yieldGranularity.trim().toLowerCase()
+  const normalized = granularityWord(yieldGranularity)
   if (normalized === 'half') return [0.5, 1.0]
   if (normalized === 'quarter') return [0.25, 0.5, 0.75, 1.0]
   if (normalized === 'third') return [1.0 / 3.0, 2.0 / 3.0, 1.0]
@@ -444,6 +445,14 @@ export interface PieceBuildOptions {
   origin: Point
   /** `maxConnectorSpacing`: "Backing Max" on a cassette, "Conn. Max" on a baffle. */
   maxConnectorSpacingPoints: number
+  /**
+   * The shortest piece the layout may leave at either end of a run, in
+   * points. A shorter end piece moves the joint next to it back, so 24'-4"
+   * on 8' stock lays 8' + 8' + 6'-4" + 2', not 8' + 8' + 8' + 4" (Aaron's
+   * blind run, 2026-11-27). The joints between keep the stock grid. Absent
+   * or 0 is the Qt rule, which the golden fixtures capture; the app passes 2'.
+   */
+  minPiecePoints?: number
 }
 
 /**
@@ -500,6 +509,33 @@ export function buildPieces(segments: readonly Segment[], options: PieceBuildOpt
     let remaining = runLength
     let firstPiece = true
     let placedOnRun = false
+    /*
+     * Short end pieces. The cuts the loop below makes (a lead piece to the
+     * stock grid, whole lengths, the remainder) are planned first; an end
+     * piece under the minimum takes length from its neighbour, so the joint
+     * between them moves and every other joint stays on the grid.
+     */
+    const minPiece = options.minPiecePoints ?? 0
+    let plan: number[] | null = null
+    if (minPiece > MIN_USEFUL_PIECE_POINTS && runLength > 2 * minPiece) {
+      const cuts: number[] = []
+      let left = runLength
+      let lead = firstAlignedLength
+      // The loop's own rule: a lead sliver under MIN_USEFUL is not placed.
+      if (lead < stock - 0.01 && lead <= MIN_USEFUL_PIECE_POINTS) { cuts.push(-lead); left -= lead; lead = stock }
+      while (left > MIN_USEFUL_PIECE_POINTS) {
+        const piece = Math.min(lead, left)
+        cuts.push(piece); left -= piece; lead = stock
+      }
+      const placedAt = cuts.map((c, i) => (c > 0 ? i : -1)).filter((i) => i >= 0)
+      if (placedAt.length >= 2) {
+        const last = placedAt.at(-1)!, prev = placedAt.at(-2)!
+        if (cuts[last]! < minPiece - 0.01) { const move = minPiece - cuts[last]!; cuts[prev]! -= move; cuts[last] = minPiece }
+        const first = placedAt[0]!, next = placedAt[1]!
+        if (cuts[first]! < minPiece - 0.01 && cuts[next]! > 2 * minPiece) { const move = minPiece - cuts[first]!; cuts[next]! -= move; cuts[first] = minPiece }
+        if (cuts.every((c) => c <= 0 || c >= Math.min(minPiece, runLength) - 0.01)) plan = cuts
+      }
+    }
 
     // BOUND, and why it holds:
     //   - `stock > MIN_USEFUL_PIECE_POINTS` was proven above;
@@ -516,9 +552,24 @@ export function buildPieces(segments: readonly Segment[], options: PieceBuildOpt
     // the bound made executable rather than a second, weaker safety net.
     const maxPasses = Math.ceil(runLength / MIN_USEFUL_PIECE_POINTS) + 2
     for (let pass = 0; pass < maxPasses && remaining > MIN_USEFUL_PIECE_POINTS; pass++) {
-      const candidateLength = firstPiece ? firstAlignedLength : stock
+      let candidateLength = firstPiece ? firstAlignedLength : stock
+      if (plan !== null) {
+        const planned = plan[pass]
+        if (planned === undefined) break
+        if (planned < 0) {
+          // A lead sliver left unplaced, as below.
+          cursor = along(cursor, direction, -planned)
+          remaining -= -planned
+          firstPiece = false
+          firstAlignedLength = stock
+          continue
+        }
+        // The end pieces are cut to fit, like any remainder; a piece the plan
+        // shortened is bought as the fraction that covers it.
+        candidateLength = remaining - planned > MIN_USEFUL_PIECE_POINTS ? planned : Math.max(planned, remaining)
+      }
       const pieceLength = Math.min(candidateLength, remaining)
-      let chosenLength = candidateLength
+      let chosenLength = plan !== null && candidateLength < stock - 0.01 ? stock : candidateLength
 
       if (pieceLength <= MIN_USEFUL_PIECE_POINTS) {
         cursor = along(cursor, direction, pieceLength)
@@ -626,6 +677,8 @@ export interface RunLayoutOptions {
   yieldGranularity: string
   alignSeams: boolean
   maxConnectorSpacingPoints: number
+  /** See PieceBuildOptions.minPiecePoints. */
+  minPiecePoints?: number
 }
 
 export interface AutomaticOrigin {
@@ -689,6 +742,7 @@ export function selectAutomaticOrigin(
         alignSeams: options.alignSeams,
         origin,
         maxConnectorSpacingPoints: options.maxConnectorSpacingPoints,
+        ...(options.minPiecePoints !== undefined ? { minPiecePoints: options.minPiecePoints } : {}),
       })
       if (pieces.length === 0) continue
 
@@ -821,6 +875,7 @@ export function buildRunLayout(
       alignSeams: options.alignSeams,
       origin,
       maxConnectorSpacingPoints: options.maxConnectorSpacingPoints,
+      ...(options.minPiecePoints !== undefined ? { minPiecePoints: options.minPiecePoints } : {}),
     })
   } else {
     const automatic = selectAutomaticOrigin(region, dir, options)
