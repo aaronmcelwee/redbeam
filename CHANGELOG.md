@@ -23,6 +23,12 @@ All are unsigned; SmartScreen will ask once.
 - **Archived scopes keep their product.** Archiving now records a scope's product and settings, so a scope a file loses comes back with them.
 
 
+## 0.3.127 — 2026-11-27
+
+### Agents in Claude Code now receive the takeoff skill
+
+- **The skill reaches every agent.** When a session started, Claude Code showed the agent only the session name and dropped the takeoff skill and the note on sending calls together. REDBEAM now sends them in a form every AI app shows. Screenshots asked for in a batch of calls are no longer dropped either.
+
 ## 0.3.126 — 2026-11-27
 
 ### AI agents get the latest takeoff skill, kept in step with yours
