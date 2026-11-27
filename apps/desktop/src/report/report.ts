@@ -18,10 +18,18 @@
 import conf from '../../src-tauri/tauri.conf.json'
 import { APP_VERSION } from '../update/updates.js'
 
-export type ReportKind = 'broke' | 'quantity' | 'looks' | 'slow' | 'other'
+export type BugKind = 'broke' | 'quantity' | 'looks' | 'slow' | 'other'
+/**
+ * 'skill' is not a bug: it is an idea for one of the precon skills agents
+ * follow, sent through the same channel and filed as a "skill suggestion"
+ * issue, which the daily skill sync reviews (tools/skill-sync.md). Aaron,
+ * 2026-11-27: "gimme a path for users to suggest skill improvements to queue
+ * for your review."
+ */
+export type ReportKind = BugKind | 'skill'
 
-/** The five kinds, in the order the dialog and the prompt offer them. */
-export const REPORT_KINDS: ReadonlyArray<{ value: ReportKind; label: string; hint: string; placeholder: string }> = [
+/** The five bug kinds, in the order the dialog and the prompt offer them. */
+export const REPORT_KINDS: ReadonlyArray<{ value: BugKind; label: string; hint: string; placeholder: string }> = [
   {
     value: 'broke', label: 'Something broke', hint: 'an error, a freeze, a button that did nothing',
     placeholder: 'Calibrate stopped responding after the second click',
@@ -44,7 +52,16 @@ export const REPORT_KINDS: ReadonlyArray<{ value: ReportKind; label: string; hin
   },
 ]
 
+/** The skills a suggestion can be about, as the Suggest card offers them. */
+export type SkillName = 'precon-takeoff' | 'precon-intake' | 'unsure'
+export const SKILLS: ReadonlyArray<{ value: SkillName; label: string; hint: string }> = [
+  { value: 'precon-takeoff', label: 'Takeoff', hint: 'precon-takeoff: how an agent measures, counts and lays out a takeoff in REDBEAM' },
+  { value: 'precon-intake', label: 'Intake', hint: 'precon-intake: how an agent reads a bid package and sets up the scope' },
+  { value: 'unsure', label: 'Not sure', hint: 'Whoever reviews it will pick the skill' },
+]
+
 export function kindLabel(kind: ReportKind): string {
+  if (kind === 'skill') return 'Skill suggestion'
   return REPORT_KINDS.find((k) => k.value === kind)?.label ?? 'Something else'
 }
 
@@ -68,18 +85,25 @@ export interface ReportDraft {
   includeWhere: boolean
   /** A PNG or JPEG data URL, pasted, dropped or captured. */
   screenshot: string | null
+  /** Which skill a suggestion (kind 'skill') is about. Not sent with a bug report. */
+  skill: SkillName
 }
 
 export const EMPTY_DRAFT: ReportDraft = {
-  kind: 'broke', summary: '', details: '', contact: '', includeWhere: true, screenshot: null,
+  kind: 'broke', summary: '', details: '', contact: '', includeWhere: true, screenshot: null, skill: 'precon-takeoff',
 }
+
+/** A fresh skill suggestion. */
+export const EMPTY_SUGGESTION: ReportDraft = { ...EMPTY_DRAFT, kind: 'skill' }
 
 export const SUMMARY_MAX = 200
 export const DETAILS_MAX = 8000
 
 /** The reason the draft cannot be sent yet, or null when it can. */
 export function draftProblem(draft: ReportDraft): string | null {
-  if (draft.summary.trim() === '') return 'Say what happened in a sentence.'
+  if (draft.summary.trim() === '') {
+    return draft.kind === 'skill' ? 'Say what the agent should do differently, in a sentence.' : 'Say what happened in a sentence.'
+  }
   if (draft.summary.trim().length > SUMMARY_MAX) return `Keep the first line under ${SUMMARY_MAX} characters; the rest goes in the details.`
   if (draft.details.length > DETAILS_MAX) return `The details are over ${DETAILS_MAX} characters.`
   return null
@@ -96,6 +120,8 @@ export interface ReportPayload {
   where: string
   contact: string
   screenshot: string | null
+  /** The skill a suggestion is about; '' for a bug report. */
+  skill: SkillName | ''
 }
 
 export function buildPayload(draft: ReportDraft, ctx: ReportContext): ReportPayload {
@@ -109,13 +135,14 @@ export function buildPayload(draft: ReportDraft, ctx: ReportContext): ReportPayl
     where: draft.includeWhere ? ctx.where : '',
     contact: draft.contact.trim(),
     screenshot: draft.screenshot,
+    skill: draft.kind === 'skill' ? draft.skill : '',
   }
 }
 
 /** The report as plain text, for the clipboard when it cannot be sent. */
 export function reportAsText(p: ReportPayload): string {
   const lines = [
-    `${kindLabel(p.kind)}: ${p.summary}`,
+    `${kindLabel(p.kind)}${p.skill === '' || p.skill === 'unsure' ? '' : ` (${p.skill})`}: ${p.summary}`,
     '',
     ...(p.details === '' ? [] : [p.details, '']),
     `REDBEAM ${p.version} · ${p.machine}${p.os === '' ? '' : ` · ${p.os}`}`,

@@ -10,8 +10,8 @@
  * labelled "bug report".
  */
 import {
-  EMPTY_DRAFT, REPORT_KINDS, buildPayload, draftProblem, gatherContext, sendReport,
-  type ReportDraft, type ReportKind, type SendResult,
+  EMPTY_DRAFT, EMPTY_SUGGESTION, REPORT_KINDS, SKILLS, buildPayload, draftProblem, gatherContext, sendReport,
+  type BugKind, type ReportDraft, type ReportKind, type SendResult, type SkillName,
 } from '../report/report.js'
 import { compareVersions, recentReleases, type Release } from '../whatsnew/changelog.js'
 
@@ -38,7 +38,7 @@ export interface AgentReportInput {
 export function agentDraft(params: Record<string, unknown>, app: string | null): ReportDraft | { error: string } {
   const kindIn = String(params['kind'] ?? 'broke')
   const kinds = REPORT_KINDS.map((k) => k.value)
-  if (!kinds.includes(kindIn as ReportKind)) return { error: `kind must be one of ${kinds.join(', ')}` }
+  if (!kinds.includes(kindIn as BugKind)) return { error: `kind must be one of ${kinds.join(', ')}` }
   const said = typeof params['details'] === 'string' ? params['details'].trim() : ''
   const byline = `Reported by an AI agent${app !== null && app !== '' ? ` (${app})` : ''} through REDBEAM's agent tools.`
   const draft: ReportDraft = {
@@ -79,6 +79,61 @@ export async function reportForAgent(input: AgentReportInput): Promise<Record<st
   }
 }
 
+/**
+ * A suggestion for one of the precon skills, as Settings › Suggest a skill
+ * improvement sends it: the same Worker, filed as a GitHub issue labelled
+ * "skill suggestion" that the daily skill sync reviews and brings to the
+ * skill's owner. An agent sends one when the person corrects it on
+ * something the skill should have told it, or it finds a step the skill
+ * gets wrong. `summary` is what the agent should do differently;
+ * `suggestion` the wording or example; `why` what happened.
+ */
+export function agentSuggestion(params: Record<string, unknown>, app: string | null): ReportDraft | { error: string } {
+  const skillIn = String(params['skill'] ?? 'unsure')
+  const skills = SKILLS.map((k) => k.value)
+  if (!skills.includes(skillIn as SkillName)) return { error: `skill must be one of ${skills.join(', ')}` }
+  const part = (key: string) => (typeof params[key] === 'string' ? params[key].trim() : '')
+  const suggestion = part('suggestion')
+  const why = part('why')
+  const byline = `Suggested by an AI agent${app !== null && app !== '' ? ` (${app})` : ''} through REDBEAM's agent tools.`
+  const details = [
+    ...(suggestion === '' ? [] : [`Suggested wording:\n${suggestion}`]),
+    ...(why === '' ? [] : [`Why:\n${why}`]),
+    byline,
+  ].join('\n\n')
+  const draft: ReportDraft = {
+    ...EMPTY_SUGGESTION,
+    skill: skillIn as SkillName,
+    summary: part('summary'),
+    details,
+    includeWhere: params['includeWhere'] !== false,
+  }
+  const problem = draftProblem(draft)
+  if (problem !== null) {
+    return { error: draft.summary === '' ? '`summary` is required: what the agent should do differently, in one sentence' : problem }
+  }
+  return draft
+}
+
+export async function suggestForAgent(input: AgentReportInput): Promise<Record<string, unknown>> {
+  const draft = agentSuggestion(input.params, input.app)
+  if ('error' in draft) return draft
+  const key = `skill|${input.agentId ?? ''}|${draft.summary.toLowerCase()}`
+  const before = sent.get(key)
+  if (before !== undefined) {
+    return { sent: true, id: before, duplicate: true, note: 'this session already sent this suggestion, so it was not sent again' }
+  }
+  const ctx = await (input.context ?? gatherContext)(input.where)
+  const result = await (input.send ?? sendReport)(buildPayload(draft, ctx))
+  if (!result.ok) return { error: result.reason }
+  sent.set(key, result.id)
+  return {
+    sent: true, id: result.id, skill: draft.skill,
+    where: draft.includeWhere && input.where !== '' ? input.where : null,
+    review: 'It becomes a GitHub issue labelled "skill suggestion" within the hour. Claude reviews it with the daily skill sync and brings a proposed change to the skill\'s owner, who approves or declines it; nothing changes in the skill until then. Keep following the skill as it is, and tell the person what you suggested.',
+  }
+}
+
 /** Release notes as the What's new dialog shows them. */
 export function whatsNewForAgent(
   params: Record<string, unknown>, releases: readonly Release[], current: string,
@@ -100,4 +155,4 @@ export function whatsNewForAgent(
 }
 
 /** The actions answered with no PDF open. */
-export const APP_WIDE_ACTIONS: ReadonlySet<string> = new Set(['report_problem', 'whats_new'])
+export const APP_WIDE_ACTIONS: ReadonlySet<string> = new Set(['report_problem', 'suggest_skill_improvement', 'whats_new'])

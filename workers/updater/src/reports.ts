@@ -23,7 +23,14 @@ export const REPORT_KINDS = {
   looks: 'Something looks wrong',
   slow: 'It is slow',
   other: 'Something else',
+  // Not a bug: an idea for one of the precon skills agents follow. Filed as
+  // a "skill suggestion" issue, which the daily skill sync reviews.
+  skill: 'Skill suggestion',
 } as const
+
+/** The skills a suggestion can be about. 'unsure' leaves it to the reviewer. */
+export const SKILLS = ['precon-takeoff', 'precon-intake', 'unsure'] as const
+export type SkillName = (typeof SKILLS)[number]
 
 export type ReportKind = keyof typeof REPORT_KINDS
 export type Machine = 'x64' | 'ARM' | 'Unknown'
@@ -38,6 +45,8 @@ export interface Report {
   /** Where the person was, in words: "Project · document · sheet". Optional. */
   where: string
   contact: string
+  /** For a skill suggestion, which skill; '' for a bug report. */
+  skill: SkillName | ''
   screenshot: { type: 'image/png' | 'image/jpeg'; bytes: Uint8Array } | null
 }
 
@@ -97,6 +106,9 @@ export function parseReport(body: unknown): Report | string {
     os: text(o['os'], LIMITS.os),
     where: text(o['where'], LIMITS.where),
     contact: text(o['contact'], LIMITS.contact),
+    skill: kind === 'skill'
+      ? (SKILLS as readonly string[]).includes(String(o['skill'])) ? (o['skill'] as SkillName) : 'unsure'
+      : '',
     screenshot,
   }
 }

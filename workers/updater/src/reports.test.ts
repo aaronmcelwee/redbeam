@@ -79,6 +79,20 @@ describe('parseReport', () => {
     const r = parseReport({ ...REPORT, summary: 'x'.repeat(5000) })
     expect(typeof r !== 'string' && r.summary.length).toBe(200)
   })
+
+  it('takes a skill suggestion and the skill it is about', () => {
+    const r = parseReport({ ...REPORT, kind: 'skill', skill: 'precon-intake' })
+    if (typeof r === 'string') throw new Error(r)
+    expect(r.kind).toBe('skill')
+    expect(r.skill).toBe('precon-intake')
+  })
+
+  it('reads an unknown skill as unsure, and a bug report as about no skill', () => {
+    const r = parseReport({ ...REPORT, kind: 'skill', skill: 'rm -rf' })
+    expect(typeof r !== 'string' && r.skill).toBe('unsure')
+    const bug = parseReport({ ...REPORT, skill: 'precon-takeoff' })
+    expect(typeof bug !== 'string' && bug.skill).toBe('')
+  })
 })
 
 describe('parseScreenshot', () => {

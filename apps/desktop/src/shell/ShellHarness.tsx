@@ -284,7 +284,7 @@ const fakeSearch = (query: string): Promise<SearchReport> => new Promise((resolv
   }), 300)
 })
 
-type Show = 'settings' | 'palette' | 'bom' | 'scopes' | 'calibration' | 'regions' | 'search' | 'scalepicker' | 'crash' | 'report'
+type Show = 'settings' | 'palette' | 'bom' | 'scopes' | 'calibration' | 'regions' | 'search' | 'scalepicker' | 'crash' | 'report' | 'suggest'
 /*
  * `noscopes` is a round with nothing in it — what every new project shows
  * first, now that nothing is seeded. It is the state the scope onboarding
@@ -331,7 +331,8 @@ export function ShellHarness() {
   const [takeoff, setTakeoff] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(show === 'settings')
   const [paletteOpen, setPaletteOpen] = useState(show === 'palette')
-  const [reportOpen, setReportOpen] = useState(show === 'report')
+  const [reportOpen, setReportOpen] = useState(show === 'report' || show === 'suggest')
+  const [reportMode, setReportMode] = useState<'bug' | 'skill'>(show === 'suggest' ? 'skill' : 'bug')
   const [scopePage, setScopePage] = useState<ScopePage>(show === 'bom' ? 'parts' : show === 'scopes' ? 'parts' : 'setup')
   /*
    * The two half-finished gestures, as the workspace would hold them: a line
@@ -587,12 +588,13 @@ export function ShellHarness() {
           onClose={() => setReportOpen(false)}
           where="Barclays 28019 · PKG A ARCH · A-101"
           captureView={() => null}
+          mode={reportMode}
         />
       )}
 
       {settingsOpen && (
         <div className="settingsview">
-          <SettingsPanel store={settings} onClose={() => setSettingsOpen(false)} onReportBug={() => setReportOpen(true)} />
+          <SettingsPanel store={settings} onClose={() => setSettingsOpen(false)} onReportBug={() => { setReportMode('bug'); setReportOpen(true) }} onSuggestSkill={() => { setReportMode('skill'); setReportOpen(true) }} />
         </div>
       )}
 

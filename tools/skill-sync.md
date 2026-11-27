@@ -48,11 +48,41 @@ overwrite) and 20 when it was edited by hand (flag it, do not overwrite).
    - 10: write `node tools/skill-sync.mjs notion <master>` with
      `NOTION_UPDATE_PAGE_MARKDOWN` `replace_content`, fetch it again and check
      it now exits 0.
-5. Report only when something changed or was flagged: what was synced (skill,
+5. **Suggestions.** People and agents suggest skill changes from REDBEAM
+   (Settings › Suggest a skill improvement, and the agent tool
+   `redbeam_suggest_skill_improvement`). Each arrives within the hour as an
+   open GitHub issue labelled `skill suggestion`, titled
+   `Skill suggestion (<skill>): <summary>`. Aaron, 2026-11-27: they queue for
+   Claude's review, and nothing reaches a skill until he approves it.
+   - List the open `skill suggestion` issues. Skip any that carry the
+     `proposed` label, unless Aaron has commented on them since.
+   - For each, read it against the current master. Decide: a real gap or a
+     wrong step (draft it), already covered or a duplicate of another open
+     suggestion (say which section covers it, or fold it into the other), or
+     not right for the skill (a REDBEAM bug belongs in a `bug report` issue;
+     a one-project preference belongs in that project's notes).
+   - Draft every suggestion worth taking as the smallest edit to the master,
+     in the skill's own voice, merging suggestions that touch the same step.
+     `unsure` ones go to whichever skill the step belongs to.
+   - Bring them to Aaron in one `propose_skills` card per skill (edits on the
+     existing skill, never a new one), and say beside it which issues each
+     edit answers. Then comment on each issue with the drafted wording and
+     add the `proposed` label.
+   - Close the rest with a one-line reason as a comment (state reason
+     `not_planned`, or `completed` when the skill already covers it).
+   - Next runs: a suggestion whose wording is now in the master is done;
+     comment with the skill's new fingerprint, close it as `completed`, and
+     the sync above carries it to the copies. One Aaron declined (he says so,
+     or two runs pass with the card unsaved and no word) is closed as
+     `not_planned` with his reason if he gave one.
+   - Never edit a copy, and never write a suggestion into the master
+     yourself; the card is the only path.
+6. Report only when something changed or was flagged: what was synced (skill,
    copy, new fingerprint, PR and version) and every flag with what Aaron
    should do (move the change into his Claude skill, or say to discard it).
-   For a flag, also open a GitHub issue labelled `skill sync`. A run with
-   nothing to do says nothing.
+   For a flag, also open a GitHub issue labelled `skill sync`. Report
+   suggestions as how many came in, which you proposed (with the card) and
+   which you closed and why. A run with nothing to do says nothing.
 
 When a thread in the REDBEAM project sees Aaron save a change to one of these
 skills, it fires the "Sync precon skills" scheduled task at once instead of
