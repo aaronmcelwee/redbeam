@@ -137,6 +137,16 @@ describe('where a call lands', () => {
     expect(w.showing).toBe(MINE)
     expect(w.log.some((l) => samePath(l.file, MINE))).toBe(false)
   })
+  it('names only the PDFs the session has worked in when it says where an unnamed call went', async () => {
+    // A window can hold ninety tabs; the person's and other sessions' are not this session's to choose from.
+    const { w, call, act } = world({ tabs: [lightFileOf(MINE), lightFileOf('C:\\Jobs\\Someone else.pdf')] })
+    await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
+    await act(A, 'list_scopes', { file: 'mine.pdf' })
+    const out = await act(A, 'list_markups')
+    expect(w.log.at(-1)!.file).toBe('C:\\Jobs\\Tower A.pdf')
+    expect(String(out?.['fileNote'])).toContain('Mine.pdf')
+    expect(String(out?.['fileNote'])).not.toContain('Someone else.pdf')
+  })
   it('goes to the file a call names, by path or by name', async () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })

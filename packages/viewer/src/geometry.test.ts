@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   extractPageGeometry,
+  segmentsInClip,
   multiplyMatrix,
   normalizePathPoint,
   transformPoint,
@@ -318,6 +319,23 @@ describe('extractPageGeometry', () => {
     })
     expect(g.clippedObjects).toBe(1)
     expect(g.segmentCount).toBe(4)
+  })
+
+  it('a box filtered out of a whole read is that box read on its own', () => {
+    // Rectangles scattered over the sheet, each with honest bounds, so both the
+    // per-object prefilter and the per-segment test are in play.
+    let seed = 11
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    const objects: FakeObject[] = Array.from({ length: 300 }, () => {
+      const l = -1728 + rnd() * 3300, b = -1296 + rnd() * 2400, w = 2 + rnd() * 600, h = 2 + rnd() * 400
+      return { ...rectPath(l, b, l + w, b + h), bounds: { left: l, bottom: b, right: l + w, top: b + h } }
+    })
+    const whole = extractPageGeometry(fakeBackend(objects), 1, 0, opts)
+    for (const clip of [{ x0: 0.3, y0: 0.3, x1: 0.5, y1: 0.45 }, { x0: 0, y0: 0, x1: 0.5, y1: 1 }, { x0: 0.6, y0: 0.1, x1: 0.61, y1: 0.11 }, { x0: 0, y0: 0, x1: 1, y1: 1 }]) {
+      const own = extractPageGeometry(fakeBackend(objects), 1, 0, { ...opts, clip })
+      expect(Array.from(segmentsInClip(whole.segments, clip)), JSON.stringify(clip)).toEqual(Array.from(own.segments))
+      expect(own.segmentCount).toBeLessThanOrEqual(whole.segmentCount)
+    }
   })
 
   it('drops points outside the page box rather than clamping them onto its edge', () => {

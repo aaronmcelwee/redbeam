@@ -12,6 +12,14 @@ All are unsigned; SmartScreen will ask once.
 - **Nothing runs after an agent says it is done.** Once an agent ends its session, anything it sends afterwards, one request or several sent together, is refused and changes nothing. Before, a group of requests sent after the end still ran and brought the session back. The agent is told to start a new session for a new job. Sessions you end yourself, or whose AI app dropped out, still pick up again with the agent's next request, as before.
 
 
+## 0.3.132 — 2026-11-27
+
+### Agents trace a dense sheet in about half the time
+
+- **The sheet is read once.** When an agent traced hatched ceilings, REDBEAM went back to the PDF for the same linework on every pass and every call, which was more than half the wait on a dense sheet. It now reads the sheet once and works from that. The outlines are the same.
+- **Piece lists a sixth the size.** An agent's piece list for a big scope was hundreds of pages of repeated labels. Every run and piece is still there, now as compact rows.
+- **Fewer names in the way.** When an agent has two of its PDFs open and does not say which one it means, REDBEAM names only that agent's PDFs, not every tab in the window.
+
 ## 0.3.131 — 2026-11-27
 
 ### Cassette settings in the scope editor
