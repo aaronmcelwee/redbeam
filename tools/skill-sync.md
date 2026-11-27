@@ -37,8 +37,10 @@ overwrite) and 20 when it was edited by hand (flag it, do not overwrite).
      take the next free version (newest tag and every open PR's version), bump
      it in the six version files, add a CHANGELOG entry in plain words about
      what changed in the skill, run `npm run test:mcp`, push, open the PR,
-     merge it once CI is green and push the `vX.Y.Z` tag on the merge commit.
-     Do not push a tag until the previous release run has started.
+     merge it once CI is green, then release it by dispatching
+     `release.yml` on `main` with `version`, `notes` (the CHANGELOG entry in
+     one paragraph) and `dry_run: false`. Do not dispatch until the previous
+     release run has started (a newer queued dispatch replaces a pending one).
 4. **Notion.** For each skill, fetch the page markdown into a file and run
    `node tools/skill-sync.mjs notion-check <master> <file>`.
    - 0: nothing to do.
