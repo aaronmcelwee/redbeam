@@ -9776,8 +9776,12 @@ export default function Workspace({
             const fw = (f.x1 - f.x0) * pageSize.width, fh = (f.y1 - f.y0) * pageSize.height
             return ((fw + fh) * 0.7072) ** 2 / (FINE * FINE)
           }
+          // Where the call's time went, so a slow trace on a real sheet says which part was slow.
+          const spent = { readMs: 0, renderMs: 0, traceMs: 0, passes: 0 }
           const traceIn = async (box: FieldFrame, seed: { x: number; y: number }, extra: { all?: boolean; angleDeg?: number; cellPoints?: number }) => {
+            const T0 = performance.now()
             const chunks = await readAll(box, 0)
+            const T1 = performance.now()
             const segments = new Float32Array(chunks.reduce((n, c) => n + c.length, 0))
             let at = 0
             for (const c of chunks) { segments.set(c, at); at += c.length }
@@ -9797,7 +9801,8 @@ export default function Workspace({
               } catch { image = undefined }
             }
             const angle = extra.angleDeg ?? num('angle')
-            return traceFieldInWorker({
+            const T2 = performance.now()
+            const TR = await traceFieldInWorker({
               segments, page: pageSize, seed, frame: box,
               options: {
                 ...(angle !== undefined ? { angleDeg: angle } : {}),
@@ -9814,6 +9819,8 @@ export default function Workspace({
                 ...(image !== undefined ? { image } : {}),
               },
             })
+            spent.readMs += T1 - T0; spent.renderMs += T2 - T1; spent.traceMs += performance.now() - T2; spent.passes++
+            return TR
           }
           const fine = cellsAtFine(frame) <= MAX_CELLS
           const searched = fine ? snap(frame, FINE) : frame
@@ -9881,6 +9888,7 @@ export default function Workspace({
             ...(edgeAt === 'hatch' && d.hatch === undefined ? { hatchNote: 'could not read the hatch spacing here, so the field ends at the wall line; pass strokeSpacingFeet (the member spacing)' } : {}),
             ...(d.fittedCorners !== undefined ? { cornersFittedToLines: d.fittedCorners } : {}),
             totalSquareFeet: fpp !== null && fpp > 0 ? Math.round(fields.reduce((n, f) => n + (f.areaSquareFeet ?? 0), 0) * 100) / 100 : null,
+            timing: { readMs: Math.round(spent.readMs), renderMs: Math.round(spent.renderMs), traceMs: Math.round(spent.traceMs), passes: spent.passes },
             ...(readsCut ? { note: 'the sheet holds more geometry than could be read; trace with a smaller `rect`' } : {}),
             ...(fpp === null ? { scale: 'the sheet has no scale, so areas are null; set_page_scale first' } : {}),
           }

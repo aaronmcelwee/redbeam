@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.130 — 2026-11-27
+
+### Faster tracing of hatched ceilings for agents
+
+- **Same outline, sooner.** Tracing a hatched or slatted field for an agent takes about a fifth less time on a full sheet, and returns exactly the outline it did before.
+- **Slow traces explain themselves.** Each trace now reports how long reading the sheet, drawing it and tracing it took, so a slow sheet can be tracked down.
+
 ## 0.3.129 — 2026-11-27
 
 ### New agent tools appear after an update without restarting Claude

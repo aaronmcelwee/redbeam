@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { angleGap, fitRingToLines, traceField } from './fieldTrace.js'
+import { angleGap, dilateXY, erodeXY, fitRingToLines, traceField } from './fieldTrace.js'
 import { pointInPolygon, regionArea, type Point, type Polygon } from './geometry.js'
 
 /*
@@ -245,5 +245,41 @@ describe('traceField: Coinbase blind test (2026-11-27)', () => {
     const fit = fitRingToLines(ring, line, 6)
     expect(fit.moved).toBeGreaterThan(5)
     for (const p of fit.ring) if (p.x < 200) expect(Math.abs(p.x - (100 + (p.y - 100) / 10))).toBeLessThan(1e-6)
+  })
+})
+
+describe('dilateXY and erodeXY', () => {
+  // The slow, obvious meaning: a cell is set when a set cell lies within rx
+  // along its row of a cell within ry down its column.
+  const naive = (src: Uint8Array, w: number, h: number, rx: number, ry: number, erode: boolean) => {
+    const at = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? (erode ? 1 : 0) : src[y * w + x]!)
+    const out = new Uint8Array(w * h)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let any = false, all = true
+      for (let dy = -ry; dy <= ry; dy++) for (let dx = -rx; dx <= rx; dx++) {
+        if (at(x + dx, y + dy)) any = true
+        else all = false
+      }
+      out[y * w + x] = (erode ? all : any) ? 1 : 0
+    }
+    return out
+  }
+  it('match the cell-by-cell meaning on random grids, for every pair of radii', () => {
+    let seed = 7
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    for (const [w, h] of [[1, 1], [9, 5], [16, 23]] as const) {
+      for (const fill of [0.1, 0.5, 0.9]) {
+        const src = Uint8Array.from({ length: w * h }, () => (rnd() < fill ? 1 : 0))
+        for (const rx of [0, 1, 3]) for (const ry of [0, 1, 4]) {
+          expect(Array.from(dilateXY(src, w, h, rx, ry)), `dilate ${w}x${h} ${rx},${ry}`).toEqual(Array.from(naive(src, w, h, rx, ry, false)))
+          expect(Array.from(erodeXY(src, w, h, rx, ry)), `erode ${w}x${h} ${rx},${ry}`).toEqual(Array.from(naive(src, w, h, rx, ry, true)))
+        }
+      }
+    }
+  })
+  it('never hand back the grid they were given', () => {
+    const src = Uint8Array.from([1, 0, 0, 1])
+    expect(dilateXY(src, 2, 2, 0, 0)).not.toBe(src)
+    expect(erodeXY(src, 2, 2, 0, 0)).not.toBe(src)
   })
 })
