@@ -252,7 +252,7 @@ test('the listed tools are lean: no catch-all, short shared inputs, and a size t
   }
   const bytes = JSON.stringify(listed).length
   // Not a cap on what tools may exist: a reminder to say it in fewer words. Raise it with a new tool, not with longer text.
-  // 127 KB from 0.3.135: redbeam_suggest_skill_improvement.
+  // 127 KB from 0.3.137: redbeam_suggest_skill_improvement.
   assert.ok(bytes < 127_000, `tools/list is ${bytes} bytes`)
 })
 

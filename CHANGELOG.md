@@ -5,12 +5,21 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.135 — 2026-11-27
+## 0.3.137 — 2026-11-27
 
 ### Suggest a skill improvement
 
 - **Ideas for how agents do takeoffs.** Settings › About now has **Suggest a skill improvement**, beside Report a bug (also in the prompt). Pick the skill (Takeoff, Intake, or Not sure), say what the agent should do differently, and why. It goes to the same place as a bug report and is queued for review; nothing changes in the skill until its owner approves.
 - **Agents can suggest too.** Claude and ChatGPT have a new tool to send a skill suggestion. They show you what they would send and send it only once you agree. At the end of a session they also list the REDBEAM problems they hit, so you can choose which to report.
+
+## 0.3.136 — 2026-11-27
+
+### Layout settings belong to each scope
+
+- **Each scope sets its own layout.** Where its areas start (a corner, or automatic with one grid across the sheet or each area on its own) is now in the scope's Setup, beside Seams and Direction.
+- **Each scope chooses what its preview draws.** Material past the edge, suspension rails, perimeter trim and seams switch on and off under the scope's "Show layout on sheet". Settings keeps only the one switch that shows or hides every layout.
+- **Nothing moves on its own.** Scopes you already have keep the values the old global settings held until you change them on the scope. Agents read and set the same settings per scope.
+
 
 ## 0.3.134 — 2026-11-27
 
