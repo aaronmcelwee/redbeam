@@ -818,7 +818,7 @@
     },
     {
       "name": "redbeam_get_bom",
-      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. `layoutSettings` says what decides where each area's layout starts (a placed start always wins; takeoff.perAreaOrigin only matters when takeoff.patternStart is automatic) and the 1\" edge snap. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room. `longerThanStock` names each scope whose runs are longer than the stock they are cut from (jointed in the field), with the shortest stock in whole feet that would run them without joints. `perimeter` adds `perimeters`: per scope and sheet, the frame round the whole field (every area's edges less the stretches two areas share, such as the fold line between chevron wings) and those shared edges on their own, in feet.",
+      "description": "The bill of materials — what to ORDER, per scope: the deliverable a takeoff exists to produce, computed from the same roll-up the panel renders. Read `confidence` per line before quoting any number: a `blocked` line carries quantity null (the scope is missing something, and 0 would be a claim), and an `unverified` line is a count this build has never checked against the Qt original. `totals` deliberately sums VERIFIED lines only, so it does not agree with adding the rows up — a total that mixes a checked number with an unchecked one hides which is which. `layoutSettings` says what decides where each area's layout starts (per scope; a placed start always wins) and the 1\" edge snap. Needs a window. Empty until pages are calibrated. Ask for less: `scope` (a name), `scopeId` or `scopeIds` returns only those scopes' lines; `brief` says each scope's note once (in `notes`) instead of on every line. `perArea` adds `areas`: every area of those scopes laid out on its own, with its sheet and its counts keyed as `areaItems` names them, to compare drawn and counted numbers room by room. `longerThanStock` names each scope whose runs are longer than the stock they are cut from (jointed in the field), with the shortest stock in whole feet that would run them without joints. `perimeter` adds `perimeters`: per scope and sheet, the frame round the whole field (every area's edges less the stretches two areas share, such as the fold line between chevron wings) and those shared edges on their own, in feet.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1047,7 +1047,7 @@
     },
     {
       "name": "redbeam_get_pattern",
-      "description": "A scope's pattern set-up: product type, scope direction, sheet directions, and for each area the direction it uses (and where from) and where it starts: placed (set_pattern_origin), the corner the patternStart setting names, or automatic. `layoutSettings` says in words what decides each start: a placed start always wins, a corner start lays every area out on its own, and takeoff.perAreaOrigin only matters when patternStart is automatic. Needs a window.",
+      "description": "A scope's pattern set-up: product type, scope direction, sheet directions, and for each area the direction it uses (and where from) and where it starts: placed (set_pattern_origin), the corner the scope's layoutPatternStart names, or automatic. `layoutSettings`: the scope's own layout settings and their spec keys (describe_product lists them), and what decides each start. Needs a window.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2469,7 +2469,7 @@
         "properties": {
           "setting": {
             "type": "string",
-            "description": "For set_setting: an id from get_settings (e.g. takeoff.patternStart); the last part alone (patternStart) works when it names one setting."
+            "description": "For set_setting: an id from get_settings (e.g. takeoff.lineWeight); the last part alone (lineWeight) works when it names one setting."
           },
           "value": {
             "description": "For set_calibration: the real length, e.g. \"10\" or \"7 1/2\". For set_setting: the new value."
@@ -3532,7 +3532,7 @@
           },
           "setting": {
             "type": "string",
-            "description": "For set_setting: an id from get_settings (e.g. takeoff.patternStart); the last part alone (patternStart) works when it names one setting."
+            "description": "For set_setting: an id from get_settings (e.g. takeoff.lineWeight); the last part alone (lineWeight) works when it names one setting."
           },
           "dx": {
             "type": "number",

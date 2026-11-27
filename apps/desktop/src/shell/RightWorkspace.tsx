@@ -66,6 +66,7 @@ import { saveOutcomeText, saveReportFile } from '../bom/exports.js'
 import { openFor, scopeStage, summaryToTsv, type SummaryLine } from './scopeSummary.js'
 import { PatternCard, type PatternControls } from './PatternCard.js'
 import { PrimitiveCard } from './PrimitiveCard.js'
+import { LAYOUT_KEYS, PATTERN_STARTS, scopeLayout, type ScopeLayout } from '../layout/scopeLayout.js'
 import { productLabelFor, readPatternRecipe, PRIMITIVE_KEY, scopeProductLabel } from '@redbeam/domain'
 
 /**
@@ -313,6 +314,8 @@ export interface EstimatesPanelProps {
   /** The layout preview, so the section that reports a count can also show it. */
   layoutOn: boolean
   onToggleLayout: (on: boolean) => void
+  /** The old global layout settings: what a scope that has not set its own reads (layout/scopeLayout.ts). */
+  layoutDefaults?: Readonly<Record<string, unknown>>
   /**
    * The open scope's automatic save, and what has moved since the earlier
    * day's save (`since`). Absent when this scope has never been saved.
@@ -1218,6 +1221,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
   const hasParts = view.primary.length + view.accessories.length > 0
   const partsChanged = hasParts && pieces !== undefined && pieces.quantities.some((q) => wasOf(q.itemKey) !== undefined)
   const drawable = pieces !== undefined && (pieces.runs.length > 0 || pieces.cells.length > 0)
+  const look = scopeLayout(scope.specifications, p.layoutDefaults ?? {})
   const net = rows[0]
   const slots: Slot[] = [
     ...slotsOf([rows]),
@@ -1262,6 +1266,7 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
     >
       <SetupGrid
         scope={scope}
+        look={look}
         product={product}
         pieces={pieces}
         {...(p.patterns !== undefined ? { patterns: p.patterns } : {})}
@@ -1287,6 +1292,28 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
           ><span /></button>
         </label>
       )}
+      {/* What this scope's layout draws: the scope's own choice (Aaron, 2026-11-27). */}
+      {pieces !== undefined && ([
+        [LAYOUT_KEYS.showOverflow, 'Material past the edge', look.showOverflow],
+        [LAYOUT_KEYS.showRails, 'Suspension rails', look.showRails],
+        [LAYOUT_KEYS.showTrim, 'Perimeter trim', look.showTrim],
+        [LAYOUT_KEYS.showSeams, 'Seams', look.showSeams],
+      ] as const).map(([key, label, on]) => (
+        <label key={key} className={drawable && p.layoutOn ? 'es-swrow es-exprow es-subrow' : 'es-swrow es-exprow es-subrow off'}>
+          <span className="es-swlabel">{label}</span>
+          <span className="es-swstate">{on ? 'On' : 'Off'}</span>
+          <button
+            type="button"
+            role="switch"
+            id={`scope-${key}`}
+            className={on ? 'es-sw on' : 'es-sw'}
+            aria-checked={on}
+            aria-label={`Show ${label.toLowerCase()}`}
+            disabled={!drawable}
+            onClick={() => patch({ ...scope.specifications, [key]: String(!on) })}
+          ><span /></button>
+        </label>
+      ))}
     </Expander>
   )
 
@@ -1820,9 +1847,10 @@ function ProductOptions() {
  * the row.
  */
 function SetupGrid({
-  scope, product, missing, patch, onSaveScope, direction = null, onSetDirection, lengthDenominator = 16, pieces, patterns,
+  scope, look, product, missing, patch, onSaveScope, direction = null, onSetDirection, lengthDenominator = 16, pieces, patterns,
 }: {
   scope: Scope
+  look: ScopeLayout
   pieces?: PieceResult | undefined
   patterns?: PatternControls
   product: ProductType
@@ -1986,6 +2014,34 @@ function SetupGrid({
           {/* A width that is not a whole number of spacings is refused, not counted (Aaron, 2026-11-27). */}
           {widthProblem !== null && <span className="es-muted es-warnink wide" role="alert">{widthProblem}</span>}
           {(pieces?.warnings ?? []).map((w) => <span key={w} className="es-muted es-warnink wide">{w}</span>)}
+          {/* Where each area's pattern starts is the scope's own (Aaron, 2026-11-27). A start placed on an area still wins. */}
+          <label className="es-k es-newrow" htmlFor="scope-pattern-start">Start at</label>
+          <span className="es-fieldwrap wide">
+            <select
+              id="scope-pattern-start"
+              className="es-field"
+              value={look.patternStart}
+              onChange={(e) => patch({ ...scope.specifications, [LAYOUT_KEYS.patternStart]: e.target.value })}
+            >
+              {PATTERN_STARTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </span>
+          {look.patternStart === 'automatic' && (
+            <>
+              <label className="es-k" htmlFor="scope-per-area">Grid</label>
+              <span className="es-fieldwrap wide">
+                <select
+                  id="scope-per-area"
+                  className="es-field"
+                  value={look.perAreaOrigin ? 'own' : 'shared'}
+                  onChange={(e) => patch({ ...scope.specifications, [LAYOUT_KEYS.perAreaOrigin]: String(e.target.value === 'own') })}
+                >
+                  <option value="shared">one grid across the sheet</option>
+                  <option value="own">each area on its own</option>
+                </select>
+              </span>
+            </>
+          )}
           <span className="es-k">Direction</span>
           <span className="es-ro wide">
             <span className={direction === null ? 'es-rotext unset' : 'es-rotext'}>{direction ?? 'not set'}</span>
