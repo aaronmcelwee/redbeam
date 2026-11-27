@@ -35,6 +35,7 @@ import {
   type ScalePreset,
 } from '@redbeam/domain'
 import type { Tool } from '../draw.js'
+import { DRAWING_COLOR_CHOICES, type DrawingColors } from '../drawingColors.js'
 import { scopeProductLabel } from '@redbeam/domain'
 import {
   Area, Check, ChevronDown, ChevronRight, Compass, Count, Crop, Crosshair, Cursor, Cutout,
@@ -725,11 +726,14 @@ export interface DocumentPillProps {
   onZoomBox?: () => void
   /** Turn the open sheet a quarter turn: 1 clockwise, -1 counterclockwise. */
   onRotate?: (delta: 1 | -1) => void
+  /** Drawing colours (drawingColors.ts): the one in force and how to pick another. Absent hides them. */
+  drawingColors?: { value: DrawingColors; onPick: (v: DrawingColors) => void }
 }
 
 export function DocumentPill({
   page, pageCount, onPage, feetPerPoint, onPreset, onCalibrate, onDrawRegion, onApplyToAll,
   regions, regionCount: countOnly = 0, calibration, pendingRegion, zoom, onZoom, onFitPage, onFitWidth, onZoomBox, onRotate,
+  drawingColors,
 }: DocumentPillProps) {
   const [scaleOpen, setScaleOpen] = useState(false)
   const [allScales, setAllScales] = useState(false)
@@ -865,6 +869,7 @@ export function DocumentPill({
                 onClick={() => { onZoom(z); setViewOpen(false) }}
               ><span className="grow">{z * 100}%</span></button>
             ))}
+            {drawingColors !== undefined && <DrawingColorItems {...drawingColors} onDone={() => setViewOpen(false)} />}
           </div>
         )}
       </div>
@@ -1100,10 +1105,31 @@ export function DocumentPill({
               <span className="grow">Scale…</span>
               <span className="hint">{feetPerPoint === null ? 'Unset' : scaleLabel(feetPerPoint).split(' =')[0]}</span>
             </button>
+            {/* The zoom menu is folded away at this width, and these live in it. */}
+            {drawingColors !== undefined && <DrawingColorItems {...drawingColors} onDone={() => setMoreOpen(false)} />}
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+/** Drawing colours as radio items, under their own heading (drawingColors.ts). */
+function DrawingColorItems({ value, onPick, onDone }: { value: DrawingColors; onPick: (v: DrawingColors) => void; onDone: () => void }) {
+  return (
+    <>
+      <div className="menusep" />
+      <div className="menuhead" role="presentation">Drawing colours</div>
+      {DRAWING_COLOR_CHOICES.map((c) => (
+        <button
+          key={c.value}
+          className="menuitem"
+          role="menuitemradio"
+          aria-checked={value === c.value}
+          onClick={() => { onPick(c.value); onDone() }}
+        ><span className="drawswatch" data-mode={c.value} aria-hidden="true" /><span className="grow">{c.label}</span></button>
+      ))}
+    </>
   )
 }
 

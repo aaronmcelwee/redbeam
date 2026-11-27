@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { applySystemAccent, followSystemAccent } from './accent.js'
 import { applyBackdropClass } from './backdrop.js'
 import { installTheme } from './theme.js'
+import { installDrawingColors } from './drawingColors.js'
 import { installCrashHandlers } from './crash.js'
 import { installSignals } from './signals/install.js'
 import App from './App.js'
@@ -28,6 +29,7 @@ import './styles.css'
  */
 document.body.classList.add('ads')
 installTheme()
+installDrawingColors()
 
 /*
  * The Windows 11 backdrop, if this machine has one.

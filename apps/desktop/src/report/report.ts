@@ -250,7 +250,7 @@ export function whereLine(parts: ReadonlyArray<string | null | undefined>): stri
  * this is a few hundred kilobytes and still shows which line is wrong.
  */
 export function captureStage(
-  layers: ReadonlyArray<HTMLCanvasElement | null>, maxWidth = 1600,
+  layers: ReadonlyArray<HTMLCanvasElement | null>, maxWidth = 1600, ground = '#F2F0EB',
 ): string | null {
   const base = layers[0]
   if (base === null || base === undefined || base.width === 0 || base.height === 0) return null
@@ -260,7 +260,9 @@ export function captureStage(
   out.height = Math.round(base.height * scale)
   const ctx = out.getContext('2d')
   if (ctx === null) return null
-  ctx.fillStyle = '#F2F0EB'
+  // Under the layers: the raster is see-through around the sheet while
+  // drawing colours are on, and the caller passes the surround for that.
+  ctx.fillStyle = ground
   ctx.fillRect(0, 0, out.width, out.height)
   for (const layer of layers) {
     if (layer !== null && layer.width > 0) ctx.drawImage(layer, 0, 0, out.width, out.height)

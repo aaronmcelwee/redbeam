@@ -5,12 +5,19 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.137 — 2026-11-27
+## 0.3.141 — 2026-11-27
 
 ### Suggest a skill improvement
 
 - **Ideas for how agents do takeoffs.** Settings › About now has **Suggest a skill improvement**, beside Report a bug (also in the prompt). Pick the skill (Takeoff, Intake, or Not sure), say what the agent should do differently, and why. It goes to the same place as a bug report and is queued for review; nothing changes in the skill until its owner approves.
 - **Agents can suggest too.** Claude and ChatGPT have a new tool to send a skill suggestion. They show you what they would send and send it only once you agree. At the end of a session they also list the REDBEAM problems they hit, so you can choose which to report.
+
+## 0.3.139 — 2026-11-27
+
+### Drawing colours: Dark, Dark gray, True black and Sepia
+
+- **Show the sheet dark or warm.** The zoom menu under the drawing and Settings › Drawing › Appearance now have Drawing colours: Normal, Dark, Dark gray, True black and Sepia. The dark ones turn the paper dark and the linework light, and keep the drawing's own colours recognisable, so a red line stays red. Sepia warms the paper and browns the ink. The thumbnails follow.
+- **Only the screen changes.** The PDF, saving, exports, printing and the pictures AI agents take keep the drawing's own colours. Your markups keep their scope colours in every mode, so they still match the sidebar.
 
 ## 0.3.136 — 2026-11-27
 
