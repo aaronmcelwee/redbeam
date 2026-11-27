@@ -131,10 +131,11 @@ describe('required measures per product type', () => {
     expect(canCalculateLayout('planks', CL01)).toBe(false)
   })
 
-  it('asks a cassette for its module: spacing, baffle length and width', () => {
+  it('asks a cassette for its module: spacing, baffle length, width and length', () => {
     // A cassette is a pre-assembled module (Aaron, 2026-09-18); its backing
-    // spacing is inside it and is not asked for.
-    expect(requiredMeasures('baffle_cassette').map((m) => m.label)).toEqual(['Spacing OC', 'Stock', 'Cassette W'])
+    // spacing is inside it and is not asked for. Its length is never assumed
+    // from the stock (Aaron, 2026-11-27).
+    expect(requiredMeasures('baffle_cassette').map((m) => m.label)).toEqual(['Spacing OC', 'Stock', 'Cassette W', 'Cassette L'])
   })
 
   it('asks a baffle for its connector spacing, which is also its rail pitch', () => {

@@ -49,7 +49,7 @@ import type {
   FactoryCut, PieceResult, ProductType, QuantityResult, Scope, ScopePieces, ScopeType, Specifications,
 } from '@redbeam/domain'
 import type { QuantityDelta } from '../commit.js'
-import { formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, parseLengthInput, formatLength, parseNumberOrFraction, scopeTypeForProduct } from '@redbeam/domain'
+import { cassetteWidthProblem, formatMeasureValue, isLengthUnit, isVerifiedProduct, measureToFeet, parseLengthInput, formatLength, parseNumberOrFraction, scopeTypeForProduct } from '@redbeam/domain'
 import {
   PRODUCT_TYPES, PRODUCT_TYPE_LABEL, buildBom, editableMeasures,
   missingRequiredMeasures, readProductType, readString, unitDisplayText, writeProductType,
@@ -1193,7 +1193,14 @@ function ScopeDetail(p: EstimatesPanelProps & { estimate: EstimateListItem; scop
       return { tone: 'warn', text: `Parts need ${missing.join(' and ')}.`, action: { label: 'Set it', run: () => show('setup') } }
     }
     if (blocked) {
-      return { tone: 'warn', text: pieces.blockers.join('; '), action: p.onSetDirection === undefined ? null : { label: 'Set direction', run: p.onSetDirection } }
+      // Offer the fix that matches: a direction, or Setup for a refused setting such as a cassette width.
+      const needsDirection = pieces.blockers.some((b) => /direction/i.test(b))
+      return {
+        tone: 'warn', text: pieces.blockers.join('; '),
+        action: needsDirection
+          ? (p.onSetDirection === undefined ? null : { label: 'Set direction', run: p.onSetDirection })
+          : { label: 'Fix in Setup', run: () => show('setup') },
+      }
     }
     if (p.commit === undefined) {
       return { tone: 'info', text: 'Saving automatically…', action: null }
@@ -1635,9 +1642,9 @@ function partsView(
       const half = by('panel_half')
       if (half !== undefined && half.quantity > 0) row.detail = `${fmt(by('panel_full')?.quantity ?? 0)} full · ${fmt(half.quantity)} cut`
     } else if (item.itemKey === 'cassette_count') {
-      // A module: its width by its length, the baffle length unless set (Aaron, 2026-09-18; #175).
+      // A module: its width by its length (Aaron, 2026-09-18; #175).
       const w = len(feet('cassetteWidth'))
-      const l = len(feet('cassetteLength') ?? feet('stockLength'))
+      const l = len(feet('cassetteLength'))
       if (w !== null && l !== null) row.chip = `${w} × ${l}`
       const partial = by('cassette_partial')?.quantity ?? 0
       const removable = by('cassette_removable')?.quantity ?? 0
@@ -1812,6 +1819,7 @@ function SetupGrid({
   lengthDenominator?: number
 }) {
   const measures = editableMeasures(product)
+  const widthProblem = product === 'baffle_cassette' ? cassetteWidthProblem(scope.specifications) : null
   const isPattern = product === 'custom_pattern'
   const laysOut = product !== 'custom_assembly' && product !== 'linear_parts' && !isPattern
   const offerPatterns = patterns !== undefined && (patterns.enabled || isPattern)
@@ -1892,7 +1900,7 @@ function SetupGrid({
         <MeasureField
           key={f.valueKey}
           label={f.label}
-          required={missing.includes(f.label)}
+          required={missing.includes(f.label) || (f.valueKey === 'cassetteWidth' && widthProblem !== null)}
           value={readString(scope.specifications, f.valueKey) ?? ''}
           unit={unitDisplayText(readString(scope.specifications, f.unitKey) ?? '')}
           denominator={lengthDenominator}
@@ -1960,6 +1968,8 @@ function SetupGrid({
               onCommit={(v) => patch({ ...scope.specifications, removableShare: v })}
             />
           )}
+          {/* A width that is not a whole number of spacings is refused, not counted (Aaron, 2026-11-27). */}
+          {widthProblem !== null && <span className="es-muted es-warnink wide" role="alert">{widthProblem}</span>}
           {(pieces?.warnings ?? []).map((w) => <span key={w} className="es-muted es-warnink wide">{w}</span>)}
           <span className="es-k">Direction</span>
           <span className="es-ro wide">

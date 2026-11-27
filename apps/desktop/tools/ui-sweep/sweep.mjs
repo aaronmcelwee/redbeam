@@ -764,7 +764,7 @@ const STEPS = [
     await act('set_page_scale', { presetId: 'arch-1-8', pages: [0] })
     const scope = await act('create_scope', {
       label: 'CASS-01', productType: 'baffle_cassette',
-      specifications: { spacing: '6', spacingUnit: 'in', stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in', yieldGranularity: 'half', removableShare: '10', spacingSource: 'section' },
+      specifications: { spacing: '6', spacingUnit: 'in', stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in', cassetteLength: '8', cassetteLengthUnit: 'ft', yieldGranularity: 'half', removableShare: '10', spacingSource: 'section' },
     })
     if (typeof scope.scopeId !== 'string') return [`cassette-parts: could not add a cassette scope: ${JSON.stringify(scope).slice(0, 160)}`]
     await act('create_markup', { kind: 'area', scopeId: scope.scopeId, rings: [[{ x: 0.3, y: 0.3 }, { x: 0.57, y: 0.3 }, { x: 0.57, y: 0.53 }, { x: 0.3, y: 0.53 }]] })
@@ -786,7 +786,7 @@ const STEPS = [
     await page.screenshot({ path: join(out, `${shotPrefix}cassette-parts-scope.png`) })
     const text = await page.locator('aside.es-panel').first().innerText().catch(() => '')
     if (!/built to fit/.test(text)) problems.push('cassette-parts: the Cassettes line does not say how many are built to fit')
-    // Setup: the cassette's own fields, the spacing source, and the width warning at 7 1/2" spacing.
+    // Setup: the cassette's own fields, the spacing source, and the width refused at 7 1/2" spacing.
     await act('update_scope', { scopeId: scope.scopeId, specifications: { spacing: '7 1/2', spacingSource: '' } })
     await page.waitForTimeout(800)
     const setup = page.getByRole('button', { name: /^Setup/ }).first()
@@ -795,6 +795,8 @@ const STEPS = [
     for (const id of ['#measure-cassette-l', '#measure-gap', '#scope-removable', '#scope-spacing-source']) {
       if (await page.locator(id).count() === 0) problems.push(`cassette-parts: Setup has no ${id}`)
     }
+    const setupText = await page.locator('aside.es-panel').first().innerText().catch(() => '')
+    if (!/not a whole number of 7 1\/2" spacings\. Use 22 1\/2" or 30"/.test(setupText)) problems.push('cassette-setup: a 24" width at 7 1/2" spacing is not refused')
     for (const p of await inspect(page)) problems.push(`cassette-setup: ${p}`)
     await page.locator('#scope-spacing-source').scrollIntoViewIfNeeded().catch(() => {})
     await page.screenshot({ path: join(out, `${shotPrefix}cassette-setup.png`) })

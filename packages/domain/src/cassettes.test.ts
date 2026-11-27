@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cassettePieceList, cassetteQuantities, cassetteWidthAdvice, layoutCassettes, lengthInside, readCassetteInputs, type CassetteInputs } from './cassettes.js'
+import { cassettePieceList, cassetteQuantities, cassetteWidthAdvice, cassetteWidthProblem, layoutCassettes, lengthInside, readCassetteInputs, type CassetteInputs } from './cassettes.js'
 import type { PanelLayoutGroup } from './panels.js'
 
 // 1 ft = 10 pt. Cassettes run along x (their length), stack along y (their width).
@@ -79,12 +79,13 @@ describe('cassette inputs (#175)', () => {
     expect(amounts([field(8, 20)], { removableShare: 0.15 }).cassette_removable).toBe(2)
   })
 
-  it('reads the new keys, with the stock as the default length', () => {
+  it('reads the new keys, and requires the cassette length', () => {
     const base = { spacing: '6', spacingUnit: 'in', stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in' }
-    expect(readCassetteInputs(base)).toMatchObject({ lengthFeet: 8, gapFeet: 0, removableShare: 0, trimLengthFeet: null })
+    expect(readCassetteInputs(base)).toEqual({ missing: ['Cassette L'] })
+    expect(readCassetteInputs({ ...base, cassetteLength: '8', cassetteLengthUnit: 'ft' })).toMatchObject({ lengthFeet: 8, gapFeet: 0, removableShare: 0, trimLengthFeet: null })
     expect(readCassetteInputs({ ...base, cassetteLength: '48', cassetteLengthUnit: 'in', cassetteGap: '1/2', cassetteGapUnit: 'in', removableShare: '10%' }))
       .toMatchObject({ lengthFeet: 4, gapFeet: 1 / 24, removableShare: 0.1 })
-    expect(readCassetteInputs({ spacing: '6', spacingUnit: 'in' })).toEqual({ missing: ['Stock', 'Cassette W'] })
+    expect(readCassetteInputs({ spacing: '6', spacingUnit: 'in' })).toEqual({ missing: ['Stock', 'Cassette W', 'Cassette L'] })
   })
 })
 
@@ -97,6 +98,14 @@ describe('cassette width from the spacing (#176)', () => {
     expect(a.aboveFeet * 12).toBeCloseTo(30)
     const layout = layoutCassettes([field(8, 20)], { ...INPUTS, spacingFeet: 7.5 / 12 }, { feetPerPoint: FPP })
     expect(layout.warnings[0]).toContain('22 1/2" or 30"')
+  })
+
+  it('refuses a width that is not a whole number of spacings', () => {
+    const specs = { spacing: '7 1/2', spacingUnit: 'in', stockLength: '8', stockLengthUnit: 'ft', cassetteWidth: '24', cassetteWidthUnit: 'in', cassetteLength: '8', cassetteLengthUnit: 'ft' }
+    expect(cassetteWidthProblem(specs)).toBe('Cassette W 24" is not a whole number of 7 1/2" spacings. Use 22 1/2" or 30".')
+    expect(readCassetteInputs(specs)).toEqual({ missing: [cassetteWidthProblem(specs)] })
+    expect(cassetteWidthProblem({ ...specs, cassetteWidth: '30' })).toBeNull()
+    expect(readCassetteInputs({ ...specs, cassetteWidth: '30' })).toMatchObject({ widthFeet: 2.5 })
   })
 
   it('is quiet for a whole multiple', () => {
