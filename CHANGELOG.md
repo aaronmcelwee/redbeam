@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.133 — 2026-11-27
+
+### A second trace on the same sheet starts sooner
+
+- **The sheet is drawn once.** To check a hatched ceiling against what is on the page, REDBEAM drew the sheet again for every trace an agent asked for. It now keeps that drawing while the agent stays on the sheet, which takes about a second and a half off each later trace of a dense sheet. The outlines are the same.
+
+
 ## 0.3.132 — 2026-11-27
 
 ### Agents trace a dense sheet in about half the time

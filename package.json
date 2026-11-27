@@ -1,7 +1,7 @@
 {
   "name": "redbeam",
   "private": true,
-  "version": "0.3.132",
+  "version": "0.3.133",
   "type": "module",
   "workspaces": [
     "packages/*",
