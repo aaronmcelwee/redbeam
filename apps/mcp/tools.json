@@ -3831,6 +3831,7 @@
       }
     },
     "input": "REQUIRED. The `session` value redbeam_start_session returned to THIS chat, exactly as given. A call without one is refused.",
+    "over": "This session ended when it called redbeam_end_session, so this call was not run and nothing was changed. Start a new session with redbeam_start_session and pass its `session` value.",
     "refused": "Start a session first: call redbeam_start_session with a short name for the job this chat is doing, then pass the `session` it returns on every call. This call carried no session that REDBEAM issued to a chat on this connection."
   }
 }

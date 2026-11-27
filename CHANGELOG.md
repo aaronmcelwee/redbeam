@@ -5,11 +5,18 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.133 — 2026-11-27
+## 0.3.134 — 2026-11-27
 
 ### A second trace on the same sheet starts sooner
 
 - **The sheet is drawn once.** To check a hatched ceiling against what is on the page, REDBEAM drew the sheet again for every trace an agent asked for. It now keeps that drawing while the agent stays on the sheet, which takes about a second and a half off each later trace of a dense sheet. The outlines are the same.
+
+
+## 0.3.133 — 2026-11-27
+
+### A finished agent session stays finished
+
+- **Nothing runs after an agent says it is done.** Once an agent ends its session, anything it sends afterwards, one request or several sent together, is refused and changes nothing. Before, a group of requests sent after the end still ran and brought the session back. The agent is told to start a new session for a new job. Sessions you end yourself, or whose AI app dropped out, still pick up again with the agent's next request, as before.
 
 
 ## 0.3.132 — 2026-11-27
