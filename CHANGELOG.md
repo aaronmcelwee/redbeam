@@ -5,6 +5,13 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.134 — 2026-11-27
+
+### Settings stay as you set them after an update
+
+- **Settings no longer reset.** A switch such as the Custom patterns beta could turn itself back off after an update. A REDBEAM window opened before the change still held the old value and wrote it back the next time it saved anything. Each window now saves only the setting you changed and picks up changes made in other windows.
+- **A copy on disk.** Settings are also kept in a file in your Windows profile, so an update that closes REDBEAM straight after a change, or a reset of the built-in browser's storage, can no longer lose them.
+
 ## 0.3.131 — 2026-11-27
 
 ### Cassette settings in the scope editor
