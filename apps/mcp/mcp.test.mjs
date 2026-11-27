@@ -7,6 +7,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { tools, METHOD_OF } from './index.mjs'
+import { readFileSync } from 'node:fs'
+const SPEC_HANDOUT = JSON.parse(readFileSync(new URL('./tools.json', import.meta.url), 'utf8')).lean.handout
 
 test('every tool maps to a bridge method, and every mapping has a tool', () => {
   // A tool with no mapping fails at call time with "Unknown REDBEAM tool";
@@ -210,6 +212,12 @@ test('every agent is handed the takeoff skill when its session starts', async ()
   const started = await callTool('redbeam_start_session', { task: 'Skill check' })
   assert.equal(started.structuredContent.takeoffSkill, SKILL_URI)
   assert.equal(started.content[1].text, skillHandout())
+  // Benchmark run 3 (2026-11-27): no agent batched from the tool description alone, so the handout says when to.
+  assert.match(skillHandout(), /redbeam_batch \{session, calls/)
+  assert.ok(skillHandout().indexOf('redbeam_batch') < skillHandout().indexOf('# Precon takeoff'), 'the batching note comes before the skill')
+  for (const tool of SPEC_HANDOUT.match(/redbeam_[a-z_]+/g) ?? []) {
+    assert.ok(tool === 'redbeam_batch' || tools.some((t) => t.name === tool), `the handout names ${tool}, which is not a tool`)
+  }
 })
 
 test('the listed tools are lean: no catch-all, short shared inputs, and a size that does not creep', async () => {

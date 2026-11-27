@@ -515,7 +515,9 @@ fn skill() -> &'static str {
 
 /// The skill as an agent is given it when its session starts.
 fn skill_handout() -> String {
-    format!("Follow this skill for any takeoff in this chat. It is also the resource {SKILL_URI}, to read again.\n\n{}", skill())
+    // The batching note comes first: an agent that reads only the top of the handout still learns it.
+    let fast = spec().lean["handout"].as_str().unwrap_or("").to_string();
+    format!("Follow this skill for any takeoff in this chat. It is also the resource {SKILL_URI}, to read again.\n\n{fast}\n\n{}", skill())
 }
 
 /// The part of the instructions about working beside a person, to read again.
