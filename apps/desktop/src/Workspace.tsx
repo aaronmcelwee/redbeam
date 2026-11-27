@@ -70,6 +70,7 @@ import { loadNoteStyles, saveNoteStyles, type NoteStyles } from './tools/noteSty
 import { NoteStrip, type NotePatch } from './shell/NoteStrip.js'
 import { SEED_SCOPES } from './seed.js'
 import { PageStrip } from './pages/PageStrip.js'
+import { isDrawingColors } from './drawingColors.js'
 import './shell/shell.css'
 import {
   DocumentTabStrip, FileList, Sidebar, SidebarTabs, TitleBar,
@@ -1061,7 +1062,14 @@ export default function Workspace({
   }, [])
   /** The drawing as it is on screen, for the report's picture. */
   const captureView = useCallback(
-    () => (rasterRef.current === null ? null : captureStage([rasterRef.current, overlayRef.current])),
+    () => {
+      if (rasterRef.current === null) return null
+      const el = stageRef.current
+      const ground = el === null ? '' : getComputedStyle(el).getPropertyValue('--rb-canvas').trim()
+      return ground === ''
+        ? captureStage([rasterRef.current, overlayRef.current])
+        : captureStage([rasterRef.current, overlayRef.current], 1600, ground)
+    },
     [],
   )
 
@@ -1506,7 +1514,11 @@ export default function Workspace({
     if (zoomShownTimer.current !== null) clearTimeout(zoomShownTimer.current)
     zoomShownTimer.current = setTimeout(() => { zoomShownTimer.current = null; setZoomShown(viewRef.current.zoom) }, 100)
     const t0 = performance.now()
-    const bg = surround()
+    // With drawing colours on, the surround comes from the stage behind the
+    // canvas, so the CSS filter recolours the sheet and nothing else.
+    const bg = prefsRef.current['viewer.drawingColors'] !== undefined && prefsRef.current['viewer.drawingColors'] !== 'normal'
+      ? 'transparent'
+      : surround()
     if (bg === undefined) v.paint(viewRef.current)
     else v.paint(viewRef.current, bg)
     const oc = overlayRef.current?.getContext('2d')
@@ -7358,6 +7370,10 @@ export default function Workspace({
       out.height = raster.height
       const g = out.getContext('2d')
       if (!g) return null
+      // The raster is see-through around the sheet while drawing colours are
+      // on (the stage paints the surround), so the picture gets it here.
+      const ground = surround()
+      if (ground !== undefined) { g.fillStyle = ground; g.fillRect(0, 0, out.width, out.height) }
       g.drawImage(raster, 0, 0)
       if (overlay && params['overlay'] !== false) g.drawImage(overlay, 0, 0)
       return out.toDataURL('image/png')
@@ -13632,7 +13648,7 @@ export default function Workspace({
           {/* Size comes from useStageSize, never from width/height props: the
               backing store must be device pixels while the CSS box is layout
               pixels, and a React-managed `width` would fight that. */}
-          <canvas ref={rasterRef} />
+          <canvas ref={rasterRef} className="rb-raster" />
           <canvas ref={overlayRef} />
           {light && quickView !== undefined && (
             <AgentCursors ref={cursorsRef} file={quickView.file} page={pageIndex} place={placeAgentPoint} />
@@ -14283,6 +14299,10 @@ export default function Workspace({
               onZoom={setZoom}
               onZoomBox={armZoomBox}
               onRotate={(d) => { void rotateSheet(d) }}
+              drawingColors={{
+                value: isDrawingColors(prefs['viewer.drawingColors']) ? prefs['viewer.drawingColors'] : 'normal',
+                onPick: (v) => { settings.set('viewer.drawingColors', v) },
+              }}
               onFitPage={() => applyFit('page')}
               onFitWidth={() => applyFit('width')}
             />
