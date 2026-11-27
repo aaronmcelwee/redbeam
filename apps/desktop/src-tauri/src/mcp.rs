@@ -230,6 +230,12 @@ struct Issued {
 
 /// The sessions this server answers for.
 static SESSIONS: Mutex<Vec<Issued>> = Mutex::new(Vec::new());
+/// Sessions that finished themselves (redbeam_end_session answered `ended`),
+/// by agent id. Their later calls are refused here, before REDBEAM is
+/// reached; the window refuses them too (agents/router.ts SESSION_OVER).
+static ENDED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+const END_TOOL: &str = "redbeam_end_session";
+
 
 /// Where issued sessions are kept between server processes.
 ///
@@ -609,7 +615,19 @@ fn call_bridge(spec: &Spec, name: &str, mut params: Value, agent: &Value, alive:
     if let Some(action) = spec.action_of.get(name).and_then(Value::as_str) {
         params["action"] = json!(action);
     }
-    bridge_call(method, &params, agent, alive)
+    // Alone or inside a batch, every call comes through here: none runs once the session has ended itself.
+    let id = agent.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+    if name != END_TOOL && ENDED.lock().unwrap_or_else(|e| e.into_inner()).contains(&id) {
+        return Err(spec.sessions["over"].as_str().unwrap_or("This session has ended. Call redbeam_start_session.").to_string());
+    }
+    let result = bridge_call(method, &params, agent, alive)?;
+    if name == END_TOOL && result.get("ended").and_then(Value::as_bool) == Some(true) {
+        let mut ended = ENDED.lock().unwrap_or_else(|e| e.into_inner());
+        if !ended.contains(&id) {
+            ended.push(id);
+        }
+    }
+    Ok(result)
 }
 
 /// The PNG of a screenshot answer, without its data-URL prefix.
@@ -998,6 +1016,27 @@ mod tests {
         assert_eq!(got, json!({ "scopeId": "sc_1", "label": "CL-1", "page": 4, "note": "$5 each", "rings": [[{ "x": 0.1 }]] }));
         assert!(resolve_refs(&json!({ "a": "$0.nope" }), &answers).is_err());
         assert!(resolve_refs(&json!({ "a": "$7.scopeId" }), &answers).is_err());
+    }
+
+    #[test]
+    fn a_session_that_ended_itself_is_refused_alone_and_in_a_batch() {
+        let s = spec();
+        let session = start_session("Ended check").unwrap();
+        let (code, task) = session_of(Some(&session)).unwrap();
+        let id = identity(&code, &task)["id"].as_str().unwrap().to_string();
+        ENDED.lock().unwrap_or_else(|e| e.into_inner()).push(id);
+        let over = s.sessions["over"].as_str().unwrap().to_string();
+        assert!(over.contains("redbeam_start_session"));
+        // Refused before the bridge is tried: with no REDBEAM running, any other error would be about that.
+        assert_eq!(call_tool(&s, "redbeam_get_ui_state", &json!({ "session": session }), &|| {}).unwrap_err(), over);
+        let out = call_tool(&s, BATCH_TOOL, &json!({ "session": session, "continueOnError": true,
+            "calls": [{ "tool": "redbeam_list_scopes" }, { "tool": "redbeam_save" }] }), &|| {}).unwrap();
+        let summary: Value = serde_json::from_str(out["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(summary["ran"], 2);
+        assert_eq!(summary["failed"], 2);
+        assert_eq!(summary["results"][0]["error"], over);
+        assert_eq!(summary["results"][1]["error"], over);
+        assert_eq!(out["isError"], true);
     }
 
     #[test]

@@ -5,13 +5,26 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
-## 0.3.136 — 2026-11-27
+## 0.3.137 — 2026-11-27
 
 ### Stored primitives: Parallel Open Cell as a cut list
 
 - **Products that keep their parameters (beta).** An agent can save a primitive, a named and versioned product with its own sizes and spacings, into your library. You approve each version once, in the scope's Setup, and later jobs start from it. A scope keeps the version it was made with, saved in the PDF.
 - **Parallel Open Cell, factory cut.** The first primitive takes the frame (mitred, square or none), main and cross centrelines, the longest factory piece and how seams fall. It lays every island out on its own, and one island can have its own spacing or exact size. The summary is the shop's cut list: one line per finished piece with its count and linear feet, a total, and seams, crossings and mitred corners. Change the longest piece and the pieces recut themselves.
 - **Clearer custom patterns.** A recipe that is refused now says which field and why. Hardware can count on several layers at once, and two hardware items with the same name no longer share one count. Layers with the same name show as one line. Members can run across the pattern, so one scope can hold both directions of a grid. Tiles no longer repeat each line as ", whole" when nothing was cut.
+
+## 0.3.134 — 2026-11-27
+
+### Settings stay as you set them after an update
+
+- **Settings no longer reset.** A switch such as the Custom patterns beta could turn itself back off after an update. A REDBEAM window opened before the change still held the old value and wrote it back the next time it saved anything. Each window now saves only the setting you changed and picks up changes made in other windows.
+- **A copy on disk.** Settings are also kept in a file in your Windows profile, so an update that closes REDBEAM straight after a change, or a reset of the built-in browser's storage, can no longer lose them.
+## 0.3.133 — 2026-11-27
+
+### A finished agent session stays finished
+
+- **Nothing runs after an agent says it is done.** Once an agent ends its session, anything it sends afterwards, one request or several sent together, is refused and changes nothing. Before, a group of requests sent after the end still ran and brought the session back. The agent is told to start a new session for a new job. Sessions you end yourself, or whose AI app dropped out, still pick up again with the agent's next request, as before.
+
 
 ## 0.3.132 — 2026-11-27
 
