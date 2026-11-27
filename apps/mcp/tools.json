@@ -1,6 +1,8 @@
 {
   "lean": {
-    "hidden": ["redbeam_invoke_ui_action"],
+    "hidden": [
+      "redbeam_invoke_ui_action"
+    ],
     "file": "The PDF this call is about: full path, file name or document id. Default: the PDF you opened or named last.",
     "session": "REQUIRED: the `session` redbeam_start_session returned to this chat.",
     "instructions": " FEWER ROUND TRIPS: every call is a turn of yours, and turns are what make a takeoff slow. When the next calls do not depend on you reading the previous answer, send them together with redbeam_batch (several sheets' words, scales or close-ups; a scope and its markups, using \"$0.scopeId\"; the closing list_markups, get_bom and save). Ask for what you need and no more: `rect` on get_words and get_lines, `scope` and `brief` on get_bom, `region` on a screenshot.",
@@ -16,15 +18,28 @@
             "items": {
               "type": "object",
               "properties": {
-                "tool": { "type": "string", "description": "A REDBEAM tool name, e.g. redbeam_create_markup." },
-                "arguments": { "type": "object", "description": "That tool's inputs, without `session`." }
+                "tool": {
+                  "type": "string",
+                  "description": "A REDBEAM tool name, e.g. redbeam_create_markup."
+                },
+                "arguments": {
+                  "type": "object",
+                  "description": "That tool's inputs, without `session`."
+                }
               },
-              "required": ["tool"]
+              "required": [
+                "tool"
+              ]
             }
           },
-          "continueOnError": { "type": "boolean", "description": "Carry on after a call fails. Default false: the batch stops there." }
+          "continueOnError": {
+            "type": "boolean",
+            "description": "Carry on after a call fails. Default false: the batch stops there."
+          }
         },
-        "required": ["calls"]
+        "required": [
+          "calls"
+        ]
       }
     }
   },
@@ -2356,7 +2371,7 @@
     },
     {
       "name": "redbeam_update_markup",
-      "description": "Reshape a markup with new `rings`, or move it by dx/dy. One undo step; the scope and id stay. A markup from Bluebeam or another app held in place (kind annot in list_markups: a cloud, text box, arrow or dimension) also takes `color` (#rrggbb, or Red, Orange, Yellow, Green, Blue, Purple, Magenta, Black), and saving writes the move or colour into that annotation; takeoff markups wear their scope's colour (redbeam_update_scope). A comment markup (kind note) takes text, color, width, fill, fillOpacity, ends and fontPt.",
+      "description": "Reshape a markup with new `rings`, or move it by dx/dy. One undo step; the scope and id stay. A comment (kind note) also takes text, color, width, fill, fillOpacity, ends, fontPt; a Bluebeam markup (kind annot) takes `color`. Takeoff markups wear their scope's colour.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2382,7 +2397,7 @@
           },
           "color": {
             "type": "string",
-            "description": "Line and text colour: #rrggbb, or red, blue, green, black, orange, magenta, yellow, purple."
+            "description": "Notes and annot markups: #rrggbb or a name (red, blue, green, black, orange, magenta)."
           },
           "text": {
             "type": "string",
@@ -2723,7 +2738,7 @@
     },
     {
       "name": "redbeam_report_problem",
-      "description": "Report a bug in REDBEAM to the people who maintain it, the same report Settings › Report a bug sends: it becomes a GitHub issue labelled \"bug report\" within the hour, marked as sent by an AI agent. Use it when the app gets in your way: a tool that errors or does nothing, a quantity that does not match the drawing, a sheet or markup drawn wrong, something slow. One report per problem, in plain words: `summary` is one sentence, `details` what you did, what you expected and what happened instead (tool names, arguments, the error text). Keep the client's confidential details (names, prices) out of summary and details: the issue may be public. `includeWhere` (default true) sends the PDF and sheet names, which stay private. `screenshot:true` attaches a picture of your sheet with the takeoff on it (`region` for one box). The same summary twice in a session is sent once. Tell the person what you reported.",
+      "description": "Report a bug in REDBEAM to its maintainers, as Settings › Report a bug does: it becomes a GitHub issue labelled \"bug report\", marked as from an AI agent. Use it when the app gets in your way (an error, a call that did nothing, a wrong quantity, something drawn wrong or slow). `summary`: one sentence; `details`: what you did, expected and got (tool, arguments, error). Keep client names and prices out: the issue may be public. `screenshot:true` attaches your sheet. Sent once per summary per session. Tell the person what you reported.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2736,7 +2751,7 @@
               "slow",
               "other"
             ],
-            "description": "For report_problem: broke (an error, a freeze, a call that did nothing), quantity (a count, length or area that does not match the drawing), looks (a sheet, markup or panel drawn badly), slow, other. Default broke. For create_markup and list_markups: the markup kind."
+            "description": "broke (default), quantity, looks, slow or other."
           },
           "summary": {
             "type": "string",
@@ -2748,7 +2763,7 @@
           },
           "includeWhere": {
             "type": "boolean",
-            "description": "For report_problem: send which PDF and sheet you were on (kept private, not in the public issue). Default true."
+            "description": "Send which PDF and sheet you were on (kept private). Default true."
           },
           "screenshot": {
             "type": "boolean",
@@ -2756,10 +2771,10 @@
           },
           "region": {
             "type": "object",
-            "description": "For report_problem with screenshot: one box of the sheet {x0,y0,x1,y1}, normalized [0,1], y down. Default: your framed view, else the whole sheet."
+            "description": "With screenshot: one box {x0,y0,x1,y1}, normalized."
           },
           "page": {
-            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+            "description": "The sheet: ZERO-based page or sheet number (\"A4.0\"). Default: your sheet."
           },
           "file": {
             "type": "string",
@@ -2778,7 +2793,7 @@
     },
     {
       "name": "redbeam_whats_new",
-      "description": "What changed in REDBEAM, release by release, as the What's new dialog shows it: the running version and the latest releases' notes. `since` gives every release after a version (to see what is new since you last worked in REDBEAM); `limit` how many recent ones (default 5).",
+      "description": "Release notes, as What's new shows them: the running version and the latest releases (`limit`, default 5), or every release after `since`.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2798,12 +2813,12 @@
     },
     {
       "name": "redbeam_convert_annotations",
-      "description": "Turn the PDF's own markups on a sheet (areas, polylines and counts drawn in Bluebeam or another app before REDBEAM, as redbeam_list_annotations lists them) into takeoff in a scope, as the drawing menu's \"Convert the PDF's markups\" does. An area keeps its Bluebeam cutouts as holes. `names` converts those (list_annotations' `name`); without it, every convertible markup on the sheet. One undo step on your session's undo. Clouds, text and arrows are not takeoff and do not convert; they can be moved, recoloured and deleted where they are with redbeam_update_markup and redbeam_delete_markup (kind annot in redbeam_list_markups).",
+      "description": "Turn the PDF's own areas, polylines and counts on a sheet (drawn in Bluebeam or another app; redbeam_list_annotations lists them) into takeoff in a scope, as \"Convert the PDF's markups\" does, cutouts kept. `names` picks some by list_annotations' `name`; default all on the sheet. One undo step. Clouds, text and arrows stay comments (kind annot: move, recolour, delete them).",
       "inputSchema": {
         "type": "object",
         "properties": {
           "page": {
-            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+            "description": "The sheet: ZERO-based page or sheet number (\"A4.0\"). Default: your sheet."
           },
           "scopeId": {
             "type": "string",
@@ -2839,7 +2854,7 @@
               "type": "object",
               "properties": {
                 "page": {
-                  "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+                  "description": "The sheet: ZERO-based page or sheet number (\"A4.0\"). Default: your sheet."
                 },
                 "rect": {
                   "type": "object",
@@ -2879,19 +2894,22 @@
         "type": "object",
         "properties": {
           "page": {
-            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+            "description": "The sheet: ZERO-based page or sheet number (\"A4.0\"). Default: your sheet."
           },
           "pages": {
             "type": "array",
-            "description": "For set_page_scale and find_text: explicit ZERO-based page numbers in the OPEN document. set_page_scale defaults to the open sheet and writes them in ONE transaction: half a range carrying a new scale and half the old one is a set where some sheets measure and some do not, with nothing saying which. find_text defaults to every page."
+            "description": "ZERO-based pages to read. Default: the whole set.",
+            "items": {
+              "type": "integer"
+            }
           },
           "fromPage": {
             "type": "integer",
-            "description": "For set_page_scale and find_text: start of an inclusive ZERO-based range."
+            "description": "First page of a range."
           },
           "toPage": {
             "type": "integer",
-            "description": "For set_page_scale and find_text: end of an inclusive ZERO-based range. For duplicate_markups: the sheet the copies go on (default: their own)."
+            "description": "Last page of a range."
           },
           "file": {
             "type": "string",
@@ -2905,7 +2923,7 @@
     },
     {
       "name": "redbeam_create_note",
-      "description": "Add a comment markup, as the Markup tools do: a text box, cloud, Cloud+ (callout), leader with text (arrow), line, rectangle, ellipse, polygon or pen stroke. Comments, not takeoff: no scope, no quantity. Saving writes each as Bluebeam's own annotation. Change text or style later with redbeam_update_markup (text, color, width, fill, fillOpacity, ends, fontPt); move or delete like any markup.",
+      "description": "Add a comment markup, as the Markup tools do: text box, cloud, callout (Cloud+), arrow (leader with text), line, rect, ellipse, polygon or pen. No scope, no quantity; saved as Bluebeam's own annotation. Edit with redbeam_update_markup.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2974,7 +2992,7 @@
             "description": "For notes: text size in points. Default 12."
           },
           "page": {
-            "description": "The sheet: a ZERO-based page number, or the sheet number as the set prints it (\"A4.0\"). On a write that acts on a sheet (create_markup, set_calibration, set_scope_direction, set_pattern_origin, set_pattern_direction, begin_scale_region) the call shows that sheet first and lands there; without it the write lands on the sheet showing. Also for go_to_page, get_words, find_text, zoom_to_region, measure, get_lines, detect_pattern, trace_area, read_scale, list_links, list_annotations, list_markups, rotate_pages and track_addenda."
+            "description": "The sheet: ZERO-based page or sheet number (\"A4.0\"). Default: your sheet."
           },
           "file": {
             "type": "string",
