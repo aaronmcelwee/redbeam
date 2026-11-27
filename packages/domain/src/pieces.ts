@@ -66,8 +66,6 @@ const INTERSECTION_EPSILON = 1e-7
 /** `breakMergeTolerance` — two cut candidates this close are one cut. */
 const BREAK_MERGE_TOLERANCE = 0.01
 
-/** How close a piece end must be to a run end to count as a capped end. */
-const CAP_TOLERANCE_POINTS = 0.25
 
 /**
  * Ceiling on layout lines generated for one region.
@@ -501,6 +499,7 @@ export function buildPieces(segments: readonly Segment[], options: PieceBuildOpt
     let cursor: Point = segment.a
     let remaining = runLength
     let firstPiece = true
+    let placedOnRun = false
 
     // BOUND, and why it holds:
     //   - `stock > MIN_USEFUL_PIECE_POINTS` was proven above;
@@ -574,14 +573,12 @@ export function buildPieces(segments: readonly Segment[], options: PieceBuildOpt
         },
         stockFraction,
         family: pieceFamilyForFraction(stockFraction),
-        // Component-wise, not euclidean — carried over verbatim. At 0.25 pt the
-        // difference between the two never decides a real case.
-        startCap:
-          Math.abs(cursor.x - segment.a.x) < CAP_TOLERANCE_POINTS &&
-          Math.abs(cursor.y - segment.a.y) < CAP_TOLERANCE_POINTS,
-        endCap:
-          Math.abs(insideEnd.x - segment.b.x) < CAP_TOLERANCE_POINTS &&
-          Math.abs(insideEnd.y - segment.b.y) < CAP_TOLERANCE_POINTS,
+        // The first and last pieces PLACED on the run carry its caps. The Qt
+        // port compared ends with the run's ends, so a run whose last sliver
+        // (under MIN_USEFUL) went unplaced lost its end cap: 475 runs gave
+        // 949 caps (Coinbase blind test, 2026-11-27). Every run has two ends.
+        startCap: !placedOnRun,
+        endCap: remaining - insideLength <= MIN_USEFUL_PIECE_POINTS,
         jointPoints: [],
         connectorPoints: connectorPointsForSegment(insideSegment, options.maxConnectorSpacingPoints),
       }
@@ -590,6 +587,7 @@ export function buildPieces(segments: readonly Segment[], options: PieceBuildOpt
       // joint. That is why the run's far end never gets one either.
       if (!piece.startCap) piece.jointPoints.push(cursor)
       pieces.push(piece)
+      placedOnRun = true
 
       cursor = insideEnd
       remaining -= segmentLength(insideSegment)

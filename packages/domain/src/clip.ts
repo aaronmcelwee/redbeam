@@ -82,6 +82,17 @@ export function clipRingToRings(subject: Polygon, within: readonly Polygon[]): R
   return fromMulti(clipper.intersection([toClipRing(subject)], clip))
 }
 
+/**
+ * `subject` less `clip`, one entry per resulting polygon (its outline
+ * first, then its holes). A cut across an edge leaves one polygon whose
+ * outline carries the notch; a cut right across leaves several.
+ */
+export function ringDifference(subject: Polygon, clip: Polygon): Region[] {
+  if (subject.length < 3) return []
+  if (clip.length < 3) return [[[...subject]]]
+  return clipper.difference([toClipRing(subject)], [toClipRing(clip)]).map((poly) => fromMulti([poly]))
+}
+
 /** True when the two rings share any interior. Touching edges do not count. */
 export function ringsOverlap(a: Polygon, b: Polygon): boolean {
   if (a.length < 3 || b.length < 3) return false

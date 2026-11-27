@@ -74,6 +74,21 @@ export interface FieldTraceOptions {
   simplifyPoints?: number
   /** The rendered sheet over the frame; see the module comment. */
   image?: FieldImage
+  /**
+   * Where the field ends across its strokes. 'wall' (default): where the
+   * pattern's linework ends, which takes in wall and soffit lines drawn in
+   * the same direction. 'hatch': at the last stroke of the hatch's own
+   * spacing (`strokeSpacingPoints`, else read at the seed), so a band of
+   * wall lines past it is left out.
+   */
+  edge?: 'wall' | 'hatch'
+  /**
+   * Fit the outline's stair steps to the drawn line they run along: a
+   * slanted or curved edge the grid cuts into steps follows the line instead.
+   * Only runs of three or more corners within a stroke gap of one drawn line
+   * move, and nothing moves if the outline would cross itself.
+   */
+  fitEdges?: boolean
 }
 
 export interface FieldCutout {
@@ -92,6 +107,8 @@ export interface TracedField {
   cutouts: FieldCutout[]
   /** Holes under `minCutoutPoints2` that were filled. */
   filledHoles: number
+  /** A point well inside the field, normalized: a seed that traces this field again. */
+  inside: Point
   /** What the rendered sheet says about this field, when it was given. */
   visual?: {
     /** Mean ink inside, 0 (white) to 1 (black). */
@@ -116,6 +133,10 @@ export interface FieldTraceDiagnostics {
   gridWidth: number
   gridHeight: number
   ms: number
+  /** With edge 'hatch': the hatch's spacing used (points) and the strokes kept as hatch. */
+  hatch?: { periodPoints: number; members: number; strokes: number }
+  /** With fitEdges: outline corners moved onto drawn lines. */
+  fittedCorners?: number
   /** The strong stroke directions at the point, when there was a choice: retry with `angleDeg` if the wrong one was taken. */
   alternatives?: Array<{ angleDeg: number; strokeGapPoints: number | null; coversPoint: boolean; chosen: boolean }>
 }
@@ -317,6 +338,11 @@ function patternGrid(angleDeg: number, box: { x0: number; y0: number; x1: number
     const u = x * cos + y * sin, v = -x * sin + y * cos
     u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v)
   }
+  // Cells on a lattice fixed to the page, not to the box: the same field
+  // traced in a bigger or smaller box lands on the same cells (Coinbase
+  // blind test, 2026-11-27: one field read 5,687.86 and 5,527.37 sf).
+  u0 = Math.floor(u0 / c) * c
+  v0 = Math.floor(v0 / c) * c
   return { cos, sin, u0, v0, w: Math.max(1, Math.ceil((u1 - u0) / c)), h: Math.max(1, Math.ceil((v1 - v0) / c)), c }
 }
 
@@ -356,6 +382,190 @@ function inkOnGrid(img: FieldImage, g: PatternGrid, box: { x0: number; y0: numbe
     }
   }
   return ink
+}
+
+/**
+ * The strokes of a hatch: family strokes that sit one hatch spacing from
+ * another, in chains of at least four. A wall or soffit line drawn in the
+ * same direction is off the hatch's spacing and joins no chain, or only the
+ * last stroke of one (the hatch's own edge line).
+ *
+ * The spacing is `period` when given, else read at the seed: the smallest
+ * step at which nearly every stroke near the point has another (a baffle
+ * drawn as two lines has steps of its thickness and of the gap, and only
+ * their sum repeats everywhere).
+ */
+export function hatchMembers(
+  segs: Float64Array, nSeg: number, angleDeg: number, inFamily: (i: number, a0: number) => boolean,
+  box: { x0: number; y0: number; x1: number; y1: number }, sx: number, sy: number, period?: number,
+): { period: number; members: number[]; strokes: number } | null {
+  const a = (angleDeg * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a)
+  const idx: number[] = [], u0: number[] = [], u1: number[] = [], vv: number[] = [], slope: number[] = [], vAt0: number[] = []
+  for (let i = 0; i < nSeg; i++) {
+    const ax = segs[i * 4]!, ay = segs[i * 4 + 1]!, bx = segs[i * 4 + 2]!, by = segs[i * 4 + 3]!
+    if (Math.max(ax, bx) < box.x0 || Math.min(ax, bx) > box.x1 || Math.max(ay, by) < box.y0 || Math.min(ay, by) > box.y1) continue
+    if (!inFamily(i, angleDeg)) continue
+    const ua = ax * cos + ay * sin, ub = bx * cos + by * sin
+    const va = -ax * sin + ay * cos, vb = -bx * sin + by * cos
+    // A stroke leans a little off the direction read; compare strokes where they overlap, not at their middles.
+    const k = Math.abs(ub - ua) > 1e-9 ? (vb - va) / (ub - ua) : 0
+    idx.push(i); u0.push(Math.min(ua, ub)); u1.push(Math.max(ua, ub)); vv.push((va + vb) / 2); slope.push(k); vAt0.push(va - k * ua)
+  }
+  const vAtU = (k: number, u: number) => vAt0[k]! + slope[k]! * u
+  const n = idx.length
+  if (n < 4) return null
+  const su = sx * cos + sy * sin, sv = -sx * sin + sy * cos
+  let P = period !== undefined && period > 0 ? period : 0
+  if (P === 0) {
+    // Strokes across the point, within a few dozen points of it.
+    const near = [...new Set(vv.map((_, k) => k).filter((k) => u0[k]! <= su && u1[k]! >= su).map((k) => vAtU(k, su)).filter((v) => Math.abs(v - sv) <= 60).map((v) => Math.round(v / 0.1) * 0.1))].sort((x, y) => x - y)
+    if (near.length < 6) return null
+    const hasAt = (v: number) => {
+      let lo = 0, hi = near.length
+      while (lo < hi) { const m = (lo + hi) >> 1; if (near[m]! < v - 0.15) lo = m + 1; else hi = m }
+      return lo < near.length && near[lo]! <= v + 0.15
+    }
+    const scores: Array<[number, number]> = []
+    let best = 0
+    for (let d = 1; d <= 40; d += 0.02) {
+      let hit = 0
+      for (const v of near) if (v + d <= near[near.length - 1]! + 0.15 && hasAt(v + d)) hit++
+      const reach = near.filter((v) => v + d <= near[near.length - 1]! + 0.15).length
+      const sc = reach >= 4 ? hit / reach : 0
+      scores.push([d, sc])
+      if (sc > best) best = sc
+    }
+    if (best < 0.6) return null
+    const first = scores.find(([, sc]) => sc >= 0.9 * best)
+    if (first === undefined) return null
+    // The peak around the first good step, weighted.
+    let sw = 0, sd = 0
+    for (const [d, sc] of scores) if (Math.abs(d - first[0]) <= 0.2 && sc >= 0.8 * best) { sw += sc; sd += sc * d }
+    P = sw > 0 ? sd / sw : first[0]
+  }
+  const tol = Math.max(0.12, 0.035 * P)
+  const order = Array.from({ length: n }, (_, k) => k).sort((x, y) => vv[x]! - vv[y]!)
+  const sorted = order.map((k) => vv[k]!)
+  const parent = Int32Array.from({ length: n }, (_, k) => k)
+  const find = (k: number): number => { while (parent[k] !== k) { parent[k] = parent[parent[k]!]!; k = parent[k]! } return k }
+  // Middles of long strokes lean apart; look wide by them, then check where the two overlap.
+  let lean = 0
+  for (let k = 0; k < n; k++) lean = Math.max(lean, Math.abs(slope[k]!) * (u1[k]! - u0[k]!) / 2)
+  const wide = tol + 2 * Math.min(lean, 20)
+  for (let r = 0; r < n; r++) {
+    const k = order[r]!, want = vv[k]! + P
+    let lo = 0, hi = n
+    while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m]! < want - wide) lo = m + 1; else hi = m }
+    for (let q = lo; q < n && sorted[q]! <= want + wide; q++) {
+      const j = order[q]!
+      const a0 = Math.max(u0[k]!, u0[j]!), a1 = Math.min(u1[k]!, u1[j]!)
+      if (a1 - a0 <= 0) continue
+      const um = (a0 + a1) / 2
+      if (Math.abs(vAtU(j, um) - vAtU(k, um) - P) > tol) continue
+      const rk = find(k), rj = find(j)
+      if (rk !== rj) parent[rk] = rj
+    }
+  }
+  // A chain of four or more distinct lines across: the hatch.
+  const lines = new Map<number, Set<number>>()
+  for (let k = 0; k < n; k++) {
+    const root = find(k)
+    const set = lines.get(root) ?? new Set<number>()
+    set.add(Math.round(vv[k]! / tol))
+    lines.set(root, set)
+  }
+  const members: number[] = []
+  for (let k = 0; k < n; k++) if ((lines.get(find(k))?.size ?? 0) >= 4) members.push(idx[k]!)
+  if (members.length === 0) return null
+  return { period: P, members, strokes: n }
+}
+
+/** Nearest point on segment (ax,ay)-(bx,by) to p, and its distance. */
+function nearestOn(px: number, py: number, ax: number, ay: number, bx: number, by: number): { x: number; y: number; d: number } {
+  const dx = bx - ax, dy = by - ay
+  const L2 = dx * dx + dy * dy
+  const t = L2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2))
+  const x = ax + t * dx, y = ay + t * dy
+  return { x, y, d: Math.hypot(px - x, py - y) }
+}
+
+function segmentsCross(a: Point, b: Point, c: Point, d: Point): boolean {
+  const o = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  const d1 = o(c, d, a), d2 = o(c, d, b), d3 = o(a, b, c), d4 = o(a, b, d)
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+}
+
+function selfCrosses(ring: Polygon): boolean {
+  const n = ring.length
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]!, b = ring[(i + 1) % n]!
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue
+      if (segmentsCross(a, b, ring[j]!, ring[(j + 1) % n]!)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * The outline's corners moved onto the drawn lines they sit along (Coinbase
+ * blind test #10: a slanted glazing line and a rotunda traced as stairs).
+ * Each corner within `tol` of a line is a candidate; only runs of three or
+ * more neighbouring candidates whose fitted points stay as far apart as the
+ * corners were move. A run on a curve fits too, each corner to its own
+ * piece of the curve. Nothing moves if the ring would cross itself.
+ */
+export function fitRingToLines(ring: Polygon, lines: Float64Array, tol: number): { ring: Polygon; moved: number } {
+  const n = ring.length, m = lines.length / 4
+  if (n < 4 || m === 0) return { ring, moved: 0 }
+  const seg: number[] = []
+  const fit: Array<Point | null> = ring.map((p) => {
+    let best: { x: number; y: number; d: number } | null = null
+    let at = -1
+    for (let k = 0; k < m; k++) {
+      const ax = lines[k * 4]!, ay = lines[k * 4 + 1]!, bx = lines[k * 4 + 2]!, by = lines[k * 4 + 3]!
+      if (Math.min(ax, bx) - tol > p.x || Math.max(ax, bx) + tol < p.x || Math.min(ay, by) - tol > p.y || Math.max(ay, by) + tol < p.y) continue
+      const q = nearestOn(p.x, p.y, ax, ay, bx, by)
+      if (q.d <= tol && (best === null || q.d < best.d)) { best = q; at = k }
+    }
+    seg.push(at)
+    return best === null ? null : { x: best.x, y: best.y }
+  })
+  /** Two drawn segments that are one line: the same one, or end to end (a curve drawn in pieces). */
+  const joined = (a: number, b: number): boolean => {
+    if (a === b) return true
+    for (const [p, q] of [[0, 0], [0, 2], [2, 0], [2, 2]] as const) {
+      if (Math.hypot(lines[a * 4 + p]! - lines[b * 4 + q]!, lines[a * 4 + p + 1]! - lines[b * 4 + q + 1]!) <= 0.5) return true
+    }
+    // Collinear pieces of one straight line with a gap (a dashed or broken line).
+    const ax = lines[a * 4 + 2]! - lines[a * 4]!, ay = lines[a * 4 + 3]! - lines[a * 4 + 1]!
+    const bx = lines[b * 4 + 2]! - lines[b * 4]!, by = lines[b * 4 + 3]! - lines[b * 4 + 1]!
+    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by)
+    if (la === 0 || lb === 0 || Math.abs(ax * by - ay * bx) / (la * lb) > 0.01) return false
+    return nearestOn(lines[b * 4]!, lines[b * 4 + 1]!, lines[a * 4]! - ax * 1e3, lines[a * 4 + 1]! - ay * 1e3, lines[a * 4 + 2]! + ax * 1e3, lines[a * 4 + 3]! + ay * 1e3).d <= 0.25
+  }
+  const ok = (i: number) => {
+    const j = (i + 1) % n
+    return fit[i] != null && fit[j] != null && joined(seg[i]!, seg[j]!)
+  }
+  const take = new Uint8Array(n)
+  // Runs of linked candidates, around the ring.
+  let start = 0
+  while (start < n && ok((start - 1 + n) % n)) start++
+  if (start === n) { for (let i = 0; i < n; i++) if (fit[i] !== null) take[i] = 1 } else {
+    for (let k = 0; k < n;) {
+      const i0 = (start + k) % n
+      if (fit[i0] === null) { k++; continue }
+      let len = 1
+      while (k + len < n && ok((start + k + len - 1) % n)) len++
+      if (len >= 3) for (let q = 0; q < len; q++) take[(start + k + q) % n] = 1
+      k += len
+    }
+  }
+  let moved = 0
+  const out = ring.map((p, i) => { if (take[i] && fit[i] !== null) { moved++; return fit[i]! } return p })
+  if (moved === 0 || selfCrosses(out)) return { ring, moved: 0 }
+  return { ring: out, moved }
 }
 
 export function traceField(input: FieldTraceInput): FieldTraceResult {
@@ -547,6 +757,39 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
   // ---- 3. solid fields
   const solid = openXY(closeXY(base, w, h, rx, ry), w, h, rOpen, rOpen)
   for (let i = 0; i < solid.length; i++) solid[i] = solid[i]! & inBox[i]!
+  // Edge at the hatch (Coinbase blind test #11): only strokes on the hatch's
+  // own spacing hold the field up; a band of wall lines past them goes.
+  if (o.edge === 'hatch' && angle !== null && source === 'linework') {
+    const lat = hatchMembers(segs, nSeg, angle, inFamily, box, sx, sy, o.strokeSpacingPoints)
+    if (lat !== null) {
+      const mask = new Uint8Array(w * h)
+      for (const i of lat.members) {
+        drawSegment(mask, w, h, gridX(g, segs[i * 4]!, segs[i * 4 + 1]!), gridY(g, segs[i * 4]!, segs[i * 4 + 1]!), gridX(g, segs[i * 4 + 2]!, segs[i * 4 + 3]!), gridY(g, segs[i * 4 + 2]!, segs[i * 4 + 3]!))
+      }
+      const held = closeXY(mask, w, h, rx, Math.max(1, Math.ceil(lat.period / (2 * c)) + 1))
+      // Each member covers half a spacing either side of it (7 1/2" OC is
+      // 7 1/2" a member), so the edge goes half a spacing past the last one,
+      // stopping at the first drawn line on the way (the hatch's edge line).
+      const ink = new Uint8Array(w * h)
+      for (let i = 0; i < nSeg; i++) {
+        drawSegment(ink, w, h, gridX(g, segs[i * 4]!, segs[i * 4 + 1]!), gridY(g, segs[i * 4]!, segs[i * 4 + 1]!), gridX(g, segs[i * 4 + 2]!, segs[i * 4 + 3]!), gridY(g, segs[i * 4 + 2]!, segs[i * 4 + 3]!))
+      }
+      let grown = held
+      for (let step = 0; step < Math.round(lat.period / (2 * c)); step++) {
+        const next = grown.slice()
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const i = y * w + x
+            if (grown[i] || ink[i]) continue
+            if ((y > 0 && grown[i - w]) || (y < h - 1 && grown[i + w])) next[i] = 1
+          }
+        }
+        grown = next
+      }
+      for (let i = 0; i < solid.length; i++) solid[i] = solid[i]! & grown[i]!
+      diag.hatch = { periodPoints: Math.round(lat.period * 1000) / 1000, members: lat.members.length, strokes: lat.strokes }
+    }
+  }
   const { labels, sizes } = labelCells(solid, w, h)
 
   let seedLabel = sgx >= 0 && sgy >= 0 && sgx < w && sgy < h ? labels[sgy * w + sgx]! : 0
@@ -571,10 +814,18 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
   // Pattern density per field (raw stroke cells per cell), to keep `all` to the same pattern.
   const rawCount = new Float64Array(sizes.length)
   const bbox = new Int32Array(sizes.length * 4)
+  // The middle of each field's longest row of cells: a point well inside it.
+  const bestRun = new Int32Array(sizes.length * 3)
   for (let l = 1; l < sizes.length; l++) { bbox[l * 4] = w; bbox[l * 4 + 1] = h; bbox[l * 4 + 2] = -1; bbox[l * 4 + 3] = -1 }
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const l = labels[y * w + x]!
+    let runL = 0, runStart = 0
+    for (let x = 0; x <= w; x++) {
+      const l = x < w ? labels[y * w + x]! : 0
+      if (x === w || l !== runL) {
+        if (runL !== 0 && x - runStart > bestRun[runL * 3]!) { bestRun[runL * 3] = x - runStart; bestRun[runL * 3 + 1] = (runStart + x) >> 1; bestRun[runL * 3 + 2] = y }
+        runL = l; runStart = x
+      }
+      if (x === w) break
       if (l === 0) continue
       rawCount[l] = rawCount[l]! + base[y * w + x]!
       if (x < bbox[l * 4]!) bbox[l * 4] = x
@@ -612,6 +863,22 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
   for (const l of chosen) isChosen[l] = 1
   // A turned cell can poke a fraction of a cell past the box; the outline stays inside it.
   const norm = (p: Point): Point => ({ x: clamp(p.x, box.x0, box.x1) / pageW, y: clamp(p.y, box.y0, box.y1) / pageH })
+
+  // Lines an edge may be fitted to: every drawn segment not of the pattern.
+  let fitted = 0
+  const fitTol = Math.max(2 * c, 1.5 * (diag.hatch?.periodPoints ?? diag.strokeGapPoints))
+  let edgeLines: Float64Array | null = null
+  if (o.fitEdges === true) {
+    const keep: number[] = []
+    for (let i = 0; i < nSeg; i++) {
+      const ax = segs[i * 4]!, ay = segs[i * 4 + 1]!, bx = segs[i * 4 + 2]!, by = segs[i * 4 + 3]!
+      if (Math.hypot(bx - ax, by - ay) < 1) continue
+      if (angle !== null && inFamily(i, angle)) continue
+      if (Math.max(ax, bx) < box.x0 || Math.min(ax, bx) > box.x1 || Math.max(ay, by) < box.y0 || Math.min(ay, by) > box.y1) continue
+      keep.push(ax, ay, bx, by)
+    }
+    edgeLines = Float64Array.from(keep)
+  }
 
   const fields: TracedField[] = []
   for (const l of chosen) {
@@ -684,7 +951,11 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
 
     const rings: Polygon[] = []
     for (const ring of boundaryRings(local, lw, lh, 10_000)) {
-      const simple = simplifyRing(ring.map(([lx, ly]) => toPoint(lx, ly)), eps, 20_000)
+      let simple = simplifyRing(ring.map(([lx, ly]) => toPoint(lx, ly)), eps, 20_000)
+      if (o.fitEdges === true && edgeLines !== null) {
+        const fit = fitRingToLines(simple, edgeLines, fitTol)
+        if (fit.moved > 0) { simple = simplifyRing(fit.ring, Math.max(0.25, c / 2), 20_000); fitted += fit.moved }
+      }
       if (simple.length >= 3) rings.push(simple)
     }
     if (rings.length === 0) continue
@@ -695,6 +966,7 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
     const ordered = [...outers, ...holes]
     const field: TracedField = {
       rings: ordered.map((r) => r.map(norm)), areaPoints2: regionArea(ordered), seed: l === seedLabel,
+      inside: norm(gridPoint(g, bestRun[l * 3 + 1]! + 0.5, bestRun[l * 3 + 2]! + 0.5)),
       cutouts: [...cutouts, ...hiddenCut].sort((a, b) => b.areaPoints2 - a.areaPoints2), filledHoles: filled,
     }
     if (inkBlur !== null && fieldCells > 0) {
@@ -722,6 +994,7 @@ export function traceField(input: FieldTraceInput): FieldTraceResult {
     }
     fields.push(field)
   }
+  if (o.fitEdges === true) diag.fittedCorners = fitted
   if (fields.length === 0) return fail('seed-not-in-pattern', 'the field at that point has no outline')
   fields.sort((a, b) => (a.seed === b.seed ? b.areaPoints2 - a.areaPoints2 : a.seed ? -1 : 1))
   diag.ms = now() - t0

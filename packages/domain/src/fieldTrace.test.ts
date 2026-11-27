@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { angleGap, traceField } from './fieldTrace.js'
+import { angleGap, fitRingToLines, traceField } from './fieldTrace.js'
 import { pointInPolygon, regionArea, type Point, type Polygon } from './geometry.js'
 
 /*
@@ -205,3 +205,45 @@ describe('traceField near a denser hatch (NOIC, 2026-11-26)', () => {
   })
 })
 
+
+describe('traceField: Coinbase blind test (2026-11-27)', () => {
+  // Vertical baffles every 4.2 pt across x 200..400, y 100..500; a band of
+  // wall lines off that spacing on the west side, x 185..196.
+  const members: number[] = []
+  for (let x = 200; x <= 400 + 1e-9; x += 4.2) members.push(x, 100, x, 500)
+  const wall = [196, 193.5, 191, 189, 186.5, 185].flatMap((x) => [x, 100, x, 500])
+  const segs = () => norm([...members, ...wall, 180, 100, 180, 500])
+  const seed = { x: 300 / PAGE.width, y: 300 / PAGE.height }
+  const xs = (r: { fields: Array<{ rings: Polygon[] }> }) => r.fields[0]!.rings[0]!.map((p) => p.x * PAGE.width)
+
+  it('traces the same field whatever box it is searched in', () => {
+    const a = traceField({ segments: segs(), page: PAGE, seed, frame: { x0: 0, y0: 0, x1: 1, y1: 1 }, options: { cellPoints: 0.75 } })
+    const b = traceField({ segments: segs(), page: PAGE, seed, frame: { x0: 0.1, y0: 0.05, x1: 0.6, y1: 0.75 }, options: { cellPoints: 0.75 } })
+    if (!a.ok || !b.ok) throw new Error('no field')
+    expect(b.fields[0]!.areaPoints2).toBeCloseTo(a.fields[0]!.areaPoints2, 6)
+  })
+
+  it('ends the field at the hatch, not at the wall lines past it, with edge "hatch"', () => {
+    const wallEdge = traceField({ segments: segs(), page: PAGE, seed, frame: { x0: 0, y0: 0, x1: 1, y1: 1 } })
+    const hatchEdge = traceField({ segments: segs(), page: PAGE, seed, frame: { x0: 0, y0: 0, x1: 1, y1: 1 }, options: { edge: 'hatch' } })
+    if (!wallEdge.ok || !hatchEdge.ok) throw new Error('no field')
+    expect(Math.min(...xs(wallEdge))).toBeLessThan(188)
+    expect(Math.min(...xs(hatchEdge))).toBeGreaterThan(196)
+    expect(Math.min(...xs(hatchEdge))).toBeLessThan(200)
+    expect(hatchEdge.diagnostics.hatch?.periodPoints).toBeCloseTo(4.2, 1)
+  })
+
+  it('fits a stair-stepped edge to the slanted line it runs along', () => {
+    // Steps of 4 pt down a line from (100,100) to (140,500).
+    const ring: Polygon = [{ x: 300, y: 100 }, { x: 300, y: 500 }, { x: 140, y: 500 }]
+    for (let y = 500; y > 100; y -= 40) {
+      const x = 100 + (y - 100) / 10
+      ring.push({ x, y }, { x, y: y - 40 })
+    }
+    ring.push({ x: 100, y: 100 })
+    const line = Float64Array.from([100, 100, 140, 500])
+    const fit = fitRingToLines(ring, line, 6)
+    expect(fit.moved).toBeGreaterThan(5)
+    for (const p of fit.ring) if (p.x < 200) expect(Math.abs(p.x - (100 + (p.y - 100) / 10))).toBeLessThan(1e-6)
+  })
+})

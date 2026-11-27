@@ -22,7 +22,10 @@ export interface CutPiece {
   offcutFeet: number
   startCap: boolean
   endCap: boolean
+  /** Connector locations on this piece (the BOM counts shared ones once). */
   connectors: number
+  /** Joiners: one where this piece meets the one before it on the run. */
+  joiners: number
 }
 
 export interface RunList {
@@ -43,8 +46,18 @@ export interface PieceList {
   cutList: Array<{ cut: string; cutFeet: number; count: number; cutToFit: boolean }>
   stock: {
     piecesPlaced: number
+    /**
+     * What the BOM orders (primary_stock + mixed_stock): the pieces nested
+     * onto the stock lattice, so a 3/4 whose 1/4 offcut finds no quarter
+     * still costs a whole length.
+     */
+    stockToOrder: number
+    /** The pieces' stock fractions added up: the material if every offcut were used. */
     stockLengthsUsed: number
-    byFamily: Record<string, number>
+    /** Pieces by the fraction of stock each is cut from ("1", "3/4", "1/2", "1/4", "2/3", "1/3", or a decimal). */
+    byFraction: Record<string, number>
+    /** How stockToOrder, stockLengthsUsed and byFraction relate. */
+    howCounted: string
     installedFeet: number
     offcutFeet: number
   }
@@ -71,6 +84,13 @@ export interface PieceList {
   }
 }
 
+const FRACTIONS: Array<[number, string]> = [[1, '1'], [0.75, '3/4'], [2 / 3, '2/3'], [0.5, '1/2'], [1 / 3, '1/3'], [0.25, '1/4']]
+/** A stock fraction as the shop says it. */
+function fractionKey(f: number): string {
+  for (const [v, k] of FRACTIONS) if (Math.abs(f - v) < 1e-4) return k
+  return String(r3(f))
+}
+
 const len = (s: Segment) => Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y)
 const r3 = (n: number) => Math.round(n * 1000) / 1000
 const mid = (s: Segment): Point => ({ x: (s.a.x + s.b.x) / 2, y: (s.a.y + s.b.y) / 2 })
@@ -92,7 +112,7 @@ function onSegment(p: Point, s: Segment): number {
 export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?: number } = {}): PieceList {
   const runs: RunList[] = []
   const cuts = new Map<string, { cut: string; cutFeet: number; count: number; cutToFit: boolean }>()
-  const byFamily: Record<string, number> = {}
+  const byFraction: Record<string, number> = {}
   let placed = 0, stockUsed = 0, installed = 0, offcut = 0, railPieces = 0, railFeet = 0
   let fpp: number | null = null
   const areaOnPage = new Map<string, number>()
@@ -117,11 +137,12 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?
       const piece: CutPiece = {
         cutFeet: r3(inside), cut: formatFeetInches(inside), stockFraction: r3(p.stockFraction), family: p.family,
         cutToFit, offcutFeet: r3(Math.max(0, full - inside)), startCap: p.startCap, endCap: p.endCap,
-        connectors: p.connectorPoints.length,
+        connectors: p.connectorPoints.length, joiners: p.jointPoints.length,
       }
       if (p.stockFraction > 0) stockFeet = Math.max(stockFeet, full / p.stockFraction)
       placed++; stockUsed += p.stockFraction; installed += inside; offcut += Math.max(0, full - inside)
-      byFamily[p.family] = (byFamily[p.family] ?? 0) + 1
+      const fk = fractionKey(p.stockFraction)
+      byFraction[fk] = (byFraction[fk] ?? 0) + 1
       const key = `${piece.cut}|${cutToFit}`
       const c = cuts.get(key)
       if (c) c.count++
@@ -149,7 +170,10 @@ export function pieceList(result: PieceResult, opts: { maxRuns?: number; offset?
     runs,
     cutList: [...cuts.values()].sort((a, b) => b.cutFeet - a.cutFeet),
     stock: {
-      piecesPlaced: placed, stockLengthsUsed: r3(stockUsed), byFamily,
+      piecesPlaced: placed,
+      stockToOrder: result.quantities.filter((q) => q.itemKey === 'primary_stock' || q.itemKey === 'mixed_stock').reduce((n, q) => n + q.quantity, 0),
+      stockLengthsUsed: r3(stockUsed), byFraction,
+      howCounted: 'stockLengthsUsed adds up byFraction (each count times its fraction). stockToOrder is what the BOM orders: halves pair, a 3/4 pairs with a 1/4, an odd half takes a whole length and up to two quarters, quarters go four to a length, and a fraction left unpaired costs a whole length',
       installedFeet: r3(installed), offcutFeet: r3(offcut),
     },
     rails: { pieces: railPieces, installedFeet: r3(railFeet) },

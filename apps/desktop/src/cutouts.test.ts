@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { areaRegion, regionArea, type Markup } from '@redbeam/domain'
 import {
-  cutEdits, cutoutsOf, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits,
+  cutAllEdits, cutEdits, cutRings, cutoutsOf, cutRemoves, cutTarget, foldCutouts, isCutId, previewCut, recutEdits, uncutAllEdits,
   uncutEdits, withCutouts,
 } from './cutouts.js'
 
@@ -80,5 +80,47 @@ describe('the cutter, a one-shot cut per markup', () => {
     expect(folded.map((c) => c.id)).toEqual(['c1'])
     expect(edits.map((e) => e.id)).toEqual(['a1'])
     expect(area(edits[0]!.after)).toBeCloseTo(0.09 - 0.01, 9)
+  })
+})
+
+describe('agent cuts (Coinbase blind test, 2026-11-27)', () => {
+  const big = mk('a1', 'area', [sq(0.1, 0.1, 0.5, 0.5)])
+
+  it('keeps every cutout of one call, each cut into the shape the last one left', () => {
+    const cuts = [sq(0.15, 0.15, 0.2, 0.4), sq(0.3, 0.15, 0.35, 0.4), sq(0.4, 0.4, 0.45, 0.45)]
+    const { edits, cutBy } = cutAllEdits([big], cuts.map((ring) => ({ pageId: 'p0', ring })), { notch: true })
+    expect(cutBy).toEqual([['a1'], ['a1'], ['a1']])
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.before).toEqual(big.rings)
+    expect(edits[0]!.after).toHaveLength(4)
+    expect(area(edits[0]!.after)).toBeCloseTo(0.16 - 0.0125 - 0.0125 - 0.0025, 9)
+  })
+
+  it('notches the outline for a cut across it, leaving no ring outside the area', () => {
+    const after = cutRings(big.rings, sq(0.45, 0.2, 0.6, 0.3), true)!
+    expect(after).toHaveLength(1)
+    expect(area(after)).toBeCloseTo(0.16 - 0.005, 9)
+    for (const p of after[0]!) expect(p.x).toBeLessThanOrEqual(0.5 + 1e-12)
+    // A later cut over what the notch took crosses no area.
+    expect(cutRings(after, sq(0.52, 0.22, 0.58, 0.28), true)).toBeNull()
+  })
+
+  it('drops or trims holes the notch reaches', () => {
+    const holed = cutRings(big.rings, sq(0.42, 0.2, 0.46, 0.3), true)!
+    expect(holed).toHaveLength(2)
+    const after = cutRings(holed, sq(0.4, 0.15, 0.6, 0.35), true)!
+    expect(after).toHaveLength(1)
+    expect(area(after)).toBeCloseTo(0.16 - 0.1 * 0.2, 9)
+  })
+
+  it('keeps a hole when a cut right across would split the area', () => {
+    const after = cutRings(big.rings, sq(0.25, 0.0, 0.3, 0.6), true)!
+    expect(after).toHaveLength(2)
+    expect(area(after)).toBeCloseTo(0.16 - 0.02, 9)
+  })
+
+  it('leaves the person\'s cutter as it was: a cut across the edge is a hole they can pick', () => {
+    const after = cutRings(big.rings, sq(0.45, 0.2, 0.6, 0.3))!
+    expect(after).toHaveLength(2)
   })
 })

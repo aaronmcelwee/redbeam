@@ -670,3 +670,15 @@ describe('buildRunLayout', () => {
     expect(result!.railPieces.length).toBe(result!.railSegments.length)
   })
 })
+
+describe('end caps (Coinbase blind test, 2026-11-27)', () => {
+  it('caps both ends of every run, even when the last sliver is too short to place', () => {
+    const opts = { stockLengthPoints: 100, yieldGranularity: 'quarter', alignSeams: false, origin: { x: 0, y: 0 }, maxConnectorSpacingPoints: 50 }
+    // 200.3: two full pieces and a 0.3 pt sliver left unplaced.
+    const runs = [0, 1, 2].map((i) => ({ a: { x: 0, y: i * 10 }, b: { x: 200.3, y: i * 10 } }))
+    const pieces = buildPieces(runs, opts)
+    const caps = pieces.reduce((n, p) => n + (p.startCap ? 1 : 0) + (p.endCap ? 1 : 0), 0)
+    expect(caps).toBe(6)
+    expect(pieces.filter((p) => p.jointPoints.length > 0)).toHaveLength(3)
+  })
+})
