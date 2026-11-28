@@ -2878,6 +2878,7 @@ export default function Workspace({
       viewer.destroy()
       viewerRef.current = null
       fieldGeometryRef.current = null
+      fieldRenderRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docUrl, readerGen])
@@ -6032,6 +6033,13 @@ export default function Workspace({
    */
   const pageRotationsRef = useRef(new Map<string, Map<number, number>>())
   /** The last sheet an agent's trace_field read whole, so boxes inside it are not read again. */
+  /*
+   * The sheet as rendered for trace_field, by box and width, most recent
+   * last. Drawing it again was the largest part left of a repeat trace on
+   * a dense sheet (Heineken, 2026-11-27: 1.6 s of 3.6 s). The render leaves
+   * markups out, so only the sheet itself, its turn and the viewer key it.
+   */
+  const fieldRenderRef = useRef<{ viewer: Viewer; doc: string | null; page: number; turned: number; key: string; image: { data: Uint8Array; width: number; height: number; channels: 1 } }[]>([])
   const fieldGeometryRef = useRef<{ viewer: Viewer; doc: string | null; page: number; turned: number; width: number; height: number; clip: { x0: number; y0: number; x1: number; y1: number }; segments: Float32Array } | null>(null)
   const [rotationTick, setRotationTick] = useState(0)
 
@@ -9875,15 +9883,29 @@ export default function Workspace({
             const cellGuess = extra.cellPoints ?? Math.max(FINE, Math.sqrt((fwPts * fhPts * 1.5) / 8_000_000))
             let image: { data: Uint8Array; width: number; height: number; channels: 1 } | undefined
             if (params['visual'] !== false) {
-              try {
-                const out = await v.renderRegion(box, Math.max(64, Math.round(fwPts / cellGuess)), { annots: false, overlay: false })
-                const px = out.canvas.getContext('2d')?.getImageData(0, 0, out.width, out.height)
-                if (px !== undefined) {
-                  const grey = new Uint8Array(out.width * out.height)
-                  for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = (px.data[j]! * 299 + px.data[j + 1]! * 587 + px.data[j + 2]! * 114) / 1000
-                  image = { data: grey, width: out.width, height: out.height, channels: 1 }
-                }
-              } catch { image = undefined }
+              const widthPx = Math.max(64, Math.round(fwPts / cellGuess))
+              const key = `${box.x0},${box.y0},${box.x1},${box.y1},${widthPx},${pageSize.width},${pageSize.height}`
+              const kept = fieldRenderRef.current.filter((r) => r.viewer === v && r.doc === docIdRef.current && r.page === pageIdx && r.turned === turned)
+              const hit = kept.find((r) => r.key === key)
+              if (hit !== undefined) {
+                image = hit.image
+                fieldRenderRef.current = [...kept.filter((r) => r !== hit), hit]
+              } else {
+                try {
+                  const out = await v.renderRegion(box, widthPx, { annots: false, overlay: false })
+                  const px = out.canvas.getContext('2d')?.getImageData(0, 0, out.width, out.height)
+                  if (px !== undefined) {
+                    const grey = new Uint8Array(out.width * out.height)
+                    for (let i = 0, j = 0; i < grey.length; i++, j += 4) grey[i] = (px.data[j]! * 299 + px.data[j + 1]! * 587 + px.data[j + 2]! * 114) / 1000
+                    image = { data: grey, width: out.width, height: out.height, channels: 1 }
+                    // One sheet's renders, the oldest dropped past 96 MB of pixels.
+                    const next = [...kept, { viewer: v, doc: docIdRef.current, page: pageIdx, turned, key, image }]
+                    let bytes = next.reduce((n, r) => n + r.image.data.length, 0)
+                    while (next.length > 1 && bytes > 96 * 1024 * 1024) bytes -= next.shift()!.image.data.length
+                    fieldRenderRef.current = next
+                  }
+                } catch { image = undefined }
+              }
             }
             const angle = extra.angleDeg ?? num('angle')
             const T2 = performance.now()
