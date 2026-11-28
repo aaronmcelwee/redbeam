@@ -5,6 +5,12 @@ https://github.com/testusercar/redbeam/releases, with a portable zip for each.
 All are unsigned; SmartScreen will ask once.
 
 
+## 0.3.144 — 2026-11-28
+
+### Claude and ChatGPT are told which PDF a call went to
+
+- **Two PDFs open, no file named.** When a chat had opened two PDFs and asked for something without saying which one, REDBEAM answered for the last one opened and said nothing. The answer now names the PDF it used and the other one the chat has open, so a reading from the wrong file is noticed.
+
 ## 0.3.143 — 2026-11-27
 
 ### A second trace on the same sheet starts sooner
