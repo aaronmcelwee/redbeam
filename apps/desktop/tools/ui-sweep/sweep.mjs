@@ -736,6 +736,40 @@ const STEPS = [
     await page.waitForTimeout(200)
     await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-setup.png`) })
     await page.locator('.pt-wrap').first().screenshot({ path: join(out, `${shotPrefix}stored-primitive-card.png`) })
+    // The viewer: one island drawn with its seams and hangers, the rules, sizes and variables.
+    const hung = await act('update_scope', { scopeId: scope.scopeId, parameters: { hangerSpacing: 48, hangerFromEnd: 6 } })
+    if (hung.error !== undefined) problems.push(`stored-primitive: hangerSpacing refused: ${hung.error}`)
+    await page.waitForTimeout(600)
+    await page.getByRole('button', { name: 'View primitive' }).click()
+    await page.waitForTimeout(500)
+    const viewer = page.getByRole('dialog', { name: /Parallel Open Cell/ })
+    if (await viewer.count() === 0) problems.push('stored-primitive: View primitive opened no viewer')
+    else {
+      if (await viewer.locator('.pv-svg rect').count() < 40) problems.push('stored-primitive: the viewer drew too few pieces')
+      if (await viewer.locator('.pv-hanger').count() === 0) problems.push('stored-primitive: the viewer drew no hangers at 48" spacing')
+      for (const t of ['Design basis', 'Components', 'Suspension', 'Variables']) {
+        if (await viewer.getByRole('heading', { name: t }).count() === 0) problems.push(`stored-primitive: the viewer has no ${t} section`)
+      }
+      for (const p of await inspect(page)) problems.push(`stored-primitive viewer: ${p}`)
+      await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-viewer.png`) })
+      await viewer.locator('.pv-right').evaluate((el) => { el.scrollTop = el.scrollHeight * 0.42 })
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-viewer-variables.png`) })
+      await viewer.locator('.pv-right').evaluate((el) => { el.scrollTop = 0 })
+      // Island 4, its own cross spacing.
+      const options = await viewer.locator('#pv-area option').count()
+      if (options !== 4) problems.push(`stored-primitive: the viewer should offer 4 islands, offers ${options}`)
+      else {
+        await viewer.locator('#pv-area').selectOption({ index: 3 })
+        await page.waitForTimeout(300)
+        await page.screenshot({ path: join(out, `${shotPrefix}stored-primitive-viewer-island4.png`) })
+      }
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(300)
+      if (await page.getByRole('dialog', { name: /Parallel Open Cell/ }).count() > 0) problems.push('stored-primitive: Escape did not close the viewer')
+    }
+    await act('update_scope', { scopeId: scope.scopeId, parameters: { hangerSpacing: null, hangerFromEnd: null } })
+    await page.waitForTimeout(400)
     await page.getByRole('button', { name: 'Approve primitive' }).click()
     await page.waitForTimeout(900)
     const listed = await act('list_primitives', {})

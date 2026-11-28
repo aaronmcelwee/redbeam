@@ -47,6 +47,8 @@ export interface PrimitiveParam {
   help?: string
   /** False: one value for the whole scope. Default true: an area can override it. */
   perArea?: boolean
+  /** Where the viewer lists it: Layout, Members, Factory pieces, Suspension or Island size. */
+  group?: string
 }
 
 export interface PrimitiveDefinition {
@@ -91,12 +93,16 @@ export interface GenHardware { key: string; label: string; qty: number; unit?: s
 export interface GeneratedArea {
   pieces: GenPiece[]
   hardware: GenHardware[]
+  /** Hanger points, [along, across] inches in the area's frame. */
+  hangers?: Array<[number, number]>
 }
 
 export interface Generator {
   id: string
   label: string
   description: string
+  /** The design basis, one rule a line, for the viewer. */
+  rules: string[]
   schema: PrimitiveParam[]
   /** Family order for the summary: frame first, then mains, then cross. */
   families: string[]
@@ -150,22 +156,23 @@ export function splitRun(total: number, max: number, seams: string): number[] {
 
 /** Area keys every generator takes: the island's exact outside size, and how drawn sizes round. */
 const AREA_SIZE_PARAMS: PrimitiveParam[] = [
-  { key: 'length', label: 'Outside length (along the mains)', kind: 'measure', help: 'Exact outside size from the drawing. Default: the drawn area, rounded to sizeRounding.' },
-  { key: 'width', label: 'Outside width', kind: 'measure', help: 'Exact outside size from the drawing. Default: the drawn area, rounded to sizeRounding.' },
-  { key: 'sizeRounding', label: 'Round drawn sizes to', kind: 'measure', default: 1, help: 'A drawn area is measured and rounded to this before pieces are cut.' },
+  { key: 'length', label: 'Outside length (along the mains)', kind: 'measure', group: 'Island size', help: 'Exact outside size from the drawing. Default: the drawn area, rounded to sizeRounding.' },
+  { key: 'width', label: 'Outside width', kind: 'measure', group: 'Island size', help: 'Exact outside size from the drawing. Default: the drawn area, rounded to sizeRounding.' },
+  { key: 'sizeRounding', label: 'Round drawn sizes to', kind: 'measure', default: 1, group: 'Island size', help: 'A drawn area is measured and rounded to this before pieces are cut.' },
 ]
 
 const OPEN_CELL_SCHEMA: PrimitiveParam[] = [
-  { key: 'memberWidth', label: 'Member face width', kind: 'measure', default: 2, required: true },
-  { key: 'memberDepth', label: 'Member depth', kind: 'measure', default: 6, help: 'Finish only: not geometry.' },
-  { key: 'mainsDirection', label: 'Mains direction', kind: 'angle', default: null, help: 'Degrees on the sheet, 0 = left to right, 90 = top to bottom. Default: the scope\'s pattern direction, else 0.' },
-  { key: 'mainPositions', label: 'Main centrelines', kind: 'measures', required: true, help: 'Interior mains, centrelines (OC) measured in from the top edge (the left edge when the mains run up and down); the frame is not listed.' },
-  { key: 'crossPositions', label: 'Cross centrelines', kind: 'measures', required: true, help: 'Interior cross members, centrelines (OC) measured in from the left edge (the top edge when the mains run up and down); the frame is not listed.' },
-  { key: 'frame', label: 'Perimeter frame', kind: 'choice', choices: ['none', 'square', 'mitred'], default: 'mitred' },
-  { key: 'maxPiece', label: 'Longest factory piece', kind: 'measure', default: 120, required: true },
-  { key: 'seams', label: 'Seams', kind: 'choice', choices: ['centred', 'from origin'], default: 'centred', help: 'centred: each run in equal pieces; from origin: full pieces from the start, the rest last.' },
-  { key: 'crossJoin', label: 'Where members meet', kind: 'choice', choices: ['mains through', 'cross through', 'both through'], default: 'mains through', help: 'mains through: cross members are cut between main faces. both through: both run full length, notched.' },
-  { key: 'hangerSpacing', label: 'Hanger spacing (max)', kind: 'measure', help: 'No default: ask. Hangers along every main and frame main, ends included.' },
+  { key: 'memberWidth', label: 'Member face width', kind: 'measure', default: 2, required: true, group: 'Members' },
+  { key: 'memberDepth', label: 'Member depth', kind: 'measure', default: 6, group: 'Members', help: 'Finish only: not geometry.' },
+  { key: 'mainsDirection', label: 'Mains direction', kind: 'angle', default: null, group: 'Layout', help: 'Degrees on the sheet, 0 = left to right, 90 = top to bottom. Default: the scope\'s pattern direction, else 0.' },
+  { key: 'mainPositions', label: 'Main centrelines', kind: 'measures', required: true, group: 'Layout', help: 'Interior mains, centrelines (OC) measured in from the top edge (the left edge when the mains run up and down); the frame is not listed.' },
+  { key: 'crossPositions', label: 'Cross centrelines', kind: 'measures', required: true, group: 'Layout', help: 'Interior cross members, centrelines (OC) measured in from the left edge (the top edge when the mains run up and down); the frame is not listed.' },
+  { key: 'frame', label: 'Perimeter frame', kind: 'choice', choices: ['none', 'square', 'mitred'], default: 'mitred', group: 'Members' },
+  { key: 'crossJoin', label: 'Where members meet', kind: 'choice', choices: ['mains through', 'cross through', 'both through'], default: 'mains through', group: 'Members', help: 'mains through: cross members are cut between main faces. both through: both run full length, notched.' },
+  { key: 'maxPiece', label: 'Longest factory piece', kind: 'measure', default: 120, required: true, group: 'Factory pieces' },
+  { key: 'seams', label: 'Seams', kind: 'choice', choices: ['centred', 'from origin'], default: 'centred', group: 'Factory pieces', help: 'centred: each run in equal pieces; from origin: full pieces from the start, the rest last.' },
+  { key: 'hangerSpacing', label: 'Hanger spacing (max)', kind: 'measure', group: 'Suspension', help: 'No default: ask. Hangers along every main and frame main, spaced evenly, no farther apart than this.' },
+  { key: 'hangerFromEnd', label: 'First hanger from the end', kind: 'measure', default: 0, group: 'Suspension', help: 'How far in from each end of a run the first and last hangers sit. 0: at the ends.' },
   ...AREA_SIZE_PARAMS,
 ]
 
@@ -196,7 +203,8 @@ function openCell(values: Values, L: number, W: number): GeneratedArea | { error
 
   const pieces: GenPiece[] = []
   let seamsCount = 0
-  const hangerRuns: number[] = []
+  /** Runs that carry hangers: along from a0 to a1, at across c. */
+  const hangerRuns: Array<{ a0: number; a1: number; c: number }> = []
   const name = (family: string, len: number, mitres: number) =>
     `${family} ${formatPieceLength(len)}${mitres > 0 ? ` mitre ${mitres} end${mitres > 1 ? 's' : ''}` : ''}`
   /** A run cut into factory pieces; `place` gives each piece its rectangle from its start and end along the run. */
@@ -213,10 +221,10 @@ function openCell(values: Values, L: number, W: number): GeneratedArea | { error
 
   // The frame.
   if (frame === 'mitred') {
-    for (const c0 of [0, W - w]) { run('Frame main', L, true, (s, e) => [s, e, c0, c0 + w]); hangerRuns.push(L) }
+    for (const c0 of [0, W - w]) { run('Frame main', L, true, (s, e) => [s, e, c0, c0 + w]); hangerRuns.push({ a0: 0, a1: L, c: c0 + w / 2 }) }
     for (const a0 of [0, L - w]) run('Frame end', W, true, (s, e) => [a0, a0 + w, Math.max(s, w), Math.min(e, W - w)])
   } else if (frame === 'square') {
-    for (const c0 of [0, W - w]) { run('Frame main', L, false, (s, e) => [s, e, c0, c0 + w]); hangerRuns.push(L) }
+    for (const c0 of [0, W - w]) { run('Frame main', L, false, (s, e) => [s, e, c0, c0 + w]); hangerRuns.push({ a0: 0, a1: L, c: c0 + w / 2 }) }
     for (const a0 of [0, L - w]) run('Frame end', W - 2 * w, false, (s, e) => [a0, a0 + w, w + s, w + e])
   }
 
@@ -230,8 +238,8 @@ function openCell(values: Values, L: number, W: number): GeneratedArea | { error
   }
   // Mains, the long direction.
   for (const c of mains) {
-    if (mainsThrough) { run('Main', L - 2 * fw, false, (s, e) => [fw + s, fw + e, c - w / 2, c + w / 2]); hangerRuns.push(L - 2 * fw) }
-    else for (const [s0, s1] of gaps(cross, L)) { run('Main', s1 - s0, false, (s, e) => [s0 + s, s0 + e, c - w / 2, c + w / 2]); hangerRuns.push(s1 - s0) }
+    if (mainsThrough) { run('Main', L - 2 * fw, false, (s, e) => [fw + s, fw + e, c - w / 2, c + w / 2]); hangerRuns.push({ a0: fw, a1: L - fw, c }) }
+    else for (const [s0, s1] of gaps(cross, L)) { run('Main', s1 - s0, false, (s, e) => [s0 + s, s0 + e, c - w / 2, c + w / 2]); hangerRuns.push({ a0: s0, a1: s1, c }) }
   }
   // Cross members.
   for (const x of cross) {
@@ -246,10 +254,19 @@ function openCell(values: Values, L: number, W: number): GeneratedArea | { error
   ]
   if (frame === 'mitred') hardware.push({ key: 'mitred-corners', label: 'Mitred corners', qty: 4 })
   const spacing = values['hangerSpacing']
+  const hangers: Array<[number, number]> = []
   if (typeof spacing === 'number' && spacing > 0) {
-    hardware.push({ key: 'hangers', label: 'Hangers', qty: hangerRuns.reduce((n, len) => n + Math.ceil(len / spacing - 1e-9) + 1, 0) })
+    const fromEnd = typeof values['hangerFromEnd'] === 'number' ? Math.max(0, values['hangerFromEnd']) : 0
+    for (const r of hangerRuns) {
+      // Evenly spaced, no farther apart than the spacing, the first and last fromEnd in.
+      const e = Math.min(fromEnd, (r.a1 - r.a0) / 2)
+      const span = r.a1 - r.a0 - 2 * e
+      const n = span > 1e-6 ? Math.ceil(span / spacing - 1e-9) + 1 : 1
+      for (let i = 0; i < n; i++) hangers.push([n === 1 ? (r.a0 + r.a1) / 2 : r.a0 + e + (span * i) / (n - 1), r.c])
+    }
+    hardware.push({ key: 'hangers', label: 'Hangers', qty: hangers.length })
   }
-  return { pieces, hardware }
+  return { pieces, hardware, hangers }
 }
 
 export const GENERATORS: Record<string, Generator> = {
@@ -259,6 +276,15 @@ export const GENERATORS: Record<string, Generator> = {
     description: 'A perimeter frame with a grid of members inside, at uneven on-centre spacing, shipped as finished pieces. '
       + 'Mains run the long way between the frame\'s inside faces; cross members are cut between main faces; every run longer than maxPiece is split into equal pieces. '
       + 'One SKU per distinct piece (mitred ends are their own SKU). Rectangular islands, one area each.',
+    rules: [
+      'A perimeter frame with a grid of members inside, at uneven on-centre spacing, shipped as finished factory pieces.',
+      'Every island is a rectangle, laid out on its own, measured from its outside edges.',
+      'Mains run the long way, between the frame\'s inside faces. Cross members run between the main faces, unless members meet another way.',
+      'The frame runs full length along the mains. Its ends sit between the frame mains. With a mitred frame both end pieces of a frame run are mitred.',
+      'A run longer than the longest factory piece is split, in equal pieces (centred) or full pieces from the start.',
+      'One SKU per distinct finished piece: family, length and mitred ends. A seam is where two pieces of a run meet.',
+      'Hangers go along every main and frame main, evenly spaced, no farther apart than the hanger spacing.',
+    ],
     schema: OPEN_CELL_SCHEMA,
     families: ['Frame main', 'Frame end', 'Main', 'Cross'],
     generate: openCell,
@@ -593,11 +619,65 @@ export function describeGenerator(id: string): Record<string, unknown> | null {
   const g = GENERATORS[id]
   if (g === undefined) return null
   return {
-    generator: g.id, label: g.label, rules: g.description,
+    generator: g.id, label: g.label, summary: g.description, rules: g.rules,
     parameters: g.schema.map((p) => ({
       key: p.key, label: p.label, kind: p.kind, ...(p.unit !== undefined ? { unit: p.unit } : { ...(p.kind === 'measure' || p.kind === 'measures' ? { unit: 'in' } : {}) }),
       ...(p.choices !== undefined ? { choices: p.choices } : {}), ...(p.default !== undefined && p.default !== null ? { default: p.default } : {}),
       ...(p.required === true ? { required: true } : {}), ...(p.help !== undefined ? { help: p.help } : {}),
+      ...(p.group !== undefined ? { group: p.group } : {}),
     })),
   }
+}
+
+// ---------------------------------------------------------------------------
+// One island drawn out, for the viewer
+// ---------------------------------------------------------------------------
+
+export interface PrimitiveDrawing {
+  /** Outside size used, inches. */
+  length: number
+  width: number
+  values: Values
+  pieces: GenPiece[]
+  hardware: GenHardware[]
+  hangers: Array<[number, number]>
+  /** Interior seams, [along, across] at the joint's centre. */
+  seams: Array<[number, number]>
+  errors: string[]
+}
+
+/**
+ * One island of a primitive, generated in its own frame (inches, along the
+ * mains then across), so the viewer can draw it and size its components.
+ * `areaId` takes that area's overrides; `size` is its outside size, else the
+ * stated length and width, else a size that holds every centreline.
+ */
+export function drawPrimitiveArea(prim: ScopePrimitive, areaId: string | null, size?: { length: number; width: number }): PrimitiveDrawing {
+  const empty = (errors: string[], length = 0, width = 0): PrimitiveDrawing => ({ length, width, values: {}, pieces: [], hardware: [], hangers: [], seams: [], errors })
+  const gen = GENERATORS[prim.definition.generator]
+  if (gen === undefined) return empty([`generator: ${prim.definition.generator} is not one REDBEAM has`])
+  const { values, errors } = resolveValues(prim.definition, prim.parameters, areaId === null ? undefined : prim.areas?.[areaId], areaId ?? 'typical')
+  if (errors.length > 0) return { ...empty(errors), values }
+  const fit = (key: string): number => {
+    const list = values[key]
+    const w = typeof values['memberWidth'] === 'number' ? values['memberWidth'] : 2
+    if (!Array.isArray(list) || list.length === 0) return 120
+    // As much again past the last centreline as before the first.
+    return Math.max(...list) + Math.max(Math.min(...list), w)
+  }
+  const L = size?.length ?? (typeof values['length'] === 'number' ? values['length'] : fit('crossPositions'))
+  const W = size?.width ?? (typeof values['width'] === 'number' ? values['width'] : fit('mainPositions'))
+  const made = gen.generate(values, L, W)
+  if ('errors' in made) return { ...empty(made.errors, L, W), values }
+  // A seam is where one piece of a run ends and the next starts.
+  const seams: Array<[number, number]> = []
+  const ends = new Map<string, number>()
+  for (const p of made.pieces) {
+    const [a0, a1, c0, c1] = p.rect
+    const alongRun = a1 - a0 >= c1 - c0
+    const k0 = alongRun ? `a:${(c0 + c1) / 2}:${a0}` : `c:${(a0 + a1) / 2}:${c0}`
+    if (ends.has(k0)) seams.push(alongRun ? [a0, (c0 + c1) / 2] : [(a0 + a1) / 2, c0])
+    ends.set(alongRun ? `a:${(c0 + c1) / 2}:${a1}` : `c:${(a0 + a1) / 2}:${c1}`, 1)
+  }
+  return { length: L, width: W, values, pieces: made.pieces, hardware: made.hardware, hangers: made.hangers ?? [], seams, errors: [] }
 }

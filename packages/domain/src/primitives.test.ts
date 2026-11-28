@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  checkPrimitiveDefinition, formatPieceLength, layoutPrimitive, OPEN_CELL_EXAMPLE, splitRun,
+  checkPrimitiveDefinition, drawPrimitiveArea, formatPieceLength, layoutPrimitive, OPEN_CELL_EXAMPLE, splitRun,
   type PrimitiveGroup, type ScopePrimitive,
 } from './primitives.js'
 
@@ -104,5 +104,24 @@ describe('Parallel Open Cell primitive', () => {
     expect(out.blockers).toEqual([])
     expect(out.totalPieces).toBe(41)
     expect(out.areas[0]!.used).toEqual({ length: 216, width: 144 })
+  })
+
+  it('draws one island for the viewer: its pieces, seams and hangers in its own frame', () => {
+    const d = drawPrimitiveArea(bay({}, { hangerSpacing: 48 }), 'i4', { length: 180, width: 144 })
+    expect(d.errors).toEqual([])
+    expect(d.pieces).toHaveLength(41)
+    const layout = layoutPrimitive(bay({ areas: { i4: bay().areas!['i4']! } }, { hangerSpacing: 48 }), [islands[3]!])
+    expect(d.seams).toHaveLength(layout.hardware.find((h) => h.key === 'seams')!.qty)
+    expect(d.hangers).toHaveLength(layout.hardware.find((h) => h.key === 'hangers')!.qty)
+    // Every hanger sits on a member, inside the island.
+    for (const [a, c] of d.hangers) { expect(a).toBeGreaterThanOrEqual(0); expect(a).toBeLessThanOrEqual(180); expect(c).toBeLessThanOrEqual(144) }
+    // Hangers pulled in from the ends: same spacing rule, none at the very end.
+    const inset = drawPrimitiveArea(bay({}, { hangerSpacing: 48, hangerFromEnd: 6 }), 'i4', { length: 180, width: 144 })
+    expect(inset.hangers.some(([a]) => a === 0)).toBe(false)
+    expect(inset.hangers.some(([a]) => Math.abs(a - 6) < 1e-9)).toBe(true)
+    // Without a size, one that holds every centreline.
+    const typical = drawPrimitiveArea(bay({ areas: {} }), null)
+    expect(typical.length).toBeCloseTo(207.125 + 8.875)
+    expect(typical.errors).toEqual([])
   })
 })

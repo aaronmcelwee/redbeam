@@ -7,8 +7,10 @@
  * next job finds it approved. Agents cannot reach the button: the bridge has
  * no action for it.
  */
+import { useState } from 'react'
 import type { PieceResult, PrimitiveParam } from '@redbeam/domain'
 import { readScopePrimitive } from '@redbeam/domain'
+import { PrimitiveViewer } from './PrimitiveViewer.js'
 
 export interface PrimitiveControls {
   onApprove: (scopeId: string) => void
@@ -45,6 +47,7 @@ export function PrimitiveCard({ scopeId, specs, pieces, controls }: {
   controls: PrimitiveControls
 }) {
   const prim = readScopePrimitive(specs)
+  const [viewing, setViewing] = useState(false)
   if (prim === null) return null
   if ('error' in prim) {
     return (
@@ -96,7 +99,11 @@ export function PrimitiveCard({ scopeId, specs, pieces, controls }: {
             {offSize(summary?.warnings ?? [])}
           </div>
         )}
+        <div className="pt-btns">
+          <button type="button" className="es-btn tiny" onClick={() => setViewing(true)}>View primitive</button>
+        </div>
       </div>
+      {viewing && <PrimitiveViewer prim={prim} pieces={pieces} onClose={() => setViewing(false)} />}
       {draft && (
         <div className="pt-card warn">
           <b>Check the cut list against the drawing, then approve</b>
