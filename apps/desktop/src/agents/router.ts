@@ -312,14 +312,17 @@ export class BridgeRouter {
         this.deps.roster.touch(agent.id, tab.file, { wrote: !failed && callWrites(action, params), guest: now.owner !== agent.id })
       }
     }
-    // Unnamed calls by a session that has worked in more than one PDF say
-    // where they went, so a call that went to the other one is noticed.
-    if (agent !== null && named === '' && (this.filesSeen.get(agent.id)?.size ?? 0) > 1) {
-      // Only the PDFs this session has worked in: the person's tabs and other
-      // sessions' are not its choice to make, and a window can hold ninety.
+    // Unnamed calls by a session with more than one PDF of its own say where
+    // they went, so a call that went to the other one is noticed. Its own are
+    // the tabs it opened and every PDF it has called into: a PDF it opened and
+    // has not yet called into counts (AARON-SLS, 2026-11-28: open A, open B,
+    // list_sheets answered for B with no note). The person's tabs and other
+    // sessions' are not its choice to make, and a window can hold ninety.
+    if (agent !== null && named === '') {
       const mine = [...(this.filesSeen.get(agent.id) ?? [])]
-      const others = [...new Set(this.deps.tabs().map((t) => t.file))]
-        .filter((f) => !samePath(f, tab.file) && mine.some((m) => samePath(m, f))).map(nameOf)
+      const others = [...new Set(this.deps.tabs()
+        .filter((t) => !samePath(t.file, tab.file) && (t.owner === agent.id || mine.some((m) => samePath(m, t.file))))
+        .map((t) => t.file))].map(nameOf)
       if (others.length > 0) {
         result = { ...result, fileNote: `no \`file\` given, so this went to ${nameOf(tab.file)}; also open: ${others.join(', ')}. Pass \`file\` to choose.` }
       }

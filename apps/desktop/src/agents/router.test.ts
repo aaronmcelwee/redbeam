@@ -147,6 +147,17 @@ describe('where a call lands', () => {
     expect(String(out?.['fileNote'])).toContain('Mine.pdf')
     expect(String(out?.['fileNote'])).not.toContain('Someone else.pdf')
   })
+  it('says where an unnamed call went when the session has opened two PDFs and called into neither', async () => {
+    // AARON-SLS, 2026-11-28: open A, open B, list_sheets answered for B with no note.
+    const { w, call, act } = world()
+    await call(A, 'open_file', { path: 'C:\\Jobs\\Note A.pdf', wait: true })
+    await call(A, 'open_file', { path: 'C:\\Jobs\\Note B.pdf', wait: true })
+    const out = await act(A, 'list_sheets')
+    expect(w.log.at(-1)!.file).toBe('C:\\Jobs\\Note B.pdf')
+    expect(String(out?.['fileNote'])).toContain('went to Note B.pdf')
+    expect(String(out?.['fileNote'])).toContain('also open: Note A.pdf')
+    expect(String(out?.['fileNote'])).not.toContain('Mine.pdf')
+  })
   it('goes to the file a call names, by path or by name', async () => {
     const { w, call, act } = world()
     await call(A, 'open_file', { path: 'C:\\Jobs\\Tower A.pdf', wait: true })
